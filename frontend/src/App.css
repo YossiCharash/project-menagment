@@ -1,0 +1,26 @@
+
+
+body {
+  background-image: url("/mmm.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  opacity: 0.99; /* שקיפות */
+}
+
+/* Dark mode: dim or remove background image for better visibility */
+.dark body {
+  background-image: none;
+  background-color: hsl(222.2 84% 4.9%);
+}
+
+/* Alternative: if you want to keep the image but dim it in dark mode */
+/* .dark body {
+  background-image: url("/mmm.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  opacity: 0.3;
+  background-color: hsl(222.2 84% 4.9%);
+} */
+
