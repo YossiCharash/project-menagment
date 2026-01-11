@@ -19,7 +19,7 @@ from backend.db.session import AsyncSessionLocal
 async def add_contract_file_column():
     """Add contract_file_url column to projects table if it does not exist."""
     print("=" * 60)
-    print("Adding contract_file_url column to projects table...")
+    print("מוסיף עמודה contract_file_url לטבלת projects...")
     print("=" * 60)
 
     async with AsyncSessionLocal() as session:
@@ -37,7 +37,7 @@ async def add_contract_file_column():
             exists = result.scalar() is not None
 
             if exists:
-                print("✓ Column contract_file_url already exists")
+                print("✓ עמודה contract_file_url כבר קיימת")
             else:
                 alter_query = text(
                     """
@@ -47,14 +47,14 @@ async def add_contract_file_column():
                 )
                 await session.execute(alter_query)
                 await session.commit()
-                print("✓ Added contract_file_url column to projects table")
+                print("✓ עמודה contract_file_url נוספה לטבלת projects")
 
             print("\n" + "=" * 60)
-            print("✅ Migration completed successfully!")
+            print("✅ Migration הושלם בהצלחה!")
             print("=" * 60)
         except Exception as exc:
             await session.rollback()
-            print(f"\n❌ Error running migration: {exc}")
+            print(f"\n❌ שגיאה בהרצת migration: {exc}")
             import traceback
 
             traceback.print_exc()

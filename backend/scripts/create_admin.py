@@ -68,7 +68,7 @@ async def create_or_verify_admin():
                 )
                 
                 created_admin = await user_repo.create(super_admin)
-                print(f"✅ Super admin user created successfully!")
+                print(f"✅ משתמש מנהל מערכת נוצר בהצלחה!")
                 print(f"   ID: {created_admin.id}")
                 print(f"   Email: {created_admin.email}")
                 print(f"   Name: {created_admin.full_name}")
@@ -79,7 +79,7 @@ async def create_or_verify_admin():
                 return created_admin
                 
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"❌ שגיאה: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -98,12 +98,12 @@ if __name__ == "__main__":
     if result:
         print()
         print("=" * 60)
-        print("✅ Script completed successfully!")
+        print("✅ הסקריפט הושלם בהצלחה!")
         print("=" * 60)
     else:
         print()
         print("=" * 60)
-        print("❌ Script failed. Please check the error messages above.")
+        print("❌ הסקריפט נכשל. אנא בדוק את הודעות השגיאה לעיל.")
         print("=" * 60)
         sys.exit(1)
 

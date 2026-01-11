@@ -196,12 +196,13 @@ class ProjectService:
         # Get real-time financial data
         financial_data = await self.get_project_financial_data(project_id)
         
+        # Explicitly convert dates to ISO format strings to avoid timezone issues
         project_data = {
             "id": proj.id,
             "name": proj.name,
             "description": proj.description,
-            "start_date": proj.start_date,
-            "end_date": proj.end_date,
+            "start_date": proj.start_date.isoformat() if proj.start_date else None,
+            "end_date": proj.end_date.isoformat() if proj.end_date else None,
             "budget_monthly": proj.budget_monthly,
             "budget_annual": proj.budget_annual,
             "num_residents": proj.num_residents,

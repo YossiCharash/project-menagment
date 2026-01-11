@@ -258,9 +258,9 @@ class EmailService:
     async def _send_email(self, to_email: str, subject: str, body: str, html_body: str = None) -> bool:
         """Send email using SMTP"""
         try:
-            print(f"📧 Attempting to send email to {to_email}")
-            print(f"   SMTP Server: {self.smtp_server}:{self.smtp_port}")
-            print(f"   SMTP Username: {self.smtp_username[:3] + '***' if self.smtp_username else 'NOT SET'}")
+            print(f"📧 מנסה לשלוח אימייל ל-{to_email}")
+            print(f"   שרת SMTP: {self.smtp_server}:{self.smtp_port}")
+            print(f"   שם משתמש SMTP: {self.smtp_username[:3] + '***' if self.smtp_username else 'לא הוגדר'}")
             
             # Validate email parameters
             if not to_email or not isinstance(to_email, str):
@@ -274,16 +274,16 @@ class EmailService:
             smtp_username = (self.smtp_username or "").strip()
             smtp_password = (self.smtp_password or "").strip()
             
-            print(f"   Username after strip: {'SET' if smtp_username else 'NOT SET'}")
-            print(f"   Password after strip: {'SET' if smtp_password else 'NOT SET'}")
+            print(f"   שם משתמש לאחר strip: {'הוגדר' if smtp_username else 'לא הוגדר'}")
+            print(f"   סיסמה לאחר strip: {'הוגדרה' if smtp_password else 'לא הוגדרה'}")
             
             if not smtp_username or not smtp_password:
                 import logging
-                logging.warning(f"SMTP credentials not configured. Email to {to_email} was not sent.")
-                print(f"⚠️  SMTP credentials not configured. Email to {to_email} was not sent.")
-                print(f"   SMTP_USERNAME: {'SET' if smtp_username else 'NOT SET'}")
-                print(f"   SMTP_PASSWORD: {'SET' if smtp_password else 'NOT SET'}")
-                print(f"   Please configure SMTP_USERNAME and SMTP_PASSWORD in your .env file")
+                logging.warning(f"פרטי SMTP לא הוגדרו. אימייל ל-{to_email} לא נשלח.")
+                print(f"⚠️  פרטי SMTP לא הוגדרו. אימייל ל-{to_email} לא נשלח.")
+                print(f"   SMTP_USERNAME: {'הוגדר' if smtp_username else 'לא הוגדר'}")
+                print(f"   SMTP_PASSWORD: {'הוגדר' if smtp_password else 'לא הוגדר'}")
+                print(f"   אנא הגדר SMTP_USERNAME ו-SMTP_PASSWORD בקובץ .env")
                 return False
 
             # Ensure from_email is set
@@ -291,7 +291,7 @@ class EmailService:
             if not from_email:
                 from_email = self.smtp_username or "noreply@example.com"
             
-            print(f"   From Email: {from_email}")
+            print(f"   אימייל שולח: {from_email}")
 
             # Create message
             message = MIMEMultipart()
@@ -308,24 +308,24 @@ class EmailService:
             message.attach(MIMEText(html_body, "html", "utf-8"))
 
             # Create SMTP session
-            print(f"   Connecting to SMTP server...")
+            print(f"   מתחבר לשרת SMTP...")
             context = ssl.create_default_context()
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                print(f"   Starting TLS...")
+                print(f"   מתחיל TLS...")
                 server.starttls(context=context)
-                print(f"   Logging in...")
+                print(f"   מתחבר...")
                 server.login(smtp_username, smtp_password)
-                print(f"   Sending email...")
+                print(f"   שולח אימייל...")
                 server.sendmail(from_email, to_email, message.as_string())
 
-            print(f"✅ Email sent successfully to {to_email}")
+            print(f"✅ אימייל נשלח בהצלחה ל-{to_email}")
             return True
         except Exception as e:
             import logging
             import traceback
             error_msg = str(e)
-            logging.error(f"Failed to send email to {to_email}: {error_msg}")
+            logging.error(f"שליחת אימייל ל-{to_email} נכשלה: {error_msg}")
             logging.error(traceback.format_exc())
-            print(f"❌ Failed to send email to {to_email}: {error_msg}")
-            print(f"   Error details: {traceback.format_exc()}")
+            print(f"❌ שליחת אימייל ל-{to_email} נכשלה: {error_msg}")
+            print(f"   פרטי שגיאה: {traceback.format_exc()}")
             return False

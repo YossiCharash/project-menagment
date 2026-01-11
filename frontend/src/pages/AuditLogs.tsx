@@ -227,7 +227,9 @@ export default function AuditLogs() {
         'address': 'כתובת',
         'city': 'עיר',
         'start_date': 'תאריך התחלה',
-        'end_date': 'תאריך סיום'
+        'end_date': 'תאריך סיום',
+        'is_parent_project': 'פרויקט על',
+        'IS_PARENT_PROJECT': 'פרויקט על'
       }
       return fieldLabels[key] || key
     }
@@ -235,6 +237,14 @@ export default function AuditLogs() {
     const renderValue = (value: any, key?: string): React.ReactNode => {
       if (value === null || value === undefined || value === '') return <span className="text-gray-400">-</span>
       if (typeof value === 'boolean') return <span className={value ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{value ? 'כן' : 'לא'}</span>
+      // Handle string representations of boolean values
+      if (typeof value === 'string') {
+        const lowerValue = value.toLowerCase().trim()
+        if (lowerValue === 'true' || lowerValue === 'false') {
+          const boolValue = lowerValue === 'true'
+          return <span className={boolValue ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{boolValue ? 'כן' : 'לא'}</span>
+        }
+      }
       if (typeof value === 'number') return <span className="font-mono text-blue-600 dark:text-blue-400">{value.toLocaleString('he-IL')}</span>
       if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/)) {
         return <span className="text-purple-600 dark:text-purple-400">{formatDate(value)}</span>
@@ -398,8 +408,8 @@ export default function AuditLogs() {
                     <div className="space-y-2 pl-4 border-r-2 border-gray-200 dark:border-gray-700">
                       {nestedEntries.map(([nestedKey, nestedValue]) => (
                         <div key={nestedKey} className="text-sm">
-                          <span className="font-medium text-gray-600 dark:text-gray-400">{nestedKey}:</span>{' '}
-                          <span className="text-gray-700 dark:text-gray-300">{renderValue(nestedValue)}</span>
+                          <span className="font-medium text-gray-600 dark:text-gray-400">{getFieldLabel(nestedKey)}:</span>{' '}
+                          <span className="text-gray-700 dark:text-gray-300">{renderValue(nestedValue, nestedKey)}</span>
                         </div>
                       ))}
                     </div>
@@ -423,8 +433,8 @@ export default function AuditLogs() {
                             <div className="space-y-1">
                               {Object.entries(item).map(([itemKey, itemValue]) => (
                                 <div key={itemKey}>
-                                  <span className="font-medium text-gray-600 dark:text-gray-400">{itemKey}:</span>{' '}
-                                  <span>{renderValue(itemValue)}</span>
+                                  <span className="font-medium text-gray-600 dark:text-gray-400">{getFieldLabel(itemKey)}:</span>{' '}
+                                  <span>{renderValue(itemValue, itemKey)}</span>
                                 </div>
                               ))}
                             </div>

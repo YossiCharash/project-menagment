@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, date as date_type
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,8 +12,8 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
-    start_date: Mapped[datetime | None] = mapped_column(Date, default=None)
-    end_date: Mapped[datetime | None] = mapped_column(Date, default=None)
+    start_date: Mapped[date_type | None] = mapped_column(Date, default=None)
+    end_date: Mapped[date_type | None] = mapped_column(Date, default=None)
 
     budget_monthly: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     budget_annual: Mapped[float] = mapped_column(Numeric(14, 2), default=0)

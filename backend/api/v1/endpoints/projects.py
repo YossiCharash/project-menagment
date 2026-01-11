@@ -202,12 +202,13 @@ async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_curr
 
     
     # Convert to dict to modify
+    # Explicitly convert dates to ISO format strings to avoid timezone issues
     project_dict = {
         "id": project.id,
         "name": project.name,
         "description": project.description,
-        "start_date": project.start_date,
-        "end_date": project.end_date,
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "end_date": project.end_date.isoformat() if project.end_date else None,
         "budget_monthly": project.budget_monthly,
         "budget_annual": project.budget_annual,
         "manager_id": project.manager_id,
@@ -272,10 +273,6 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
         if 'is_parent_project' not in project_data:
             project_data['is_parent_project'] = False
     
-    # Subtract one day from end_date ONLY if provided and it's the 1st of the month (as per user requirement)
-    if project_data.get('end_date') and project_data['end_date'].day == 1:
-        project_data['end_date'] = project_data['end_date'] - timedelta(days=1)
-
     # Create the project
     project = await ProjectService(db).create(**project_data)
     
@@ -323,7 +320,7 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
                         end_date = budget_data.end_date
 
                 print(
-                    "📥 [Project Budget] Creating budget",
+                    "📥 [תקציב פרויקט] יוצר תקציב",
                     {
                         "project_id": project.id,
                         "index": idx,
@@ -344,13 +341,13 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
                     end_date=end_date
                 )
                 print(
-                    "✅ [Project Budget] Budget created",
+                    "✅ [תקציב פרויקט] תקציב נוצר",
                     {"budget_id": created_budget.id, "category_id": budget_data.category_id},
                 )
             except Exception as e:
                 import traceback
                 print(
-                    "❌ [Project Budget] Failed to create budget",
+                    "❌ [תקציב פרויקט] יצירת תקציב נכשלה",
                     {
                         "project_id": project.id,
                         "index": idx,
@@ -436,10 +433,9 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
         if len(subprojects) > 0 and not update_payload['is_parent_project']:
             raise HTTPException(status_code=400, detail="לא ניתן לשנות פרויקט על לפרויקט רגיל כאשר יש לו תת-פרויקטים")
     
-    # Subtract one day from end_date ONLY if provided and it's the 1st of the month (as per user requirement)
-    if update_payload.get('end_date') and update_payload['end_date'].day == 1:
-        update_payload['end_date'] = update_payload['end_date'] - timedelta(days=1)
-
+    # NOTE: No end_date subtraction logic here.
+    # Users expect the updated end_date to be exactly what they entered.
+    
     updated_project = await ProjectService(db).update(project, **update_payload)
     
     # Handle fund creation/update
@@ -490,7 +486,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                         end_date = budget_data.end_date
 
                 print(
-                    "📥 [Project Budget] Adding budget during update",
+                    "📥 [תקציב פרויקט] מוסיף תקציב בעת עדכון",
                     {
                         "project_id": project_id,
                         "index": idx,
@@ -511,13 +507,13 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                     end_date=end_date
                 )
                 print(
-                    "✅ [Project Budget] Budget added during update",
+                    "✅ [תקציב פרויקט] תקציב נוסף בעת עדכון",
                     {"budget_id": created_budget.id, "category_id": budget_data.category_id},
                 )
             except Exception as e:
                 import traceback
                 print(
-                    "❌ [Project Budget] Failed to add budget during update",
+                    "❌ [תקציב פרויקט] הוספת תקציב בעת עדכון נכשלה",
                     {
                         "project_id": project_id,
                         "index": idx,
@@ -549,12 +545,13 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
     fund = await fund_service.get_fund_by_project(project_id)
     
     # Convert to dict to modify
+    # Explicitly convert dates to ISO format strings to avoid timezone issues
     project_dict = {
         "id": updated_project.id,
         "name": updated_project.name,
         "description": updated_project.description,
-        "start_date": updated_project.start_date,
-        "end_date": updated_project.end_date,
+        "start_date": updated_project.start_date.isoformat() if updated_project.start_date else None,
+        "end_date": updated_project.end_date.isoformat() if updated_project.end_date else None,
         "budget_monthly": updated_project.budget_monthly,
         "budget_annual": updated_project.budget_annual,
         "manager_id": updated_project.manager_id,
@@ -730,7 +727,7 @@ async def hard_delete_project(
                         s3_service.delete_file(tx.file_path)
                     except Exception as e:
                         # Log error but continue deletion
-                        print(f"Warning: Failed to delete transaction file {tx.file_path}: {e}")
+                        print(f"אזהרה: מחיקת קובץ עסקה {tx.file_path} נכשלה: {e}")
             
             # Delete project contract file if exists
             if project.contract_file_url:
@@ -738,10 +735,10 @@ async def hard_delete_project(
                     s3_service.delete_file(project.contract_file_url)
                 except Exception as e:
                     # Log error but continue deletion
-                    print(f"Warning: Failed to delete project contract file {project.contract_file_url}: {e}")
+                    print(f"אזהרה: מחיקת קובץ חוזה פרויקט {project.contract_file_url} נכשלה: {e}")
         except (ValueError, Exception) as e:
             # If S3Service initialization fails (e.g., S3 not configured), log but continue with database deletion
-            print(f"Warning: S3 service not available, skipping file deletion: {e}")
+            print(f"אזהרה: שירות S3 לא זמין, מדלג על מחיקת קבצים: {e}")
     
     # Delete all related records before deleting the project
     # Order matters due to foreign key constraints
@@ -1637,7 +1634,7 @@ async def export_contract_period_csv(
                         ws.column_dimensions[col_letter].width = adjusted_width
                 except Exception as e:
                     # Skip if there's an error adjusting column width
-                    print(f"Warning: Could not adjust column width: {e}")
+                    print(f"אזהרה: לא ניתן להתאים רוחב עמודה: {e}")
                     pass
             
             # Save to BytesIO
@@ -1661,7 +1658,7 @@ async def export_contract_period_csv(
             )
         except ImportError as import_err:
             # Fallback to CSV if openpyxl is not available
-            print(f"⚠️ openpyxl not available, falling back to CSV: {import_err}")
+            print(f"⚠️ openpyxl לא זמין, עובר ל-CSV: {import_err}")
             output = io.StringIO()
             writer = csv.writer(output)
             
@@ -1743,7 +1740,7 @@ async def export_contract_period_csv(
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"❌ Error exporting contract period CSV/Excel: {e}")
+        print(f"❌ שגיאה בייצוא CSV/Excel תקופת חוזה: {e}")
         print(f"Traceback: {error_details}")
         raise HTTPException(status_code=500, detail=f"Error exporting CSV: {str(e)}")
 

@@ -95,3 +95,84 @@ export const animations = {
   slow: "500ms",
   slower: "700ms",
 }
+
+/**
+ * Parse a date string as a local date to avoid timezone issues.
+ * Extracts the date part (YYYY-MM-DD) and creates a Date object at local midnight.
+ * @param value - Date string (ISO format or date-only)
+ * @returns Date object or null if invalid
+ */
+export function parseLocalDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  
+  try {
+    // Always extract just the date part to avoid timezone issues
+    // This handles both "2024-01-15" and "2024-01-15T22:00:00.000Z" formats
+    let dateStr = value
+    if (value.includes('T')) {
+      dateStr = value.split('T')[0]
+    }
+    
+    // Validate date format (YYYY-MM-DD)
+    if (!dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Try to parse as is for other formats
+      const date = new Date(value)
+      if (isNaN(date.getTime())) return null
+      // Create local date from extracted parts
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    }
+    
+    // Parse as local date to avoid timezone conversion
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
+    return isNaN(date.getTime()) ? null : date
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Format a date string for display in Hebrew locale.
+ * Handles timezone issues by always extracting the date part first (YYYY-MM-DD),
+ * then parsing as a local date.
+ * @param value - Date string (ISO format or date-only)
+ * @param defaultValue - Default value to return if date is invalid or null
+ * @param options - Optional Intl.DateTimeFormatOptions for custom formatting
+ * @returns Formatted date string in Hebrew locale
+ */
+export function formatDate(
+  value: string | null | undefined, 
+  defaultValue: string = 'לא הוגדר',
+  options?: Intl.DateTimeFormatOptions
+): string {
+  const date = parseLocalDate(value)
+  if (!date) return defaultValue
+  return date.toLocaleDateString('he-IL', options)
+}
+
+/**
+ * Format a date string for use in HTML date input fields (YYYY-MM-DD format).
+ * Extracts the date part from ISO strings to avoid timezone issues.
+ * @param dateStr - Date string (ISO format or date-only)
+ * @returns Date string in YYYY-MM-DD format, or empty string if invalid
+ */
+export function formatDateForInput(dateStr: string | null | undefined): string {
+  if (!dateStr) return ''
+  // If already in YYYY-MM-DD format, return as-is
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr
+  // If in ISO format with time, extract date part
+  if (dateStr.includes('T')) return dateStr.split('T')[0]
+  // Otherwise, try to parse and format
+  try {
+    const date = new Date(dateStr)
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+  } catch {
+    // If parsing fails, return as-is
+  }
+  return dateStr
+}

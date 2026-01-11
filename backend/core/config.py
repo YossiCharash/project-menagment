@@ -15,15 +15,15 @@ if not env_path.exists():
 
 if env_path.exists():
     load_dotenv(dotenv_path=env_path, encoding='utf-8')
-    print(f"[OK] Loaded .env file from: {env_path}")
+    print(f"[OK] קובץ .env נטען מהנתיב: {env_path}")
     # Debug: Check if SMTP variables are loaded
     smtp_user = os.getenv("SMTP_USERNAME")
     smtp_pass = os.getenv("SMTP_PASSWORD")
-    print(f"   SMTP_USERNAME: {'SET' if smtp_user else 'NOT SET'}")
-    print(f"   SMTP_PASSWORD: {'SET' if smtp_pass else 'NOT SET'}")
+    print(f"   SMTP_USERNAME: {'הוגדר' if smtp_user else 'לא הוגדר'}")
+    print(f"   SMTP_PASSWORD: {'הוגדר' if smtp_pass else 'לא הוגדר'}")
 else:
     load_dotenv()  # Try default location
-    print("[WARNING] .env file not found, using default load_dotenv()")
+    print("[אזהרה] קובץ .env לא נמצא, משתמש ב-load_dotenv() ברירת מחדל")
 
 
 class Settings(BaseModel):
@@ -71,10 +71,10 @@ class Settings(BaseModel):
     def check_security_settings(self):
         """Warn if using default insecure settings in production"""
         if self.JWT_SECRET_KEY == "change_me":
-            print("[WARNING] Using default JWT_SECRET_KEY. This is insecure for production!")
+            print("[אזהרה] משתמש ב-JWT_SECRET_KEY ברירת מחדל. זה לא מאובטח לסביבת ייצור!")
         
         if self.SUPER_ADMIN_PASSWORD == "c98C98@98":
-            print("[WARNING] Using default SUPER_ADMIN_PASSWORD. Change this in production!")
+            print("[אזהרה] משתמש ב-SUPER_ADMIN_PASSWORD ברירת מחדל. יש לשנות זאת בסביבת ייצור!")
             
         return self
 

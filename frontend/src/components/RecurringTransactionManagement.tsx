@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { RecurringTransactionTemplate, Transaction } from '../types/api'
 import { RecurringTransactionAPI } from '../lib/apiClient'
+import { formatDate } from '../lib/utils'
 
 interface RecurringTransactionManagementProps {
   projectId: number
@@ -86,9 +87,7 @@ const RecurringTransactionManagement: React.FC<RecurringTransactionManagementPro
     }).format(amount)
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('he-IL')
-  }
+  // Using formatDate from utils to handle timezone correctly
 
   if (loading) {
     return (

@@ -31,7 +31,7 @@ async def check_and_add_column(session, table_name: str, column_name: str, colum
     exists = result.scalar() is not None
     
     if exists:
-        print(f"  [OK] Column {table_name}.{column_name} already exists")
+        print(f"  [OK] עמודה {table_name}.{column_name} כבר קיימת")
         return False
     
     # Build ALTER TABLE statement
@@ -40,7 +40,7 @@ async def check_and_add_column(session, table_name: str, column_name: str, colum
     alter_query = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type} {nullable_str}{default_str}"
     
     await session.execute(text(alter_query))
-    print(f"  [OK] Added column {table_name}.{column_name}")
+    print(f"  [OK] עמודה {table_name}.{column_name} נוספה")
     return True
 
 
@@ -55,12 +55,12 @@ async def check_and_create_index(session, index_name: str, table_name: str, colu
     exists = result.scalar() is not None
     
     if exists:
-        print(f"  [OK] Index {index_name} already exists")
+        print(f"  [OK] אינדקס {index_name} כבר קיים")
         return False
     
     create_index_query = f"CREATE INDEX {index_name} ON {table_name}({column_name})"
     await session.execute(text(create_index_query))
-    print(f"  [OK] Created index {index_name}")
+    print(f"  [OK] אינדקס {index_name} נוצר")
     return True
 
 
@@ -75,7 +75,7 @@ async def check_and_add_foreign_key(session, constraint_name: str, table_name: s
     exists = result.scalar() is not None
     
     if exists:
-        print(f"  [OK] Foreign key {constraint_name} already exists")
+        print(f"  [OK] מפתח זר {constraint_name} כבר קיים")
         return False
     
     alter_query = f"""
@@ -84,7 +84,7 @@ async def check_and_add_foreign_key(session, constraint_name: str, table_name: s
         FOREIGN KEY ({column_name}) REFERENCES {referenced_table}({referenced_column})
     """
     await session.execute(text(alter_query))
-    print(f"  [OK] Added foreign key {constraint_name}")
+    print(f"  [OK] מפתח זר {constraint_name} נוסף")
     return True
 
 
@@ -99,20 +99,20 @@ async def check_and_create_enum(session, enum_name: str, enum_values: list[str])
     exists = result.scalar() is not None
     
     if exists:
-        print(f"  [OK] Enum {enum_name} already exists")
+        print(f"  [OK] Enum {enum_name} כבר קיים")
         return False
     
     values_str = ", ".join([f"'{v}'" for v in enum_values])
     create_enum_query = f"CREATE TYPE {enum_name} AS ENUM ({values_str})"
     await session.execute(text(create_enum_query))
-    print(f"  [OK] Created enum {enum_name}")
+    print(f"  [OK] Enum {enum_name} נוצר")
     return True
 
 
 async def sync_database_schema():
     """סנכרן את בסיס הנתונים עם כל המודלים"""
     print("=" * 60)
-    print("Starting comprehensive database schema sync...")
+    print("מתחיל סנכרון מקיף של סכמת בסיס הנתונים...")
     print("=" * 60)
     
     async with AsyncSessionLocal() as session:
@@ -120,14 +120,14 @@ async def sync_database_schema():
             changes_made = False
             
             # 1. Create enums if needed
-            print("\n[1/6] Checking enums...")
+            print("\n[1/6] בודק enums...")
             await check_and_create_enum(session, "expense_category", ["ניקיון", "חשמל", "ביטוח", "גינון", "אחר"])
             await check_and_create_enum(session, "payment_method", ["הוראת קבע", "אשראי", "שיק", "מזומן", "העברה בנקאית", "גבייה מרוכזת סוף שנה"])
             await check_and_create_enum(session, "recurring_frequency", ["Monthly"])
             await check_and_create_enum(session, "recurring_end_type", ["No End", "After Occurrences", "On Date"])
             
             # 2. Sync users table
-            print("\n[2/6] Syncing users table...")
+            print("\n[2/6] מסנכרן טבלת users...")
             changes_made |= await check_and_add_column(session, "users", "group_id", "INTEGER", nullable=True)
             if changes_made:
                 await check_and_create_index(session, "ix_users_group_id", "users", "group_id")
@@ -135,7 +135,7 @@ async def sync_database_schema():
             changes_made |= await check_and_add_column(session, "users", "last_login", "TIMESTAMP WITHOUT TIME ZONE", nullable=True)
             
             # 3. Sync projects table
-            print("\n[3/6] Syncing projects table...")
+            print("\n[3/6] מסנכרן טבלת projects...")
             changes_made |= await check_and_add_column(session, "projects", "num_residents", "INTEGER", nullable=True)
             changes_made |= await check_and_add_column(session, "projects", "monthly_price_per_apartment", "NUMERIC(10, 2)", nullable=True)
             changes_made |= await check_and_add_column(session, "projects", "address", "VARCHAR(255)", nullable=True)
@@ -147,13 +147,13 @@ async def sync_database_schema():
                 await check_and_create_index(session, "ix_projects_is_parent_project", "projects", "is_parent_project")
             
             # 4. Sync suppliers table
-            print("\n[4/6] Syncing suppliers table...")
+            print("\n[4/6] מסנכרן טבלת suppliers...")
             changes_made |= await check_and_add_column(session, "suppliers", "category", "VARCHAR(255)", nullable=True)
             if changes_made:
                 await check_and_create_index(session, "ix_suppliers_category", "suppliers", "category")
             
             # 5. Sync transactions table
-            print("\n[5/7] Syncing transactions table...")
+            print("\n[5/7] מסנכרן טבלת transactions...")
             changes_made |= await check_and_add_column(session, "transactions", "supplier_id", "INTEGER", nullable=True)
             if changes_made:
                 await check_and_create_index(session, "ix_transactions_supplier_id", "transactions", "supplier_id")
@@ -174,14 +174,14 @@ async def sync_database_schema():
                 await check_and_create_index(session, "ix_transactions_from_fund", "transactions", "from_fund")
             
             # 6. Sync supplier_documents table
-            print("\n[6/7] Syncing supplier_documents table...")
+            print("\n[6/7] מסנכרן טבלת supplier_documents...")
             changes_made |= await check_and_add_column(session, "supplier_documents", "transaction_id", "INTEGER", nullable=True)
             if changes_made:
                 await check_and_create_index(session, "ix_supplier_documents_transaction_id", "supplier_documents", "transaction_id")
                 await check_and_add_foreign_key(session, "supplier_documents_transaction_id_fkey", "supplier_documents", "transaction_id", "transactions")
             
             # 7. Sync recurring_transaction_templates table
-            print("\n[7/7] Syncing recurring_transaction_templates table...")
+            print("\n[7/7] מסנכרן טבלת recurring_transaction_templates...")
             # Check if table exists first
             table_check = text("""
                 SELECT table_name 
@@ -192,7 +192,7 @@ async def sync_database_schema():
             table_exists = result.scalar() is not None
             
             if not table_exists:
-                print("  [WARN] Table recurring_transaction_templates does not exist. Creating it...")
+                print("  [אזהרה] טבלה recurring_transaction_templates לא קיימת. יוצר אותה...")
                 # Create the table with all columns
                 create_table_query = text("""
                     CREATE TABLE recurring_transaction_templates (
@@ -222,7 +222,7 @@ async def sync_database_schema():
                     )
                 """)
                 await session.execute(create_table_query)
-                print("  ✓ Created table recurring_transaction_templates")
+                print("  ✓ טבלה recurring_transaction_templates נוצרה")
                 
                 # Create indexes
                 await session.execute(text("CREATE INDEX ix_recurring_transaction_templates_project_id ON recurring_transaction_templates(project_id)"))
@@ -245,16 +245,16 @@ async def sync_database_schema():
             if changes_made:
                 await session.commit()
                 print("\n" + "=" * 60)
-                print("[OK] Database schema sync completed successfully!")
+                print("[OK] סנכרון סכמת בסיס הנתונים הושלם בהצלחה!")
                 print("=" * 60)
             else:
                 print("\n" + "=" * 60)
-                print("[OK] Database schema is already in sync. No changes needed.")
+                print("[OK] סכמת בסיס הנתונים כבר מסונכרנת. אין צורך בשינויים.")
                 print("=" * 60)
                 
         except Exception as e:
             await session.rollback()
-            print(f"\n[ERROR] Error syncing database schema: {e}")
+            print(f"\n[שגיאה] שגיאה בסנכרון סכמת בסיס הנתונים: {e}")
             import traceback
             traceback.print_exc()
             raise

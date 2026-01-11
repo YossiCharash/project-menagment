@@ -56,16 +56,23 @@
   * {
     @apply border-border;
   }
+  html {
+    direction: rtl;
+  }
   body {
     @apply bg-background text-foreground;
+    direction: rtl;
     font-feature-settings: "rlig" 1, "calt" 1;
     word-break: break-word;
     overflow-wrap: break-word;
+    text-align: right;
   }
   
   /* Ensure Hebrew text wraps properly */
   [dir="rtl"], 
   body[dir="rtl"] * {
+    direction: rtl;
+    text-align: right;
     word-break: break-word;
     overflow-wrap: break-word;
     hyphens: auto;

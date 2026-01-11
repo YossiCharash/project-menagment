@@ -6,7 +6,8 @@ import {
   DollarSign,
   RefreshCw,
   Plus,
-  Edit
+  Edit,
+  ChevronLeft
 } from 'lucide-react'
 import { ProjectWithFinance, Project } from '../types/api'
 import { DashboardAPI } from '../lib/apiClient'
@@ -14,6 +15,7 @@ import api from '../lib/api'
 import ProjectTrendsChart from './charts/ProjectTrendsChart'
 import CreateProjectModal from './CreateProjectModal'
 import CreateTransactionModal from './CreateTransactionModal'
+import { formatDate } from '../lib/utils'
 
 // Reverse mapping: Hebrew to English (for filtering)
 const CATEGORY_REVERSE_MAP: Record<string, string> = {
@@ -628,7 +630,7 @@ const ConsolidatedTransactionsTable: React.FC<{
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-700 text-left">
+              <tr className="bg-gray-50 dark:bg-gray-700 text-right">
                 <th className="p-3 font-medium text-gray-700 dark:text-gray-300">תת-פרויקט</th>
                 <th className="p-3 font-medium text-gray-700 dark:text-gray-300">סוג</th>
                 <th className="p-3 font-medium text-gray-700 dark:text-gray-300">תאריך</th>
@@ -660,7 +662,7 @@ const ConsolidatedTransactionsTable: React.FC<{
                     )}
                   </td>
                   <td className="p-3 text-gray-700 dark:text-gray-300">
-                    {new Date(transaction.tx_date).toLocaleDateString('he-IL')}
+                    {formatDate(transaction.tx_date)}
                   </td>
                   <td className={`p-3 font-semibold ${
                     transaction.type === 'Income' 
@@ -744,6 +746,8 @@ export default function ParentProjectDetail() {
   
   const [parentProject, setParentProject] = useState<ProjectWithFinance | null>(null)
   const [subprojects, setSubprojects] = useState<SubprojectFinancial[]>([])
+  const [subprojectsList, setSubprojectsList] = useState<Array<{ id: number; name: string; is_active: boolean }>>([])
+  const [subprojectsListLoading, setSubprojectsListLoading] = useState(false)
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [transactionsLoading, setTransactionsLoading] = useState(false)
@@ -780,6 +784,7 @@ export default function ParentProjectDetail() {
   useEffect(() => {
     if (id) {
       loadParentProjectData()
+      loadSubprojectsList()
     }
   }, [id])
 
@@ -1101,6 +1106,21 @@ export default function ParentProjectDetail() {
     }
   }
 
+  const loadSubprojectsList = async () => {
+    if (!id) return
+    
+    setSubprojectsListLoading(true)
+    try {
+      const { data } = await api.get(`/projects/${id}/subprojects`)
+      setSubprojectsList(data || [])
+    } catch (err: any) {
+      console.error('Error loading subprojects list:', err)
+      setSubprojectsList([])
+    } finally {
+      setSubprojectsListLoading(false)
+    }
+  }
+
   const filterTransactionsByDate = (transactions: any[]) => {
     return transactions.filter((transaction: any) => {
       const txDate = new Date(transaction.tx_date)
@@ -1314,6 +1334,44 @@ export default function ParentProjectDetail() {
         filters={transactionFilters}
       />
 
+      {/* Subprojects List */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+          תתי-פרויקטים
+        </h3>
+        {subprojectsListLoading ? (
+          <div className="text-center py-4 text-sm text-gray-600 dark:text-gray-400">
+            טוען תתי-פרויקטים...
+          </div>
+        ) : subprojectsList.length > 0 ? (
+          <div className="space-y-1.5">
+            {subprojectsList.map((subproject) => (
+              <div
+                key={subproject.id}
+                onClick={() => navigate(`/projects/${subproject.id}`)}
+                className="border border-gray-200 dark:border-gray-700 rounded-md p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                    {subproject.name}
+                  </span>
+                  <ChevronLeft className="w-4 h-4 text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
+            אין תתי-פרויקטים תחת פרויקט זה
+          </div>
+        )}
+      </motion.div>
+
       {/* Create Subproject Modal */}
       <CreateProjectModal
         isOpen={showCreateSubprojectModal}
@@ -1321,6 +1379,7 @@ export default function ParentProjectDetail() {
         onSuccess={() => {
           setShowCreateSubprojectModal(false)
           loadParentProjectData()
+          loadSubprojectsList()
         }}
         parentProjectId={id ? parseInt(id) : undefined}
       />
@@ -1350,6 +1409,7 @@ export default function ParentProjectDetail() {
             setShowEditSubprojectModal(false)
             setEditingSubproject(null)
             loadParentProjectData()
+            loadSubprojectsList()
           }}
           editingProject={editingSubproject}
           parentProjectId={id ? parseInt(id) : undefined}

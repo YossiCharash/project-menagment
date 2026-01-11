@@ -20,7 +20,7 @@ async def run_migration():
     import re
     match = re.match(r'postgresql\+?asyncpg?://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)', db_url)
     if not match:
-        print("Could not parse database URL. Please run the SQL script manually.")
+        print("לא ניתן לפרש כתובת בסיס נתונים. אנא הרץ את סקריפט ה-SQL ידנית.")
         return
     
     user, password, host, port, database = match.groups()
@@ -31,7 +31,7 @@ async def run_migration():
         with open(sql_file, 'r', encoding='utf-8') as f:
             sql = f.read()
     except FileNotFoundError:
-        print(f"SQL file not found: {sql_file}")
+        print(f"קובץ SQL לא נמצא: {sql_file}")
         return
     
     # Connect and execute
@@ -43,13 +43,13 @@ async def run_migration():
             port=int(port),
             database=database
         )
-        print("Connected to database. Running migration...")
+        print("מחובר לבסיס נתונים. מריץ migration...")
         await conn.execute(sql)
-        print("Migration completed successfully!")
+        print("Migration הושלם בהצלחה!")
         await conn.close()
     except Exception as e:
-        print(f"Error running migration: {e}")
-        print("\nPlease run the SQL script manually:")
+        print(f"שגיאה בהרצת migration: {e}")
+        print("\nאנא הרץ את סקריפט ה-SQL ידנית:")
         print(f"psql -U {user} -d {database} -f {sql_file}")
 
 

@@ -18,7 +18,7 @@ from backend.db.session import AsyncSessionLocal
 async def add_contract_periods_table():
     """Add contract_periods table"""
     print("=" * 60)
-    print("Adding contract_periods table...")
+    print("מוסיף טבלה contract_periods...")
     print("=" * 60)
     
     async with AsyncSessionLocal() as session:
@@ -33,7 +33,7 @@ async def add_contract_periods_table():
             exists = result.scalar() is not None
             
             if exists:
-                print("✓ Table contract_periods already exists")
+                print("✓ טבלה contract_periods כבר קיימת")
             else:
                 # Create table
                 create_query = text("""
@@ -68,16 +68,16 @@ async def add_contract_periods_table():
                     await session.execute(text(index_query))
                 
                 await session.commit()
-                print("✓ Created contract_periods table")
-                print("✓ Created indexes for contract_periods table")
+                print("✓ טבלה contract_periods נוצרה")
+                print("✓ אינדקסים לטבלה contract_periods נוצרו")
             
             print("\n" + "=" * 60)
-            print("✅ Migration completed successfully!")
+            print("✅ Migration הושלם בהצלחה!")
             print("=" * 60)
                 
         except Exception as e:
             await session.rollback()
-            print(f"\n❌ Error running migration: {e}")
+            print(f"\n❌ שגיאה בהרצת migration: {e}")
             import traceback
             traceback.print_exc()
             raise

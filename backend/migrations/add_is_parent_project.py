@@ -18,7 +18,7 @@ from backend.db.session import AsyncSessionLocal
 async def add_is_parent_project_column():
     """Add is_parent_project column to projects table"""
     print("=" * 60)
-    print("Adding is_parent_project column to projects table...")
+    print("מוסיף עמודה is_parent_project לטבלת projects...")
     print("=" * 60)
     
     async with AsyncSessionLocal() as session:
@@ -34,7 +34,7 @@ async def add_is_parent_project_column():
             exists = result.scalar() is not None
             
             if exists:
-                print("✓ Column is_parent_project already exists in projects table")
+                print("✓ עמודה is_parent_project כבר קיימת בטבלת projects")
             else:
                 # Add column
                 alter_query = text("""
@@ -51,16 +51,16 @@ async def add_is_parent_project_column():
                 await session.execute(index_query)
                 
                 await session.commit()
-                print("✓ Added is_parent_project column to projects table")
-                print("✓ Created index ix_projects_is_parent_project")
+                print("✓ עמודה is_parent_project נוספה לטבלת projects")
+                print("✓ אינדקס ix_projects_is_parent_project נוצר")
             
             print("\n" + "=" * 60)
-            print("✅ Migration completed successfully!")
+            print("✅ Migration הושלם בהצלחה!")
             print("=" * 60)
                 
         except Exception as e:
             await session.rollback()
-            print(f"\n❌ Error running migration: {e}")
+            print(f"\n❌ שגיאה בהרצת migration: {e}")
             import traceback
             traceback.print_exc()
             raise

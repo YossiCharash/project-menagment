@@ -174,7 +174,7 @@ export default function Suppliers() {
         {loading ? 'טוען...' : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-100 dark:bg-gray-700 text-left">
+              <tr className="bg-gray-100 dark:bg-gray-700 text-right">
                 <th className="p-2 text-gray-900 dark:text-white">שם</th>
                 <th className="p-2 text-gray-900 dark:text-white">אימייל</th>
                 <th className="p-2 text-gray-900 dark:text-white">טלפון</th>

@@ -166,7 +166,7 @@ class RecurringTransactionService:
                 await self.db.execute(stmt)
                 await self.db.commit()
             except Exception as e:
-                print(f"Warning: Failed to propagate recurring template updates to transactions: {e}")
+                print(f"אזהרה: העברת עדכוני תבנית חוזרת לעסקאות נכשלה: {e}")
                 # Don't fail the request, just log it
         
         return updated_template
@@ -589,13 +589,13 @@ class RecurringTransactionService:
                     # If table doesn't exist yet, log but don't fail
                     # This allows deletion to work even if migration hasn't been run
                     import logging
-                    logging.warning(f"Could not record deleted instance (table may not exist): {e}")
+                    logging.warning(f"לא ניתן לרשום מופע שנמחק (ייתכן שהטבלה לא קיימת): {e}")
             
             return True
         except Exception as e:
             # Log the error for debugging
             import logging
-            logging.error(f"Error deleting recurring transaction instance {transaction_id}: {e}")
+            logging.error(f"שגיאה במחיקת מופע עסקה חוזרת {transaction_id}: {e}")
             return False
 
     async def get_future_occurrences(self, template_id: int, start_date: date, months_ahead: int = 12) -> List[dict]:

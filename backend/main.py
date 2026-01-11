@@ -39,7 +39,7 @@ def create_app() -> FastAPI:
     try:
         settings.validate_security()
     except ValueError as e:
-        print(f"\n[SECURITY WARNING] {str(e)}\n")
+        print(f"\n[אזהרת אבטחה] {str(e)}\n")
         # In production, you might want to exit: exit(1)
 
     app = FastAPI(

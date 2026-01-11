@@ -126,7 +126,7 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
             await fund_service.add_to_fund(data.project_id, data.amount)
 
     # Debug: Print to verify user_id is being set
-    print(f"DEBUG: Creating transaction with created_by_user_id={user.id}, user={user.full_name}")
+    print(f"DEBUG: יוצר עסקה עם created_by_user_id={user.id}, user={user.full_name}")
 
     # Create transaction (duplicate check is done inside TransactionService.create)
     try:
@@ -139,10 +139,10 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         raise HTTPException(status_code=400, detail=error_msg)
 
     # Debug: Verify transaction was created with user_id
-    print(f"DEBUG: Transaction created with id={transaction.id}, created_by_user_id={transaction.created_by_user_id}")
+    print(f"DEBUG: עסקה נוצרה עם id={transaction.id}, created_by_user_id={transaction.created_by_user_id}")
 
     # Get project name for audit log
-    project_name = project.name if project else f"Project {transaction.project_id}"
+    project_name = project.name if project else f"פרויקט {transaction.project_id}"
 
     # Log create action with full details
     await AuditService(db).log_transaction_action(
@@ -428,7 +428,7 @@ async def delete_transaction_document(
             await asyncio.to_thread(s3.delete_file, file_path)
         except Exception as e:
             # Log but don't fail - document is already deleted from DB
-            print(f"Warning: Failed to delete file from S3: {e}")
+            print(f"אזהרה: מחיקת קובץ מ-S3 נכשלה: {e}")
 
     return {"ok": True}
 
@@ -443,7 +443,7 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
 
     # Get project name for audit log
     project = await ProjectRepository(db).get_by_id(tx.project_id)
-    project_name = project.name if project else f"Project {tx.project_id}"
+    project_name = project.name if project else f"פרויקט {tx.project_id}"
 
     # Validate transaction date is not before project contract start date (if updating tx_date)
     if data.tx_date is not None and project and project.start_date:
@@ -608,7 +608,7 @@ async def delete_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_
 
     # Get project name for audit log
     project = await ProjectRepository(db).get_by_id(tx.project_id)
-    project_name = project.name if project else f"Project {tx.project_id}"
+    project_name = project.name if project else f"פרויקט {tx.project_id}"
 
     # Store transaction details for audit log
     tx_details = {

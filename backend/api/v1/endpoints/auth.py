@@ -145,7 +145,7 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
     except Exception as e:
         # If column doesn't exist yet, log warning but continue
         import logging
-        logging.warning(f"Could not set requires_password_change flag: {e}")
+        logging.warning(f"לא ניתן להגדיר דגל requires_password_change: {e}")
         # The column will be added on next database migration
     
     # Create password reset token for initial password setup
@@ -154,7 +154,7 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
     
     # Send credentials via email with reset link
     email_service = EmailService()
-    print(f"📧 Preparing to send credentials email to {user_data.email}")
+    print(f"📧 מכין לשליחת אימייל פרטי התחברות ל-{user_data.email}")
     email_sent = await email_service.send_user_credentials_email(
         email=user_data.email,
         full_name=user_data.full_name,
@@ -167,11 +167,11 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
         # Log warning but don't fail the request - user is created
         # In production, you might want to handle this differently
         import logging
-        logging.warning(f"Failed to send email to {user_data.email}, but user was created")
-        print(f"⚠️  Failed to send credentials email to {user_data.email}")
-        print(f"   User was created but email was not sent. Please check SMTP configuration.")
+        logging.warning(f"שליחת אימייל ל-{user_data.email} נכשלה, אך המשתמש נוצר")
+        print(f"⚠️  שליחת אימייל פרטי התחברות ל-{user_data.email} נכשלה")
+        print(f"   המשתמש נוצר אך האימייל לא נשלח. אנא בדוק את הגדרות SMTP.")
     else:
-        print(f"✅ Credentials email sent successfully to {user_data.email}")
+        print(f"✅ אימייל פרטי התחברות נשלח בהצלחה ל-{user_data.email}")
     
     return user
 

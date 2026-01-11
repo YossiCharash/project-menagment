@@ -27,7 +27,7 @@ try:
     CHARTS_AVAILABLE = True
 except ImportError:
     CHARTS_AVAILABLE = False
-    print("WARNING: openpyxl.chart not available - charts will be skipped")
+    print("אזהרה: openpyxl.chart לא זמין - גרפים יידלגו")
 
 # Hebrew Labels to avoid hardcoded strings in logic
 REPORT_LABELS = {
@@ -294,12 +294,13 @@ class ReportService:
         for project in projects:
             try:
                 # Extract ALL attributes immediately while session is active
+                # Explicitly convert dates to ISO format strings to avoid timezone issues
                 project_dict = {
                     "id": project.id,
                     "name": project.name,
                     "description": project.description,
-                    "start_date": project.start_date,
-                    "end_date": project.end_date,
+                    "start_date": project.start_date.isoformat() if project.start_date else None,
+                    "end_date": project.end_date.isoformat() if project.end_date else None,
                     "budget_monthly": project.budget_monthly,
                     "budget_annual": project.budget_annual,
                     "num_residents": project.num_residents,
@@ -315,7 +316,7 @@ class ReportService:
                 }
                 projects_data.append(project_dict)
             except Exception as e:
-                print(f"WARNING: Error loading project data: {e}")
+                print(f"אזהרה: שגיאה בטעינת נתוני פרויקט: {e}")
                 continue
 
         # Initialize result collections
@@ -364,7 +365,7 @@ class ReportService:
                 )
                 yearly_income = float((await self.db.execute(yearly_income_query)).scalar_one())
             except Exception as e:
-                print(f"WARNING: Error getting income for project {project_id}: {e}")
+                print(f"אזהרה: שגיאה בקבלת הכנסות לפרויקט {project_id}: {e}")
                 try:
                     await self.db.rollback()
                 except Exception:
@@ -380,7 +381,7 @@ class ReportService:
                     from_fund=False
                 )
             except Exception as e:
-                print(f"WARNING: Error getting expenses for project {project_id}: {e}")
+                print(f"אזהרה: שגיאה בקבלת הוצאות לפרויקט {project_id}: {e}")
                 try:
                     await self.db.rollback()
                 except Exception:
@@ -609,7 +610,7 @@ class ReportService:
                         "color": self._get_category_color(cat_name)
                     })
         except Exception as e:
-            print(f"Error calculating expense categories: {e}")
+            print(f"שגיאה בחישוב קטגוריות הוצאות: {e}")
             # If query fails, rollback and continue with empty categories
             try:
                 await self.db.rollback()
@@ -1426,10 +1427,10 @@ class ReportService:
             return img_buffer
 
         except ImportError:
-            print("Matplotlib not installed")
+            print("Matplotlib לא מותקן")
             return io.BytesIO()
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"שגיאה: {e}")
             return io.BytesIO()
 
 
@@ -1473,7 +1474,7 @@ class ReportService:
                     print(f"✓ Found font at: {font_path}")
                     break
                 else:
-                    print(f"✗ Not found: {path}")
+                    print(f"✗ לא נמצא: {path}")
 
             # If font not found or corrupted, try to download it (Self-healing)
             if not font_path or (font_path and os.path.exists(font_path)):
@@ -1483,15 +1484,15 @@ class ReportService:
                         # Quick validation - try to open as TTFont
                         test_font = TTFont(font_path)
                         test_font.close()
-                        print(f"✓ Existing font file is valid")
+                        print(f"✓ קובץ גופן קיים תקין")
                     except Exception:
-                        print(f"WARNING: Existing font file appears corrupted, will try to re-download")
+                        print(f"אזהרה: קובץ גופן קיים נראה פגום, מנסה להוריד מחדש")
                         font_path = None  # Mark as not found so we try to download
 
                 if not font_path:
                     try:
                         import urllib.request
-                        print("Font not found or corrupted. Attempting to download Heebo-Regular.ttf...")
+                        print("גופן לא נמצא או פגום. מנסה להוריד Heebo-Regular.ttf...")
 
                         # Determine where to save
                         if os.path.exists('/app/backend/static'):
@@ -1512,25 +1513,25 @@ class ReportService:
                         downloaded = False
                         for url in urls:
                             try:
-                                print(f"Trying to download from: {url}")
+                                print(f"מנסה להוריד מ-: {url}")
                                 urllib.request.urlretrieve(url, target_path)
                                 # Validate the downloaded file
                                 test_font = TTFont(target_path)
                                 test_font.close()
                                 font_path = target_path
                                 downloaded = True
-                                print(f"✓ Successfully downloaded and validated font from {url}")
+                                print(f"✓ גופן הורד ואומת בהצלחה מ-{url}")
                                 break
                             except Exception as e:
-                                print(f"✗ Failed to download/validate from {url}: {e}")
+                                print(f"✗ הורדה/אימות מ-{url} נכשל: {e}")
                                 if os.path.exists(target_path):
                                     os.remove(target_path)
                                 continue
 
                         if not downloaded:
-                            print("WARNING: Could not download valid font file")
+                            print("אזהרה: לא ניתן להוריד קובץ גופן תקין")
                     except Exception as e:
-                        print(f"Failed to download font: {e}")
+                        print(f"הורדת גופן נכשלה: {e}")
 
             font_loaded = False
             if font_path and os.path.exists(font_path):
@@ -1538,9 +1539,9 @@ class ReportService:
                     pdfmetrics.registerFont(TTFont('Hebrew', font_path))
                     font_name = 'Hebrew'
                     font_loaded = True
-                    print(f"✓ Successfully registered Hebrew font from {font_path}")
+                    print(f"✓ גופן עברי נרשם בהצלחה מ-{font_path}")
                 except Exception as e:
-                    print(f"✗ Failed to register font from {font_path}: {e}")
+                    print(f"✗ רישום גופן מ-{font_path} נכשל: {e}")
                     font_path = None  # Mark as failed so we try system fonts
 
             # Try Windows system fonts with Hebrew support (if Heebo not found or failed)
@@ -1550,17 +1551,17 @@ class ReportService:
                     r'C:\Windows\Fonts\tahoma.ttf',  # Tahoma (has Hebrew support)
                     r'C:\Windows\Fonts\arialuni.ttf',  # Arial Unicode MS (full Unicode support)
                 ]
-                print("🔍 Trying Windows system fonts with Hebrew support...")
+                print("🔍 מנסה גופני מערכת של Windows עם תמיכה בעברית...")
                 for win_font in windows_fonts:
                     if os.path.exists(win_font):
                         try:
                             pdfmetrics.registerFont(TTFont('Hebrew', win_font))
                             font_name = 'Hebrew'
                             font_loaded = True
-                            print(f"✓ Successfully using Windows system font: {win_font}")
+                            print(f"✓ משתמש בהצלחה בגופן מערכת Windows: {win_font}")
                             break
                         except Exception as e3:
-                            print(f"✗ Failed to load {win_font}: {e3}")
+                            print(f"✗ טעינת {win_font} נכשלה: {e3}")
                             continue
 
             # Try Linux system font as last resort (only if not Windows)
@@ -1569,17 +1570,17 @@ class ReportService:
                     pdfmetrics.registerFont(TTFont('Hebrew', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
                     font_name = 'Hebrew'
                     font_loaded = True
-                    print("✓ Using system DejaVu font as fallback")
+                    print("✓ משתמש בגופן DejaVu של המערכת כגיבוי")
                 except Exception as e2:
                     print(f"✗ Failed to load system font: {e2}")
                     font_loaded = False
 
         except Exception as e:
-            print(f"✗ Warning: Hebrew font not found ({e}), using default Helvetica")
+            print(f"✗ אזהרה: גופן עברי לא נמצא ({e}), משתמש ב-Helvetica ברירת מחדל")
             font_loaded = False
 
         if not font_loaded:
-            print("WARNING: WARNING: Hebrew font not loaded! Text will not display correctly.")
+            print("אזהרה: גופן עברי לא נטען! טקסט לא יוצג כראוי.")
 
         styles = getSampleStyleSheet()
         style_normal = ParagraphStyle('HebrewNormal', parent=styles['Normal'], fontName=font_name, fontSize=11, alignment=1,
@@ -1601,7 +1602,7 @@ class ReportService:
             bidi_available = True
         except ImportError:
             bidi_available = False
-            print("WARNING: arabic-reshaper or python-bidi not available, using simple text formatting")
+            print("אזהרה: arabic-reshaper או python-bidi לא זמינים, משתמש בעיצוב טקסט פשוט")
 
         def format_text(text):
             if not text: return ""
@@ -1618,7 +1619,7 @@ class ReportService:
                 except Exception as e:
                     # Only log first error to avoid spam
                     if not hasattr(format_text, '_logged_error'):
-                        print(f"WARNING: Error in bidi processing: {e}, using text as-is")
+                        print(f"אזהרה: שגיאה בעיבוד bidi: {e}, משתמש בטקסט כפי שהוא")
                         format_text._logged_error = True
                     return text
             else:
@@ -1646,7 +1647,7 @@ class ReportService:
                 elements.append(logo)
                 elements.append(Spacer(1, 10))
         except Exception as e:
-            print(f"Could not load logo: {e}")
+            print(f"לא ניתן לטעון לוגו: {e}")
 
         elements.append(Paragraph(format_text(f"{REPORT_LABELS['project_report']}: {project.name}"), style_title))
         elements.append(Paragraph(format_text(f"{REPORT_LABELS['production_date']}: {date.today().strftime('%d/%m/%Y')}"),
@@ -1865,7 +1866,7 @@ class ReportService:
                                 chart_name = CHART_TITLES.get(chart_type, chart_type)
                                 charts_to_render[chart_name] = chart_bytes
                     except Exception as e:
-                        print(f"WARNING: Error preparing chart {chart_type}: {e}")
+                        print(f"אזהרה: שגיאה בהכנת גרף {chart_type}: {e}")
 
             if charts_to_render:
                 for chart_name, image_bytes in charts_to_render.items():
@@ -1878,7 +1879,7 @@ class ReportService:
                         elements.append(img)
                         elements.append(Spacer(1, 20))
                     except Exception as e:
-                        print(f"WARNING: Failed to add chart {chart_name} to PDF: {e}")
+                        print(f"אזהרה: הוספת גרף {chart_name} ל-PDF נכשלה: {e}")
 
         doc.build(elements)
         buffer.seek(0)
@@ -2229,13 +2230,13 @@ class ReportService:
 
                             row += 16  # Spacer
                         except Exception as e:
-                            print(f"WARNING: Failed to add chart {chart_name} to Excel: {e}")
+                            print(f"אזהרה: הוספת גרף {chart_name} ל-Excel נכשלה: {e}")
 
                     current_row = row  # Update global row tracker
 
             except Exception as e:
                 import traceback
-                print(f"WARNING: Error in charts section in Excel: {e}")
+                print(f"אזהרה: שגיאה בסעיף גרפים ב-Excel: {e}")
                 traceback.print_exc()
                 # Continue without charts
 
@@ -2279,7 +2280,7 @@ class ReportService:
                             fname = project.contract_file_url.split('/')[-1]
                             zf.writestr(f"contract_{fname}", contract_content)
                     except Exception as e:
-                        print(f"Error adding contract to ZIP: {e}")
+                        print(f"שגיאה בהוספת חוזה ל-ZIP: {e}")
 
                 # Add Image if requested
                 if options.include_project_image and project.image_url:
@@ -2290,7 +2291,7 @@ class ReportService:
                             fname = project.image_url.split('/')[-1]
                             zf.writestr(f"project_image_{fname}", image_content)
                     except Exception as e:
-                        print(f"Error adding image to ZIP: {e}")
+                        print(f"שגיאה בהוספת תמונה ל-ZIP: {e}")
 
                 # Documents
                 if options.include_transactions:
@@ -2425,7 +2426,7 @@ async def generate_zip_export(self, project_id: int) -> bytes:
         has_s3 = True
     except Exception:
         has_s3 = False
-        print("Warning: S3 Service not available for ZIP export")
+        print("אזהרה: שירות S3 לא זמין לייצוא ZIP")
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -2448,7 +2449,7 @@ async def generate_zip_export(self, project_id: int) -> bytes:
                         if content:
                             zf.writestr(f"documents/{filename}", content)
                     except Exception as e:
-                        print(f"Error adding file {file_path} to ZIP: {e}")
+                        print(f"שגיאה בהוספת קובץ {file_path} ל-ZIP: {e}")
 
     output.seek(0)
     return output.read()

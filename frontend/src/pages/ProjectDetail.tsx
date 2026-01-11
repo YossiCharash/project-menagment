@@ -22,6 +22,7 @@ import {
   normalizeCategoryForFilter,
   calculateMonthlyIncomeAccrual
 } from '../utils/calculations'
+import { formatDate } from '../lib/utils'
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   STANDING_ORDER: 'הוראת קבע',
@@ -190,6 +191,7 @@ export default function ProjectDetail() {
   const [projectBudgets, setProjectBudgets] = useState<BudgetWithSpending[]>([])
   const [projectName, setProjectName] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  const [updatingProject, setUpdatingProject] = useState(false)
   const [chartsLoading, setChartsLoading] = useState(false)
   const [projectImageUrl, setProjectImageUrl] = useState<string | null>(null)
   const [contractFileUrl, setContractFileUrl] = useState<string | null>(null)
@@ -560,13 +562,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
   return Number(value || 0).toLocaleString('he-IL')
 }
 
-const formatDate = (value: string | null) => {
-    try {
-      return value ? new Date(value).toLocaleDateString('he-IL') : 'לא הוגדר'
-    } catch {
-      return 'לא הוגדר'
-    }
-  }
+// formatDate is now imported from utils.ts
 
   const resolveFileUrl = (fileUrl: string | null | undefined): string | null => {
     if (!fileUrl) return null
@@ -819,19 +815,24 @@ const formatDate = (value: string | null) => {
 
   // Reload project info when project is updated (e.g., after editing in modal or uploading image)
   useEffect(() => {
-    const handleProjectUpdated = (event: Event) => {
+    const handleProjectUpdated = async (event: Event) => {
       const customEvent = event as CustomEvent
       if (customEvent.detail?.projectId && id && customEvent.detail.projectId === parseInt(id)) {
-        // Reload all data: project info, transactions, charts, and fund data
-        loadProjectInfo().then(() => {
-          load().then(() => {
-            loadChartsData()
-            // Reload fund data if project has fund
-            if (hasFund) {
-              loadFundData()
-            }
-          })
-        })
+        setUpdatingProject(true)
+        try {
+          // Reload all data: project info, transactions, charts, and fund data
+          await loadProjectInfo()
+          await load()
+          await loadChartsData()
+          // Reload fund data if project has fund
+          if (hasFund) {
+            await loadFundData()
+          }
+        } catch (err) {
+          console.error('Error reloading project data after update:', err)
+        } finally {
+          setUpdatingProject(false)
+        }
       }
     }
 
@@ -1543,12 +1544,12 @@ const formatDate = (value: string | null) => {
   return (
     <div className="space-y-8 relative">
       {/* Loading Overlay */}
-      {loading && (
+      {(loading || updatingProject) && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4">
             <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-lg font-semibold text-gray-900 dark:text-white">
-              טוען עסקאות...
+              {updatingProject ? 'מעדכן פרויקט...' : 'טוען עסקאות...'}
             </p>
           </div>
         </div>
@@ -2078,10 +2079,10 @@ const formatDate = (value: string | null) => {
                               </div>
                               <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
                                 <div className="text-right">
-                                    <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{new Date(tx.tx_date).toLocaleDateString('he-IL')}</div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(tx.tx_date)}</div>
                                     {tx.period_start_date && tx.period_end_date ? (
                                         <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`}>
-                                            {new Date(tx.period_start_date).toLocaleDateString('he-IL', {day: '2-digit', month: '2-digit'})} - {new Date(tx.period_end_date).toLocaleDateString('he-IL', {day: '2-digit', month: '2-digit'})}
+                                            {formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} - {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
                                         </div>
                                     ) : null}
                                 </div>
@@ -2105,7 +2106,7 @@ const formatDate = (value: string | null) => {
                                     <div className="text-sm text-blue-800 dark:text-blue-300 font-bold mb-2">עסקה תאריכית</div>
                                     <div className="text-xs text-blue-700 dark:text-blue-400 mb-1">תקופת תשלום:</div>
                                     <div className="text-base text-blue-900 dark:text-blue-200 font-semibold mb-2">
-                                      {new Date(tx.period_start_date).toLocaleDateString('he-IL')} - {new Date(tx.period_end_date).toLocaleDateString('he-IL')}
+                                      {formatDate(tx.period_start_date)} - {formatDate(tx.period_end_date)}
                                     </div>
                                     {(tx as any).proportionalAmount !== undefined && (tx as any).daysInMonth !== undefined && (tx as any).totalDays !== undefined ? (
                                       <div className="text-xs text-blue-700 dark:text-blue-400 space-y-1 mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">
@@ -2474,7 +2475,7 @@ const formatDate = (value: string | null) => {
                         <div className="flex items-center gap-3">
                           <div className="flex flex-col">
                             <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                              {new Date(tx.tx_date).toLocaleDateString('he-IL', {
+                              {formatDate(tx.tx_date, '', {
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric'
@@ -2991,7 +2992,7 @@ const formatDate = (value: string | null) => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 dark:bg-gray-700 text-left">
+                <tr className="bg-gray-50 dark:bg-gray-700 text-right">
                   <th className="p-3 font-medium text-gray-700 dark:text-gray-300">סוג</th>
                   <th className="p-3 font-medium text-gray-700 dark:text-gray-300">
                     {transactionTypeFilter === 'recurring' ? 'תדירות' : 'תאריך'}
@@ -3090,7 +3091,7 @@ const formatDate = (value: string | null) => {
                       <div>{t.tx_date}</div>
                       {t.period_start_date && t.period_end_date && (
                         <div className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded" key={`dated-dates-${t.id}`}>
-                          תאריכית: {new Date(t.period_start_date).toLocaleDateString('he-IL')} - {new Date(t.period_end_date).toLocaleDateString('he-IL')}
+                          תאריכית: {formatDate(t.period_start_date)} - {formatDate(t.period_end_date)}
                         </div>
                       )}
                     </td>
@@ -4119,7 +4120,7 @@ const formatDate = (value: string | null) => {
                                   {formatDate(period.start_date)} - {formatDate(period.end_date)}
                                 </div>
                               </div>
-                              <div className="text-left ml-4">
+                              <div className="text-right mr-4">
                                 <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">סיכום כלכלי:</div>
                                 <div className="text-green-600 dark:text-green-400 font-semibold">
                                   הכנסות: {formatCurrency(period.total_income)} ₪

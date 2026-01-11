@@ -29,6 +29,16 @@ class ProjectBase(BaseModel):
     # Fund fields
     has_fund: bool = False
     monthly_fund_amount: float | None = None
+    
+    # Ensure dates are serialized as YYYY-MM-DD without time component
+    @field_serializer('start_date', 'end_date', mode='plain')
+    def serialize_dates(self, v: date | None) -> str | None:
+        if v is None:
+            return None
+        # Always return just the date part in ISO format (YYYY-MM-DD)
+        if isinstance(v, datetime):
+            return v.date().isoformat()
+        return v.isoformat()
 
 
 class ProjectCreate(ProjectBase):
@@ -64,12 +74,6 @@ class ProjectOut(ProjectBase):
     is_active: bool = True
     created_at: datetime
     total_value: float = 0.0
-
-    @field_serializer('end_date')
-    def serialize_end_date(self, end_date: date | None, _info):
-        if end_date:
-            return end_date + timedelta(days=1)
-        return end_date
 
     class Config:
         from_attributes = True

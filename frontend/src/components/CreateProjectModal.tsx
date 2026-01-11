@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Project, ProjectCreate, BudgetCreate, BudgetWithSpending } from '../types/api'
 import { ProjectAPI, BudgetAPI, CategoryAPI, Category } from '../lib/apiClient'
+import { formatDateForInput } from '../lib/utils'
 
 interface CreateProjectModalProps {
   isOpen: boolean
@@ -75,6 +76,27 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     }
   }, [isOpen, parentProjectId, editingProject, projectType])
 
+  // Clear focus when modal opens to prevent buttons staying "pressed"
+  useEffect(() => {
+    if (isOpen) {
+      // Use setTimeout to ensure DOM is ready and all state updates are applied
+      const timeoutId = setTimeout(() => {
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur()
+        }
+        // Also blur any buttons that might have focus
+        const buttons = document.querySelectorAll('button:focus')
+        buttons.forEach((btn) => {
+          if (btn instanceof HTMLElement) {
+            btn.blur()
+          }
+        })
+      }, 50)
+      
+      return () => clearTimeout(timeoutId)
+    }
+  }, [isOpen])
+
   // Load available projects for parent selection and set parent project if provided
   useEffect(() => {
     if (isOpen) {
@@ -116,8 +138,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setFormData({
         name: editingProject.name,
         description: editingProject.description || '',
-        start_date: editingProject.start_date || '',
-        end_date: editingProject.end_date || '',
+        start_date: formatDateForInput(editingProject.start_date),
+        end_date: formatDateForInput(editingProject.end_date),
         budget_monthly: editingProject.budget_monthly,
         budget_annual: editingProject.budget_annual,
         address: editingProject.address || '',
@@ -264,6 +286,11 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   }
 
   const resetForm = () => {
+    // Remove focus from any active element to prevent button staying "pressed"
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+    
     setFormData({
       name: '',
       description: '',
@@ -516,8 +543,10 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         // Name is always required by backend (min_length=1), ensure it exists
         name: formData.name.trim(),
         description: formData.description || undefined,
-        start_date: formData.start_date || undefined,
-        end_date: formData.end_date || undefined,
+        // For updates, always send dates (even if empty string, convert to null/undefined)
+        // This ensures dates are updated properly
+        start_date: (formData.start_date && formData.start_date.trim()) || undefined,
+        end_date: (formData.end_date && formData.end_date.trim()) || undefined,
         // Budget fields are required with default 0
         budget_monthly: formData.budget_monthly || 0,
         budget_annual: formData.budget_annual || 0,
@@ -535,6 +564,18 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         budgets: (isParentProject || isParentProjectCreation ? undefined : (validBudgets.length > 0 ? validBudgets : undefined)),
         has_fund: (isParentProject || isParentProjectCreation) ? false : (hasFund || false),
         monthly_fund_amount: (isParentProject || isParentProjectCreation) ? undefined : (hasFund ? (monthlyFundAmount || 0) : undefined)
+      }
+      
+      // When updating, explicitly include dates even if they're empty to allow clearing them
+      if (editingProject) {
+        // Explicitly set dates to ensure they're sent in the update request
+        // If empty string, set to null to clear the date
+        if (formData.start_date === '') {
+          (projectData as any).start_date = null
+        }
+        if (formData.end_date === '') {
+          (projectData as any).end_date = null
+        }
       }
       
       // Ensure name is not empty (backend requirement - min_length=1)
@@ -601,6 +642,10 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   }
 
   const handleClose = () => {
+    // Remove focus from any active element before closing
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
     onClose()
     resetForm()
   }
@@ -1109,7 +1154,13 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               </label>
               <button
                 type="button"
-                onClick={addCategoryBudget}
+                onClick={(e) => {
+                  addCategoryBudget()
+                  // Remove focus immediately after click
+                  setTimeout(() => {
+                    e.currentTarget.blur()
+                  }, 0)
+                }}
                 disabled={!hasAvailableBudgetCategories}
                 className={`px-3 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 ${
                   hasAvailableBudgetCategories

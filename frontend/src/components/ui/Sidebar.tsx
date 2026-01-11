@@ -93,7 +93,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       initial={false}
       animate={{ width: isCollapsed ? 80 : 280 }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="fixed left-0 top-0 h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col z-30"
+      className="fixed right-0 top-0 h-screen bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col z-30"
     >
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -125,9 +125,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             {isCollapsed ? (
-              <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            ) : (
               <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             )}
           </button>
         </div>
@@ -158,9 +158,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
               <AnimatePresence>
                 {!isCollapsed && (
                   <motion.div
-                    initial={{ opacity: 0, x: -10 }}
+                    initial={{ opacity: 0, x: 10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
+                    exit={{ opacity: 0, x: 10 }}
                     transition={{ duration: 0.2 }}
                     className="flex-1 min-w-0"
                   >
@@ -241,11 +241,11 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
           
           {/* Sidebar */}
           <motion.aside
-            initial={{ x: '-100%' }}
+            initial={{ x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: '-100%' }}
+            exit={{ x: '100%' }}
             transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="fixed inset-y-0 left-0 w-80 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 z-50 lg:hidden"
+            className="fixed inset-y-0 right-0 w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 z-50 lg:hidden"
           >
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
