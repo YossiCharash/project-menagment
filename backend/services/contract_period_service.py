@@ -17,6 +17,70 @@ class ContractPeriodService:
         self.projects = ProjectRepository(db)
         self.transactions = TransactionRepository(db)
 
+    async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
+        """Get the current active contract period for a project"""
+        # Get project to identify current active dates
+        project = await self.projects.get_by_id(project_id)
+        if not project or not project.start_date:
+            return None
+        
+        # Find the period that matches the project's current start_date (active period)
+        periods = await self.contract_periods.get_by_project(project_id)
+        for period in periods:
+            if period.start_date == project.start_date:
+                summary = await self._get_period_financials(period)
+                # Ensure start_date is before end_date
+                start_date = period.start_date
+                end_date = period.end_date
+                if end_date and start_date > end_date:
+                    start_date, end_date = end_date, start_date
+                
+                # Always show current period as "תקופה ראשית" regardless of year_index in DB
+                return {
+                    'period_id': period.id,
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat() if end_date else None,
+                    'contract_year': period.contract_year,
+                    'year_index': 1,  # Always 1 for current period
+                    'year_label': "תקופה ראשית",  # Always "תקופה ראשית" for current period
+                    'total_income': summary['total_income'],
+                    'total_expense': summary['total_expense'],
+                    'total_profit': summary['total_profit']
+                }
+        
+        # If no matching period found, return project dates as fallback
+        # Ensure start_date is before end_date
+        start_date = project.start_date
+        end_date = project.end_date if project.end_date else None
+        
+        # Swap dates if they're in wrong order
+        if end_date and start_date > end_date:
+            start_date, end_date = end_date, start_date
+        
+        # Calculate financial summary for the current period (using project dates)
+        # Create a temporary period object to use with _get_period_financials
+        from datetime import date
+        temp_period = ContractPeriod(
+            project_id=project_id,
+            start_date=start_date,
+            end_date=end_date if end_date else date.today(),
+            contract_year=start_date.year,
+            year_index=1
+        )
+        summary = await self._get_period_financials(temp_period)
+        
+        return {
+            'period_id': None,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat() if end_date else None,
+            'contract_year': start_date.year,
+            'year_index': 1,
+            'year_label': "תקופה ראשית",
+            'total_income': summary['total_income'],
+            'total_expense': summary['total_expense'],
+            'total_profit': summary['total_profit']
+        }
+
     async def get_previous_contracts_by_year(self, project_id: int) -> Dict[int, List[Dict[str, Any]]]:
         """Get all contract periods grouped by year, with deduplication"""
         # Get all periods ordered by year and index
@@ -26,14 +90,21 @@ class ContractPeriodService:
         project = await self.projects.get_by_id(project_id)
         active_start = project.start_date if project else None
         
+        # First, identify the current period ID to exclude it
+        current_period_id = None
+        for period in periods:
+            if active_start and period.start_date == active_start:
+                current_period_id = period.id
+                break
+        
         # Deduplicate periods: 
         # 1. Use (start_date, end_date) as unique key to prevent duplicate rows with different IDs or indexes
-        # 2. Exclude the current active period (matches project start_date)
+        # 2. Exclude the current active period (matches project start_date OR has the same period_id)
         unique_periods = {}
         for period in periods:
-            # Skip if this is the active period (start_date matches project's current start_date)
+            # Skip if this is the active period (start_date matches project's current start_date OR same period_id)
             # "Previous" contracts should not include the current one
-            if active_start and period.start_date == active_start:
+            if (active_start and period.start_date == active_start) or (current_period_id and period.id == current_period_id):
                 continue
                 
             # Use (start_date, end_date) as unique key
@@ -53,10 +124,16 @@ class ContractPeriodService:
             # Calculate summary for this period
             summary = await self._get_period_financials(period)
             
+            # Ensure start_date is before end_date
+            start_date = period.start_date
+            end_date = period.end_date
+            if end_date and start_date > end_date:
+                start_date, end_date = end_date, start_date
+            
             result[year].append({
                 'period_id': period.id,
-                'start_date': period.start_date.isoformat(),
-                'end_date': period.end_date.isoformat(),
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat() if end_date else None,
                 'year_index': period.year_index,
                 'year_label': f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית",
                 'total_income': summary['total_income'],
@@ -72,24 +149,116 @@ class ContractPeriodService:
 
     async def _get_period_financials(self, period: ContractPeriod) -> Dict[str, float]:
         """Calculate financial summary for a period"""
-        # Get transactions within this period
-        # Note: We need a method in TransactionRepository to get by date range
-        # For now, we'll assume we can get all project transactions and filter (inefficient but safe)
-        # Or better, add a method to TransactionRepository.
-        # Let's check TransactionRepository capabilities.
-        # Using a direct query here would be better if repository doesn't support it.
+        from sqlalchemy import select, and_, func, or_
+        from backend.models.transaction import Transaction
         
-        # Assuming TransactionRepository has get_by_project_and_date_range or similar
-        # If not, we'll leave it as 0 for now or implement a quick query
+        start_date = period.start_date
+        end_date = period.end_date
+        project_id = period.project_id
         
-        # Actually, let's use the repository to get filtered transactions if possible
-        # checking repository... I don't see get_by_date_range in my memory of it.
-        # I'll stick to basic implementation.
+        # Ensure dates are in correct order
+        if end_date and start_date > end_date:
+            start_date, end_date = end_date, start_date
+        
+        # Calculate income - regular transactions + period transactions (proportional)
+        # 1. Regular income transactions
+        income_regular_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(
+                Transaction.project_id == project_id,
+                Transaction.type == "Income",
+                Transaction.from_fund == False,
+                Transaction.tx_date >= start_date,
+                Transaction.tx_date <= end_date,
+                or_(
+                    Transaction.period_start_date.is_(None),
+                    Transaction.period_end_date.is_(None)
+                )
+            )
+        )
+        regular_income = float((await self.db.execute(income_regular_query)).scalar_one())
+        
+        # 2. Period income transactions (proportional split)
+        income_period_query = select(Transaction).where(
+            and_(
+                Transaction.project_id == project_id,
+                Transaction.type == "Income",
+                Transaction.from_fund == False,
+                Transaction.period_start_date.is_not(None),
+                Transaction.period_end_date.is_not(None),
+                Transaction.period_start_date <= end_date,
+                Transaction.period_end_date >= start_date
+            )
+        )
+        period_income_txs = (await self.db.execute(income_period_query)).scalars().all()
+        
+        period_income = 0.0
+        for tx in period_income_txs:
+            total_days = (tx.period_end_date - tx.period_start_date).days + 1
+            if total_days <= 0:
+                continue
+            
+            daily_rate = float(tx.amount) / total_days
+            overlap_start = max(tx.period_start_date, start_date)
+            overlap_end = min(tx.period_end_date, end_date)
+            overlap_days = (overlap_end - overlap_start).days + 1
+            
+            if overlap_days > 0:
+                period_income += daily_rate * overlap_days
+        
+        total_income = regular_income + period_income
+        
+        # Calculate expenses - regular transactions + period transactions (proportional)
+        # 1. Regular expense transactions
+        expense_regular_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(
+                Transaction.project_id == project_id,
+                Transaction.type == "Expense",
+                Transaction.from_fund == False,
+                Transaction.tx_date >= start_date,
+                Transaction.tx_date <= end_date,
+                or_(
+                    Transaction.period_start_date.is_(None),
+                    Transaction.period_end_date.is_(None)
+                )
+            )
+        )
+        regular_expense = float((await self.db.execute(expense_regular_query)).scalar_one())
+        
+        # 2. Period expense transactions (proportional split)
+        expense_period_query = select(Transaction).where(
+            and_(
+                Transaction.project_id == project_id,
+                Transaction.type == "Expense",
+                Transaction.from_fund == False,
+                Transaction.period_start_date.is_not(None),
+                Transaction.period_end_date.is_not(None),
+                Transaction.period_start_date <= end_date,
+                Transaction.period_end_date >= start_date
+            )
+        )
+        period_expense_txs = (await self.db.execute(expense_period_query)).scalars().all()
+        
+        period_expense = 0.0
+        for tx in period_expense_txs:
+            total_days = (tx.period_end_date - tx.period_start_date).days + 1
+            if total_days <= 0:
+                continue
+            
+            daily_rate = float(tx.amount) / total_days
+            overlap_start = max(tx.period_start_date, start_date)
+            overlap_end = min(tx.period_end_date, end_date)
+            overlap_days = (overlap_end - overlap_start).days + 1
+            
+            if overlap_days > 0:
+                period_expense += daily_rate * overlap_days
+        
+        total_expense = regular_expense + period_expense
+        total_profit = total_income - total_expense
         
         return {
-            'total_income': 0,
-            'total_expense': 0,
-            'total_profit': 0
+            'total_income': total_income,
+            'total_expense': total_expense,
+            'total_profit': total_profit
         }
 
     async def get_contract_period_summary(self, period_id: int) -> Optional[Dict[str, Any]]:
@@ -100,27 +269,63 @@ class ContractPeriodService:
             
         summary = await self._get_period_financials(period)
         
+        # Ensure start_date is before end_date
+        start_date = period.start_date
+        end_date = period.end_date
+        if end_date and start_date > end_date:
+            start_date, end_date = end_date, start_date
+        
         return {
             'period_id': period.id,
             'project_id': period.project_id,
-            'start_date': period.start_date.isoformat(),
-            'end_date': period.end_date.isoformat(),
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat() if end_date else None,
             'contract_year': period.contract_year,
+            'year_index': period.year_index,
+            'year_label': f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית",
             **summary
         }
 
     async def check_and_renew_contract(self, project_id: int) -> Optional[ContractPeriod]:
-        """Check if contract needs renewal and create new period if so"""
-        # Get latest period
-        periods = await self.contract_periods.get_by_project(project_id)
-        if not periods:
+        """
+        Check if contract has ended and automatically create a new period.
+        Returns the new period if created, None otherwise.
+        """
+        # Get the project
+        project = await self.projects.get_by_id(project_id)
+        if not project or not project.end_date:
             return None
-            
-        latest_period = max(periods, key=lambda p: p.end_date)
         
-        # logical check: if end_date is passed or close?
-        # For now, just return None as we don't want to auto-renew unexpectedly
-        return None
+        # Check if contract end date has passed
+        today = date.today()
+        if project.end_date > today:
+            # Contract hasn't ended yet
+            return None
+        
+        # Contract has ended - close it and create new period
+        # Calculate the start date for the new period (day after current end_date)
+        new_period_start = project.end_date + timedelta(days=1)
+        
+        # Check if a period for this date already exists (avoid duplicates)
+        existing_periods = await self.contract_periods.get_by_project(project_id)
+        for period in existing_periods:
+            if period.start_date == new_period_start:
+                # Period already exists for this date
+                return None
+        
+        try:
+            # Close the current period and create a new one
+            # Note: We use a default user_id (1) for auto-renewal, but this could be improved
+            new_period = await self.close_year_manually(
+                project_id=project_id,
+                end_date=new_period_start,  # This becomes the start of the new period
+                archived_by_user_id=1  # System user for auto-renewal
+            )
+            return new_period
+        except Exception as e:
+            # Log error but don't fail - maybe period was already closed
+            print(f"Error auto-renewing contract for project {project_id}: {e}")
+            return None
 
     async def update_period_dates(
         self,
@@ -311,10 +516,11 @@ class ContractPeriodService:
         
         new_period = await self.contract_periods.create(new_period)
         
-        # Update project dates to reflect new period
+        # Update project dates to reflect new period (this makes the new period the "current" one)
+        # The old period will automatically be excluded from "previous periods" because its
+        # start_date no longer matches project.start_date
         project.start_date = next_start_date
-        if project.end_date and project.end_date < next_start_date:
-            project.end_date = new_period.end_date
+        project.end_date = new_period.end_date  # Always update end_date to match new period
         await self.projects.update(project)
         
         return new_period

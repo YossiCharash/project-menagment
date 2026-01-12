@@ -265,13 +265,13 @@ class ReportService:
         # If transactions were already fetched, calculate from them
         if transactions:
             income = sum(
-                float(tx.get('amount', 0))
-                for tx in transactions
+                float(tx.get('amount', 0)) 
+                for tx in transactions 
                 if tx.get('type') == 'Income'
             )
             expenses = sum(
-                float(tx.get('amount', 0))
-                for tx in transactions
+                float(tx.get('amount', 0)) 
+                for tx in transactions 
                 if tx.get('type') == 'Expense'
             )
         else:
@@ -290,14 +290,14 @@ class ReportService:
                     Transaction.from_fund == False
                 )
             )
-
+            
             if start_date:
                 income_q = income_q.where(Transaction.tx_date >= start_date)
                 expense_q = expense_q.where(Transaction.tx_date >= start_date)
             if end_date:
                 income_q = income_q.where(Transaction.tx_date <= end_date)
                 expense_q = expense_q.where(Transaction.tx_date <= end_date)
-
+            
             income = float((await self.db.execute(income_q)).scalar_one())
             expenses = float((await self.db.execute(expense_q)).scalar_one())
 
@@ -306,7 +306,7 @@ class ReportService:
         # Get project info for budget data
         proj = (await self.db.execute(select(Project).where(Project.id == project_id))).scalar_one()
         has_budget = proj.budget_monthly > 0 or proj.budget_annual > 0
-
+        
         fund_service = FundService(self.db)
         fund = await fund_service.get_fund_by_project(project_id)
         has_fund = fund is not None
@@ -423,14 +423,6 @@ class ReportService:
             project_created_at = proj_data["created_at"]
             project_budget_monthly = proj_data["budget_monthly"]
             project_budget_annual = proj_data["budget_annual"]
-
-            # Parse start_date from ISO string to date object if it exists
-            project_start_date = None
-            if project_start_date_str:
-                if isinstance(project_start_date_str, str):
-                    project_start_date = date.fromisoformat(project_start_date_str)
-                elif isinstance(project_start_date_str, date):
-                    project_start_date = project_start_date_str
 
             # Calculate start date
             if project_start_date:
@@ -972,8 +964,8 @@ class ReportService:
             if options.start_date or options.end_date:
                 # Calculate based on filtered transactions
                 summary_data = await self._calculate_summary_with_filters(
-                    project_id,
-                    options.start_date,
+                    project_id, 
+                    options.start_date, 
                     options.end_date,
                     transactions  # Use already fetched transactions
                 )
@@ -1200,11 +1192,11 @@ class ReportService:
         if transactions:
             elements.append(Paragraph(format_text(REPORT_LABELS['transaction_details']), style_h2))
             elements.append(Spacer(1, 10))
-
+            
             # Check which columns have data
             has_project = any(tx.project.name if tx.project else None for tx in transactions)
             has_description = any(tx.description for tx in transactions)
-
+            
             # Build dynamic column list
             columns = ['date']  # Always include date
             if has_project:
@@ -1212,7 +1204,7 @@ class ReportService:
             columns.extend(['type', 'amount'])  # Always include type and amount
             if has_description:
                 columns.append('description')
-
+            
             col_to_label = {
                 'date': REPORT_LABELS['date'],
                 'project': "פרויקט",
@@ -1220,7 +1212,7 @@ class ReportService:
                 'amount': REPORT_LABELS['amount'],
                 'description': REPORT_LABELS['description']
             }
-
+            
             col_widths_map = {
                 'date': 80,
                 'project': 100,
@@ -1228,16 +1220,16 @@ class ReportService:
                 'amount': 80,
                 'description': 200
             }
-
+            
             # Adjust description width if no project
             if has_description and not has_project:
                 col_widths_map['description'] = 280
-
+            
             col_widths = [col_widths_map[col] for col in columns]
-
+            
             # Build headers
             tx_data = [[format_text(col_to_label[col]) for col in columns]]
-
+            
             for tx in transactions:
                 tx_type = REPORT_LABELS['income'] if tx.type == "Income" else REPORT_LABELS['expense']
                 tx_desc = tx.description or ""
@@ -1255,7 +1247,7 @@ class ReportService:
                     'amount': f"{tx.amount:,.2f}",
                     'description': format_text(tx_desc)
                 }
-
+                
                 tx_data.append([col_to_value[col] for col in columns])
 
             tx_table = Table(tx_data, repeatRows=1, colWidths=col_widths)
@@ -1307,7 +1299,7 @@ class ReportService:
         if transactions:
             ws_tx = wb.create_sheet(REPORT_LABELS['transaction_details'][:30])
             ws_tx.sheet_view.rightToLeft = True
-
+            
             # Check which columns have data
             has_project = any(
                 (tx.get('project_name') if isinstance(tx, dict) else (tx.project.name if tx.project else None))
@@ -1333,7 +1325,7 @@ class ReportService:
                 (tx.get('file_path') if isinstance(tx, dict) else tx.file_path)
                 for tx in transactions
             )
-
+            
             # Build dynamic column list
             columns = ['date']  # Always include date
             if has_project:
@@ -1349,7 +1341,7 @@ class ReportService:
                 columns.append('notes')
             if has_file:
                 columns.append('file')
-
+            
             col_to_label = {
                 'date': REPORT_LABELS['date'],
                 'project': "פרויקט",
@@ -1361,7 +1353,7 @@ class ReportService:
                 'notes': REPORT_LABELS['notes'],
                 'file': REPORT_LABELS['file']
             }
-
+            
             col_widths = {
                 'date': 12,
                 'project': 20,
@@ -1373,7 +1365,7 @@ class ReportService:
                 'notes': 20,
                 'file': 8
             }
-
+            
             # Add headers
             headers = [col_to_label[col] for col in columns]
             ws_tx.append(headers)
@@ -1418,7 +1410,7 @@ class ReportService:
                         'notes': tx.notes or "",
                         'file': REPORT_LABELS['yes'] if tx.file_path else REPORT_LABELS['no']
                     }
-
+                
                 row = [col_to_value[col] for col in columns]
                 ws_tx.append(row)
 
@@ -1463,7 +1455,7 @@ class ReportService:
     def _create_chart_image(self, chart_type: str, data: Dict[str, Any], summary: Dict[str, Any] = None,
                             transactions: List[Dict] = None, budgets: List[Dict] = None) -> io.BytesIO | None:
         """Create a chart image using matplotlib and return as BytesIO"""
-
+        
         print(f"INFO: Starting chart creation for: {chart_type}")
 
         # הגדרת labels
@@ -1475,7 +1467,7 @@ class ReportService:
             'amount': 'סכום',
             'date': 'תאריך'
         }
-
+        
         fig = None
         ax = None
 
@@ -1483,31 +1475,31 @@ class ReportService:
             # ייבוא והגדרת matplotlib
             import os
             os.environ['MPLBACKEND'] = 'Agg'
-
+            
             import matplotlib
             matplotlib.use('Agg')
             import matplotlib.pyplot as plt
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-
+            
             # סגירת כל הגרפים הקודמים
             plt.close('all')
-
+            
             # יצירת figure ישירות (לא דרך pyplot) - גדול יותר ומקצועי יותר
             fig = Figure(figsize=(10, 7), dpi=120, facecolor='white')
             canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFAFA')  # רקע אפור בהיר מקצועי
-
+            
             # Professional color palette
             COLOR_INCOME = '#059669'      # Emerald-600
             COLOR_EXPENSE = '#E11D48'     # Rose-600
             COLOR_BG = '#FAFAFA'          # Light gray background
             COLOR_TEXT = '#0F172A'        # Slate-900
             COLOR_TEXT_MUTED = '#64748B'  # Slate-500
-
+            
             print(f"INFO: Figure created successfully for {chart_type}")
-
+            
             chart_created = False  # דגל לבדוק שגרף נוצר
 
             # --- תרשים עוגה: הכנסות מול הוצאות ---
@@ -1535,32 +1527,32 @@ class ReportService:
                 else:
                     single_value = len(sizes) == 1
                     ax.set_aspect('equal')
-
+                    
                     # צבעים מפורשים לכל מקרה
                     if single_value:
                         pie_colors = [COLOR_INCOME] if labels[0] == labels_dict['income'] else [COLOR_EXPENSE]
                     else:
                         pie_colors = colors_list
-
+                    
                     print(f"INFO: Creating pie chart with {len(sizes)} segments, colors: {pie_colors}")
-
+                    
                     # יצירת עוגה מקצועית עם shadow עדין
                     wedges, texts, autotexts = ax.pie(
-                        sizes,
-                        colors=pie_colors,
+                        sizes, 
+                        colors=pie_colors, 
                         autopct=lambda p: f'{p:.1f}%' if p > 0 and not single_value else '',
-                        startangle=90,
+                        startangle=90, 
                         textprops={'fontsize': 16, 'weight': 'bold', 'color': 'white'},
                         shadow=True,
                         explode=[0.05] * len(sizes)  # הפרדה עדינה בין החלקים
                     )
-
+                    
                     # עיצוב מקצועי של החלקים
                     for wedge in wedges:
                         wedge.set_edgecolor('white')
                         wedge.set_linewidth(3)
                         wedge.set_alpha(0.9)
-
+                    
                     # מקרא מקצועי עם סכומים
                     legend_labels = [f"{l}\n{s:,.0f} ₪" for l, s in zip(labels, sizes)]
                     legend = ax.legend(
@@ -1576,12 +1568,12 @@ class ReportService:
                         shadow=True
                     )
                     legend.get_frame().set_linewidth(1.5)
-
+                    
                     if single_value:
-                        ax.text(0, 0, f"100%", ha='center', va='center', fontsize=24,
+                        ax.text(0, 0, f"100%", ha='center', va='center', fontsize=24, 
                                color='white', fontweight='bold')
-
-                    ax.set_title(f"{labels_dict['income']} מול {labels_dict['expenses']}",
+                    
+                    ax.set_title(f"{labels_dict['income']} מול {labels_dict['expenses']}", 
                                 fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                     chart_created = True
 
@@ -1599,26 +1591,26 @@ class ReportService:
                     plt.close(fig)
                     print("INFO: No expense data for expense_by_category_pie chart")
                     return None
-
+                
                 sorted_pairs = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)
                 labels = [p[0] for p in sorted_pairs]
                 sizes = [p[1] for p in sorted_pairs]
 
                 # צבעים מקצועיים - פלטת צבעים מגוונת
-                color_palette = ['#E11D48', '#F97316', '#EAB308', '#22C55E', '#06B6D4',
+                color_palette = ['#E11D48', '#F97316', '#EAB308', '#22C55E', '#06B6D4', 
                                 '#3B82F6', '#8B5CF6', '#EC4899', '#F43F5E', '#84CC16',
                                 '#14B8A6', '#A855F7', '#F59E0B', '#EF4444', '#10B981']
                 pie_colors = [color_palette[i % len(color_palette)] for i in range(len(labels))]
-
+                
                 ax.axis('equal')
                 # הפרדה עדינה יותר לחלקים הקטנים
                 explode_values = [0.05 if s < max(sizes) * 0.1 else 0.02 for s in sizes]
                 wedges, texts, autotexts = ax.pie(
-                    sizes,
-                    colors=pie_colors,
+                    sizes, 
+                    colors=pie_colors, 
                     autopct=lambda p: f'{p:.1f}%' if p > 3 else '',  # הצג אחוזים רק אם גדול מ-3%
-                    startangle=90,
-                    textprops={'fontsize': 11, 'weight': 'bold', 'color': 'white'},
+                    startangle=90, 
+                    textprops={'fontsize': 11, 'weight': 'bold', 'color': 'white'}, 
                     shadow=True,
                     explode=explode_values
                 )
@@ -1642,8 +1634,8 @@ class ReportService:
                     shadow=True
                 )
                 legend.get_frame().set_linewidth(1.5)
-
-                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}",
+                
+                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 chart_created = True
             # --- תרשים עמודות: הוצאות לפי קטגוריה ---
@@ -1655,7 +1647,7 @@ class ReportService:
                         category_expenses[cat] = category_expenses.get(cat, 0) + float(tx.get('amount', 0) or 0)
 
                 category_expenses = {k: v for k, v in category_expenses.items() if v > 0}
-
+                
                 if not category_expenses:
                     print("INFO: No expense data for expense_by_category_bar chart")
                     return None
@@ -1665,7 +1657,7 @@ class ReportService:
                 amounts = [x[1] for x in sorted_cats]
 
                 print(f"INFO: Creating bar chart with {len(categories)} categories")
-
+                
                 # צבע מקצועי - גרדיאנט לפי גובה
                 max_amount = max(amounts)
                 bar_colors = []
@@ -1674,10 +1666,10 @@ class ReportService:
                     # ככל שהסכום גדול יותר, הצבע כהה יותר
                     intensity = 0.6 + (amount / max_amount) * 0.4
                     bar_colors.append(base_color)
-
-                bars = ax.bar(categories, amounts, color=bar_colors, edgecolor='white',
+                
+                bars = ax.bar(categories, amounts, color=bar_colors, edgecolor='white', 
                              linewidth=2, alpha=0.85)
-
+                
                 # רשת רקע עדינה
                 ax.grid(axis='y', alpha=0.2, linestyle='--', linewidth=0.8)
                 ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
@@ -1687,11 +1679,11 @@ class ReportService:
                 # תוויות על העמודות
                 for bar in bars:
                     height = bar.get_height()
-                    ax.text(bar.get_x() + bar.get_width() / 2., height + (max(amounts) * 0.02),
-                           f'{height:,.0f} ₪', ha='center', va='bottom',
+                    ax.text(bar.get_x() + bar.get_width() / 2., height + (max(amounts) * 0.02), 
+                           f'{height:,.0f} ₪', ha='center', va='bottom', 
                            fontsize=9, fontweight='bold', color=COLOR_TEXT)
-
-                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}",
+                
+                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
@@ -1723,31 +1715,31 @@ class ReportService:
                 sorted_dates = sorted(daily_data.keys())
                 incomes = [daily_data[d]['income'] for d in sorted_dates]
                 expenses = [daily_data[d]['expense'] for d in sorted_dates]
-
+                
                 # Check if there's actual data (not all zeros)
                 if sum(incomes) == 0 and sum(expenses) == 0:
                     print("INFO: All zeros in trends_line chart data")
                     return None
 
                 print(f"INFO: Creating trends chart with {len(sorted_dates)} dates")
-
+                
                 # קו הכנסות מקצועי
-                ax.plot(sorted_dates, incomes, marker='o', label=labels_dict['income'],
+                ax.plot(sorted_dates, incomes, marker='o', label=labels_dict['income'], 
                        color=COLOR_INCOME, linewidth=3, markersize=8, markerfacecolor=COLOR_INCOME,
                        markeredgecolor='white', markeredgewidth=2)
                 # קו הוצאות מקצועי
-                ax.plot(sorted_dates, expenses, marker='s', label=labels_dict['expenses'],
+                ax.plot(sorted_dates, expenses, marker='s', label=labels_dict['expenses'], 
                        color=COLOR_EXPENSE, linewidth=3, markersize=8, markerfacecolor=COLOR_EXPENSE,
                        markeredgecolor='white', markeredgewidth=2)
                 # מילוי תחת הקווים - אפקט מקצועי
                 ax.fill_between(sorted_dates, incomes, alpha=0.2, color=COLOR_INCOME)
                 ax.fill_between(sorted_dates, expenses, alpha=0.2, color=COLOR_EXPENSE)
-
+                
                 ax.tick_params(axis='x', rotation=45, labelsize=10)
                 ax.tick_params(axis='y', labelsize=10)
-                ax.legend(loc='upper right', fontsize=12, framealpha=0.95,
+                ax.legend(loc='upper right', fontsize=12, framealpha=0.95, 
                          edgecolor='#E2E8F0', facecolor='white', shadow=True)
-                ax.set_title("מגמות הכנסות והוצאות לאורך זמן",
+                ax.set_title("מגמות הכנסות והוצאות לאורך זמן", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
@@ -1766,7 +1758,7 @@ class ReportService:
                         supplier_expenses[supplier] = supplier_expenses.get(supplier, 0) + float(tx.get('amount', 0) or 0)
 
                 supplier_expenses = {k: v for k, v in supplier_expenses.items() if v > 0}
-
+                
                 if not supplier_expenses:
                     print("INFO: No expense data for expense_by_supplier_bar chart")
                     return None
@@ -1776,10 +1768,10 @@ class ReportService:
                 amounts = [x[1] for x in sorted_suppliers]
 
                 print(f"INFO: Creating supplier bar chart with {len(suppliers)} suppliers")
-
-                bars = ax.barh(suppliers, amounts, color=COLOR_EXPENSE, edgecolor='white',
+                
+                bars = ax.barh(suppliers, amounts, color=COLOR_EXPENSE, edgecolor='white', 
                              linewidth=2, alpha=0.85)
-
+                
                 ax.grid(axis='x', alpha=0.2, linestyle='--', linewidth=0.8)
                 ax.set_xlabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.tick_params(axis='x', labelsize=10)
@@ -1787,11 +1779,11 @@ class ReportService:
 
                 for i, bar in enumerate(bars):
                     width = bar.get_width()
-                    ax.text(width + (max(amounts) * 0.02), bar.get_y() + bar.get_height() / 2.,
-                           f'{width:,.0f} ₪', ha='left', va='center',
+                    ax.text(width + (max(amounts) * 0.02), bar.get_y() + bar.get_height() / 2., 
+                           f'{width:,.0f} ₪', ha='left', va='center', 
                            fontsize=9, fontweight='bold', color=COLOR_TEXT)
-
-                ax.set_title("הוצאות לפי ספק (10 הגדולים)",
+                
+                ax.set_title("הוצאות לפי ספק (10 הגדולים)", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
@@ -1823,27 +1815,27 @@ class ReportService:
                 sorted_months = sorted(monthly_data.keys())
                 incomes = [monthly_data[m]['income'] for m in sorted_months]
                 expenses = [monthly_data[m]['expense'] for m in sorted_months]
-
+                
                 if sum(incomes) == 0 and sum(expenses) == 0:
                     print("INFO: All zeros in monthly_trends_line chart data")
                     return None
 
                 print(f"INFO: Creating monthly trends chart with {len(sorted_months)} months")
-
-                ax.plot(sorted_months, incomes, marker='o', label=labels_dict['income'],
+                
+                ax.plot(sorted_months, incomes, marker='o', label=labels_dict['income'], 
                        color=COLOR_INCOME, linewidth=3, markersize=8, markerfacecolor=COLOR_INCOME,
                        markeredgecolor='white', markeredgewidth=2)
-                ax.plot(sorted_months, expenses, marker='s', label=labels_dict['expenses'],
+                ax.plot(sorted_months, expenses, marker='s', label=labels_dict['expenses'], 
                        color=COLOR_EXPENSE, linewidth=3, markersize=8, markerfacecolor=COLOR_EXPENSE,
                        markeredgecolor='white', markeredgewidth=2)
                 ax.fill_between(sorted_months, incomes, alpha=0.2, color=COLOR_INCOME)
                 ax.fill_between(sorted_months, expenses, alpha=0.2, color=COLOR_EXPENSE)
-
+                
                 ax.tick_params(axis='x', rotation=45, labelsize=10)
                 ax.tick_params(axis='y', labelsize=10)
-                ax.legend(loc='upper right', fontsize=12, framealpha=0.95,
+                ax.legend(loc='upper right', fontsize=12, framealpha=0.95, 
                          edgecolor='#E2E8F0', facecolor='white', shadow=True)
-                ax.set_title("מגמות חודשיות - הכנסות והוצאות",
+                ax.set_title("מגמות חודשיות - הכנסות והוצאות", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
@@ -1858,12 +1850,12 @@ class ReportService:
                 budget_data = []
                 actual_data = []
                 labels = []
-
+                
                 for b in budgets:
                     cat_name = b.get('category') or labels_dict['general']
                     budget_amount = float(b.get('amount', 0) or 0)
                     spent_amount = float(b.get('spent_amount', 0) or 0)
-
+                    
                     if budget_amount > 0:
                         labels.append(cat_name)
                         budget_data.append(budget_amount)
@@ -1876,14 +1868,14 @@ class ReportService:
                 x = range(len(labels))
                 width = 0.35
 
-                bars1 = ax.bar([i - width/2 for i in x], budget_data, width,
+                bars1 = ax.bar([i - width/2 for i in x], budget_data, width, 
                               label='תקציב', color=COLOR_INCOME, alpha=0.8, edgecolor='white', linewidth=2)
-                bars2 = ax.bar([i + width/2 for i in x], actual_data, width,
+                bars2 = ax.bar([i + width/2 for i in x], actual_data, width, 
                               label='ביצוע', color=COLOR_EXPENSE, alpha=0.8, edgecolor='white', linewidth=2)
 
                 ax.set_xlabel('קטגוריה', fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
-                ax.set_title('תקציב מול ביצוע לפי קטגוריה',
+                ax.set_title('תקציב מול ביצוע לפי קטגוריה', 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.set_xticks(x)
                 ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
@@ -1925,15 +1917,15 @@ class ReportService:
                     return None
 
                 print(f"INFO: Creating cumulative expenses chart with {len(sorted_dates)} dates")
-
-                ax.plot(sorted_dates, cumulative, marker='o', color=COLOR_EXPENSE,
+                
+                ax.plot(sorted_dates, cumulative, marker='o', color=COLOR_EXPENSE, 
                        linewidth=3, markersize=6, markerfacecolor=COLOR_EXPENSE,
                        markeredgecolor='white', markeredgewidth=2)
                 ax.fill_between(sorted_dates, cumulative, alpha=0.3, color=COLOR_EXPENSE)
-
+                
                 ax.tick_params(axis='x', rotation=45, labelsize=10)
                 ax.tick_params(axis='y', labelsize=10)
-                ax.set_title("הוצאות מצטברות לאורך זמן",
+                ax.set_title("הוצאות מצטברות לאורך זמן", 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.set_ylabel('סכום מצטבר (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
@@ -1958,24 +1950,24 @@ class ReportService:
                 fig.tight_layout()
             except Exception as layout_err:
                 print(f"WARNING: tight_layout failed: {layout_err}")
-
+            
             # שמירת התמונה באמצעות canvas
             img_buffer = io.BytesIO()
             canvas.print_png(img_buffer)
-
+            
             img_buffer.seek(0)
             img_data = img_buffer.read()
-
+            
             # בדיקה שהתמונה נוצרה כראוי
             if len(img_data) < 1000:
                 print(f"WARNING: Chart image seems too small ({len(img_data)} bytes)")
                 return None
-
+            
             # בדיקת חתימת PNG
             if img_data[:8] != b'\x89PNG\r\n\x1a\n':
                 print(f"WARNING: Generated image is not valid PNG")
                 return None
-
+            
             print(f"INFO: Chart '{chart_type}' created successfully, size: {len(img_data)} bytes")
             img_buffer.seek(0)
             return img_buffer
@@ -1990,11 +1982,11 @@ class ReportService:
             return None
 
     def _add_native_excel_charts(
-            self,
-            wb,
-            ws,
-            start_row: int,
-            summary: Dict[str, Any],
+            self, 
+            wb, 
+            ws, 
+            start_row: int, 
+            summary: Dict[str, Any], 
             transactions: List[Dict],
             chart_types: List[str]
     ) -> int:
@@ -2007,14 +1999,14 @@ class ReportService:
 
         charts_added = 0
         current_row = start_row
-
+        
         # Create a separate data sheet for chart data
         data_sheet_name = "_ChartData"
         if data_sheet_name in wb.sheetnames:
             ws_data = wb[data_sheet_name]
         else:
             ws_data = wb.create_sheet(data_sheet_name)
-
+        
         data_row = 1
 
         try:
@@ -2022,27 +2014,27 @@ class ReportService:
             if "income_expense_pie" in chart_types and summary:
                 income = float(summary.get('income', 0))
                 expenses = float(summary.get('expenses', 0))
-
+                
                 if income > 0 or expenses > 0:
                     # Write data to hidden sheet
                     ws_data[f'A{data_row}'] = REPORT_LABELS['income']
                     ws_data[f'B{data_row}'] = income
                     ws_data[f'A{data_row + 1}'] = REPORT_LABELS['expenses']
                     ws_data[f'B{data_row + 1}'] = expenses
-
+                    
                     # Create pie chart
                     chart = PieChart()
                     chart.title = f"{REPORT_LABELS['income']} מול {REPORT_LABELS['expenses']}"
-
+                    
                     labels = Reference(ws_data, min_col=1, min_row=data_row, max_row=data_row + 1)
                     data = Reference(ws_data, min_col=2, min_row=data_row, max_row=data_row + 1)
                     chart.add_data(data)
                     chart.set_categories(labels)
-
+                    
                     # Style the chart
                     chart.width = 12
                     chart.height = 8
-
+                    
                     # Add chart to main sheet
                     ws.add_chart(chart, f'A{current_row}')
                     current_row += 18
@@ -2056,28 +2048,28 @@ class ReportService:
                     if tx.get('type') == 'Expense':
                         cat = tx.get('category') or REPORT_LABELS['general']
                         category_expenses[cat] = category_expenses.get(cat, 0) + float(tx.get('amount', 0))
-
+                
                 if category_expenses:
                     sorted_cats = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)
-
+                    
                     # Write data
                     cat_start_row = data_row
                     for idx, (cat_name, amount) in enumerate(sorted_cats):
                         ws_data[f'A{data_row + idx}'] = cat_name
                         ws_data[f'B{data_row + idx}'] = amount
-
+                    
                     # Create pie chart
                     chart = PieChart()
                     chart.title = f"{REPORT_LABELS['expenses']} לפי {REPORT_LABELS['category']}"
-
+                    
                     labels = Reference(ws_data, min_col=1, min_row=cat_start_row, max_row=cat_start_row + len(sorted_cats) - 1)
                     data = Reference(ws_data, min_col=2, min_row=cat_start_row, max_row=cat_start_row + len(sorted_cats) - 1)
                     chart.add_data(data)
                     chart.set_categories(labels)
-
+                    
                     chart.width = 12
                     chart.height = 8
-
+                    
                     ws.add_chart(chart, f'A{current_row}')
                     current_row += 18
                     data_row += len(sorted_cats) + 2
@@ -2090,32 +2082,32 @@ class ReportService:
                     if tx.get('type') == 'Expense':
                         cat = tx.get('category') or REPORT_LABELS['general']
                         category_expenses[cat] = category_expenses.get(cat, 0) + float(tx.get('amount', 0))
-
+                
                 if category_expenses:
                     sorted_cats = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)
-
+                    
                     # Write data with header
                     ws_data[f'A{data_row}'] = REPORT_LABELS['category']
                     ws_data[f'B{data_row}'] = REPORT_LABELS['amount']
-
+                    
                     for idx, (cat_name, amount) in enumerate(sorted_cats):
                         ws_data[f'A{data_row + idx + 1}'] = cat_name
                         ws_data[f'B{data_row + idx + 1}'] = amount
-
+                    
                     # Create bar chart
                     chart = BarChart()
                     chart.title = f"{REPORT_LABELS['expenses']} לפי {REPORT_LABELS['category']}"
                     chart.type = "col"
                     chart.style = 10
-
+                    
                     data = Reference(ws_data, min_col=2, min_row=data_row, max_row=data_row + len(sorted_cats))
                     categories = Reference(ws_data, min_col=1, min_row=data_row + 1, max_row=data_row + len(sorted_cats))
                     chart.add_data(data, titles_from_data=True)
                     chart.set_categories(categories)
-
+                    
                     chart.width = 14
                     chart.height = 8
-
+                    
                     ws.add_chart(chart, f'A{current_row}')
                     current_row += 18
                     data_row += len(sorted_cats) + 3
@@ -2125,7 +2117,7 @@ class ReportService:
             if "trends_line" in chart_types and transactions:
                 from collections import defaultdict
                 daily_data = defaultdict(lambda: {'income': 0, 'expense': 0})
-
+                
                 for tx in transactions:
                     tx_date = tx.get('tx_date')
                     if tx_date:
@@ -2133,51 +2125,51 @@ class ReportService:
                             date_str = tx_date[:10]  # YYYY-MM-DD
                         else:
                             date_str = tx_date.strftime('%Y-%m-%d')
-
+                        
                         if tx.get('type') == 'Income':
                             daily_data[date_str]['income'] += float(tx.get('amount', 0))
                         else:
                             daily_data[date_str]['expense'] += float(tx.get('amount', 0))
-
+                
                 if daily_data:
                     sorted_dates = sorted(daily_data.keys())
-
+                    
                     # Write headers
                     ws_data[f'A{data_row}'] = REPORT_LABELS['date']
                     ws_data[f'B{data_row}'] = REPORT_LABELS['income']
                     ws_data[f'C{data_row}'] = REPORT_LABELS['expenses']
-
+                    
                     # Write data
                     for idx, date_str in enumerate(sorted_dates):
                         ws_data[f'A{data_row + idx + 1}'] = date_str
                         ws_data[f'B{data_row + idx + 1}'] = daily_data[date_str]['income']
                         ws_data[f'C{data_row + idx + 1}'] = daily_data[date_str]['expense']
-
+                    
                     # Create line chart
                     chart = LineChart()
                     chart.title = "מגמות לאורך זמן"
                     chart.style = 13
-
+                    
                     data = Reference(ws_data, min_col=2, min_row=data_row, max_col=3, max_row=data_row + len(sorted_dates))
                     categories = Reference(ws_data, min_col=1, min_row=data_row + 1, max_row=data_row + len(sorted_dates))
                     chart.add_data(data, titles_from_data=True)
                     chart.set_categories(categories)
-
+                    
                     chart.width = 16
                     chart.height = 8
-
+                    
                     ws.add_chart(chart, f'A{current_row}')
                     current_row += 18
                     charts_added += 1
 
             # Hide the data sheet
             ws_data.sheet_state = 'hidden'
-
+            
         except Exception as e:
             import traceback
             print(f"אזהרה: שגיאה ביצירת גרפים נייטיביים ב-Excel: {e}")
             traceback.print_exc()
-
+        
         return charts_added
 
     async def _generate_pdf(self, project, options, transactions, budgets, fund, summary, chart_images=None) -> bytes:
@@ -2329,7 +2321,7 @@ class ReportService:
             print("אזהרה: גופן עברי לא נטען! טקסט לא יוצג כראוי.")
 
         styles = getSampleStyleSheet()
-
+        
         # ===== PROFESSIONAL COLOR PALETTE (matching Excel) =====
         COLOR_PRIMARY_DARK = '#0F172A'    # Slate-900
         COLOR_PRIMARY_MID = '#1E293B'     # Slate-800
@@ -2341,91 +2333,91 @@ class ReportService:
         COLOR_BG_ALT = '#F1F5F9'          # Slate-100
         COLOR_TEXT_DARK = '#0F172A'       # Dark text
         COLOR_TEXT_MUTED = '#64748B'      # Slate-500
-
+        
         # Main title style - elegant dark with accent
         style_title = ParagraphStyle(
-            'HebrewTitle',
-            parent=styles['Heading1'],
-            fontName=font_name,
-            fontSize=24,
+            'HebrewTitle', 
+            parent=styles['Heading1'], 
+            fontName=font_name, 
+            fontSize=24, 
             alignment=1,
-            textColor=colors.HexColor(COLOR_PRIMARY_DARK),
-            leading=32,
-            spaceAfter=8,
+            textColor=colors.HexColor(COLOR_PRIMARY_DARK), 
+            leading=32, 
+            spaceAfter=8, 
             spaceBefore=15,
             borderWidth=0,
             borderPadding=12,
             borderColor=colors.HexColor(COLOR_ACCENT_TEAL),
             borderRadius=4
         )
-
+        
         # Section header style - teal accent
         style_h2 = ParagraphStyle(
-            'HebrewHeading2',
-            parent=styles['Heading2'],
-            fontName=font_name,
-            fontSize=14,
+            'HebrewHeading2', 
+            parent=styles['Heading2'], 
+            fontName=font_name, 
+            fontSize=14, 
             alignment=1,
             textColor=colors.white,
             backColor=colors.HexColor(COLOR_ACCENT_TEAL),
-            leading=20,
-            spaceBefore=18,
+            leading=20, 
+            spaceBefore=18, 
             spaceAfter=10,
             leftIndent=10,
             rightIndent=10,
             borderPadding=8
         )
-
+        
         # Category header style - amber accent
         style_category = ParagraphStyle(
-            'HebrewCategory',
-            parent=styles['Heading2'],
-            fontName=font_name,
-            fontSize=12,
+            'HebrewCategory', 
+            parent=styles['Heading2'], 
+            fontName=font_name, 
+            fontSize=12, 
             alignment=1,
             textColor=colors.white,
             backColor=colors.HexColor(COLOR_ACCENT_AMBER),
-            leading=18,
-            spaceBefore=12,
+            leading=18, 
+            spaceBefore=12, 
             spaceAfter=6,
             leftIndent=8,
             rightIndent=8,
             borderPadding=6
         )
-
+        
         # Normal text style
         style_normal = ParagraphStyle(
-            'HebrewNormal',
-            parent=styles['Normal'],
-            fontName=font_name,
-            fontSize=10,
+            'HebrewNormal', 
+            parent=styles['Normal'], 
+            fontName=font_name, 
+            fontSize=10, 
             alignment=1,
-            leading=14,
+            leading=14, 
             spaceAfter=8,
             textColor=colors.HexColor(COLOR_TEXT_DARK)
         )
-
+        
         # Subtitle/date style
         style_subtitle = ParagraphStyle(
-            'HebrewSubtitle',
-            parent=styles['Normal'],
-            fontName=font_name,
-            fontSize=10,
+            'HebrewSubtitle', 
+            parent=styles['Normal'], 
+            fontName=font_name, 
+            fontSize=10, 
             alignment=1,
-            leading=14,
+            leading=14, 
             spaceAfter=15,
             textColor=colors.HexColor(COLOR_TEXT_MUTED),
             fontStyle='italic'
         )
-
+        
         # Table cell style with text wrapping
         style_table_cell = ParagraphStyle(
-            'HebrewTableCell',
-            parent=styles['Normal'],
-            fontName=font_name,
-            fontSize=9,
-            alignment=1,
-            leading=12,
+            'HebrewTableCell', 
+            parent=styles['Normal'], 
+            fontName=font_name, 
+            fontSize=9, 
+            alignment=1, 
+            leading=12, 
             wordWrap='CJK',
             textColor=colors.HexColor(COLOR_TEXT_DARK)
         )
@@ -2492,20 +2484,36 @@ class ReportService:
             ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_ACCENT_TEAL))
         ]))
         elements.append(Spacer(1, 15))
-
+        
         # Main title with project name
         elements.append(Paragraph(format_text(f"📊 {REPORT_LABELS['project_report']}"), style_title))
         elements.append(Paragraph(format_text(project.name), ParagraphStyle(
             'ProjectName', parent=styles['Heading1'], fontName=font_name, fontSize=20, alignment=1,
             textColor=colors.HexColor(COLOR_ACCENT_TEAL), leading=26, spaceAfter=8
         )))
-
-        # Date subtitle
+        
+        # Date range subtitle
+        date_range_text = ""
+        if options.start_date and options.end_date:
+            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
+        elif options.start_date:
+            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
+        elif options.end_date:
+            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        else:
+            date_range_text = "כל התקופות"
+        
+        elements.append(Paragraph(
+            format_text(f"תקופה: {date_range_text}"),
+            style_subtitle
+        ))
+        
+        # Production date
         elements.append(Paragraph(
             format_text(f"{REPORT_LABELS['production_date']}: {date.today().strftime('%d/%m/%Y')}"),
             style_subtitle
         ))
-
+        
         # Decorative divider
         elements.append(Table([[""]], colWidths=[520], rowHeights=[2], style=[
             ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_BG_ALT))
@@ -2513,12 +2521,12 @@ class ReportService:
         elements.append(Spacer(1, 20))
 
         # ========== עמוד ראשון: קופה ותקציבים ==========
-
+        
         # Fund - פרטי קופה - Professional Card Style
         if options.include_funds and fund:
             elements.append(Paragraph(format_text(f"🏦 {REPORT_LABELS['fund_status']}"), style_h2))
             elements.append(Spacer(1, 8))
-
+            
             fund_data = [
                 [format_text(f"💵 {REPORT_LABELS['current_balance']}"), f"{fund.current_balance:,.2f} ₪"],
                 [format_text(f"📅 {REPORT_LABELS['monthly_deposit']}"), f"{fund.monthly_amount:,.2f} ₪"]
@@ -2545,16 +2553,16 @@ class ReportService:
         if options.include_budgets and budgets:
             elements.append(Paragraph(format_text(f"📋 {REPORT_LABELS['budget_vs_actual']}"), style_h2))
             elements.append(Spacer(1, 8))
-
+            
             # Headers with usage percent column
             budget_table_data = [[
-                format_text(REPORT_LABELS['category']),
+                format_text(REPORT_LABELS['category']), 
                 format_text(REPORT_LABELS['budget']),
-                format_text(REPORT_LABELS['used']),
+                format_text(REPORT_LABELS['used']), 
                 format_text(REPORT_LABELS['remaining']),
                 format_text("ניצול %")
             ]]
-
+            
             for b in budgets:
                 cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                 usage_percent = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
@@ -2567,7 +2575,7 @@ class ReportService:
                 ])
 
             budget_table = Table(budget_table_data, colWidths=[110, 95, 95, 95, 70])
-
+            
             # Build dynamic style for conditional coloring
             budget_style = [
                 ('FONT', (0, 0), (-1, -1), font_name),
@@ -2581,32 +2589,32 @@ class ReportService:
                 ('TOPPADDING', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ]
-
+            
             # Add alternating row colors and conditional formatting
             for row_idx, b in enumerate(budgets):
                 row = row_idx + 1  # Account for header row
                 usage_percent = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
                 remaining = b['remaining_amount']
-
+                
                 # Alternating background
                 if row_idx % 2 == 0:
                     budget_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor(COLOR_BG_LIGHT)))
                 else:
                     budget_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor(COLOR_BG_ALT)))
-
+                
                 # Color the "used" column based on usage
                 if usage_percent > 100:
                     budget_style.append(('TEXTCOLOR', (2, row), (2, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                     budget_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor('#FFE4E6')))  # Rose-100
                 elif usage_percent > 80:
                     budget_style.append(('TEXTCOLOR', (2, row), (2, row), colors.HexColor(COLOR_ACCENT_AMBER)))
-
+                
                 # Color the "remaining" column
                 if remaining < 0:
                     budget_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                 else:
                     budget_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_EMERALD)))
-
+            
             budget_table.setStyle(TableStyle(budget_style))
             elements.append(budget_table)
             elements.append(Spacer(1, 25))
@@ -2615,31 +2623,31 @@ class ReportService:
         if options.include_budgets and budgets:
             elements.append(Paragraph(format_text("📊 סיכום תקציבים"), style_h2))
             elements.append(Spacer(1, 15))
-
+            
             # טבלת סיכום תקציבים
             budget_summary_data = [[
-                format_text(REPORT_LABELS['category']),
+                format_text(REPORT_LABELS['category']), 
                 format_text(REPORT_LABELS['budget']),
-                format_text(REPORT_LABELS['used']),
+                format_text(REPORT_LABELS['used']), 
                 format_text(REPORT_LABELS['remaining']),
                 format_text("אחוז ניצול")
             ]]
-
+            
             total_budget = 0
             total_spent = 0
             total_remaining = 0
-
+            
             for b in budgets:
                 cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                 budget_amount = b['amount']
                 spent_amount = b['spent_amount']
                 remaining_amount = b['remaining_amount']
                 usage_percent = (spent_amount / budget_amount * 100) if budget_amount > 0 else 0
-
+                
                 total_budget += budget_amount
                 total_spent += spent_amount
                 total_remaining += remaining_amount
-
+                
                 budget_summary_data.append([
                     format_text(cat_name),
                     f"{budget_amount:,.2f} ₪",
@@ -2647,7 +2655,7 @@ class ReportService:
                     f"{remaining_amount:,.2f} ₪",
                     f"{usage_percent:.1f}%"
                 ])
-
+            
             # שורת סיכום
             total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
             budget_summary_data.append([
@@ -2657,7 +2665,7 @@ class ReportService:
                 f"{total_remaining:,.2f} ₪",
                 f"{total_usage:.1f}%"
             ])
-
+            
             budget_summary_table = Table(budget_summary_data, colWidths=[110, 90, 90, 90, 70], style=[
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#4C1D95')),
@@ -2677,18 +2685,18 @@ class ReportService:
         if options.include_summary and summary:
             elements.append(Paragraph(format_text(f"💰 {REPORT_LABELS['financial_summary']}"), style_h2))
             elements.append(Spacer(1, 8))
-
+            
             summary_data = [
                 [format_text(REPORT_LABELS['details']), format_text(REPORT_LABELS['amount'])],
                 [format_text(f"↗️ {REPORT_LABELS['total_income']}"), f"{summary['income']:,.2f} ₪"],
                 [format_text(f"↘️ {REPORT_LABELS['total_expenses']}"), f"{summary['expenses']:,.2f} ₪"],
                 [format_text(f"📈 {REPORT_LABELS['balance_profit']}"), f"{summary['profit']:,.2f} ₪"],
             ]
-
+            
             # Dynamic styling based on profit/loss
             profit_color = COLOR_ACCENT_EMERALD if summary['profit'] >= 0 else COLOR_ACCENT_ROSE
             profit_bg = '#D1FAE5' if summary['profit'] >= 0 else '#FFE4E6'  # Emerald-100 or Rose-100
-
+            
             summary_table = Table(summary_data, colWidths=[220, 160])
             summary_table.setStyle(TableStyle([
                 ('FONT', (0, 0), (-1, -1), font_name),
@@ -2719,12 +2727,12 @@ class ReportService:
             elements.append(Spacer(1, 25))
 
         # ========== עמוד שני והלאה: עסקאות ==========
-
+        
         # Transactions - Group by category and create separate tables
         if options.include_transactions and transactions:
             # מעבר לעמוד חדש לפני העסקאות
             elements.append(PageBreak())
-
+            
             # Section header with decorative line
             elements.append(Table([[""]], colWidths=[520], rowHeights=[3], style=[
                 ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_ACCENT_TEAL))
@@ -2733,47 +2741,91 @@ class ReportService:
             elements.append(Paragraph(format_text(f"📝 {REPORT_LABELS['transaction_details']}"), style_h2))
             elements.append(Spacer(1, 12))
 
-            # Group transactions by category
-            transactions_by_category = {}
+            # Group transactions by year first, then by category
+            from collections import defaultdict
+            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
             # Get selected categories if any
             selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
 
             for tx in transactions:
                 if isinstance(tx, dict):
                     cat_name = tx.get('category') or REPORT_LABELS['general']
+                    tx_date = tx.get('tx_date')
                 else:
                     cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
+                    tx_date = tx.tx_date
+                
+                # Extract year from transaction date
+                if isinstance(tx_date, str):
+                    try:
+                        if 'T' in tx_date:
+                            tx_date = date.fromisoformat(tx_date.split('T')[0])
+                        else:
+                            tx_date = date.fromisoformat(tx_date)
+                    except:
+                        # If parsing fails, use current year
+                        tx_date = date.today()
+                elif not isinstance(tx_date, date):
+                    tx_date = date.today()
+                
+                year = tx_date.year
 
                 # Only include transactions from selected categories if categories were selected
                 if selected_categories is None or cat_name in selected_categories:
-                    if cat_name not in transactions_by_category:
-                        transactions_by_category[cat_name] = []
-                    transactions_by_category[cat_name].append(tx)
+                    transactions_by_year_and_category[year][cat_name].append(tx)
 
-            # Create a table for each category
-            for cat_name, cat_transactions in transactions_by_category.items():
+            # Sort years in descending order (newest first)
+            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
+
+            # Create tables for each year, then each category within that year
+            for year in sorted_years:
+                # Year header
+                elements.append(PageBreak() if year != sorted_years[0] else Spacer(1, 0))
+                year_header_style = ParagraphStyle(
+                    'YearHeader', 
+                    parent=styles['Heading1'], 
+                    fontName=font_name, 
+                    fontSize=16, 
+                    alignment=1,
+                    textColor=colors.white,
+                    backColor=colors.HexColor(COLOR_PRIMARY_DARK),
+                    leading=24, 
+                    spaceBefore=15, 
+                    spaceAfter=10,
+                    leftIndent=10,
+                    rightIndent=10,
+                    borderPadding=8
+                )
+                elements.append(Paragraph(format_text(f"שנת {year}"), year_header_style))
+                elements.append(Spacer(1, 12))
+                
+                # Get categories for this year, sorted alphabetically
+                year_categories = sorted(transactions_by_year_and_category[year].keys())
+                
+                for cat_name in year_categories:
+                    cat_transactions = transactions_by_year_and_category[year][cat_name]
                 # Category header with amber accent
                 elements.append(Paragraph(format_text(f"📁 {REPORT_LABELS['category']}: {cat_name}"), style_category))
                 elements.append(Spacer(1, 6))
-
+                
                 # Check which columns have data
                 has_suppliers = any(
                     (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
                     for tx in cat_transactions
                 ) if cat_transactions else False
-
+                
                 has_descriptions = any(
                     (tx.get('description') if isinstance(tx, dict) else tx.description)
                     for tx in cat_transactions
                 ) if cat_transactions else False
-
+                
                 # Build dynamic columns list based on available data
                 columns = ['date', 'type', 'amount']
                 if has_suppliers:
                     columns.append('supplier')
                 if has_descriptions:
                     columns.append('description')
-
+                
                 # Column widths based on which columns are shown
                 col_width_map = {
                     'date': 70,
@@ -2782,13 +2834,13 @@ class ReportService:
                     'supplier': 120,
                     'description': 200
                 }
-
+                
                 # Adjust description width if no supplier
                 if has_descriptions and not has_suppliers:
                     col_width_map['description'] = 275
-
+                
                 col_widths = [col_width_map[col] for col in columns]
-
+                
                 # Build table headers dynamically
                 col_to_label = {
                     'date': REPORT_LABELS['date'],
@@ -2797,13 +2849,13 @@ class ReportService:
                     'supplier': REPORT_LABELS['supplier'],
                     'description': REPORT_LABELS['description']
                 }
-
+                
                 tx_data = [[Paragraph(format_text(col_to_label[col]), style_table_cell) for col in columns]]
-
+                
                 # Track category totals
                 cat_total_income = 0
                 cat_total_expense = 0
-
+                
                 # Add transaction rows
                 for tx in cat_transactions:
                     if isinstance(tx, dict):
@@ -2820,13 +2872,13 @@ class ReportService:
                         supplier_name = tx.supplier.name if tx.supplier else ""
                         tx_date = tx.tx_date
                         tx_amount = tx.amount
-
+                    
                     # Track totals
                     if is_income:
                         cat_total_income += tx_amount
                     else:
                         cat_total_expense += tx_amount
-
+                    
                     col_to_value = {
                         'date': str(tx_date),
                         'type': format_text(tx_type),
@@ -2834,9 +2886,9 @@ class ReportService:
                         'supplier': format_text(supplier_name),
                         'description': format_text(tx_desc)
                     }
-
+                    
                     tx_data.append([Paragraph(col_to_value[col], style_table_cell) for col in columns])
-
+                
                 # Build table style with alternating rows
                 tx_style = [
                     ('FONT', (0, 0), (-1, -1), font_name),
@@ -2852,22 +2904,22 @@ class ReportService:
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                     ('PADDING', (0, 0), (-1, -1), 6),
                 ]
-
+                
                 # Add alternating row colors for data rows
                 for row_idx in range(1, len(tx_data)):
                     if row_idx % 2 == 1:
                         tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_LIGHT)))
                     else:
                         tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_ALT)))
-
+                
                 tx_table = Table(tx_data, repeatRows=1, colWidths=col_widths, style=tx_style)
                 elements.append(tx_table)
-
+                
                 # Category summary row
                 cat_net = cat_total_income - cat_total_expense
                 summary_color = COLOR_ACCENT_EMERALD if cat_net >= 0 else COLOR_ACCENT_ROSE
                 summary_bg = '#FEF3C7'  # Amber-100
-
+                
                 cat_summary_data = [[
                     format_text(f"סה״כ {cat_name}:"),
                     f"{cat_net:,.2f} ₪"
@@ -2898,11 +2950,11 @@ class ReportService:
                 "budget_vs_actual": "תקציב מול ביצוע לפי קטגוריה",
                 "cumulative_expenses": "הוצאות מצטברות לאורך זמן"
             }
-
+            
             # Check if there's any data to chart
             has_financial_data = summary and (summary.get('income', 0) > 0 or summary.get('expenses', 0) > 0)
             has_transactions = transactions and len(transactions) > 0
-
+            
             if not has_financial_data and not has_transactions:
                 # No data to chart - skip charts section entirely
                 print("INFO: No financial data for charts, skipping charts section")
@@ -2912,7 +2964,7 @@ class ReportService:
                 elements.append(Spacer(1, 10))
 
                 charts_to_render = {}
-
+                
                 # פונקציה לבדיקת תקינות תמונת PNG
                 def is_valid_png(data: bytes) -> bool:
                     if not data or len(data) < 100:
@@ -2932,12 +2984,12 @@ class ReportService:
                             print(f"INFO: Valid frontend chart image: {key} ({len(img_data)} bytes)")
                         else:
                             print(f"WARNING: Invalid frontend chart image: {key}, will regenerate")
-
+                    
                     if valid_images:
                         charts_to_render = valid_images
                         use_frontend_images = True
                         print(f"INFO: Using {len(valid_images)} frontend chart images")
-
+                
                 # Generate server-side if no valid frontend images
                 if not use_frontend_images:
                     chart_types = options.chart_types or [
@@ -2971,22 +3023,22 @@ class ReportService:
                             if not image_bytes or len(image_bytes) < 100:
                                 print(f"אזהרה: נתוני תמונה לא תקינים עבור {chart_name}")
                                 continue
-
+                            
                             # בדיקת חתימת PNG
                             png_signature = b'\x89PNG\r\n\x1a\n'
                             if image_bytes[:8] != png_signature:
                                 print(f"אזהרה: התמונה {chart_name} אינה PNG תקינה, מנסה בכל זאת...")
-
+                            
                             print(f"INFO: Adding chart '{chart_name}' to PDF ({len(image_bytes)} bytes)")
-
+                            
                             # יצירת buffer חדש עם הנתונים
                             img_buffer = BytesIO(image_bytes)
                             img_buffer.seek(0)
-
+                            
                             # יצירת אובייקט תמונה עם יחס גובה-רוחב נכון - גדול יותר ומקצועי
                             img = RLImage(img_buffer, width=500, height=375, kind='proportional')
                             img.hAlign = 'CENTER'
-
+                            
                             # כותרת מקצועית עם רקע
                             chart_title_style = ParagraphStyle(
                                 'ChartTitle',
@@ -3032,7 +3084,7 @@ class ReportService:
         ACCENT_EMERALD = "059669"    # Emerald-600 - Success/Income
         ACCENT_ROSE = "E11D48"       # Rose-600 - Expense/Alert
         ACCENT_AMBER = "D97706"      # Amber-600 - Warning/Category headers
-
+        
         # Light backgrounds for data rows
         BG_LIGHT = "F8FAFC"          # Slate-50 - Light row
         BG_ALT = "F1F5F9"            # Slate-100 - Alternate row
@@ -3040,11 +3092,11 @@ class ReportService:
         BG_EMERALD_LIGHT = "D1FAE5"  # Emerald-100 - Green highlight
         BG_ROSE_LIGHT = "FFE4E6"     # Rose-100 - Red highlight
         BG_AMBER_LIGHT = "FEF3C7"    # Amber-100 - Amber highlight
-
+        
         TEXT_DARK = "0F172A"         # Dark text
         TEXT_LIGHT = "FFFFFF"        # White text
         TEXT_MUTED = "64748B"        # Slate-500 - Muted text
-
+        
         # Typography
         title_font = Font(name='Arial', bold=True, size=18, color=TEXT_LIGHT)
         subtitle_font = Font(name='Arial', size=11, color=TEXT_MUTED, italic=True)
@@ -3054,7 +3106,7 @@ class ReportService:
         data_bold_font = Font(name='Arial', bold=True, size=10, color=TEXT_DARK)
         money_positive_font = Font(name='Arial', bold=True, size=10, color=ACCENT_EMERALD)
         money_negative_font = Font(name='Arial', bold=True, size=10, color=ACCENT_ROSE)
-
+        
         # Fills
         fill_title = PatternFill(start_color=PRIMARY_DARK, end_color=PRIMARY_DARK, fill_type="solid")
         fill_h2 = PatternFill(start_color=ACCENT_TEAL, end_color=ACCENT_TEAL, fill_type="solid")
@@ -3066,7 +3118,7 @@ class ReportService:
         fill_emerald_light = PatternFill(start_color=BG_EMERALD_LIGHT, end_color=BG_EMERALD_LIGHT, fill_type="solid")
         fill_rose_light = PatternFill(start_color=BG_ROSE_LIGHT, end_color=BG_ROSE_LIGHT, fill_type="solid")
         fill_amber_light = PatternFill(start_color=BG_AMBER_LIGHT, end_color=BG_AMBER_LIGHT, fill_type="solid")
-
+        
         # Borders - Subtle and elegant
         thin_border = Border(
             left=Side(style='thin', color='E2E8F0'),
@@ -3083,21 +3135,21 @@ class ReportService:
         bottom_accent = Border(
             bottom=Side(style='medium', color=ACCENT_TEAL)
         )
-
+        
         # Alignment
         center_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
         right_align = Alignment(horizontal='right', vertical='center')
         left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
         current_row = 1
-
+        
         # Set default column widths for professional look
         ws.column_dimensions['A'].width = 22
         ws.column_dimensions['B'].width = 18
         ws.column_dimensions['C'].width = 18
         ws.column_dimensions['D'].width = 18
         ws.column_dimensions['E'].width = 30
-
+        
         # ===== TITLE SECTION =====
         # Create a professional header spanning multiple columns
         ws.merge_cells(f'A{current_row}:E{current_row}')
@@ -3110,7 +3162,28 @@ class ReportService:
         title_cell.border = medium_border
         current_row += 1
 
-        # Subtitle with date
+        # Date range subtitle
+        date_range_text = ""
+        if options.start_date and options.end_date:
+            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
+        elif options.start_date:
+            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
+        elif options.end_date:
+            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        else:
+            date_range_text = "כל התקופות"
+        
+        ws.merge_cells(f'A{current_row}:E{current_row}')
+        ws.row_dimensions[current_row].height = 25
+        date_range_cell = ws[f'A{current_row}']
+        date_range_cell.value = f"תקופה: {date_range_text}"
+        date_range_cell.font = subtitle_font
+        date_range_cell.fill = fill_light
+        date_range_cell.alignment = center_align
+        date_range_cell.border = bottom_accent
+        current_row += 1
+        
+        # Production date
         ws.merge_cells(f'A{current_row}:E{current_row}')
         ws.row_dimensions[current_row].height = 25
         date_cell = ws[f'A{current_row}']
@@ -3177,7 +3250,7 @@ class ReportService:
             ws[f'A{current_row}'] = f"📈  {REPORT_LABELS['balance_profit']}"
             ws[f'A{current_row}'].font = data_bold_font
             ws[f'B{current_row}'] = f"{summary['profit']:,.2f} ₪"
-
+            
             # Color based on profit/loss
             if summary['profit'] >= 0:
                 ws[f'A{current_row}'].fill = fill_teal_light
@@ -3187,7 +3260,7 @@ class ReportService:
                 ws[f'A{current_row}'].fill = fill_rose_light
                 ws[f'B{current_row}'].fill = fill_rose_light
                 ws[f'B{current_row}'].font = money_negative_font
-
+            
             for col in ['A', 'B']:
                 ws[f'{col}{current_row}'].border = medium_border
                 ws[f'{col}{current_row}'].alignment = center_align
@@ -3267,16 +3340,16 @@ class ReportService:
                 cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                 remaining = b['remaining_amount']
                 usage_percent = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
-
+                
                 # Row fill - alternate colors
                 row_fill = fill_light if row_idx % 2 == 0 else fill_alt
-
+                
                 ws[f'A{current_row}'] = cat_name
                 ws[f'A{current_row}'].font = data_bold_font
-
+                
                 ws[f'B{current_row}'] = f"{b['amount']:,.2f} ₪"
                 ws[f'B{current_row}'].font = data_font
-
+                
                 ws[f'C{current_row}'] = f"{b['spent_amount']:,.2f} ₪"
                 # Color based on usage
                 if usage_percent > 100:
@@ -3285,7 +3358,7 @@ class ReportService:
                     ws[f'C{current_row}'].font = Font(name='Arial', bold=True, size=10, color=ACCENT_AMBER)
                 else:
                     ws[f'C{current_row}'].font = data_font
-
+                
                 ws[f'D{current_row}'] = f"{remaining:,.2f} ₪"
                 # Color remaining based on positive/negative
                 if remaining < 0:
@@ -3293,7 +3366,7 @@ class ReportService:
                     row_fill = fill_rose_light
                 else:
                     ws[f'D{current_row}'].font = money_positive_font
-
+                
                 for col in ['A', 'B', 'C', 'D']:
                     ws[f'{col}{current_row}'].fill = row_fill
                     ws[f'{col}{current_row}'].border = thin_border
@@ -3314,29 +3387,65 @@ class ReportService:
             tx_header.border = medium_border
             current_row += 1
 
-            # Group transactions by category
-            transactions_by_category = {}
+            # Group transactions by year first, then by category
+            from collections import defaultdict
+            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
             selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
 
             for tx in transactions:
                 if isinstance(tx, dict):
                     cat_name = tx.get('category') or REPORT_LABELS['general']
+                    tx_date = tx.get('tx_date')
                 else:
                     cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
+                    tx_date = tx.tx_date
+                
+                # Extract year from transaction date
+                if isinstance(tx_date, str):
+                    try:
+                        if 'T' in tx_date:
+                            tx_date = date.fromisoformat(tx_date.split('T')[0])
+                        else:
+                            tx_date = date.fromisoformat(tx_date)
+                    except:
+                        # If parsing fails, use current year
+                        tx_date = date.today()
+                elif not isinstance(tx_date, date):
+                    tx_date = date.today()
+                
+                year = tx_date.year
 
                 if selected_categories is None or cat_name in selected_categories:
-                    if cat_name not in transactions_by_category:
-                        transactions_by_category[cat_name] = []
-                    transactions_by_category[cat_name].append(tx)
+                    transactions_by_year_and_category[year][cat_name].append(tx)
 
-            # Create a table for each category
-            for cat_idx, (cat_name, cat_transactions) in enumerate(transactions_by_category.items()):
+            # Sort years in descending order (newest first)
+            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
+
+            # Create tables for each year, then each category within that year
+            for year in sorted_years:
+                # Year header
+                current_row += 2 if year != sorted_years[0] else 0  # Add space before new year (except first)
+                ws.merge_cells(f'A{current_row}:E{current_row}')
+                ws.row_dimensions[current_row].height = 30
+                year_header = ws[f'A{current_row}']
+                year_header.value = f"שנת {year}"
+                year_header.font = h2_font
+                year_header.fill = fill_title
+                year_header.alignment = center_align
+                year_header.border = medium_border
+                current_row += 1
+                
+                # Get categories for this year, sorted alphabetically
+                year_categories = sorted(transactions_by_year_and_category[year].keys())
+                
+                for cat_idx, cat_name in enumerate(year_categories):
+                    cat_transactions = transactions_by_year_and_category[year][cat_name]
                 # Check which columns have data
                 has_suppliers = any(
                     (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
                     for tx in cat_transactions
                 ) if cat_transactions else False
-
+                
                 has_descriptions = any(
                     (tx.get('description') if isinstance(tx, dict) else tx.description)
                     for tx in cat_transactions
@@ -3348,7 +3457,7 @@ class ReportService:
                     columns.append('supplier')
                 if has_descriptions:
                     columns.append('description')
-
+                
                 col_letters = ['A', 'B', 'C', 'D', 'E'][:len(columns)]
                 max_col = col_letters[-1]
 
@@ -3371,7 +3480,7 @@ class ReportService:
                     'supplier': REPORT_LABELS['supplier'],
                     'description': REPORT_LABELS['description']
                 }
-
+                
                 ws.row_dimensions[current_row].height = 26
                 for i, col_name in enumerate(columns):
                     cell = ws[f'{col_letters[i]}{current_row}']
@@ -3389,7 +3498,7 @@ class ReportService:
                 # Add transaction rows with alternating colors
                 for row_idx, tx in enumerate(cat_transactions):
                     ws.row_dimensions[current_row].height = 22
-
+                    
                     if isinstance(tx, dict):
                         is_income = tx.get('type') == "Income"
                         tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
@@ -3418,10 +3527,10 @@ class ReportService:
                         'supplier': supplier_name,
                         'description': tx_desc
                     }
-
+                    
                     # Alternate row colors
                     row_fill = fill_light if row_idx % 2 == 0 else fill_alt
-
+                    
                     for i, col_name in enumerate(columns):
                         cell = ws[f'{col_letters[i]}{current_row}']
                         cell.value = col_to_value[col_name]
@@ -3429,7 +3538,7 @@ class ReportService:
                         cell.fill = row_fill
                         cell.border = thin_border
                         cell.alignment = center_align
-
+                        
                         # Special styling for type and amount columns
                         if col_name == 'type':
                             if is_income:
@@ -3441,7 +3550,7 @@ class ReportService:
                                 cell.font = money_positive_font
                             else:
                                 cell.font = money_negative_font
-
+                    
                     current_row += 1
 
                 # Category summary row
@@ -3453,7 +3562,7 @@ class ReportService:
                 summary_cell.fill = fill_amber_light
                 summary_cell.alignment = center_align
                 summary_cell.border = thin_border
-
+                
                 cat_net = cat_total_income - cat_total_expense
                 amount_cell = ws[f'C{current_row}']
                 amount_cell.value = f"{cat_net:,.2f} ₪"
@@ -3461,12 +3570,12 @@ class ReportService:
                 amount_cell.fill = fill_amber_light
                 amount_cell.alignment = center_align
                 amount_cell.border = thin_border
-
+                
                 # Fill remaining cells in summary row
                 for col in col_letters[3:]:
                     ws[f'{col}{current_row}'].fill = fill_amber_light
                     ws[f'{col}{current_row}'].border = thin_border
-
+                
                 current_row += 2  # Spacer between categories
 
         # Charts - Add native Excel charts for better quality
@@ -3475,7 +3584,7 @@ class ReportService:
                 # Check if there's any data to chart
                 has_financial_data = summary and (summary.get('income', 0) > 0 or summary.get('expenses', 0) > 0)
                 has_transactions = transactions and len(transactions) > 0
-
+                
                 if not has_financial_data and not has_transactions:
                     # No data to chart - skip charts section entirely
                     print("INFO: No financial data for Excel charts, skipping charts section")
@@ -3493,9 +3602,9 @@ class ReportService:
                         "budget_vs_actual",
                         "cumulative_expenses"
                     ]
-
+                    
                     charts_added = 0
-
+                    
                     # Try to use native Excel charts first (only if no images provided from frontend)
                     if CHARTS_AVAILABLE and (not chart_images or len(chart_images) == 0):
                         # Add charts section header first
@@ -3508,7 +3617,7 @@ class ReportService:
                         charts_header.alignment = center_align
                         charts_header.border = medium_border
                         current_row += 2
-
+                        
                         charts_added = self._add_native_excel_charts(
                             wb, ws, current_row, summary, transactions, chart_types_to_render
                         )
@@ -3562,7 +3671,7 @@ class ReportService:
                             charts_header.alignment = center_align
                             charts_header.border = medium_border
                             current_row += 2
-
+                            
                             row = current_row
                             for chart_name, image_bytes in charts_to_render.items():
                                 try:
@@ -3579,7 +3688,7 @@ class ReportService:
                                 except Exception as e:
                                     print(f"אזהרה: הוספת גרף {chart_name} ל-Excel נכשלה: {e}")
                             current_row = row
-
+                    
                     if charts_added == 0:
                         print("INFO: No charts were added to Excel")
 
@@ -3614,10 +3723,26 @@ class ReportService:
 
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-            # Report File
+            # Report File - Build filename with project name and date range
             ext = "xlsx" if options.format == "zip" else "pdf"  # Default to excel inside zip if zip requested directly?
             # Actually, if options.format is zip, we generated excel above.
-            zf.writestr(f"report.{ext}", report_content)
+            
+            # Sanitize project name for filename
+            safe_project_name = "".join([c for c in project.name if
+                                         c.isalnum() or c in (' ', '-', '_')]).strip() if project.name else f"project_{project.id}"
+            
+            # Add date range to filename
+            if options.start_date and options.end_date:
+                date_range_str = f"{options.start_date.strftime('%Y-%m-%d')}_{options.end_date.strftime('%Y-%m-%d')}"
+            elif options.start_date:
+                date_range_str = f"מ-{options.start_date.strftime('%Y-%m-%d')}"
+            elif options.end_date:
+                date_range_str = f"עד-{options.end_date.strftime('%Y-%m-%d')}"
+            else:
+                date_range_str = "כל-התקופות"
+            
+            report_filename = f"{safe_project_name}_{date_range_str}.{ext}"
+            zf.writestr(report_filename, report_content)
 
             if has_s3:
                 # Add Contract if requested
@@ -3705,14 +3830,14 @@ class ReportService:
         # 2. Transactions Sheet
         ws_tx = wb.create_sheet(REPORT_LABELS['transaction_details'][:30])
         ws_tx.sheet_view.rightToLeft = True
-
+        
         # Check which columns have data
         has_category = any(tx.get("category") for tx in transactions) if transactions else False
         has_description = any(tx.get("description") for tx in transactions) if transactions else False
         has_payment_method = any(tx.get("payment_method") for tx in transactions) if transactions else False
         has_notes = any(tx.get("notes") for tx in transactions) if transactions else False
         has_file = any(tx.get("file_path") for tx in transactions) if transactions else False
-
+        
         # Build dynamic column list
         columns = ['date', 'type', 'amount']  # Always include these
         if has_category:
@@ -3725,7 +3850,7 @@ class ReportService:
             columns.append('notes')
         if has_file:
             columns.append('file')
-
+        
         col_to_label = {
             'date': REPORT_LABELS['date'],
             'type': REPORT_LABELS['type'],
@@ -3736,7 +3861,7 @@ class ReportService:
             'notes': REPORT_LABELS['notes'],
             'file': REPORT_LABELS['file']
         }
-
+        
         col_widths = {
             'date': 12,
             'type': 10,
@@ -3747,7 +3872,7 @@ class ReportService:
             'notes': 20,
             'file': 8
         }
-
+        
         # Add headers
         headers = [col_to_label[col] for col in columns]
         ws_tx.append(headers)

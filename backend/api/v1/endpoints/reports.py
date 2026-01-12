@@ -47,14 +47,22 @@ async def generate_custom_report(
         # Generate report with images
         content = await report_service.generate_custom_report(request, chart_images=processed_images)
 
-        # Build filename: [Project Name]_[Date]_[Time]
+        # Build filename: [Project Name]_[Start Date]_[End Date]
         # Sanitize project name for filename
         safe_project_name = "".join([c for c in (project_name or f"project_{request.project_id}") if
                                      c.isalnum() or c in (' ', '-', '_')]).strip()
-        # Add current date and time
-        now = datetime.now()
-        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
-        filename = f"{safe_project_name}_{date_time_str}"
+        # Add date range to filename
+        if request.start_date and request.end_date:
+            date_range_str = f"{request.start_date.strftime('%Y-%m-%d')}_{request.end_date.strftime('%Y-%m-%d')}"
+        elif request.start_date:
+            date_range_str = f"מ-{request.start_date.strftime('%Y-%m-%d')}"
+        elif request.end_date:
+            date_range_str = f"עד-{request.end_date.strftime('%Y-%m-%d')}"
+        else:
+            # If no date range, use current date
+            now = datetime.now()
+            date_range_str = now.strftime("%Y-%m-%d")
+        filename = f"{safe_project_name}_{date_range_str}"
 
         if request.format == "pdf":
             media_type = "application/pdf"
