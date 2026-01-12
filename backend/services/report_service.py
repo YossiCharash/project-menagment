@@ -337,10 +337,18 @@ class ReportService:
         # Process each project using pre-loaded data
         for proj_data in projects_data:
             project_id = proj_data["id"]
-            project_start_date = proj_data["start_date"]
+            project_start_date_str = proj_data["start_date"]
             project_created_at = proj_data["created_at"]
             project_budget_monthly = proj_data["budget_monthly"]
             project_budget_annual = proj_data["budget_annual"]
+
+            # Parse start_date from ISO string to date object if it exists
+            project_start_date = None
+            if project_start_date_str:
+                if isinstance(project_start_date_str, str):
+                    project_start_date = date.fromisoformat(project_start_date_str)
+                elif isinstance(project_start_date_str, date):
+                    project_start_date = project_start_date_str
 
             # Calculate start date
             if project_start_date:
@@ -405,12 +413,18 @@ class ReportService:
             monthly_income = float(proj_data["budget_monthly"] or 0)
             if monthly_income > 0:
                 # Use project start_date if available, otherwise use created_at date
-                if proj_data["start_date"]:
-                    income_calculation_start = proj_data["start_date"]
+                if project_start_date:
+                    income_calculation_start = project_start_date
                 elif proj_data.get("created_at"):
-                    income_calculation_start = proj_data["created_at"].date() if hasattr(proj_data["created_at"],
-                                                                                         'date') else proj_data[
-                        "created_at"]
+                    if hasattr(proj_data["created_at"], 'date'):
+                        income_calculation_start = proj_data["created_at"].date()
+                    elif isinstance(proj_data["created_at"], date):
+                        income_calculation_start = proj_data["created_at"]
+                    elif isinstance(proj_data["created_at"], str):
+                        from datetime import datetime
+                        income_calculation_start = datetime.fromisoformat(proj_data["created_at"].replace('Z', '+00:00')).date()
+                    else:
+                        income_calculation_start = calculation_start_date
                 else:
                     # Fallback: use calculation_start_date (which is already 1 year ago if no start_date)
                     income_calculation_start = calculation_start_date
@@ -443,8 +457,8 @@ class ReportService:
             # Prioritize monthly budget if both are set
             if budget_monthly > 0:
                 # Same logic as budget_income calculation
-                if proj_data["start_date"]:
-                    start_month = date(proj_data["start_date"].year, proj_data["start_date"].month, 1)
+                if project_start_date:
+                    start_month = date(project_start_date.year, project_start_date.month, 1)
                 else:
                     start_month = date(calculation_start_date.year, calculation_start_date.month, 1)
                 end_month = date(current_date.year, current_date.month, 1)
@@ -545,8 +559,8 @@ class ReportService:
                 "id": project_id,
                 "name": proj_data["name"],
                 "description": proj_data["description"],
-                "start_date": proj_data["start_date"].isoformat() if proj_data["start_date"] else None,
-                "end_date": proj_data["end_date"].isoformat() if proj_data["end_date"] else None,
+                "start_date": proj_data["start_date"] if proj_data["start_date"] else None,
+                "end_date": proj_data["end_date"] if proj_data["end_date"] else None,
                 "budget_monthly": float(proj_data["budget_monthly"] or 0),
                 "budget_annual": float(proj_data["budget_annual"] or 0),
                 "num_residents": proj_data["num_residents"],
@@ -590,7 +604,14 @@ class ReportService:
         # Calculate the earliest calculation_start_date across all projects
         earliest_start = date.today() - relativedelta(years=1)
         for proj_data in projects_data:
-            project_start = calculate_start_date(proj_data["start_date"])
+            # Parse start_date from ISO string to date object if it exists
+            project_start_date_obj = None
+            if proj_data["start_date"]:
+                if isinstance(proj_data["start_date"], str):
+                    project_start_date_obj = date.fromisoformat(proj_data["start_date"])
+                elif isinstance(proj_data["start_date"], date):
+                    project_start_date_obj = proj_data["start_date"]
+            project_start = calculate_start_date(project_start_date_obj)
             if project_start < earliest_start:
                 earliest_start = project_start
 
