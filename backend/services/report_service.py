@@ -30,6 +30,24 @@ except ImportError:
     CHARTS_AVAILABLE = False
     print("אזהרה: openpyxl.chart לא זמין - גרפים יידלגו")
 
+# Helper function for consistent date formatting
+def format_date_hebrew(d) -> str:
+    """Format date in Hebrew format (DD/MM/YYYY)"""
+    if d is None:
+        return ""
+    if isinstance(d, str):
+        # Try to parse ISO format
+        try:
+            if 'T' in d:
+                d = date.fromisoformat(d.split('T')[0])
+            else:
+                d = date.fromisoformat(d)
+        except (ValueError, AttributeError):
+            return d  # Return as-is if parsing fails
+    if isinstance(d, date):
+        return d.strftime('%d/%m/%Y')
+    return str(d)
+
 # Hebrew Labels to avoid hardcoded strings in logic
 REPORT_LABELS = {
     "project_report": "דוח פרויקט",
@@ -1238,7 +1256,7 @@ class ReportService:
                     project_name = project_name[:17] + "..."
 
                 col_to_value = {
-                    'date': str(tx.tx_date),
+                    'date': format_date_hebrew(tx.tx_date),
                     'project': format_text(project_name),
                     'type': format_text(tx_type),
                     'amount': f"{tx.amount:,.2f}",
@@ -1380,7 +1398,7 @@ class ReportService:
                     project_name = tx.get('project_name') or ""
 
                     col_to_value = {
-                        'date': tx.get('tx_date'),
+                        'date': format_date_hebrew(tx.get('tx_date')),
                         'project': project_name,
                         'type': tx_type,
                         'amount': tx.get('amount'),
@@ -1397,7 +1415,7 @@ class ReportService:
                     project_name = tx.project.name if tx.project else ""
 
                     col_to_value = {
-                        'date': tx.tx_date,
+                        'date': format_date_hebrew(tx.tx_date),
                         'project': project_name,
                         'type': tx_type,
                         'amount': tx.amount,
@@ -2877,7 +2895,7 @@ class ReportService:
                         cat_total_expense += tx_amount
                     
                     col_to_value = {
-                        'date': str(tx_date),
+                        'date': format_date_hebrew(tx_date),
                         'type': format_text(tx_type),
                         'amount': f"{tx_amount:,.2f} ₪",
                         'supplier': format_text(supplier_name),
@@ -3518,7 +3536,7 @@ class ReportService:
                         cat_total_expense += tx_amount
 
                     col_to_value = {
-                        'date': str(tx_date),
+                        'date': format_date_hebrew(tx_date),
                         'type': tx_type,
                         'amount': f"{tx_amount:,.2f} ₪",
                         'supplier': supplier_name,
@@ -3882,7 +3900,7 @@ class ReportService:
         for tx in transactions:
             tx_type = REPORT_LABELS['income'] if tx["type"] == "Income" else REPORT_LABELS['expense']
             col_to_value = {
-                'date': tx["tx_date"],
+                'date': format_date_hebrew(tx["tx_date"]),
                 'type': tx_type,
                 'amount': tx["amount"],
                 'category': tx["category"] or "",

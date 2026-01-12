@@ -1631,7 +1631,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 <span className="flex items-center gap-1">
                   <span className="text-gray-400 dark:text-gray-500">🏁</span>
                   <span className="font-medium text-gray-700 dark:text-gray-300">תאריך סיום:</span>
-                  {projectEndDate ? (projectEndDate.includes('T') ? projectEndDate.split('T')[0] : projectEndDate) : 'לא הוגדר'}
+                  {formatDate(projectEndDate)}
                 </span>
                 {contractFileUrl && (
                   <>
