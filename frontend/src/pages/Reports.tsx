@@ -514,6 +514,66 @@ export default function Reports() {
                                       />
                                       קו: מגמות לאורך זמן
                                   </label>
+                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                                      <input
+                                          type="checkbox"
+                                          checked={selectedChartTypes.includes('expense_by_supplier_bar')}
+                                          onChange={e => {
+                                              if (e.target.checked) {
+                                                  setSelectedChartTypes([...selectedChartTypes, 'expense_by_supplier_bar'])
+                                              } else {
+                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'expense_by_supplier_bar'))
+                                              }
+                                          }}
+                                          className="rounded text-blue-600"
+                                      />
+                                      עמודות: הוצאות לפי ספק
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                                      <input
+                                          type="checkbox"
+                                          checked={selectedChartTypes.includes('monthly_trends_line')}
+                                          onChange={e => {
+                                              if (e.target.checked) {
+                                                  setSelectedChartTypes([...selectedChartTypes, 'monthly_trends_line'])
+                                              } else {
+                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'monthly_trends_line'))
+                                              }
+                                          }}
+                                          className="rounded text-blue-600"
+                                      />
+                                      קו: מגמות חודשיות
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                                      <input
+                                          type="checkbox"
+                                          checked={selectedChartTypes.includes('budget_vs_actual')}
+                                          onChange={e => {
+                                              if (e.target.checked) {
+                                                  setSelectedChartTypes([...selectedChartTypes, 'budget_vs_actual'])
+                                              } else {
+                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'budget_vs_actual'))
+                                              }
+                                          }}
+                                          className="rounded text-blue-600"
+                                      />
+                                      עמודות: תקציב מול ביצוע
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                                      <input
+                                          type="checkbox"
+                                          checked={selectedChartTypes.includes('cumulative_expenses')}
+                                          onChange={e => {
+                                              if (e.target.checked) {
+                                                  setSelectedChartTypes([...selectedChartTypes, 'cumulative_expenses'])
+                                              } else {
+                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'cumulative_expenses'))
+                                              }
+                                          }}
+                                          className="rounded text-blue-600"
+                                      />
+                                      קו: הוצאות מצטברות
+                                  </label>
                               </div>
                               {includeCharts && selectedChartTypes.length > 0 && (
                                   <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-800 dark:text-blue-300">

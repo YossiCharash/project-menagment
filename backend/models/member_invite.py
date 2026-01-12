@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import String, Boolean, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import secrets
@@ -20,7 +20,7 @@ class MemberInvite(Base):
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
     used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by])
@@ -34,7 +34,7 @@ class MemberInvite(Base):
     def create_invite(cls, email: str, full_name: str, created_by: int, group_id: int = None, expires_days: int = 7) -> "MemberInvite":
         """Create a new member invite"""
         invite_token = cls.generate_invite_token()
-        expires_at = datetime.utcnow() + timedelta(days=expires_days)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
         
         return cls(
             invite_token=invite_token,
@@ -47,7 +47,7 @@ class MemberInvite(Base):
 
     def is_expired(self) -> bool:
         """Check if the invite has expired"""
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
 
     def is_valid(self) -> bool:
         """Check if the invite is valid (not used and not expired)"""

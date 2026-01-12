@@ -95,6 +95,25 @@ export class ProjectAPI {
     return data
   }
 
+  // Get current active contract period for a project
+  static async getCurrentContractPeriod(projectId: number): Promise<{
+    project_id: number
+    current_period: {
+      period_id: number | null
+      start_date: string
+      end_date: string | null
+      contract_year: number
+      year_index: number
+      year_label: string
+      total_income: number
+      total_expense: number
+      total_profit: number
+    } | null
+  }> {
+    const { data } = await api.get(`/projects/${projectId}/contract-periods/current`)
+    return data
+  }
+
   // Get previous contract periods for a project
   static async getContractPeriods(projectId: number): Promise<{
     project_id: number

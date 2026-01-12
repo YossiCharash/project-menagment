@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Literal, Optional, Any
 
 
@@ -111,15 +111,13 @@ class RecurringTransactionTemplateOut(BaseModel):
             return result
         return data
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecurringTransactionTemplateWithTransactions(RecurringTransactionTemplateOut):
     generated_transactions: list["TransactionOut"] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecurringTransactionInstanceUpdate(BaseModel):

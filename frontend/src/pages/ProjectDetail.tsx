@@ -452,6 +452,17 @@ export default function ProjectDetail() {
       }>
     }>
   } | null>(null)
+  const [currentContractPeriod, setCurrentContractPeriod] = useState<{
+    period_id: number | null
+    start_date: string
+    end_date: string | null
+    contract_year: number
+    year_index: number
+    year_label: string
+    total_income: number
+    total_expense: number
+    total_profit: number
+  } | null>(null)
   const [showPreviousYearsModal, setShowPreviousYearsModal] = useState(false)
   const [selectedPeriodSummary, setSelectedPeriodSummary] = useState<any | null>(null)
   const [showPeriodSummaryModal, setShowPeriodSummaryModal] = useState(false)
@@ -744,11 +755,42 @@ const formatCurrency = (value: number | string | null | undefined) => {
         }
       }
       
-      // Load contract periods
-      await loadContractPeriods()
+      // Load contract periods and current period
+      await Promise.all([
+        loadContractPeriods(),
+        loadCurrentContractPeriod()
+      ])
     } catch (err: any) {
       setProjectName(`פרויקט ${id}`)
       setProjectBudget({ budget_monthly: 0, budget_annual: 0 })
+    }
+  }
+  
+  const loadCurrentContractPeriod = async () => {
+    if (!id || isNaN(Number(id))) return
+    
+    try {
+      const currentPeriodData = await ProjectAPI.getCurrentContractPeriod(parseInt(id))
+      if (currentPeriodData.current_period) {
+        setCurrentContractPeriod(currentPeriodData.current_period)
+        // Update project dates to reflect current contract period (only if period exists)
+        if (currentPeriodData.current_period.start_date) {
+          setProjectStartDate(currentPeriodData.current_period.start_date)
+        }
+        if (currentPeriodData.current_period.end_date) {
+          setProjectEndDate(currentPeriodData.current_period.end_date)
+        } else {
+          // If no end_date in current period, keep project end_date
+          // Don't override with null
+        }
+      } else {
+        setCurrentContractPeriod(null)
+        // If no current period, dates remain from project data loaded above
+      }
+    } catch (err: any) {
+      console.error('Error loading current contract period:', err)
+      setCurrentContractPeriod(null)
+      // On error, dates remain from project data loaded above
     }
   }
   
@@ -1608,71 +1650,77 @@ const formatCurrency = (value: number | string | null | undefined) => {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-3 justify-end">
-          {contractPeriods && contractPeriods.periods_by_year && contractPeriods.periods_by_year.length > 0 && (
+        <div className="flex flex-col gap-3 w-full md:w-auto">
+          {/* שורה ראשונה */}
+          <div className="flex flex-wrap gap-3 justify-end">
+            {contractPeriods && contractPeriods.periods_by_year && contractPeriods.periods_by_year.length > 0 && (
+              <button
+                onClick={() => setShowPreviousYearsModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all shadow-md flex items-center gap-2 text-sm flex-1 sm:flex-none"
+              >
+                <History className="w-4 h-4" />
+                שנים קודמות
+              </button>
+            )}
             <button
-              onClick={() => setShowPreviousYearsModal(true)}
-              className="px-4 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all shadow-md flex items-center gap-2 text-sm"
-            >
-              <History className="w-4 h-4" />
-              שנים קודמות
-            </button>
-          )}
-          <button
-            onClick={() => setShowCreateTransactionModal(true)}
-            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md flex items-center gap-2 text-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            צור עסקה חדשה
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowAddBudgetForm(true)
-              setBudgetFormError(null)
-            }}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            + הוסף תקציב
-          </button>
-          {!hasFund && !fundData && (
-            <button
-              onClick={() => setShowCreateFundModal(true)}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm"
+              onClick={() => setShowCreateTransactionModal(true)}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md flex items-center gap-2 text-sm flex-1 sm:flex-none"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              הוסף קופה
+              צור עסקה חדשה
             </button>
-          )}
-          <button
-            onClick={handleEditProject}
-            className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2 text-sm"
-          >
-            <Edit className="w-4 h-4" />
-            ערוך פרויקט
-          </button>
-          {isAdmin && (
             <button
-              onClick={handleArchiveDeleteClick}
-              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 text-sm"
+              type="button"
+              onClick={() => {
+                setShowAddBudgetForm(true)
+                setBudgetFormError(null)
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
             >
-              <Archive className="w-4 h-4" />
-              ארכב / מחק
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              + הוסף תקציב
             </button>
-          )}
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
-          >
-            ← חזור לדשבורד
-          </button>
+            {!hasFund && !fundData && (
+              <button
+                onClick={() => setShowCreateFundModal(true)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                הוסף קופה
+              </button>
+            )}
+          </div>
+          {/* שורה שנייה */}
+          <div className="flex flex-wrap gap-3 justify-end">
+            <button
+              onClick={handleEditProject}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
+            >
+              <Edit className="w-4 h-4" />
+              ערוך פרויקט
+            </button>
+            {isAdmin && (
+              <button
+                onClick={handleArchiveDeleteClick}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
+              >
+                <Archive className="w-4 h-4" />
+                ארכב / מחק
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm flex-1 sm:flex-none"
+            >
+              ← חזור לדשבורד
+            </button>
+          </div>
         </div>
       </motion.div>
 
@@ -4040,7 +4088,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
       )}
 
       {/* Previous Years Modal */}
-      {showPreviousYearsModal && contractPeriods && (
+      {showPreviousYearsModal && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -4076,9 +4124,14 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   טוען...
                 </div>
-              ) : contractPeriods.periods_by_year.length === 0 ? (
+              ) : !contractPeriods ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  אין תקופות חוזה קודמות
+                  טוען תקופות חוזה...
+                </div>
+              ) : !contractPeriods.periods_by_year || contractPeriods.periods_by_year.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <p className="text-lg mb-2">אין תקופות חוזה קודמות</p>
+                  <p className="text-sm">תקופות חוזה קודמות יופיעו כאן לאחר סיום תקופות חוזה בעבר</p>
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -4117,7 +4170,16 @@ const formatCurrency = (value: number | string | null | undefined) => {
                                   {period.year_label}
                                 </div>
                                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                                  {formatDate(period.start_date)} - {formatDate(period.end_date)}
+                                  {period.start_date && period.end_date ? (
+                                    (() => {
+                                      const start = new Date(period.start_date);
+                                      const end = new Date(period.end_date);
+                                      // Ensure start_date is before end_date for display
+                                      const displayStart = start <= end ? start : end;
+                                      const displayEnd = start <= end ? end : start;
+                                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                                    })()
+                                  ) : period.start_date ? formatDate(period.start_date) : ''}
                                 </div>
                               </div>
                               <div className="text-right mr-4">
@@ -4226,10 +4288,19 @@ const formatCurrency = (value: number | string | null | undefined) => {
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  סיכום תקופת חוזה - {selectedPeriodSummary.year_label}
+                  {selectedPeriodSummary.year_label ? `שנת ${selectedPeriodSummary.contract_year || ''} - ${selectedPeriodSummary.year_label}` : 'סיכום תקופת חוזה'}
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {formatDate(selectedPeriodSummary.start_date)} - {formatDate(selectedPeriodSummary.end_date)}
+                  {selectedPeriodSummary.start_date && selectedPeriodSummary.end_date ? (
+                    (() => {
+                      const start = new Date(selectedPeriodSummary.start_date);
+                      const end = new Date(selectedPeriodSummary.end_date);
+                      // Ensure start_date is before end_date for display
+                      const displayStart = start <= end ? start : end;
+                      const displayEnd = start <= end ? end : start;
+                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                    })()
+                  ) : selectedPeriodSummary.start_date ? formatDate(selectedPeriodSummary.start_date) : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -4434,9 +4505,23 @@ const formatCurrency = (value: number | string | null | undefined) => {
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col"
           >
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                {selectedPeriodSummary ? `סיכום תקופת חוזה ${selectedPeriodSummary.year_label}` : 'סיכום תקופת חוזה'}
-              </h3>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {selectedPeriodSummary ? (selectedPeriodSummary.contract_year ? `שנת ${selectedPeriodSummary.contract_year} - ${selectedPeriodSummary.year_label}` : `סיכום תקופת חוזה ${selectedPeriodSummary.year_label}`) : 'סיכום תקופת חוזה'}
+                </h3>
+                {selectedPeriodSummary && selectedPeriodSummary.start_date && selectedPeriodSummary.end_date && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {(() => {
+                      const start = new Date(selectedPeriodSummary.start_date);
+                      const end = new Date(selectedPeriodSummary.end_date);
+                      // Ensure start_date is before end_date for display
+                      const displayStart = start <= end ? start : end;
+                      const displayEnd = start <= end ? end : start;
+                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                    })()}
+                  </p>
+                )}
+              </div>
               <div className="flex items-center gap-3">
                 {selectedPeriodSummary && (
                   <button

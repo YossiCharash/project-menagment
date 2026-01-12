@@ -80,6 +80,7 @@ class TransactionRepository:
         where_clause = " AND ".join(where_conditions)
         
         # Query with JOIN to users to avoid N+1 queries
+        # Use separate fields for user data (SQLite compatible) instead of json_build_object
         query = text(f"""
             SELECT t.id,
                    t.project_id,
@@ -101,13 +102,9 @@ class TransactionRepository:
                    t.recurring_template_id,
                    t.period_start_date,
                    t.period_end_date,
-                   CASE
-                       WHEN u.id IS NOT NULL THEN json_build_object(
-                               'id', u.id,
-                               'full_name', u.full_name,
-                               'email', u.email
-                           )
-                       ELSE NULL END AS created_by_user
+                   u.id as user_id,
+                   u.full_name as user_full_name,
+                   u.email as user_email
             FROM transactions t
             LEFT JOIN users u ON u.id = t.created_by_user_id
             LEFT JOIN categories c ON c.id = t.category_id
@@ -140,17 +137,24 @@ class TransactionRepository:
                         'file_path': row[12], 'supplier_id': row[13], 'created_by_user_id': row[14],
                         'created_at': row[15], 'from_fund': row[16], 'recurring_template_id': row[17],
                         'period_start_date': row[18], 'period_end_date': row[19],
-                        'created_by_user': row[20]
+                        'user_id': row[20], 'user_full_name': row[21], 'user_email': row[22]
                     }
                 
-                # Parse created_by_user JSON if it's a string
-                import json
-                created_by_user = row_dict.get('created_by_user')
-                if isinstance(created_by_user, str):
-                    try:
-                        created_by_user = json.loads(created_by_user)
-                    except (json.JSONDecodeError, TypeError):
-                        created_by_user = None
+                # Build created_by_user object from separate fields (SQLite compatible)
+                user_id = row_dict.get('user_id')
+                if user_id:
+                    created_by_user = {
+                        'id': user_id,
+                        'full_name': row_dict.get('user_full_name'),
+                        'email': row_dict.get('user_email')
+                    }
+                else:
+                    created_by_user = None
+                
+                # Remove temporary user fields from row_dict
+                row_dict.pop('user_id', None)
+                row_dict.pop('user_full_name', None)
+                row_dict.pop('user_email', None)
                 
                 # Handle is_generated logic: if recurring_template_id exists but is_generated is False, set to True
                 is_generated_value = row_dict.get('is_generated', False)
