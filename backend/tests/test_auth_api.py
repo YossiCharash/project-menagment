@@ -63,7 +63,7 @@ class TestAuthAPI:
     async def test_get_current_user(self, test_client: AsyncClient, admin_token: str):
         """Test getting current user profile"""
         response = await test_client.get(
-            "/api/v1/auth/me",
+            "/api/v1/users/me",
             headers={"Authorization": f"Bearer {admin_token}"}
         )
         assert response.status_code == 200
@@ -73,13 +73,13 @@ class TestAuthAPI:
     
     async def test_get_current_user_no_token(self, test_client: AsyncClient):
         """Test getting current user without token"""
-        response = await test_client.get("/api/v1/auth/me")
+        response = await test_client.get("/api/v1/users/me")
         assert response.status_code == 401
     
     async def test_get_current_user_invalid_token(self, test_client: AsyncClient):
         """Test getting current user with invalid token"""
         response = await test_client.get(
-            "/api/v1/auth/me",
+            "/api/v1/users/me",
             headers={"Authorization": "Bearer invalid_token"}
         )
         assert response.status_code == 401
@@ -113,8 +113,8 @@ class TestAuthEdgeCases:
             "/api/v1/auth/login",
             json={"email": "admin@test.com'; DROP TABLE users; --", "password": "testpass123"}
         )
-        # Should fail gracefully without executing SQL
-        assert response.status_code == 401
+        # Should fail gracefully without executing SQL (either 401 or 422 for validation)
+        assert response.status_code in [401, 422]
     
     async def test_login_xss_attempt(self, test_client: AsyncClient):
         """Test login with XSS attempt"""
@@ -129,7 +129,7 @@ class TestAuthEdgeCases:
         """Test that token is required for protected endpoints"""
         # Token should be valid immediately after creation
         response = await test_client.get(
-            "/api/v1/auth/me",
+            "/api/v1/users/me",
             headers={"Authorization": f"Bearer {admin_token}"}
         )
         assert response.status_code == 200

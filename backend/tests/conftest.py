@@ -11,20 +11,13 @@ from httpx import AsyncClient, ASGITransport
 from backend.main import create_app
 from backend.db.base import Base
 from backend.models.user import User
+from backend.models.category import Category
 from backend.repositories.user_repository import UserRepository
-from backend.core.security import get_password_hash
+from backend.core.security import hash_password
 
 
 # Test database URL - use in-memory SQLite for tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="function")
@@ -87,15 +80,16 @@ async def test_client(test_db: AsyncSession) -> AsyncGenerator[AsyncClient, None
 @pytest.fixture
 async def admin_user(test_db: AsyncSession) -> User:
     """Create an admin user for testing."""
-    user_repo = UserRepository(test_db)
-    user = await user_repo.create({
-        "email": "admin@test.com",
-        "password": get_password_hash("testpass123"),
-        "full_name": "Test Admin",
-        "role": "Admin",
-        "is_active": True,
-        "is_verified": True,
-    })
+    from backend.models.user import User, UserRole
+    user = User(
+        email="admin@test.com",
+        password_hash=hash_password("testpass123"),
+        full_name="Test Admin",
+        role=UserRole.ADMIN.value,
+        is_active=True,
+        email_verified=True,
+    )
+    test_db.add(user)
     await test_db.commit()
     await test_db.refresh(user)
     return user
@@ -104,15 +98,16 @@ async def admin_user(test_db: AsyncSession) -> User:
 @pytest.fixture
 async def member_user(test_db: AsyncSession) -> User:
     """Create a member user for testing."""
-    user_repo = UserRepository(test_db)
-    user = await user_repo.create({
-        "email": "member@test.com",
-        "password": get_password_hash("testpass123"),
-        "full_name": "Test Member",
-        "role": "Member",
-        "is_active": True,
-        "is_verified": True,
-    })
+    from backend.models.user import User, UserRole
+    user = User(
+        email="member@test.com",
+        password_hash=hash_password("testpass123"),
+        full_name="Test Member",
+        role=UserRole.MEMBER.value,
+        is_active=True,
+        email_verified=True,
+    )
+    test_db.add(user)
     await test_db.commit()
     await test_db.refresh(user)
     return user
@@ -138,3 +133,31 @@ async def member_token(test_client: AsyncClient, member_user: User) -> str:
     )
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+@pytest.fixture
+async def default_category(test_db: AsyncSession) -> int:
+    """Create a default category for transactions. Returns the category ID."""
+    category = Category(
+        name="Test Category",
+        is_active=True,
+        parent_id=None
+    )
+    test_db.add(category)
+    await test_db.commit()
+    await test_db.refresh(category)
+    return category.id
+
+
+@pytest.fixture
+async def test_supplier(test_db: AsyncSession) -> "Supplier":
+    """Create a test supplier for transactions."""
+    from backend.models.supplier import Supplier
+    supplier = Supplier(
+        name="Test Supplier",
+        is_active=True
+    )
+    test_db.add(supplier)
+    await test_db.commit()
+    await test_db.refresh(supplier)
+    return supplier

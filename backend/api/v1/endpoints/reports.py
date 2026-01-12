@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Response, Body
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Dict
 import io
 import base64
@@ -47,11 +47,14 @@ async def generate_custom_report(
         # Generate report with images
         content = await report_service.generate_custom_report(request, chart_images=processed_images)
 
-        # Build filename: [Project Name] הפרטים
+        # Build filename: [Project Name]_[Date]_[Time]
         # Sanitize project name for filename
         safe_project_name = "".join([c for c in (project_name or f"project_{request.project_id}") if
                                      c.isalnum() or c in (' ', '-', '_')]).strip()
-        filename = f"{safe_project_name} הפרטים"
+        # Add current date and time
+        now = datetime.now()
+        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
+        filename = f"{safe_project_name}_{date_time_str}"
 
         if request.format == "pdf":
             media_type = "application/pdf"
@@ -108,8 +111,22 @@ async def export_project_excel(
 
         report_content = await ReportService(db).generate_excel_report(project_id, chart_images=processed_images)
 
+        # Get project name for filename
+        from sqlalchemy import select
+        from backend.models.project import Project
+        project_result = await db.execute(select(Project.name).where(Project.id == project_id))
+        project_name = project_result.scalar_one_or_none()
+        safe_project_name = "".join([c for c in (project_name or f"project_{project_id}") if
+                                     c.isalnum() or c in (' ', '-', '_')]).strip()
+        now = datetime.now()
+        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
+        filename = f"{safe_project_name}_{date_time_str}.xlsx"
+
+        from urllib.parse import quote
+        encoded_filename = quote(filename)
+
         headers = {
-            'Content-Disposition': f'attachment; filename="project_{project_id}_report.xlsx"'
+            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"
         }
         return Response(content=report_content,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
@@ -148,8 +165,22 @@ async def export_project_zip(
 
         zip_content = await ReportService(db).generate_zip_export(project_id, chart_images=processed_images)
 
+        # Get project name for filename
+        from sqlalchemy import select
+        from backend.models.project import Project
+        project_result = await db.execute(select(Project.name).where(Project.id == project_id))
+        project_name = project_result.scalar_one_or_none()
+        safe_project_name = "".join([c for c in (project_name or f"project_{project_id}") if
+                                     c.isalnum() or c in (' ', '-', '_')]).strip()
+        now = datetime.now()
+        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
+        filename = f"{safe_project_name}_{date_time_str}.zip"
+
+        from urllib.parse import quote
+        encoded_filename = quote(filename)
+
         headers = {
-            'Content-Disposition': f'attachment; filename="project_{project_id}_export.zip"'
+            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"
         }
         return Response(content=zip_content, media_type="application/zip", headers=headers)
     except Exception as e:
@@ -254,18 +285,21 @@ async def generate_supplier_report(
 
         content = await report_service.generate_supplier_report(request, chart_images=processed_images)
 
-        # Build filename
+        # Build filename with date and time
         safe_supplier_name = "".join(
             [c for c in (supplier_name or f"supplier_{supplier_id}") if c.isalnum() or c in (' ', '-', '_')]).strip()
-        filename = f"{safe_supplier_name} דוח"
+        # Add current date and time
+        now = datetime.now()
+        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
+        filename = f"{safe_supplier_name}_{date_time_str}"
 
         if request.format == "pdf":
             media_type = "application/pdf"
             filename += ".pdf"
-        elif options.format == "excel":
+        elif request.format == "excel":
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename += ".xlsx"
-        elif options.format == "zip":
+        elif request.format == "zip":
             media_type = "application/zip"
             filename += ".zip"
         else:

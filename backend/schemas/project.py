@@ -1,5 +1,5 @@
 from datetime import datetime, date, timedelta
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, ConfigDict
 from typing import Optional
 from typing import TYPE_CHECKING
 
@@ -75,8 +75,7 @@ class ProjectOut(ProjectBase):
     created_at: datetime
     total_value: float = 0.0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Import for model rebuild

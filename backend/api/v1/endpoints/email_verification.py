@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from backend.core.deps import DBSessionDep
 from backend.core.config import settings
@@ -64,7 +64,7 @@ async def send_verification_email(
         full_name=request.full_name,
         group_id=group_id,
         role=UserRole.ADMIN.value if request.verification_type == 'admin_register' else UserRole.MEMBER.value,
-        expires_at=datetime.utcnow() + timedelta(minutes=15)
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15)
     )
     
     created_verification = await verification_repo.create(verification)
@@ -165,7 +165,7 @@ async def confirm_verification(
 
     # Mark verification as used
     verification.is_verified = True
-    verification.verified_at = datetime.utcnow()
+    verification.verified_at = datetime.now(timezone.utc)
     await verification_repo.update(verification)
     
     return {
