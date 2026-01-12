@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.repositories.member_invite_repository import MemberInviteRepository
 from backend.repositories.user_repository import UserRepository
@@ -105,7 +105,7 @@ class MemberInviteService:
 
         # Mark invite as used
         invite.is_used = True
-        invite.used_at = datetime.utcnow()
+        invite.used_at = datetime.now(timezone.utc)
         await self.invite_repo.update(invite)
 
         return created_user

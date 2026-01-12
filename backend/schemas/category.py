@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Any
 
 
@@ -33,8 +33,7 @@ class CategoryOut(CategoryBase):
     # Include children for hierarchical display
     children: list["CategoryOut"] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Update forward reference

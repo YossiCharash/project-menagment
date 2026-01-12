@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone
 from backend.models.email_verification import EmailVerification
 
 
@@ -47,9 +48,8 @@ class EmailVerificationRepository:
 
     async def cleanup_expired(self) -> int:
         """Clean up expired verifications"""
-        from datetime import datetime
         res = await self.db.execute(
-            select(EmailVerification).where(EmailVerification.expires_at < datetime.utcnow())
+            select(EmailVerification).where(EmailVerification.expires_at < datetime.now(timezone.utc))
         )
         expired = list(res.scalars().all())
         

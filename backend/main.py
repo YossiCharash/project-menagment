@@ -8,6 +8,7 @@ import re
 import os
 import asyncio
 from datetime import date
+from contextlib import asynccontextmanager
 
 # Import all models to ensure Base.metadata is populated
 # This import ensures all models are registered before create_all is called
@@ -24,6 +25,28 @@ from backend.core.config import settings
 from backend.db.session import engine
 from backend.db.base import Base
 from backend.db.init_db import init_database
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    # Initialize database - creates all tables, enums, indexes, and foreign keys
+    await init_database(engine)
+
+    # Create super admin from environment variables
+    from backend.core.seed import create_super_admin
+    await create_super_admin()
+    
+    # Start background task for recurring transactions
+    asyncio.create_task(run_recurring_transactions_scheduler())
+    
+    # Start background task for contract renewal checks
+    asyncio.create_task(run_contract_renewal_scheduler())
+    
+    yield
+    
+    # Shutdown (if needed)
 
 
 def create_app() -> FastAPI:
@@ -51,6 +74,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_tags=tags_metadata,
         redirect_slashes=False,  # Disable automatic 307 redirects between /route and /route/
+        lifespan=lifespan,
     )
 
     from sqlalchemy.exc import IntegrityError, DataError
@@ -194,21 +218,6 @@ def create_app() -> FastAPI:
             }
 
         return response
-
-    @app.on_event("startup")
-    async def on_startup() -> None:
-        # Initialize database - creates all tables, enums, indexes, and foreign keys
-        await init_database(engine)
-
-        # Create super admin from environment variables
-        from backend.core.seed import create_super_admin
-        await create_super_admin()
-        
-        # Start background task for recurring transactions
-        asyncio.create_task(run_recurring_transactions_scheduler())
-        
-        # Start background task for contract renewal checks
-        asyncio.create_task(run_contract_renewal_scheduler())
 
     def custom_openapi():
         if app.openapi_schema:

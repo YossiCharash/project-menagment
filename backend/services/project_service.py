@@ -404,6 +404,12 @@ class ProjectService:
         return monthly_payment_tenants - transaction_val
 
     async def create(self, **data) -> Project:
+        # Convert date strings to date objects for SQLite compatibility
+        from datetime import date as date_type
+        if 'start_date' in data and isinstance(data['start_date'], str):
+            data['start_date'] = date_type.fromisoformat(data['start_date'])
+        if 'end_date' in data and isinstance(data['end_date'], str):
+            data['end_date'] = date_type.fromisoformat(data['end_date'])
         project = Project(**data)
         return await self.projects.create(project)
 

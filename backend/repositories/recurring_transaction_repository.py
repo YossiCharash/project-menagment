@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, select
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.schemas.recurring_transaction import RecurringTransactionTemplateCreate, RecurringTransactionTemplateUpdate
@@ -51,7 +51,7 @@ class RecurringTransactionRepository:
         for field, value in update_data.items():
             setattr(template, field, value)
         
-        template.updated_at = datetime.utcnow()
+        template.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(template)
         return template
@@ -65,7 +65,7 @@ class RecurringTransactionRepository:
     async def deactivate(self, template: RecurringTransactionTemplate) -> RecurringTransactionTemplate:
         """Deactivate a recurring transaction template"""
         template.is_active = False
-        template.updated_at = datetime.utcnow()
+        template.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(template)
         return template

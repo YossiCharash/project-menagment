@@ -30,23 +30,14 @@ export default function SystemFinancialPieChart({
 }: SystemFinancialPieChartProps) {
   const [chartType, setChartType] = useState<ChartType>('pie')
   
-  // Create data for the charts
-  const chartData = [
-    {
-      name: 'הכנסות',
-      value: totalIncome,
-      amount: totalIncome,
-      color: COLORS.income,
-      fill: COLORS.income
-    },
-    ...expenseCategories.map(cat => ({
-      name: cat.category,
-      value: cat.amount,
-      amount: cat.amount,
-      color: cat.color,
-      fill: cat.color
-    }))
-  ]
+  // Create data for the charts - only expenses by category
+  const chartData = expenseCategories.map(cat => ({
+    name: cat.category,
+    value: cat.amount,
+    amount: cat.amount,
+    color: cat.color,
+    fill: cat.color
+  }))
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -60,12 +51,38 @@ export default function SystemFinancialPieChart({
             {Number(data.value ?? 0).toLocaleString()} ₪
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-500">
-            {((Number(data.value ?? 0) / (Number(totalIncome ?? 0) + Number(totalExpense ?? 0))) * 100).toFixed(1)}%
+            {((Number(data.value ?? 0) / (Number(totalExpense ?? 0) || 1)) * 100).toFixed(1)}%
           </p>
         </div>
       )
     }
     return null
+  }
+
+  const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }: any) => {
+    const RADIAN = Math.PI / 180
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+    const percentage = (percent * 100).toFixed(1)
+
+    // Only show label if percentage is significant (more than 3%)
+    if (percent < 0.03) return null
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="white"
+        textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central"
+        fontSize={12}
+        fontWeight="bold"
+        className="pointer-events-none"
+      >
+        {`${name}: ${percentage}%`}
+      </text>
+    )
   }
 
   const CustomLegend = ({ payload }: any) => {
@@ -88,21 +105,42 @@ export default function SystemFinancialPieChart({
     )
   }
 
+  // Filter out categories with zero or negative amounts
+  const validChartData = chartData.filter(item => item.value > 0)
+
+  if (!validChartData || validChartData.length === 0) {
+    return (
+      <div className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-1">
+            הוצאות לפי קטגוריה
+          </h3>
+        </div>
+        <div className="h-96 flex items-center justify-center">
+          <p className="text-gray-500 dark:text-gray-400 text-center">
+            אין נתוני הוצאות להצגה
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const renderChart = () => {
     if (chartType === 'pie') {
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
-              data={chartData}
+              data={validChartData}
               cx="50%"
               cy="50%"
               labelLine={false}
+              label={CustomLabel}
               outerRadius={120}
               fill="#8884d8"
               dataKey="value"
             >
-              {chartData.map((entry, index) => (
+              {validChartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
@@ -116,14 +154,14 @@ export default function SystemFinancialPieChart({
     if (chartType === 'bar') {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData}>
+          <BarChart data={validChartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
             <YAxis />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
             <Bar dataKey="amount" fill="#8884d8">
-              {chartData.map((entry, index) => (
+              {validChartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Bar>
@@ -135,7 +173,7 @@ export default function SystemFinancialPieChart({
     if (chartType === 'line') {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
+          <LineChart data={validChartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
             <YAxis />
@@ -154,11 +192,8 @@ export default function SystemFinancialPieChart({
     <div className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-1">
-          סקירה פיננסית כללית
+          הוצאות לפי קטגוריה
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-          הכנסות והוצאות לפי קטגוריות
-        </p>
       </div>
 
       {/* Chart Type Selection */}
@@ -195,45 +230,6 @@ export default function SystemFinancialPieChart({
         {renderChart()}
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
-          <div className="text-green-600 dark:text-green-400 font-semibold text-sm mb-1">
-            סה״כ הכנסות
-          </div>
-          <div className="text-xl font-bold text-green-700 dark:text-green-300">
-            {Number(totalIncome ?? 0).toLocaleString()} ₪
-          </div>
-        </div>
-        <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-          <div className="text-red-600 dark:text-red-400 font-semibold text-sm mb-1">
-            סה״כ הוצאות
-          </div>
-          <div className="text-xl font-bold text-red-700 dark:text-red-300">
-            {Number(totalExpense ?? 0).toLocaleString()} ₪
-          </div>
-        </div>
-        <div className={`p-3 rounded-lg ${
-          (Number(totalIncome ?? 0) - Number(totalExpense ?? 0)) >= 0 
-            ? 'bg-green-50 dark:bg-green-900/20' 
-            : 'bg-red-50 dark:bg-red-900/20'
-        }`}>
-          <div className={`font-semibold text-sm mb-1 ${
-            (Number(totalIncome ?? 0) - Number(totalExpense ?? 0)) >= 0 
-              ? 'text-green-600 dark:text-green-400' 
-              : 'text-red-600 dark:text-red-400'
-          }`}>
-            סה״כ רווח/הפסד
-          </div>
-          <div className={`text-xl font-bold ${
-            (Number(totalIncome ?? 0) - Number(totalExpense ?? 0)) >= 0 
-              ? 'text-green-700 dark:text-green-300' 
-              : 'text-red-700 dark:text-red-300'
-          }`}>
-            {(Number(totalIncome ?? 0) - Number(totalExpense ?? 0)) >= 0 ? '+' : ''}
-            {Number(Number(totalIncome ?? 0) - Number(totalExpense ?? 0)).toLocaleString()} ₪
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
