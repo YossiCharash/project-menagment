@@ -1315,6 +1315,27 @@ async def get_financial_trends(
 # Contract Period Endpoints
 # ============================================================================
 
+@router.get("/{project_id}/contract-periods/current")
+async def get_current_contract_period(
+    project_id: int,
+    db: DBSessionDep,
+    user = Depends(get_current_user)
+):
+    """Get the current active contract period for a project"""
+    service = ContractPeriodService(db)
+    current_period = await service.get_current_contract_period(project_id)
+    
+    if not current_period:
+        return {
+            'project_id': project_id,
+            'current_period': None
+        }
+    
+    return {
+        'project_id': project_id,
+        'current_period': current_period
+    }
+
 @router.get("/{project_id}/contract-periods")
 async def get_previous_contract_periods(
     project_id: int,
@@ -1530,8 +1551,129 @@ async def export_contract_period_csv(
                 ws[f'{col}{row}'].border = border
             row += 2
             
+            # Check if this is a previous year period and add year summary if so
+            from datetime import date
+            current_year = date.today().year
+            contract_year = summary.get('contract_year', current_year)
+            
+            # If this is a previous year (not current year), add summary of all periods in that year
+            if contract_year < current_year:
+                from backend.repositories.contract_period_repository import ContractPeriodRepository
+                period_repo = ContractPeriodRepository(db)
+                all_year_periods = await period_repo.get_by_project_and_year(project_id, contract_year)
+                
+                if len(all_year_periods) > 0:  # Show if there are any periods
+                    # Calculate year totals
+                    year_total_income = sum(float(p.total_income or 0) for p in all_year_periods)
+                    year_total_expense = sum(float(p.total_expense or 0) for p in all_year_periods)
+                    year_total_profit = year_total_income - year_total_expense
+                    
+                    # Year summary section header
+                    ws.merge_cells(f'A{row}:B{row}')
+                    cell = ws[f'A{row}']
+                    cell.value = f'סיכום כולל של כל התקופות בשנה {contract_year}'
+                    cell.fill = section_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    row += 1
+                    
+                    ws[f'A{row}'] = 'מספר תקופות'
+                    ws[f'A{row}'].font = bold_font
+                    ws[f'B{row}'] = len(all_year_periods)
+                    row += 2
+                    
+                    # Year financial summary
+                    ws.merge_cells(f'A{row}:B{row}')
+                    cell = ws[f'A{row}']
+                    cell.value = 'סיכום כלכלי כולל של השנה'
+                    cell.fill = section_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    row += 1
+                    
+                    # Year financial headers
+                    ws[f'A{row}'] = 'סוג'
+                    ws[f'B{row}'] = 'סכום (₪)'
+                    for col in ['A', 'B']:
+                        cell = ws[f'{col}{row}']
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    row += 1
+                    
+                    # Year Income
+                    ws[f'A{row}'] = 'סה"כ הכנסות'
+                    ws[f'B{row}'] = year_total_income
+                    ws[f'A{row}'].font = bold_font
+                    ws[f'B{row}'].fill = income_fill
+                    ws[f'B{row}'].number_format = '#,##0.00'
+                    for col in ['A', 'B']:
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+                    
+                    # Year Expense
+                    ws[f'A{row}'] = 'סה"כ הוצאות'
+                    ws[f'B{row}'] = year_total_expense
+                    ws[f'A{row}'].font = bold_font
+                    ws[f'B{row}'].fill = expense_fill
+                    ws[f'B{row}'].number_format = '#,##0.00'
+                    for col in ['A', 'B']:
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+                    
+                    # Year Profit
+                    ws[f'A{row}'] = 'סה"כ רווח'
+                    ws[f'B{row}'] = year_total_profit
+                    ws[f'A{row}'].font = bold_font
+                    year_profit_fill = profit_positive_fill if year_total_profit >= 0 else profit_negative_fill
+                    ws[f'B{row}'].fill = year_profit_fill
+                    ws[f'B{row}'].number_format = '#,##0.00'
+                    for col in ['A', 'B']:
+                        ws[f'{col}{row}'].border = border
+                    row += 2
+                    
+                    # Breakdown by period
+                    ws.merge_cells(f'A{row}:F{row}')
+                    cell = ws[f'A{row}']
+                    cell.value = 'פירוט לפי תקופות'
+                    cell.fill = section_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    row += 1
+                    
+                    # Period breakdown headers
+                    headers = ['תקופה', 'תאריך התחלה', 'תאריך סיום', 'הכנסות', 'הוצאות', 'רווח']
+                    for idx, header in enumerate(headers, 1):
+                        col = get_column_letter(idx)
+                        cell = ws[f'{col}{row}']
+                        cell.value = header
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    row += 1
+                    
+                    # Period breakdown data
+                    for period in all_year_periods:
+                        period_label = f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית"
+                        ws[f'A{row}'] = period_label
+                        ws[f'B{row}'] = period.start_date.isoformat()
+                        ws[f'C{row}'] = period.end_date.isoformat()
+                        ws[f'D{row}'] = float(period.total_income or 0)
+                        ws[f'D{row}'].number_format = '#,##0.00'
+                        ws[f'E{row}'] = float(period.total_expense or 0)
+                        ws[f'E{row}'].number_format = '#,##0.00'
+                        ws[f'F{row}'] = float(period.total_profit or 0)
+                        ws[f'F{row}'].number_format = '#,##0.00'
+                        for col_idx in range(1, 7):
+                            col = get_column_letter(col_idx)
+                            ws[f'{col}{row}'].border = border
+                        row += 1
+                    row += 1
+            
             # Budgets
-            if summary['budgets']:
+            if summary.get('budgets'):
                 ws.merge_cells(f'A{row}:F{row}')
                 cell = ws[f'A{row}']
                 cell.value = 'תקציבים'
@@ -1568,7 +1710,7 @@ async def export_contract_period_csv(
                 row += 1
             
             # Transactions
-            if summary['transactions']:
+            if summary.get('transactions'):
                 ws.merge_cells(f'A{row}:G{row}')
                 cell = ws[f'A{row}']
                 cell.value = 'עסקאות'
@@ -1644,10 +1786,50 @@ async def export_contract_period_csv(
             
             # Create filename - use ASCII-safe version to avoid encoding issues in headers
             import re
+            from datetime import datetime as dt
             # Remove non-ASCII characters from filename for header compatibility
             safe_project_name = re.sub(r'[^\x00-\x7F]', '_', project.name).replace('"', '').replace('/', '_').replace('\\', '_').strip()
-            safe_year_label = re.sub(r'[^\x00-\x7F]', '_', str(summary["year_label"])).replace('"', '').replace('/', '_').replace('\\', '_').strip()
-            filename = f"contract_period_{safe_year_label}_{safe_project_name}.xlsx"
+            
+            # Add date range to filename
+            start_date = summary.get('start_date', '')
+            end_date = summary.get('end_date', '')
+            
+            if start_date and end_date:
+                # Parse dates and format for filename
+                try:
+                    if isinstance(start_date, str):
+                        start_dt = dt.fromisoformat(start_date.split('T')[0])
+                    else:
+                        start_dt = start_date
+                    if isinstance(end_date, str):
+                        end_dt = dt.fromisoformat(end_date.split('T')[0])
+                    else:
+                        end_dt = end_date
+                    date_range = f"{start_dt.strftime('%Y-%m-%d')}_{end_dt.strftime('%Y-%m-%d')}"
+                except:
+                    date_range = f"{start_date}_{end_date}"
+            elif start_date:
+                try:
+                    if isinstance(start_date, str):
+                        start_dt = dt.fromisoformat(start_date.split('T')[0])
+                    else:
+                        start_dt = start_date
+                    date_range = f"מ-{start_dt.strftime('%Y-%m-%d')}"
+                except:
+                    date_range = f"מ-{start_date}"
+            elif end_date:
+                try:
+                    if isinstance(end_date, str):
+                        end_dt = dt.fromisoformat(end_date.split('T')[0])
+                    else:
+                        end_dt = end_date
+                    date_range = f"עד-{end_dt.strftime('%Y-%m-%d')}"
+                except:
+                    date_range = f"עד-{end_date}"
+            else:
+                date_range = "כל-התקופות"
+            
+            filename = f"{safe_project_name}_{date_range}.xlsx"
             
             return Response(
                 content=output.getvalue(),
@@ -1676,8 +1858,51 @@ async def export_contract_period_csv(
             writer.writerow(['סה"כ רווח', summary['total_profit']])
             writer.writerow([])
             
+            # Check if this is a previous year period and add year summary if so
+            from datetime import date
+            current_year = date.today().year
+            contract_year = summary.get('contract_year', current_year)
+            
+            # If this is a previous year (not current year), add summary of all periods in that year
+            if contract_year < current_year:
+                from backend.repositories.contract_period_repository import ContractPeriodRepository
+                period_repo = ContractPeriodRepository(db)
+                all_year_periods = await period_repo.get_by_project_and_year(project_id, contract_year)
+                
+                if len(all_year_periods) > 0:  # Show if there are any periods
+                    # Calculate year totals
+                    year_total_income = sum(float(p.total_income or 0) for p in all_year_periods)
+                    year_total_expense = sum(float(p.total_expense or 0) for p in all_year_periods)
+                    year_total_profit = year_total_income - year_total_expense
+                    
+                    writer.writerow([])
+                    writer.writerow(['סיכום כולל של כל התקופות בשנה'])
+                    writer.writerow(['שנה', contract_year])
+                    writer.writerow(['מספר תקופות', len(all_year_periods)])
+                    writer.writerow([])
+                    writer.writerow(['סיכום כלכלי כולל של השנה'])
+                    writer.writerow(['סה"כ הכנסות', year_total_income])
+                    writer.writerow(['סה"כ הוצאות', year_total_expense])
+                    writer.writerow(['סה"כ רווח', year_total_profit])
+                    writer.writerow([])
+                    
+                    # Add breakdown by period
+                    writer.writerow(['פירוט לפי תקופות'])
+                    writer.writerow(['תקופה', 'תאריך התחלה', 'תאריך סיום', 'הכנסות', 'הוצאות', 'רווח'])
+                    for period in all_year_periods:
+                        period_label = f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית"
+                        writer.writerow([
+                            period_label,
+                            period.start_date.isoformat(),
+                            period.end_date.isoformat(),
+                            float(period.total_income or 0),
+                            float(period.total_expense or 0),
+                            float(period.total_profit or 0)
+                        ])
+                    writer.writerow([])
+            
             # Write budgets
-            if summary['budgets']:
+            if summary.get('budgets'):
                 writer.writerow(['תקציבים'])
                 writer.writerow(['קטגוריה', 'סכום', 'סוג תקופה', 'תאריך התחלה', 'תאריך סיום', 'פעיל'])
                 for budget in summary['budgets']:
@@ -1692,27 +1917,28 @@ async def export_contract_period_csv(
                 writer.writerow([])
             
             # Write transactions
-            writer.writerow(['עסקאות'])
-            writer.writerow([
-                'תאריך',
-                'סוג',
-                'סכום',
-                'תיאור',
-                'קטגוריה',
-                'אמצעי תשלום',
-                'הערות'
-            ])
-            
-            for tx in summary['transactions']:
+            if summary.get('transactions'):
+                writer.writerow(['עסקאות'])
                 writer.writerow([
-                    tx.get('tx_date', ''),
-                    'הכנסה' if tx.get('type') == 'Income' else 'הוצאה',
-                    tx.get('amount', 0),
-                    tx.get('description', '') or '',
-                    tx.get('category', '') or '',
-                    tx.get('payment_method', '') or '',
-                    tx.get('notes', '') or ''
+                    'תאריך',
+                    'סוג',
+                    'סכום',
+                    'תיאור',
+                    'קטגוריה',
+                    'אמצעי תשלום',
+                    'הערות'
                 ])
+                
+                for tx in summary['transactions']:
+                    writer.writerow([
+                        tx.get('tx_date', ''),
+                        'הכנסה' if tx.get('type') == 'Income' else 'הוצאה',
+                        tx.get('amount', 0),
+                        tx.get('description', '') or '',
+                        tx.get('category', '') or '',
+                        tx.get('payment_method', '') or '',
+                        tx.get('notes', '') or ''
+                    ])
             
             # Prepare response with UTF-8 BOM for Excel compatibility
             csv_content = output.getvalue()

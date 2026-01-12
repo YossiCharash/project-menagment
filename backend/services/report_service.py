@@ -2492,7 +2492,23 @@ class ReportService:
             textColor=colors.HexColor(COLOR_ACCENT_TEAL), leading=26, spaceAfter=8
         )))
         
-        # Date subtitle
+        # Date range subtitle
+        date_range_text = ""
+        if options.start_date and options.end_date:
+            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
+        elif options.start_date:
+            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
+        elif options.end_date:
+            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        else:
+            date_range_text = "כל התקופות"
+        
+        elements.append(Paragraph(
+            format_text(f"תקופה: {date_range_text}"),
+            style_subtitle
+        ))
+        
+        # Production date
         elements.append(Paragraph(
             format_text(f"{REPORT_LABELS['production_date']}: {date.today().strftime('%d/%m/%Y')}"),
             style_subtitle
@@ -2725,25 +2741,69 @@ class ReportService:
             elements.append(Paragraph(format_text(f"📝 {REPORT_LABELS['transaction_details']}"), style_h2))
             elements.append(Spacer(1, 12))
 
-            # Group transactions by category
-            transactions_by_category = {}
+            # Group transactions by year first, then by category
+            from collections import defaultdict
+            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
             # Get selected categories if any
             selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
 
             for tx in transactions:
                 if isinstance(tx, dict):
                     cat_name = tx.get('category') or REPORT_LABELS['general']
+                    tx_date = tx.get('tx_date')
                 else:
                     cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
+                    tx_date = tx.tx_date
+                
+                # Extract year from transaction date
+                if isinstance(tx_date, str):
+                    try:
+                        if 'T' in tx_date:
+                            tx_date = date.fromisoformat(tx_date.split('T')[0])
+                        else:
+                            tx_date = date.fromisoformat(tx_date)
+                    except:
+                        # If parsing fails, use current year
+                        tx_date = date.today()
+                elif not isinstance(tx_date, date):
+                    tx_date = date.today()
+                
+                year = tx_date.year
 
                 # Only include transactions from selected categories if categories were selected
                 if selected_categories is None or cat_name in selected_categories:
-                    if cat_name not in transactions_by_category:
-                        transactions_by_category[cat_name] = []
-                    transactions_by_category[cat_name].append(tx)
+                    transactions_by_year_and_category[year][cat_name].append(tx)
 
-            # Create a table for each category
-            for cat_name, cat_transactions in transactions_by_category.items():
+            # Sort years in descending order (newest first)
+            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
+
+            # Create tables for each year, then each category within that year
+            for year in sorted_years:
+                # Year header
+                elements.append(PageBreak() if year != sorted_years[0] else Spacer(1, 0))
+                year_header_style = ParagraphStyle(
+                    'YearHeader', 
+                    parent=styles['Heading1'], 
+                    fontName=font_name, 
+                    fontSize=16, 
+                    alignment=1,
+                    textColor=colors.white,
+                    backColor=colors.HexColor(COLOR_PRIMARY_DARK),
+                    leading=24, 
+                    spaceBefore=15, 
+                    spaceAfter=10,
+                    leftIndent=10,
+                    rightIndent=10,
+                    borderPadding=8
+                )
+                elements.append(Paragraph(format_text(f"שנת {year}"), year_header_style))
+                elements.append(Spacer(1, 12))
+                
+                # Get categories for this year, sorted alphabetically
+                year_categories = sorted(transactions_by_year_and_category[year].keys())
+                
+                for cat_name in year_categories:
+                    cat_transactions = transactions_by_year_and_category[year][cat_name]
                 # Category header with amber accent
                 elements.append(Paragraph(format_text(f"📁 {REPORT_LABELS['category']}: {cat_name}"), style_category))
                 elements.append(Spacer(1, 6))
@@ -3102,7 +3162,28 @@ class ReportService:
         title_cell.border = medium_border
         current_row += 1
 
-        # Subtitle with date
+        # Date range subtitle
+        date_range_text = ""
+        if options.start_date and options.end_date:
+            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
+        elif options.start_date:
+            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
+        elif options.end_date:
+            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        else:
+            date_range_text = "כל התקופות"
+        
+        ws.merge_cells(f'A{current_row}:E{current_row}')
+        ws.row_dimensions[current_row].height = 25
+        date_range_cell = ws[f'A{current_row}']
+        date_range_cell.value = f"תקופה: {date_range_text}"
+        date_range_cell.font = subtitle_font
+        date_range_cell.fill = fill_light
+        date_range_cell.alignment = center_align
+        date_range_cell.border = bottom_accent
+        current_row += 1
+        
+        # Production date
         ws.merge_cells(f'A{current_row}:E{current_row}')
         ws.row_dimensions[current_row].height = 25
         date_cell = ws[f'A{current_row}']
@@ -3306,23 +3387,59 @@ class ReportService:
             tx_header.border = medium_border
             current_row += 1
 
-            # Group transactions by category
-            transactions_by_category = {}
+            # Group transactions by year first, then by category
+            from collections import defaultdict
+            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
             selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
 
             for tx in transactions:
                 if isinstance(tx, dict):
                     cat_name = tx.get('category') or REPORT_LABELS['general']
+                    tx_date = tx.get('tx_date')
                 else:
                     cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
+                    tx_date = tx.tx_date
+                
+                # Extract year from transaction date
+                if isinstance(tx_date, str):
+                    try:
+                        if 'T' in tx_date:
+                            tx_date = date.fromisoformat(tx_date.split('T')[0])
+                        else:
+                            tx_date = date.fromisoformat(tx_date)
+                    except:
+                        # If parsing fails, use current year
+                        tx_date = date.today()
+                elif not isinstance(tx_date, date):
+                    tx_date = date.today()
+                
+                year = tx_date.year
 
                 if selected_categories is None or cat_name in selected_categories:
-                    if cat_name not in transactions_by_category:
-                        transactions_by_category[cat_name] = []
-                    transactions_by_category[cat_name].append(tx)
+                    transactions_by_year_and_category[year][cat_name].append(tx)
 
-            # Create a table for each category
-            for cat_idx, (cat_name, cat_transactions) in enumerate(transactions_by_category.items()):
+            # Sort years in descending order (newest first)
+            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
+
+            # Create tables for each year, then each category within that year
+            for year in sorted_years:
+                # Year header
+                current_row += 2 if year != sorted_years[0] else 0  # Add space before new year (except first)
+                ws.merge_cells(f'A{current_row}:E{current_row}')
+                ws.row_dimensions[current_row].height = 30
+                year_header = ws[f'A{current_row}']
+                year_header.value = f"שנת {year}"
+                year_header.font = h2_font
+                year_header.fill = fill_title
+                year_header.alignment = center_align
+                year_header.border = medium_border
+                current_row += 1
+                
+                # Get categories for this year, sorted alphabetically
+                year_categories = sorted(transactions_by_year_and_category[year].keys())
+                
+                for cat_idx, cat_name in enumerate(year_categories):
+                    cat_transactions = transactions_by_year_and_category[year][cat_name]
                 # Check which columns have data
                 has_suppliers = any(
                     (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
@@ -3606,10 +3723,26 @@ class ReportService:
 
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-            # Report File
+            # Report File - Build filename with project name and date range
             ext = "xlsx" if options.format == "zip" else "pdf"  # Default to excel inside zip if zip requested directly?
             # Actually, if options.format is zip, we generated excel above.
-            zf.writestr(f"report.{ext}", report_content)
+            
+            # Sanitize project name for filename
+            safe_project_name = "".join([c for c in project.name if
+                                         c.isalnum() or c in (' ', '-', '_')]).strip() if project.name else f"project_{project.id}"
+            
+            # Add date range to filename
+            if options.start_date and options.end_date:
+                date_range_str = f"{options.start_date.strftime('%Y-%m-%d')}_{options.end_date.strftime('%Y-%m-%d')}"
+            elif options.start_date:
+                date_range_str = f"מ-{options.start_date.strftime('%Y-%m-%d')}"
+            elif options.end_date:
+                date_range_str = f"עד-{options.end_date.strftime('%Y-%m-%d')}"
+            else:
+                date_range_str = "כל-התקופות"
+            
+            report_filename = f"{safe_project_name}_{date_range_str}.{ext}"
+            zf.writestr(report_filename, report_content)
 
             if has_s3:
                 # Add Contract if requested
