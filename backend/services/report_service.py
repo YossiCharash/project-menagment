@@ -420,9 +420,6 @@ class ReportService:
                     project_start_date = None
             else:
                 project_start_date = None
-            project_created_at = proj_data["created_at"]
-            project_budget_monthly = proj_data["budget_monthly"]
-            project_budget_annual = proj_data["budget_annual"]
 
             # Calculate start date
             if project_start_date:
