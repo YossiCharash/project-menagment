@@ -19,6 +19,9 @@ class ContractPeriodService:
 
     async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
         """Get the current active contract period for a project"""
+        # Hebrew letters for period labeling
+        hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
+        
         # Get project to identify current active dates
         project = await self.projects.get_by_id(project_id)
         if not project or not project.start_date:
@@ -26,27 +29,47 @@ class ContractPeriodService:
         
         # Find the period that matches the project's current start_date (active period)
         periods = await self.contract_periods.get_by_project(project_id)
+        
+        # Count periods in the same year as the current period to decide on labeling
+        current_period = None
         for period in periods:
             if period.start_date == project.start_date:
-                summary = await self._get_period_financials(period)
-                # Ensure start_date is before end_date
-                start_date = period.start_date
-                end_date = period.end_date
-                if end_date and start_date > end_date:
-                    start_date, end_date = end_date, start_date
-                
-                # Always show current period as "תקופה ראשית" regardless of year_index in DB
-                return {
-                    'period_id': period.id,
-                    'start_date': start_date.isoformat(),
-                    'end_date': end_date.isoformat() if end_date else None,
-                    'contract_year': period.contract_year,
-                    'year_index': 1,  # Always 1 for current period
-                    'year_label': "תקופה ראשית",  # Always "תקופה ראשית" for current period
-                    'total_income': summary['total_income'],
-                    'total_expense': summary['total_expense'],
-                    'total_profit': summary['total_profit']
-                }
+                current_period = period
+                break
+        
+        if current_period:
+            # Count how many periods exist in the same year
+            periods_in_year = [p for p in periods if p.contract_year == current_period.contract_year]
+            show_period_label = len(periods_in_year) > 1
+            
+            summary = await self._get_period_financials(current_period)
+            # Ensure start_date is before end_date
+            start_date = current_period.start_date
+            end_date = current_period.end_date
+            if end_date and start_date > end_date:
+                start_date, end_date = end_date, start_date
+            
+            # Determine year_label: only show if multiple periods in the same year
+            if show_period_label:
+                # Find this period's index among periods in the same year
+                periods_in_year.sort(key=lambda p: p.start_date)
+                idx = next((i for i, p in enumerate(periods_in_year) if p.id == current_period.id), 0)
+                letter = hebrew_letters[idx] if idx < len(hebrew_letters) else str(idx + 1)
+                year_label = f"תקופה {letter}"
+            else:
+                year_label = ""  # No label for single period per year
+            
+            return {
+                'period_id': current_period.id,
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat() if end_date else None,
+                'contract_year': current_period.contract_year,
+                'year_index': current_period.year_index,
+                'year_label': year_label,
+                'total_income': summary['total_income'],
+                'total_expense': summary['total_expense'],
+                'total_profit': summary['total_profit']
+            }
         
         # If no matching period found, return project dates as fallback
         # Ensure start_date is before end_date
@@ -69,13 +92,17 @@ class ContractPeriodService:
         )
         summary = await self._get_period_financials(temp_period)
         
+        # For fallback (no period in DB), check if there are any periods in the same year
+        periods_in_year = [p for p in periods if p.contract_year == start_date.year]
+        show_period_label = len(periods_in_year) > 0  # Show label if other periods exist
+        
         return {
             'period_id': None,
             'start_date': start_date.isoformat(),
             'end_date': end_date.isoformat() if end_date else None,
             'contract_year': start_date.year,
             'year_index': 1,
-            'year_label': "תקופה ראשית",
+            'year_label': "תקופה א" if show_period_label else "",
             'total_income': summary['total_income'],
             'total_expense': summary['total_expense'],
             'total_profit': summary['total_profit']
@@ -83,6 +110,9 @@ class ContractPeriodService:
 
     async def get_previous_contracts_by_year(self, project_id: int) -> Dict[int, List[Dict[str, Any]]]:
         """Get all contract periods grouped by year, with deduplication"""
+        # Hebrew letters for period labeling (א, ב, ג, ד, ה, ו, ז, ח, ט, י)
+        hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
+        
         # Get all periods ordered by year and index
         periods = await self.contract_periods.get_by_project(project_id)
         
@@ -115,35 +145,50 @@ class ContractPeriodService:
             if period_key not in unique_periods or period.id > unique_periods[period_key].id:
                 unique_periods[period_key] = period
         
-        result = {}
+        # First pass: Group periods by year to count how many periods exist per year
+        periods_by_year = {}
         for period in unique_periods.values():
             year = period.contract_year
-            if year not in result:
-                result[year] = []
-                
-            # Calculate summary for this period
-            summary = await self._get_period_financials(period)
-            
-            # Ensure start_date is before end_date
-            start_date = period.start_date
-            end_date = period.end_date
-            if end_date and start_date > end_date:
-                start_date, end_date = end_date, start_date
-            
-            result[year].append({
-                'period_id': period.id,
-                'start_date': start_date.isoformat(),
-                'end_date': end_date.isoformat() if end_date else None,
-                'year_index': period.year_index,
-                'year_label': f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית",
-                'total_income': summary['total_income'],
-                'total_expense': summary['total_expense'],
-                'total_profit': summary['total_profit']
-            })
+            if year not in periods_by_year:
+                periods_by_year[year] = []
+            periods_by_year[year].append(period)
         
-        # Sort periods within each year by year_index (ascending)
-        for year in result:
-            result[year].sort(key=lambda p: p['year_index'])
+        result = {}
+        for year, year_periods in periods_by_year.items():
+            result[year] = []
+            # Sort periods by year_index for consistent ordering
+            year_periods.sort(key=lambda p: p.year_index)
+            
+            # Determine if we need period labels (only if >1 period in this year)
+            show_period_labels = len(year_periods) > 1
+            
+            for idx, period in enumerate(year_periods):
+                # Calculate summary for this period
+                summary = await self._get_period_financials(period)
+                
+                # Ensure start_date is before end_date
+                start_date = period.start_date
+                end_date = period.end_date
+                if end_date and start_date > end_date:
+                    start_date, end_date = end_date, start_date
+                
+                # Determine year_label: only show if multiple periods in the same year
+                if show_period_labels:
+                    letter = hebrew_letters[idx] if idx < len(hebrew_letters) else str(idx + 1)
+                    year_label = f"תקופה {letter}"
+                else:
+                    year_label = ""  # No label for single period per year
+                
+                result[year].append({
+                    'period_id': period.id,
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat() if end_date else None,
+                    'year_index': period.year_index,
+                    'year_label': year_label,
+                    'total_income': summary['total_income'],
+                    'total_expense': summary['total_expense'],
+                    'total_profit': summary['total_profit']
+                })
             
         return result
 
@@ -263,6 +308,9 @@ class ContractPeriodService:
 
     async def get_contract_period_summary(self, period_id: int) -> Optional[Dict[str, Any]]:
         """Get detailed summary for a contract period"""
+        # Hebrew letters for period labeling
+        hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
+        
         period = await self.contract_periods.get_by_id(period_id)
         if not period:
             return None
@@ -275,6 +323,21 @@ class ContractPeriodService:
         if end_date and start_date > end_date:
             start_date, end_date = end_date, start_date
         
+        # Count periods in the same year to decide on labeling
+        periods = await self.contract_periods.get_by_project(period.project_id)
+        periods_in_year = [p for p in periods if p.contract_year == period.contract_year]
+        show_period_label = len(periods_in_year) > 1
+        
+        # Determine year_label: only show if multiple periods in the same year
+        if show_period_label:
+            # Find this period's index among periods in the same year
+            periods_in_year.sort(key=lambda p: p.start_date)
+            idx = next((i for i, p in enumerate(periods_in_year) if p.id == period.id), 0)
+            letter = hebrew_letters[idx] if idx < len(hebrew_letters) else str(idx + 1)
+            year_label = f"תקופה {letter}"
+        else:
+            year_label = ""  # No label for single period per year
+        
         return {
             'period_id': period.id,
             'project_id': period.project_id,
@@ -282,7 +345,7 @@ class ContractPeriodService:
             'end_date': end_date.isoformat() if end_date else None,
             'contract_year': period.contract_year,
             'year_index': period.year_index,
-            'year_label': f"תקופה {period.year_index}" if period.year_index > 1 else "תקופה ראשית",
+            'year_label': year_label,
             **summary
         }
 

@@ -21,6 +21,26 @@ export class ProjectAPI {
     return data
   }
 
+  // OPTIMIZED: Get complete project data in a single API call
+  // Replaces 5+ separate API calls with ONE for faster page load
+  static async getProjectFull(projectId: number): Promise<{
+    project: Project & { has_fund?: boolean; monthly_fund_amount?: number | null }
+    transactions: Transaction[]
+    budgets: BudgetWithSpending[]
+    expense_categories: ExpenseCategory[]
+    fund: {
+      id: number
+      project_id: number
+      current_balance: number
+      monthly_amount: number
+      total_deductions: number
+      transactions: Transaction[]
+    } | null
+  }> {
+    const { data } = await api.get(`/projects/${projectId}/full`)
+    return data
+  }
+
   // Create project with optional parent relationship
   static async createProject(project: ProjectCreate): Promise<Project> {
     const { data } = await api.post<Project>('/projects', project)

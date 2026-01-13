@@ -21,6 +21,12 @@ interface ProjectTrendsChartProps {
   }>
   compact?: boolean
   projectIncome?: number
+  // Global filter props (optional - when provided, use these instead of local filter)
+  globalFilterType?: 'month' | 'year' | 'all' | 'custom' | 'current_month' | 'selected_month' | 'date_range' | 'all_time' | 'project'
+  globalSelectedMonth?: string
+  globalStartDate?: string
+  globalEndDate?: string
+  hideFilterControls?: boolean
 }
 
 interface ChartDataPoint {
@@ -39,14 +45,19 @@ export default function ProjectTrendsChart({
   transactions,
   expenseCategories = [],
   compact = false,
-  projectIncome = 0
+  projectIncome = 0,
+  globalFilterType,
+  globalSelectedMonth,
+  globalStartDate,
+  globalEndDate,
+  hideFilterControls = false
 }: ProjectTrendsChartProps) {
   const [viewMode, setViewMode] = useState<'profitability' | 'categories'>('categories')
-  const [filterType, setFilterType] = useState<FilterType>('month')
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [localFilterType, setLocalFilterType] = useState<FilterType>('month')
+  const [localSelectedMonth, setLocalSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
+  const [localCustomStartDate, setLocalCustomStartDate] = useState('')
+  const [localCustomEndDate, setLocalCustomEndDate] = useState('')
   const [chartType, setChartType] = useState<ChartType>('line')
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [filteredExpenseCategories, setFilteredExpenseCategories] = useState<Array<{
@@ -55,6 +66,41 @@ export default function ProjectTrendsChart({
     color: string
     transactionCount: number
   }>>([])
+
+  // Map global filter types to internal filter types
+  const mapGlobalFilterType = (gft: typeof globalFilterType): FilterType => {
+    if (!gft) return localFilterType
+    switch (gft) {
+      case 'current_month':
+      case 'selected_month':
+      case 'month':
+        return 'month'
+      case 'year':
+        return 'year'
+      case 'date_range':
+      case 'custom':
+        return 'custom'
+      case 'all_time':
+      case 'project':
+      case 'all':
+        return 'all'
+      default:
+        return localFilterType
+    }
+  }
+
+  // Use global filter if provided, otherwise use local filter
+  const useGlobalFilter = globalFilterType !== undefined
+  const filterType = useGlobalFilter ? mapGlobalFilterType(globalFilterType) : localFilterType
+  const selectedMonth = useGlobalFilter && globalSelectedMonth ? globalSelectedMonth : localSelectedMonth
+  const customStartDate = useGlobalFilter && globalStartDate ? globalStartDate : localCustomStartDate
+  const customEndDate = useGlobalFilter && globalEndDate ? globalEndDate : localCustomEndDate
+  
+  // Setter functions that work with either local or global state
+  const setFilterType = useGlobalFilter ? () => {} : setLocalFilterType
+  const setSelectedMonth = useGlobalFilter ? () => {} : setLocalSelectedMonth
+  const setCustomStartDate = useGlobalFilter ? () => {} : setLocalCustomStartDate
+  const setCustomEndDate = useGlobalFilter ? () => {} : setLocalCustomEndDate
 
   useEffect(() => {
     if (viewMode === 'profitability') {
@@ -67,7 +113,7 @@ export default function ProjectTrendsChart({
   useEffect(() => {
     processData()
     processExpenseCategories()
-  }, [filterType, selectedMonth, selectedYear, customStartDate, customEndDate, transactions, expenseCategories, projectIncome])
+  }, [filterType, selectedMonth, selectedYear, customStartDate, customEndDate, transactions, expenseCategories, projectIncome, globalFilterType, globalSelectedMonth, globalStartDate, globalEndDate])
 
   // Helper function to split period transactions by month
   const splitPeriodTransactionByMonth = (tx: any, filterStart: Date, filterEnd: Date) => {
@@ -652,76 +698,78 @@ export default function ProjectTrendsChart({
         </div>
       </div>
 
-      {/* Filter Controls */}
-      <div className="mb-6 space-y-4">
-        <div className="flex flex-wrap gap-4 items-center justify-center">
-            {/* Filter Type Selection */}
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as FilterType)}
-                className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="month">לפי חודש</option>
-                <option value="year">לפי שנה</option>
-                <option value="all">כל התקופה</option>
-                <option value="custom">טווח תאריכים</option>
-              </select>
-            </div>
-
-            {/* Month Filter */}
-            {filterType === 'month' && (
+      {/* Filter Controls - Hidden when global filter is used */}
+      {!hideFilterControls && (
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-wrap gap-4 items-center justify-center">
+              {/* Filter Type Selection */}
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
-
-            {/* Year Filter */}
-            {filterType === 'year' && (
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                <Filter className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                 <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value as FilterType)}
                   className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
-                    <option key={year} value={year.toString()}>{year}</option>
-                  ))}
+                  <option value="month">לפי חודש</option>
+                  <option value="year">לפי שנה</option>
+                  <option value="all">כל התקופה</option>
+                  <option value="custom">טווח תאריכים</option>
                 </select>
               </div>
-            )}
 
-            {/* Custom Date Range */}
-            {filterType === 'custom' && (
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                  placeholder="תאריך התחלה"
-                  className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-gray-500">עד</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                  placeholder="תאריך סיום"
-                  className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
-          </div>
-      </div>
+              {/* Month Filter */}
+              {filterType === 'month' && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Year Filter */}
+              {filterType === 'year' && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
+                      <option key={year} value={year.toString()}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Custom Date Range */}
+              {filterType === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    placeholder="תאריך התחלה"
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-500">עד</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    placeholder="תאריך סיום"
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+            </div>
+        </div>
+      )}
 
       {/* Chart Type Selection - Context Aware */}
       <div className="mb-6 flex justify-center">

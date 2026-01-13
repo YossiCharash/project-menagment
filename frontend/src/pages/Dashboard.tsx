@@ -1,21 +1,16 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
-import { archiveProject, createProject, fetchProjects, fetchProjectsWithArchived, restoreProject, updateProject, hardDeleteProject } from '../store/slices/projectsSlice'
-import { Link, useNavigate } from 'react-router-dom'
-import CategoryBarChart, { CategoryPoint } from '../components/charts/CategoryBarChart'
+import { archiveProject, createProject, fetchProjects, restoreProject, updateProject, hardDeleteProject } from '../store/slices/projectsSlice'
+import { useNavigate } from 'react-router-dom'
 import { fetchMe } from '../store/slices/authSlice'
 import Modal from '../components/Modal'
-import api from '../lib/api'
-import EnhancedDashboard from '../components/EnhancedDashboard'
 import ModernDashboard from '../components/ModernDashboard'
 import CreateProjectModal from '../components/CreateProjectModal'
-import ProjectTreeView from '../components/ProjectTreeView'
-import TestComponent from '../components/TestComponent'
 import { ProjectWithFinance } from '../types/api'
 
 export default function Dashboard() {
   const dispatch = useAppDispatch()
-  const { items, loading, error } = useAppSelector(s => s.projects)
+  const { items } = useAppSelector(s => s.projects)
   const me = useAppSelector(s => s.auth.me)
   const navigate = useNavigate()
 
@@ -37,7 +32,6 @@ export default function Dashboard() {
   const [localError, setLocalError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [openCreate, setOpenCreate] = useState(false)
-  const [projectCharts, setProjectCharts] = useState<Record<number, CategoryPoint[]>>({})
   const [showArchiveDeleteModal, setShowArchiveDeleteModal] = useState(false)
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
   const [selectedProjectForAction, setSelectedProjectForAction] = useState<{ id: number; name: string } | null>(null)
@@ -47,33 +41,8 @@ export default function Dashboard() {
 
   useEffect(() => { if (!me) dispatch(fetchMe()) }, [dispatch, me])
   
-  // Load projects for dashboard
-  useEffect(() => {
-    dispatch(fetchProjects())
-  }, [dispatch])
-
-  // Load project charts for dashboard
-  useEffect(() => {
-    const loadProjectCharts = async () => {
-      const charts: Record<number, CategoryPoint[]> = {}
-      const visible = items.filter((p: any) => p.is_active !== false)
-      for (const p of visible) {
-        try {
-          const { data } = await api.get(`/transactions/project/${p.id}`)
-          const map: Record<string, { income: number; expense: number }> = {}
-          for (const t of data as any[]) {
-            const cat = (t.category || 'ללא קטגוריה') as string
-            if (!map[cat]) map[cat] = { income: 0, expense: 0 }
-            if (t.type === 'Income') map[cat].income += Number(t.amount)
-            else map[cat].expense += Number(t.amount)
-          }
-          charts[p.id] = Object.entries(map).map(([category, v]) => ({ category, income: v.income, expense: v.expense }))
-        } catch { charts[p.id] = [] }
-      }
-      setProjectCharts(charts)
-    }
-    if (items.length) loadProjectCharts()
-  }, [items])
+  // NOTE: Projects are loaded by ModernDashboard via getDashboardSnapshot()
+  // No need to fetch them again here - this was causing redundant API calls
 
   const resetForm = () => {
     setName(''); setDescription(''); setStartDate(''); setEndDate(''); setMonthly(0); setAnnual(0); setAddress(''); setCity(''); setLocalError(null); setEditingId(null)

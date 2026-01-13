@@ -2,16 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
-import { DashboardAPI, ProjectAPI } from '../lib/apiClient'
+import { DashboardAPI } from '../lib/apiClient'
 import { DashboardSnapshot } from '../types/api'
 import { LoadingDashboard } from './ui/Loading'
 import { useNavigate } from 'react-router-dom'
 import { 
   AlertTriangle,
-  Plus,
-  RefreshCw,
-  X,
-  ExternalLink
+  RefreshCw
 } from 'lucide-react'
 import SystemFinancialPieChart from './charts/SystemFinancialPieChart'
 import { ProjectWithFinance } from '../types/api'
@@ -500,7 +497,6 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
 
   useEffect(() => {
     loadDashboardData()
-    loadProfitabilityAlerts()
     // Load dismissed alerts from localStorage
     const dismissed = localStorage.getItem('dismissedProfitabilityAlerts')
     if (dismissed) {
@@ -512,28 +508,73 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
     }
   }, [])
 
-  // Auto-refresh alerts every 30 seconds
+  // OPTIMIZATION: Calculate profitability alerts from dashboard data
+  // This eliminates the need for a separate API call and periodic refresh
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (!loading) {
-        loadProfitabilityAlerts()
-      }
-    }, 30000) // 30 seconds
-
-    return () => clearInterval(interval)
-  }, [loading])
-
-  const loadProfitabilityAlerts = async () => {
-    setAlertsLoading(true)
-    try {
-      const data = await ProjectAPI.getProfitabilityAlerts()
-      setProfitabilityAlerts(data.alerts || [])
-    } catch (err: any) {
+    if (!dashboardData) {
       setProfitabilityAlerts([])
-    } finally {
-      setAlertsLoading(false)
+      return
     }
-  }
+    
+    // Helper to flatten all projects including children
+    const getAllProjectsFlat = (projects: typeof dashboardData.projects): typeof dashboardData.projects => {
+      const result: typeof dashboardData.projects = []
+      const flatten = (projs: typeof dashboardData.projects) => {
+        projs.forEach(project => {
+          result.push(project)
+          if (project.children) {
+            flatten(project.children)
+          }
+        })
+      }
+      flatten(projects)
+      return result
+    }
+    
+    const allProjects = getAllProjectsFlat(dashboardData.projects)
+    
+    // Calculate profitability alerts: projects with profit_margin <= -10%
+    // Using income_month_to_date and expense_month_to_date from ProjectWithFinance
+    const alerts = allProjects
+      .filter(p => {
+        const income = p.income_month_to_date || 0
+        const expense = p.expense_month_to_date || 0
+        const profit = income - expense
+        
+        // Calculate profit margin
+        let profitMargin: number
+        if (income > 0) {
+          profitMargin = (profit / income) * 100
+        } else if (expense > 0) {
+          profitMargin = -100
+        } else {
+          return false // No transactions
+        }
+        
+        return profitMargin <= -10
+      })
+      .map(p => {
+        const income = p.income_month_to_date || 0
+        const expense = p.expense_month_to_date || 0
+        const profit = income - expense
+        const profitMargin = income > 0 ? (profit / income) * 100 : (expense > 0 ? -100 : 0)
+        
+        return {
+          id: p.id,
+          name: p.name,
+          profit_margin: Math.round(profitMargin * 10) / 10,
+          income,
+          expense,
+          profit,
+          is_subproject: p.relation_project !== null && p.relation_project !== undefined,
+          parent_project_id: p.relation_project || null
+        }
+      })
+      .sort((a, b) => a.profit_margin - b.profit_margin) // Most negative first
+    
+    setProfitabilityAlerts(alerts)
+    setAlertsLoading(false)
+  }, [dashboardData])
 
   const dismissAlert = (alertId: number) => {
     if (window.confirm('האם אתה בטוח שברצונך להסתיר את ההתראה הזו?\n\nההתראה תחזור אוטומטית אם הפרויקט ימשיך להיות בעייתי בבדיקה הבאה.')) {

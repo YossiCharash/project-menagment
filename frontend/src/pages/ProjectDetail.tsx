@@ -214,23 +214,26 @@ export default function ProjectDetail() {
 
   const [filterType, setFilterType] = useState<'all' | 'Income' | 'Expense'>('all')
   const [filterExceptional, setFilterExceptional] = useState<'all' | 'only'>('all')
-  const [dateFilterMode, setDateFilterMode] = useState<'current_month' | 'selected_month' | 'date_range' | 'all_time'>('current_month')
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  })
-  const [startDate, setStartDate] = useState<string>('')
-  const [endDate, setEndDate] = useState<string>('')
   
-  // Financial Summary Filter State
-  const [financialFilterMode, setFinancialFilterMode] = useState<'month' | 'year' | 'project' | 'custom'>('month')
-  const [financialSelectedMonth, setFinancialSelectedMonth] = useState<string>(() => {
+  // Global Date Filter State - Used across all sections (financial summary, transactions, charts)
+  const [globalDateFilterMode, setGlobalDateFilterMode] = useState<'current_month' | 'selected_month' | 'date_range' | 'all_time' | 'project'>('current_month')
+  const [globalSelectedMonth, setGlobalSelectedMonth] = useState<string>(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
-  const [financialSelectedYear, setFinancialSelectedYear] = useState<number>(new Date().getFullYear())
-  const [financialCustomStart, setFinancialCustomStart] = useState<string>('')
-  const [financialCustomEnd, setFinancialCustomEnd] = useState<string>('')
+  const [globalSelectedYear, setGlobalSelectedYear] = useState<number>(new Date().getFullYear())
+  const [globalStartDate, setGlobalStartDate] = useState<string>('')
+  const [globalEndDate, setGlobalEndDate] = useState<string>('')
+  
+  // Legacy aliases for backward compatibility
+  const dateFilterMode = globalDateFilterMode === 'project' ? 'all_time' : globalDateFilterMode
+  const selectedMonth = globalSelectedMonth
+  const startDate = globalStartDate
+  const endDate = globalEndDate
+  const setDateFilterMode = (mode: 'current_month' | 'selected_month' | 'date_range' | 'all_time') => setGlobalDateFilterMode(mode)
+  const setSelectedMonth = setGlobalSelectedMonth
+  const setStartDate = setGlobalStartDate
+  const setEndDate = setGlobalEndDate
   
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [filterDated, setFilterDated] = useState<'all' | 'only'>('all')
@@ -468,40 +471,88 @@ export default function ProjectDetail() {
   const [showPeriodSummaryModal, setShowPeriodSummaryModal] = useState(false)
   const [loadingPeriodSummary, setLoadingPeriodSummary] = useState(false)
 
+  // OPTIMIZED: Load all project data in a SINGLE API call
+  // Replaces 5+ separate API calls with ONE for much faster page load
+  const loadAllProjectData = async () => {
+    if (!id || isNaN(Number(id))) return
+
+    setLoading(true)
+    setChartsLoading(true)
+    try {
+      const fullData = await ProjectAPI.getProjectFull(parseInt(id))
+      
+      // Set project info
+      const proj = fullData.project
+      setProjectName(proj.name || `פרויקט ${id}`)
+      setProjectBudget({
+        budget_monthly: proj.budget_monthly || 0,
+        budget_annual: proj.budget_annual || 0
+      })
+      setProjectStartDate(proj.start_date || null)
+      setProjectEndDate(proj.end_date || null)
+      setIsParentProject(proj.is_parent_project || false)
+      setHasFund(proj.has_fund || false)
+      setContractFileUrl(proj.contract_file_url || null)
+      setProjectImageUrl(proj.image_url || null)
+      
+      // Set transactions
+      setTxs(fullData.transactions || [])
+      
+      // Set budgets
+      setProjectBudgets(fullData.budgets || [])
+      
+      // Set expense categories  
+      setExpenseCategories(fullData.expense_categories || [])
+      
+      // Set fund data
+      if (fullData.fund) {
+        setFundData({
+          current_balance: fullData.fund.current_balance,
+          monthly_amount: fullData.fund.monthly_amount,
+          last_monthly_addition: null, // Will be fetched if needed
+          initial_balance: 0,
+          initial_total: 0,
+          total_additions: 0,
+          total_deductions: fullData.fund.total_deductions,
+          transactions: fullData.fund.transactions.map(tx => ({
+            id: tx.id,
+            tx_date: tx.tx_date,
+            type: tx.type as string,
+            amount: tx.amount,
+            description: tx.description || null,
+            category: tx.category || null,
+            notes: null,
+            created_by_user: null,
+            file_path: null,
+            documents_count: 0
+          }))
+        })
+        setHasFund(true)
+      } else {
+        setFundData(null)
+      }
+      
+    } catch (err: any) {
+      console.error('Error loading project data:', err)
+      // Fallback to legacy loading if new endpoint fails
+      await Promise.all([
+        loadProjectInfo(),
+        load(),
+        loadChartsData()
+      ]).catch(e => console.error('Fallback loading also failed:', e))
+    } finally {
+      setLoading(false)
+      setChartsLoading(false)
+    }
+  }
+
+  // Legacy load function - kept for fallback and refresh scenarios
   const load = async () => {
     if (!id || isNaN(Number(id))) return
 
     setLoading(true)
     try {
-      // Ensure all recurring transactions are generated (only missing ones - safe to call multiple times)
-      try {
-        await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-      } catch (genErr) {
-        // Silently fail - transactions might already exist or there might be no templates
-        console.log('Could not generate recurring transactions on load:', genErr)
-      }
-      
-      // Then load all transactions
       const { data } = await api.get(`/transactions/project/${id}`)
-      // Debug: Check if period dates are coming through
-      if (data && data.length > 0) {
-        console.log('Total transactions loaded:', data.length)
-        const periodicTx = data.find((tx: any) => tx.period_start_date && tx.period_end_date)
-        if (periodicTx) {
-          console.log('✅ Found periodic transaction:', periodicTx.id, 'Period:', periodicTx.period_start_date, '-', periodicTx.period_end_date)
-        } else {
-          console.log('❌ No periodic transactions found. Sample transaction:', data[0] ? {id: data[0].id, has_period_start: !!data[0].period_start_date, has_period_end: !!data[0].period_end_date} : 'none')
-        }
-        // Log all transactions with period dates for debugging
-        const allPeriodicTxs = data.filter((tx: any) => tx.period_start_date && tx.period_end_date)
-        if (allPeriodicTxs.length > 0) {
-          console.log('📅 All dated transactions:', allPeriodicTxs.map((tx: any) => ({
-            id: tx.id,
-            period_start: tx.period_start_date,
-            period_end: tx.period_end_date
-          })))
-        }
-      }
       setTxs(data || [])
     } catch (err: any) {
       setTxs([])
@@ -528,14 +579,14 @@ export default function ProjectDetail() {
     }
   }
 
+  // Legacy loadChartsData - kept for refresh scenarios
   const loadChartsData = async () => {
     if (!id || isNaN(Number(id))) return
 
     setChartsLoading(true)
     try {
-      const [categoriesData, transactionsData, budgetsData] = await Promise.all([
+      const [categoriesData, budgetsData] = await Promise.all([
         ReportAPI.getProjectExpenseCategories(parseInt(id)),
-        ReportAPI.getProjectTransactions(parseInt(id)),
         BudgetAPI.getProjectBudgets(parseInt(id)).catch((err) => {
           console.error('Failed to load project budgets:', err)
           return []
@@ -543,27 +594,9 @@ export default function ProjectDetail() {
       ])
       
       setExpenseCategories(categoriesData || [])
-      
-      // Update transactions with all transactions (not just contract period) for charts
-      // This is needed because Charts need all transactions, not just the filtered ones from load()
-      // load() filters by contract period, but Charts need everything
-      // Only update if we got valid data (not empty array) to avoid clearing transactions
-      if (transactionsData && Array.isArray(transactionsData) && transactionsData.length > 0) {
-        setTxs(transactionsData)
-      } else if (transactionsData && Array.isArray(transactionsData)) {
-        // If we got empty array but txs already has data, don't overwrite
-        // This prevents clearing transactions if reports API returns empty array
-        // Only update if txs is currently empty
-        if (txs.length === 0) {
-          setTxs([])
-        }
-      }
-      
       setProjectBudgets(budgetsData || [])
     } catch (err: any) {
-      // Error loading charts data - don't clear existing transactions if error occurs
       console.error('Error loading charts data:', err)
-      // Keep existing txs - don't clear them on error
     } finally {
       setChartsLoading(false)
     }
@@ -677,13 +710,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
     if (!id || isNaN(Number(id))) return
 
     try {
-      // First check and renew contract if needed
-      try {
-        await ProjectAPI.checkAndRenewContract(parseInt(id))
-      } catch (err) {
-        // Ignore errors in renewal check
-        console.log('Contract renewal check:', err)
-      }
+      // NOTE: checkAndRenewContract is called only when explicitly needed (not on every load)
+      // to reduce unnecessary API calls on page refresh
       
       const { data } = await api.get(`/projects/${id}`)
       
@@ -843,11 +871,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
 
   useEffect(() => {
     if (id && !isNaN(Number(id))) {
-      loadProjectInfo()
-      // Load transactions list first, then charts data
-      load().then(() => {
-        loadChartsData()
-      })
+      // OPTIMIZED: Load ALL project data in a SINGLE API call
+      // Before: 5+ separate API calls (project, transactions, budgets, categories, fund)
+      // After: 1 API call that returns everything
+      loadAllProjectData()
     }
   }, [id])
 
@@ -1348,28 +1375,32 @@ const formatCurrency = (value: number | string | null | undefined) => {
     }
   }
 
-  // Calculate income and expense from project start_date until now (or end_date if contract has ended)
+  // Calculate income and expense based on the global date filter
   // Only actual transactions are counted - budget is NOT included in income
-  // This is separate from the filtered transactions which are used for the transactions list
-  // Transactions are filtered by current contract period (start_date to end_date)
+  // This uses the same global filter as transactions list for consistency
   const calculateFinancialSummary = () => {
     const now = new Date()
     
     let calculationStartDate: Date
     let calculationEndDate: Date
 
-    if (financialFilterMode === 'month') {
-        const [year, month] = financialSelectedMonth.split('-').map(Number)
+    if (globalDateFilterMode === 'current_month') {
+        // Current month
+        calculationStartDate = new Date(currentYear, currentMonth - 1, 1)
+        calculationEndDate = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999)
+    } else if (globalDateFilterMode === 'selected_month') {
+        const [year, month] = globalSelectedMonth.split('-').map(Number)
         calculationStartDate = new Date(year, month - 1, 1)
         calculationEndDate = new Date(year, month, 0, 23, 59, 59, 999)
-    } else if (financialFilterMode === 'year') {
-        calculationStartDate = new Date(financialSelectedYear, 0, 1)
-        calculationEndDate = new Date(financialSelectedYear, 11, 31, 23, 59, 59, 999)
-    } else if (financialFilterMode === 'custom') {
-         calculationStartDate = financialCustomStart ? new Date(financialCustomStart) : new Date(0)
-         const customEnd = financialCustomEnd ? new Date(financialCustomEnd) : new Date()
+    } else if (globalDateFilterMode === 'date_range') {
+         calculationStartDate = globalStartDate ? new Date(globalStartDate) : new Date(0)
+         const customEnd = globalEndDate ? new Date(globalEndDate) : new Date()
          customEnd.setHours(23, 59, 59, 999)
          calculationEndDate = customEnd
+    } else if (globalDateFilterMode === 'all_time') {
+        // All time - use very old start date
+        calculationStartDate = new Date(2000, 0, 1)
+        calculationEndDate = now
     } else {
         // 'project' / default behavior
         if (projectStartDate) {
@@ -1384,9 +1415,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
         // This ensures we only count transactions from the current contract period
         calculationEndDate = now
         if (projectEndDate) {
-          const endDate = new Date(projectEndDate)
+          const endDateObj = new Date(projectEndDate)
           // If contract has ended, use end_date; otherwise use now
-          calculationEndDate = endDate < now ? endDate : now
+          calculationEndDate = endDateObj < now ? endDateObj : now
         }
     }
     
@@ -1544,21 +1575,21 @@ const formatCurrency = (value: number | string | null | undefined) => {
     }
   }
   
-  // Use useMemo to recalculate only when txs, projectStartDate, projectEndDate, or projectBudget change
+  // Use useMemo to recalculate only when txs, projectStartDate, projectEndDate, projectBudget, or global filter changes
   const financialSummary = useMemo(() => {
     console.log('🔄 useMemo triggered - recalculating financial summary', {
       txsCount: txs.length,
       projectStartDate,
       projectEndDate,
       projectBudget,
-      financialFilterMode,
-      financialSelectedMonth,
-      financialSelectedYear,
-      financialCustomStart,
-      financialCustomEnd
+      globalDateFilterMode,
+      globalSelectedMonth,
+      globalSelectedYear,
+      globalStartDate,
+      globalEndDate
     })
     return calculateFinancialSummary()
-  }, [txs, projectStartDate, projectEndDate, projectBudget, financialFilterMode, financialSelectedMonth, financialSelectedYear, financialCustomStart, financialCustomEnd])
+  }, [txs, projectStartDate, projectEndDate, projectBudget, globalDateFilterMode, globalSelectedMonth, globalSelectedYear, globalStartDate, globalEndDate])
   
   const income = financialSummary.income
   const expense = financialSummary.expense
@@ -1724,6 +1755,86 @@ const formatCurrency = (value: number | string | null | undefined) => {
         </div>
       </motion.div>
 
+      {/* Global Date Filter - Affects all sections */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.02 }}
+        className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-gray-800 dark:to-gray-800 rounded-2xl shadow-sm border border-indigo-200 dark:border-gray-700 p-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <h3 className="text-lg font-semibold text-indigo-900 dark:text-white">סינון לפי תאריך</h3>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={globalDateFilterMode}
+              onChange={(e) => setGlobalDateFilterMode(e.target.value as any)}
+              className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
+            >
+              <option value="current_month">חודש נוכחי</option>
+              <option value="selected_month">חודש ספציפי</option>
+              <option value="date_range">טווח תאריכים</option>
+              <option value="project">מתחילת הפרויקט</option>
+              <option value="all_time">כל הזמן</option>
+            </select>
+
+            {globalDateFilterMode === 'selected_month' && (
+              <input
+                type="month"
+                value={globalSelectedMonth}
+                onChange={(e) => setGlobalSelectedMonth(e.target.value)}
+                className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+              />
+            )}
+
+            {globalDateFilterMode === 'date_range' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={globalStartDate}
+                  onChange={(e) => setGlobalStartDate(e.target.value)}
+                  className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+                  placeholder="מתאריך"
+                />
+                <span className="text-gray-500 font-medium">עד</span>
+                <input
+                  type="date"
+                  value={globalEndDate}
+                  onChange={(e) => setGlobalEndDate(e.target.value)}
+                  min={globalStartDate}
+                  className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+                  placeholder="עד תאריך"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Filter description */}
+        <div className="mt-2 text-sm text-indigo-700 dark:text-indigo-300">
+          {globalDateFilterMode === 'current_month' && (
+            <span>מציג נתונים מהחודש הנוכחי ({new Date().toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })})</span>
+          )}
+          {globalDateFilterMode === 'selected_month' && globalSelectedMonth && (
+            <span>מציג נתונים מחודש {new Date(globalSelectedMonth + '-01').toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
+          )}
+          {globalDateFilterMode === 'date_range' && globalStartDate && globalEndDate && (
+            <span>מציג נתונים מ-{new Date(globalStartDate).toLocaleDateString('he-IL')} עד {new Date(globalEndDate).toLocaleDateString('he-IL')}</span>
+          )}
+          {globalDateFilterMode === 'project' && (
+            <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${new Date(projectStartDate).toLocaleDateString('he-IL')})` : ''}</span>
+          )}
+          {globalDateFilterMode === 'all_time' && (
+            <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
+          )}
+        </div>
+      </motion.div>
+
       {/* Subprojects List */}
       {isParentProject && (
         <motion.div
@@ -1773,60 +1884,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
           <h3 className="text-xl font-semibold text-gray-900 dark:text-white">סיכום פיננסי</h3>
-          
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={financialFilterMode}
-              onChange={(e) => setFinancialFilterMode(e.target.value as any)}
-              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="month">חודש ספציפי</option>
-              <option value="year">שנה ספציפית</option>
-              <option value="project">מתחילת הפרויקט</option>
-              <option value="custom">טווח תאריכים</option>
-            </select>
-
-            {financialFilterMode === 'month' && (
-              <input
-                type="month"
-                value={financialSelectedMonth}
-                onChange={(e) => setFinancialSelectedMonth(e.target.value)}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
-              />
-            )}
-
-            {financialFilterMode === 'year' && (
-              <select
-                value={financialSelectedYear}
-                onChange={(e) => setFinancialSelectedYear(Number(e.target.value))}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            )}
-
-            {financialFilterMode === 'custom' && (
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={financialCustomStart}
-                  onChange={(e) => setFinancialCustomStart(e.target.value)}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-                  placeholder="מתאריך"
-                />
-                <span className="text-gray-500">-</span>
-                <input
-                  type="date"
-                  value={financialCustomEnd}
-                  onChange={(e) => setFinancialCustomEnd(e.target.value)}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-                  placeholder="עד תאריך"
-                />
-              </div>
-            )}
-          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           <div className="bg-white dark:bg-blue-900/20 p-4 rounded-lg text-center">
@@ -1878,6 +1935,11 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 expenseCategories={expenseCategories}
                 compact={true}
                 projectIncome={projectBudget?.budget_monthly || 0}
+                globalFilterType={globalDateFilterMode}
+                globalSelectedMonth={globalSelectedMonth}
+                globalStartDate={globalStartDate}
+                globalEndDate={globalEndDate}
+                hideFilterControls={true}
              />
           </div>
 
@@ -1948,102 +2010,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
                       </div>
                     </div>
 
-                    {/* Date Filter Options */}
-                    <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4 flex-shrink-0">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          סינון לפי תאריך
-                        </label>
-                        <div className="flex flex-wrap gap-3 sm:gap-4">
-                          <label className="flex items-center gap-2 whitespace-nowrap">
-                            <input
-                              type="radio"
-                              name="dateFilter"
-                              value="current_month"
-                              checked={dateFilterMode === 'current_month'}
-                              onChange={() => setDateFilterMode('current_month')}
-                              className="w-4 h-4 text-blue-600 flex-shrink-0"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">חודש נוכחי</span>
-                          </label>
-                          <label className="flex items-center gap-2 whitespace-nowrap">
-                            <input
-                              type="radio"
-                              name="dateFilter"
-                              value="selected_month"
-                              checked={dateFilterMode === 'selected_month'}
-                              onChange={() => setDateFilterMode('selected_month')}
-                              className="w-4 h-4 text-blue-600 flex-shrink-0"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">חודש מסוים</span>
-                          </label>
-                          <label className="flex items-center gap-2 whitespace-nowrap">
-                            <input
-                              type="radio"
-                              name="dateFilter"
-                              value="all_time"
-                              checked={dateFilterMode === 'all_time'}
-                              onChange={() => setDateFilterMode('all_time')}
-                              className="w-4 h-4 text-blue-600 flex-shrink-0"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">כל הזמן</span>
-                          </label>
-                          <label className="flex items-center gap-2 whitespace-nowrap">
-                            <input
-                              type="radio"
-                              name="dateFilter"
-                              value="date_range"
-                              checked={dateFilterMode === 'date_range'}
-                              onChange={() => setDateFilterMode('date_range')}
-                              className="w-4 h-4 text-blue-600 flex-shrink-0"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">טווח תאריכים</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {dateFilterMode === 'selected_month' && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            בחר חודש
-                          </label>
-                          <input
-                            type="month"
-                            value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(e.target.value)}
-                            className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                      )}
-
-                      {dateFilterMode === 'date_range' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              מתאריך
-                            </label>
-                            <input
-                              type="date"
-                              value={startDate}
-                              onChange={(e) => setStartDate(e.target.value)}
-                              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              עד תאריך
-                            </label>
-                            <input
-                              type="date"
-                              value={endDate}
-                              onChange={(e) => setEndDate(e.target.value)}
-                              min={startDate}
-                              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto">
@@ -4167,7 +4133,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                                 }}
                               >
                                 <div className="font-semibold text-gray-900 dark:text-white mb-1">
-                                  {period.year_label}
+                                  {period.year_label || `שנת ${new Date(period.start_date).getFullYear()}`}
                                 </div>
                                 <div className="text-sm text-gray-600 dark:text-gray-400">
                                   {period.start_date && period.end_date ? (
@@ -4211,7 +4177,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
                                       const link = document.createElement('a')
                                       link.href = url
                                       const safeProjectName = projectName.replace(/[^a-zA-Z0-9_\-]/g, '_')
-                                      const safeYearLabel = period.year_label.replace(/[^a-zA-Z0-9_\-א-ת]/g, '_')
+                                      const yearLabel = period.year_label || `שנת_${new Date(period.start_date).getFullYear()}`
+                                      const safeYearLabel = yearLabel.replace(/[^a-zA-Z0-9_\-א-ת]/g, '_')
                                       link.setAttribute('download', `contract_period_${safeYearLabel}_${safeProjectName}.xlsx`)
                                       document.body.appendChild(link)
                                       link.click()
@@ -4288,7 +4255,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {selectedPeriodSummary.year_label ? `שנת ${selectedPeriodSummary.contract_year || ''} - ${selectedPeriodSummary.year_label}` : 'סיכום תקופת חוזה'}
+                  {selectedPeriodSummary.contract_year ? (selectedPeriodSummary.year_label ? `שנת ${selectedPeriodSummary.contract_year} - ${selectedPeriodSummary.year_label}` : `שנת ${selectedPeriodSummary.contract_year}`) : 'סיכום תקופת חוזה'}
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {selectedPeriodSummary.start_date && selectedPeriodSummary.end_date ? (
@@ -4314,7 +4281,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                       const url = window.URL.createObjectURL(blob)
                       const a = document.createElement('a')
                       a.href = url
-                      a.download = `contract_period_${selectedPeriodSummary.year_label}_${projectName}.csv`
+                      a.download = `contract_period_${selectedPeriodSummary.year_label || `שנת_${selectedPeriodSummary.contract_year}`}_${projectName}.csv`
                       document.body.appendChild(a)
                       a.click()
                       window.URL.revokeObjectURL(url)
@@ -4507,7 +4474,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <div>
                 <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {selectedPeriodSummary ? (selectedPeriodSummary.contract_year ? `שנת ${selectedPeriodSummary.contract_year} - ${selectedPeriodSummary.year_label}` : `סיכום תקופת חוזה ${selectedPeriodSummary.year_label}`) : 'סיכום תקופת חוזה'}
+                  {selectedPeriodSummary ? (selectedPeriodSummary.contract_year ? (selectedPeriodSummary.year_label ? `שנת ${selectedPeriodSummary.contract_year} - ${selectedPeriodSummary.year_label}` : `שנת ${selectedPeriodSummary.contract_year}`) : (selectedPeriodSummary.year_label ? `סיכום תקופת חוזה - ${selectedPeriodSummary.year_label}` : 'סיכום תקופת חוזה')) : 'סיכום תקופת חוזה'}
                 </h3>
                 {selectedPeriodSummary && selectedPeriodSummary.start_date && selectedPeriodSummary.end_date && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -4534,7 +4501,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                         const url = window.URL.createObjectURL(new Blob([response.data]))
                         const link = document.createElement('a')
                         link.href = url
-                        link.setAttribute('download', `contract_period_${selectedPeriodSummary.year_label}_${projectName}.csv`)
+                        link.setAttribute('download', `contract_period_${selectedPeriodSummary.year_label || `שנת_${selectedPeriodSummary.contract_year}`}_${projectName}.csv`)
                         document.body.appendChild(link)
                         link.click()
                         link.remove()
@@ -4856,6 +4823,27 @@ const formatCurrency = (value: number | string | null | undefined) => {
           })
           const categories = Array.from(allCategories).sort()
           
+          // Calculate main supplier for each category (by total amount)
+          const categorySuppliers: Record<string, number | null> = {}
+          categories.forEach(category => {
+            const supplierAmounts: Record<number, number> = {}
+            regularSplits.forEach(split => {
+              if (split.type === 'Expense' && (split.category || 'אחר') === category && split.supplier_id) {
+                supplierAmounts[split.supplier_id] = (supplierAmounts[split.supplier_id] || 0) + split.proportionalAmount
+              }
+            })
+            // Find supplier with highest amount
+            let mainSupplierId: number | null = null
+            let maxAmount = 0
+            Object.entries(supplierAmounts).forEach(([supplierId, amount]) => {
+              if (amount > maxAmount) {
+                maxAmount = amount
+                mainSupplierId = parseInt(supplierId)
+              }
+            })
+            categorySuppliers[category] = mainSupplierId
+          })
+          
           // Helper function to check if we've reached a month (month has started or passed)
           const hasReachedMonth = (year: number, month: number): boolean => {
             const now = new Date()
@@ -4916,6 +4904,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10 min-w-[120px]">
                       קטגוריה
                     </th>
+                    <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10 min-w-[120px]">
+                      ספק
+                    </th>
                     {months.map((m, idx) => (
                       <th key={idx} className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white min-w-[60px]">
                         {m.label}
@@ -4925,31 +4916,39 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 </thead>
                 <tbody>
                   {/* Expense category rows */}
-                  {categories.map((category, catIdx) => (
-                    <tr key={catIdx}>
-                      <td className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-right text-gray-900 dark:text-white sticky left-0 z-10">
-                        {category}
-                      </td>
-                      {months.map((m, monthIdx) => {
-                        const hasReached = hasReachedMonth(m.year, m.month)
-                        const hasTransactions = hasMonthTransactions(m.monthKey)
-                        // Show if month has been reached OR if there are transactions for this month
-                        const shouldShow = hasReached || hasTransactions
-                        return (
-                          <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white">
-                            {shouldShow && monthlyData[m.monthKey].expenses[category] 
-                              ? formatCurrency(monthlyData[m.monthKey].expenses[category])
-                              : shouldShow ? '0' : ''}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
+                  {categories.map((category, catIdx) => {
+                    const mainSupplierId = categorySuppliers[category]
+                    const mainSupplier = mainSupplierId ? suppliers.find(s => s.id === mainSupplierId) : null
+                    const supplierName = mainSupplier ? mainSupplier.name : (mainSupplierId ? `[ספק ${mainSupplierId}]` : '-')
+                    return (
+                      <tr key={catIdx}>
+                        <td className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-right text-gray-900 dark:text-white sticky left-0 z-10">
+                          {category}
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-right text-gray-900 dark:text-white sticky left-[120px] z-10">
+                          {supplierName}
+                        </td>
+                        {months.map((m, monthIdx) => {
+                          const hasReached = hasReachedMonth(m.year, m.month)
+                          const hasTransactions = hasMonthTransactions(m.monthKey)
+                          // Show if month has been reached OR if there are transactions for this month
+                          const shouldShow = hasReached || hasTransactions
+                          return (
+                            <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white">
+                              {shouldShow && monthlyData[m.monthKey].expenses[category] 
+                                ? formatCurrency(monthlyData[m.monthKey].expenses[category])
+                                : shouldShow ? '0' : ''}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
                   
                   {/* Empty rows for spacing (if needed) */}
                   {categories.length === 0 && (
                     <tr>
-                      <td colSpan={13} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={14} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-center text-gray-500 dark:text-gray-400">
                         אין הוצאות להצגה
                       </td>
                     </tr>
@@ -4959,6 +4958,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   <tr>
                     <td className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה החודשית
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
+                      {/* Empty cell for supplier column */}
                     </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
@@ -4978,6 +4980,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <td className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       הוצאות
                     </td>
+                    <td className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
+                      {/* Empty cell for supplier column */}
+                    </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
                       const hasTransactions = hasMonthTransactions(m.monthKey)
@@ -4995,6 +5000,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   <tr>
                     <td className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       עודף
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
+                      {/* Empty cell for supplier column */}
                     </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
@@ -5014,6 +5022,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   <tr>
                     <td className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה השנתית
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
+                      {/* Empty cell for supplier column */}
                     </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
