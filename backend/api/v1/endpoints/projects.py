@@ -1046,28 +1046,31 @@ async def get_project_fund(
     initial_balance = 0.0
     monthly_amount = float(fund.monthly_amount)
     
-    # Calculate total monthly additions based on creation date and last addition
+    # Get project to access start_date
+    project_repo = ProjectRepository(db)
+    project = await project_repo.get_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Calculate total monthly additions based on project start date (not fund creation date)
+    # Use project.start_date if available, otherwise use fund.created_at date
     total_monthly_additions = 0.0
-    if fund.last_monthly_addition and monthly_amount > 0:
-        # Calculate months between creation and last addition (inclusive)
-        created_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
-        last_addition_date = fund.last_monthly_addition
-        
-        # Count months from creation to last addition
-        if last_addition_date >= created_date:
-            # Calculate number of months (including the creation month)
-            months_count = (last_addition_date.year - created_date.year) * 12 + (last_addition_date.month - created_date.month) + 1
-            total_monthly_additions = months_count * monthly_amount
-    elif monthly_amount > 0:
-        # If no monthly addition yet, but fund exists, at least the current month should count
-        # This handles the case where fund was just created
-        created_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
+    if monthly_amount > 0:
         today = date.today()
-        if created_date <= today:
-            months_count = (today.year - created_date.year) * 12 + (today.month - created_date.month) + 1
-            # Only count if this month's addition should have been made
-            if today.year > created_date.year or (today.year == created_date.year and today.month > created_date.month) or (today.year == created_date.year and today.month == created_date.month and today.day >= 1):
-                total_monthly_additions = months_count * monthly_amount
+        
+        # Determine the calculation start date: prefer project.start_date, fallback to fund.created_at
+        if project.start_date:
+            calculation_start_date = project.start_date
+        else:
+            calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
+        
+        # Use calculate_monthly_income_amount to get the correct total from start date to today
+        # This function properly handles monthly occurrences from start_date to current_date
+        total_monthly_additions = calculate_monthly_income_amount(
+            monthly_amount, 
+            calculation_start_date, 
+            today
+        )
     
     # Total additions = monthly additions + income transactions to fund
     total_additions = total_monthly_additions + total_additions_from_transactions
