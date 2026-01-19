@@ -293,13 +293,126 @@ export class TransactionAPI {
   }
 
   // Upload document to transaction
-  static async uploadTransactionDocument(transactionId: number, file: File): Promise<any> {
+  static async uploadTransactionDocument(transactionId: number, file: File, retries = 2): Promise<any> {
+    console.log('📤 [UPLOAD] Starting file upload:', {
+      transactionId,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      lastModified: new Date(file.lastModified).toISOString()
+    })
+    
     const formData = new FormData()
     formData.append('file', file)
-    const { data } = await api.post<any>(`/transactions/${transactionId}/supplier-document`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    
+    // Log FormData contents
+    console.log('📤 [UPLOAD] FormData created:', {
+      hasFile: formData.has('file'),
+      entries: Array.from(formData.entries()).map(([key, value]) => ({
+        key,
+        valueType: value instanceof File ? `File: ${(value as File).name}` : typeof value
+      }))
     })
-    return data
+    
+    // Calculate timeout based on file size (1MB = 10 seconds, minimum 30 seconds)
+    const fileSizeMB = file.size / (1024 * 1024)
+    const timeout = Math.max(30000, fileSizeMB * 10000)
+    console.log('📤 [UPLOAD] Calculated timeout:', timeout, 'ms for', fileSizeMB.toFixed(2), 'MB')
+    
+    const url = `/transactions/${transactionId}/supplier-document`
+    console.log('📤 [UPLOAD] Request URL:', url)
+    console.log('📤 [UPLOAD] Base URL:', api.defaults.baseURL)
+    console.log('📤 [UPLOAD] Full URL:', `${api.defaults.baseURL}${url}`)
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const startTime = Date.now()
+      try {
+        console.log(`📤 [UPLOAD] Attempt ${attempt + 1}/${retries + 1}`)
+        
+        // Check token
+        const token = localStorage.getItem('token')
+        console.log('📤 [UPLOAD] Token exists:', !!token, token ? `${token.substring(0, 20)}...` : 'none')
+        
+        // Don't set Content-Type header - let axios set it automatically with boundary
+        const config = {
+          timeout: timeout,
+          headers: {} as any,
+          onUploadProgress: (progressEvent: any) => {
+            if (progressEvent.total) {
+              const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+              console.log(`📤 [UPLOAD] Progress: ${percentCompleted}% (${progressEvent.loaded}/${progressEvent.total} bytes)`)
+            } else {
+              console.log(`📤 [UPLOAD] Progress: ${progressEvent.loaded} bytes uploaded`)
+            }
+          }
+        }
+        
+        console.log('📤 [UPLOAD] Request config:', {
+          timeout: config.timeout,
+          hasHeaders: Object.keys(config.headers).length > 0,
+          headers: config.headers
+        })
+        
+        console.log('📤 [UPLOAD] Sending POST request...')
+        
+        const response = await api.post<any>(url, formData, config)
+        
+        const duration = Date.now() - startTime
+        console.log('📤 [UPLOAD] ✅ Success! Response received:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: response.data,
+          duration: `${duration}ms`,
+          headers: response.headers
+        })
+        
+        return response.data
+      } catch (error: any) {
+        const duration = Date.now() - startTime
+        console.error('📤 [UPLOAD] ❌ Error occurred:', {
+          attempt: attempt + 1,
+          errorType: error.constructor.name,
+          message: error.message,
+          code: error.code,
+          response: error.response ? {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data,
+            headers: error.response.headers
+          } : null,
+          request: error.request ? {
+            method: error.request.method,
+            url: error.request.responseURL || error.config?.url,
+            headers: error.config?.headers
+          } : null,
+          duration: `${duration}ms`,
+          stack: error.stack
+        })
+        
+        const isNetworkError = !error.response && (error.code === 'ECONNABORTED' || error.message?.includes('Network Error') || error.message?.includes('ERR_NETWORK'))
+        const isLastAttempt = attempt === retries
+        
+        console.log('📤 [UPLOAD] Error analysis:', {
+          isNetworkError,
+          isLastAttempt,
+          willRetry: isNetworkError && !isLastAttempt
+        })
+        
+        if (isNetworkError && !isLastAttempt) {
+          const waitTime = 1000 * (attempt + 1)
+          console.warn(`📤 [UPLOAD] ⏳ Retrying in ${waitTime}ms... (${retries - attempt} attempts left)`)
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+          continue
+        }
+        
+        // If it's the last attempt or not a network error, throw
+        console.error('📤 [UPLOAD] ❌ Giving up after', attempt + 1, 'attempts')
+        throw error
+      }
+    }
+    
+    throw new Error('Upload failed after all retry attempts')
   }
 
   // Delete transaction document

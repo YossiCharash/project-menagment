@@ -5,6 +5,8 @@ import { TransactionAPI } from '../lib/apiClient'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
 import DuplicateWarningModal from './DuplicateWarningModal'
+import DeleteTransactionModal from './DeleteTransactionModal'
+import api from '../lib/api'
 
 interface EditTransactionModalProps {
   isOpen: boolean
@@ -12,6 +14,7 @@ interface EditTransactionModalProps {
   onSuccess: () => void
   transaction: Transaction | null
   projectStartDate?: string | null // Contract start date for validation
+  getAllTransactions?: () => Promise<Transaction[]> // Optional: function to get all transactions for deleteAll functionality
 }
 
 const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
@@ -19,7 +22,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   onClose,
   onSuccess,
   transaction,
-  projectStartDate
+  projectStartDate,
+  getAllTransactions
 }) => {
   const dispatch = useAppDispatch()
   const { items: suppliers } = useAppSelector(s => s.suppliers)
@@ -48,6 +52,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
   const [pendingUpdateData, setPendingUpdateData] = useState<Partial<TransactionCreate> | null>(null)
   const [isAddDocumentButtonPressed, setIsAddDocumentButtonPressed] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     if (isOpen && transaction) {
@@ -352,18 +358,97 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const handleDelete = async () => {
     if (!transaction) return
+    setShowDeleteModal(true)
+  }
 
-    if (!confirm('האם אתה בטוח שברצונך למחוק את העסקה הזו?')) {
-      return
-    }
+  const confirmDeleteTransaction = async (deleteAll: boolean) => {
+    if (!transaction) return
 
+    setIsDeleting(true)
     try {
-      await TransactionAPI.deleteTransaction(transaction.id)
+      const isRecurring = transaction.recurring_template_id || transaction.is_generated
+      const isPeriod = !!(transaction.period_start_date && transaction.period_end_date)
+
+      if (isRecurring) {
+        // For recurring transactions
+        if (deleteAll) {
+          // Delete the entire template (which will delete all instances)
+          const templateId = transaction.recurring_template_id
+          if (!templateId) {
+            throw new Error('לא נמצא מזהה תבנית מחזורית')
+          }
+          const { RecurringTransactionAPI } = await import('../lib/apiClient')
+          await RecurringTransactionAPI.deleteTemplate(templateId)
+        } else {
+          // Delete only this instance
+          const { RecurringTransactionAPI } = await import('../lib/apiClient')
+          await RecurringTransactionAPI.deleteTransactionInstance(transaction.id)
+        }
+      } else if (isPeriod && deleteAll) {
+        // For period transactions, delete all transactions with the same period dates
+        const periodStart = transaction.period_start_date
+        const periodEnd = transaction.period_end_date
+        
+        if (!periodStart || !periodEnd) {
+          // Fallback to single deletion if dates are missing
+          await TransactionAPI.deleteTransaction(transaction.id)
+        } else {
+          // Get all transactions to find matching ones
+          let allTransactions: ExtendedTransaction[] = []
+          if (getAllTransactions) {
+            allTransactions = (await getAllTransactions()) as ExtendedTransaction[]
+          } else {
+            // Fallback: try to get transactions from API if project_id is available
+            if (transaction.project_id) {
+              try {
+                const { data } = await api.get<ExtendedTransaction[]>(`/projects/${transaction.project_id}/transactions`)
+                allTransactions = data || []
+              } catch (err) {
+                console.error('Failed to fetch all transactions:', err)
+                // Fallback to single deletion
+                await TransactionAPI.deleteTransaction(transaction.id)
+                onSuccess()
+                onClose()
+                resetForm()
+                setShowDeleteModal(false)
+                setIsDeleting(false)
+                return
+              }
+            } else {
+              // No way to get all transactions, fallback to single deletion
+              await TransactionAPI.deleteTransaction(transaction.id)
+              onSuccess()
+              onClose()
+              resetForm()
+              setShowDeleteModal(false)
+              setIsDeleting(false)
+              return
+            }
+          }
+          
+          // Find all transactions with the same period dates
+          const matchingTransactions = allTransactions.filter(t => 
+            t.period_start_date === periodStart && 
+            t.period_end_date === periodEnd
+          )
+          
+          // Delete all matching transactions
+          const deletePromises = matchingTransactions.map(t => TransactionAPI.deleteTransaction(t.id))
+          await Promise.all(deletePromises)
+        }
+      } else {
+        // Regular transaction or single period transaction deletion
+        await TransactionAPI.deleteTransaction(transaction.id)
+      }
+      
       onSuccess()
       onClose()
       resetForm()
+      setShowDeleteModal(false)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'מחיקה נכשלה')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -754,6 +839,16 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         }}
         onConfirm={handleConfirmDuplicate}
         isEdit={true}
+      />
+
+      <DeleteTransactionModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false)
+        }}
+        onConfirm={confirmDeleteTransaction}
+        transaction={transaction}
+        loading={isDeleting}
       />
     </div>
   )

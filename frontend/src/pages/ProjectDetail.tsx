@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import api from '../lib/api'
 import { ReportAPI, BudgetAPI, ProjectAPI, CategoryAPI, RecurringTransactionAPI } from '../lib/apiClient'
-import { ExpenseCategory, BudgetWithSpending, RecurringTransactionTemplate } from '../types/api'
+import { ExpenseCategory, BudgetWithSpending, RecurringTransactionTemplate, Transaction as ApiTransaction } from '../types/api'
 import ProjectTrendsChart from '../components/charts/ProjectTrendsChart'
 import BudgetCard from '../components/charts/BudgetCard'
 import EditTransactionModal from '../components/EditTransactionModal'
@@ -11,6 +11,7 @@ import CreateTransactionModal from '../components/CreateTransactionModal'
 import CreateProjectModal from '../components/CreateProjectModal'
 import EditRecurringTemplateModal from '../components/EditRecurringTemplateModal'
 import EditRecurringSelectionModal from '../components/EditRecurringSelectionModal'
+import DeleteTransactionModal from '../components/DeleteTransactionModal'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
 import { archiveProject, hardDeleteProject } from '../store/slices/projectsSlice'
@@ -39,30 +40,14 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   'גבייה מרוכזת סוף שנה': 'גבייה מרוכזת סוף שנה'
 }
 
-interface Transaction {
-  id: number
-  type: 'Income' | 'Expense'
-  amount: number
-  description?: string | null
-  tx_date: string
-  category?: string | null
-  payment_method?: string | null
-  notes?: string | null
+interface Transaction extends ApiTransaction {
   subproject_id?: number | null
-  is_exceptional?: boolean
-  is_generated?: boolean
-  supplier_id?: number | null
   created_by_user_id?: number | null
-    created_by_user?: {
-        id: number
-        full_name: string
-        email: string
-    } | null
-    from_fund?: boolean
-    recurring_template_id?: number | null
-    file_path?: string | null
-    period_start_date?: string | null
-    period_end_date?: string | null
+  created_by_user?: {
+    id: number
+    full_name: string
+    email: string
+  } | null
 }
 
 // Helper to safely get category name whether it's a string or an object
@@ -242,6 +227,9 @@ export default function ProjectDetail() {
   const [selectedTemplateForEdit, setSelectedTemplateForEdit] = useState<RecurringTransactionTemplate | null>(null)
   const [pendingTemplateLoad, setPendingTemplateLoad] = useState(false)
   const [recurringTemplates, setRecurringTemplates] = useState<RecurringTransactionTemplate[]>([])
+  const [showDeleteTransactionModal, setShowDeleteTransactionModal] = useState(false)
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null)
+  const [isDeletingTransaction, setIsDeletingTransaction] = useState(false)
 
   const loadRecurringTemplates = async () => {
     if (!id || isNaN(Number(id))) return
@@ -1314,28 +1302,73 @@ const formatCurrency = (value: number | string | null | undefined) => {
   }
 
   const handleDeleteTransaction = async (transactionId: number, transaction?: Transaction) => {
-    // Check if this is a recurring transaction instance
-    const isRecurring = transaction?.recurring_template_id || transaction?.is_generated
-    
-    const confirmMessage = isRecurring 
-      ? 'האם אתה בטוח שברצונך למחוק את העסקה הזו? פעולה זו תמחק רק את העסקה הספציפית הזו ולא תשפיע על התבנית החוזרת.'
-      : 'האם אתה בטוח שברצונך למחוק את העסקה?'
-    
-    if (!confirm(confirmMessage)) {
+    // Find the full transaction object if not provided
+    const fullTransaction = transaction || txs.find(t => t.id === transactionId)
+    if (!fullTransaction) {
+      alert('עסקה לא נמצאה')
       return
     }
     
+    // Set the transaction to delete and open the modal
+    setTransactionToDelete(fullTransaction)
+    setShowDeleteTransactionModal(true)
+  }
+
+  const confirmDeleteTransaction = async (deleteAll: boolean) => {
+    if (!transactionToDelete) return
+
+    setIsDeletingTransaction(true)
     try {
-      // Use the appropriate endpoint based on whether it's a recurring transaction
+      const isRecurring = transactionToDelete.recurring_template_id || transactionToDelete.is_generated
+      const isPeriod = !!(transactionToDelete.period_start_date && transactionToDelete.period_end_date)
+
       if (isRecurring) {
-        await RecurringTransactionAPI.deleteTransactionInstance(transactionId)
+        // For recurring transactions
+        if (deleteAll) {
+          // Delete the entire template (which will delete all instances)
+          const templateId = transactionToDelete.recurring_template_id
+          if (!templateId) {
+            throw new Error('לא נמצא מזהה תבנית מחזורית')
+          }
+          await RecurringTransactionAPI.deleteTemplate(templateId)
+        } else {
+          // Delete only this instance
+          await RecurringTransactionAPI.deleteTransactionInstance(transactionToDelete.id)
+        }
         // For recurring transactions, only reload transactions without regenerating
         // to prevent recreating the deleted instance
         await loadTransactionsOnly()
+      } else if (isPeriod && deleteAll) {
+        // For period transactions, delete all transactions with the same period dates
+        const periodStart = transactionToDelete.period_start_date
+        const periodEnd = transactionToDelete.period_end_date
+        
+        if (!periodStart || !periodEnd) {
+          // Fallback to single deletion if dates are missing
+          await api.delete(`/transactions/${transactionToDelete.id}`)
+        } else {
+          // Find all transactions with the same period dates
+          const matchingTransactions = txs.filter(t => 
+            t.period_start_date === periodStart && 
+            t.period_end_date === periodEnd &&
+            t.id !== transactionToDelete.id // Don't delete the same transaction twice
+          )
+          
+          // Delete all matching transactions
+          const deletePromises = [
+            api.delete(`/transactions/${transactionToDelete.id}`),
+            ...matchingTransactions.map(t => api.delete(`/transactions/${t.id}`))
+          ]
+          
+          await Promise.all(deletePromises)
+        }
+        await load() // For regular transactions, use full load
       } else {
-        await api.delete(`/transactions/${transactionId}`)
+        // Regular transaction or single period transaction deletion
+        await api.delete(`/transactions/${transactionToDelete.id}`)
         await load() // For regular transactions, use full load
       }
+      
       // Only reload charts data (categories and budgets), not transactions (already loaded by load())
       // This avoids duplicate transaction loading
       await reloadChartsDataOnly()
@@ -1343,8 +1376,14 @@ const formatCurrency = (value: number | string | null | undefined) => {
       if (hasFund) {
         await loadFundData() // Reload fund data
       }
+      
+      // Close modal and reset state
+      setShowDeleteTransactionModal(false)
+      setTransactionToDelete(null)
     } catch (err: any) {
       alert(err.response?.data?.detail ?? 'שגיאה במחיקת העסקה')
+    } finally {
+      setIsDeletingTransaction(false)
     }
   }
 
@@ -3265,6 +3304,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
         }}
         transaction={selectedTransactionForEdit}
         projectStartDate={projectStartDate}
+        getAllTransactions={async (): Promise<ApiTransaction[]> => {
+          // Return all transactions for the project (used for deleteAll functionality)
+          return txs as ApiTransaction[]
+        }}
       />
 
       <EditRecurringSelectionModal 
@@ -3294,6 +3337,17 @@ const formatCurrency = (value: number | string | null | undefined) => {
           }
         }}
         template={selectedTemplateForEdit}
+      />
+
+      <DeleteTransactionModal
+        isOpen={showDeleteTransactionModal}
+        onClose={() => {
+          setShowDeleteTransactionModal(false)
+          setTransactionToDelete(null)
+        }}
+        onConfirm={confirmDeleteTransaction}
+        transaction={transactionToDelete as ApiTransaction | null}
+        loading={isDeletingTransaction}
       />
 
       <CreateProjectModal
@@ -4819,10 +4873,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
           // Filter out fund transactions
           const regularSplits = allSplits.filter(s => !s.from_fund)
           
-          // Group by month and category
+          // Group by month, category, and supplier
           const monthlyData: Record<string, {
             income: number
-            expenses: Record<string, number>
+            expenses: Record<string, Record<string, number>> // category -> supplier -> amount
             totalExpenses: number
           }> = {}
           
@@ -4843,18 +4897,41 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 monthlyData[monthKey].income += split.proportionalAmount
               } else if (split.type === 'Expense') {
                 const category = split.category || 'אחר'
-                monthlyData[monthKey].expenses[category] = (monthlyData[monthKey].expenses[category] || 0) + split.proportionalAmount
+                const supplierId = split.supplier_id
+                const supplierName = supplierId ? (suppliers.find(s => s.id === supplierId)?.name || `[ספק ${supplierId}]`) : 'ללא ספק'
+                
+                if (!monthlyData[monthKey].expenses[category]) {
+                  monthlyData[monthKey].expenses[category] = {}
+                }
+                monthlyData[monthKey].expenses[category][supplierName] = (monthlyData[monthKey].expenses[category][supplierName] || 0) + split.proportionalAmount
                 monthlyData[monthKey].totalExpenses += split.proportionalAmount
               }
             }
           })
           
-          // Get all unique categories
-          const allCategories = new Set<string>()
+          // Get all unique category-supplier combinations
+          const categorySupplierPairs = new Set<string>()
           Object.values(monthlyData).forEach(month => {
-            Object.keys(month.expenses).forEach(cat => allCategories.add(cat))
+            Object.keys(month.expenses).forEach(category => {
+              Object.keys(month.expenses[category]).forEach(supplier => {
+                categorySupplierPairs.add(`${category}|||${supplier}`)
+              })
+            })
           })
-          const categories = Array.from(allCategories).sort()
+          
+          // Convert to array and sort
+          const categorySupplierList = Array.from(categorySupplierPairs)
+            .map(pair => {
+              const [category, supplier] = pair.split('|||')
+              return { category, supplier }
+            })
+            .sort((a, b) => {
+              // Sort by category first, then by supplier
+              if (a.category !== b.category) {
+                return a.category.localeCompare(b.category)
+              }
+              return a.supplier.localeCompare(b.supplier)
+            })
           
           // Helper function to check if we've reached a month (month has started or passed)
           const hasReachedMonth = (year: number, month: number): boolean => {
@@ -4916,6 +4993,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10 min-w-[120px]">
                       קטגוריה
                     </th>
+                    <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10 min-w-[120px]">
+                      ספק
+                    </th>
                     {months.map((m, idx) => (
                       <th key={idx} className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white min-w-[60px]">
                         {m.label}
@@ -4924,21 +5004,25 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Expense category rows */}
-                  {categories.map((category, catIdx) => (
-                    <tr key={catIdx}>
+                  {/* Expense category-supplier rows */}
+                  {categorySupplierList.map((item, idx) => (
+                    <tr key={idx}>
                       <td className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-right text-gray-900 dark:text-white sticky left-0 z-10">
-                        {category}
+                        {item.category}
+                      </td>
+                      <td className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-right text-gray-900 dark:text-white sticky left-[120px] z-10">
+                        {item.supplier}
                       </td>
                       {months.map((m, monthIdx) => {
                         const hasReached = hasReachedMonth(m.year, m.month)
                         const hasTransactions = hasMonthTransactions(m.monthKey)
                         // Show if month has been reached OR if there are transactions for this month
                         const shouldShow = hasReached || hasTransactions
+                        const amount = monthlyData[m.monthKey].expenses[item.category]?.[item.supplier] || 0
                         return (
                           <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white">
-                            {shouldShow && monthlyData[m.monthKey].expenses[category] 
-                              ? formatCurrency(monthlyData[m.monthKey].expenses[category])
+                            {shouldShow && amount > 0
+                              ? formatCurrency(amount)
                               : shouldShow ? '0' : ''}
                           </td>
                         )
@@ -4947,9 +5031,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   ))}
                   
                   {/* Empty rows for spacing (if needed) */}
-                  {categories.length === 0 && (
+                  {categorySupplierList.length === 0 && (
                     <tr>
-                      <td colSpan={13} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={14} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-center text-gray-500 dark:text-gray-400">
                         אין הוצאות להצגה
                       </td>
                     </tr>
@@ -4957,7 +5041,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   
                   {/* סה"כ בקופה החודשית (Total in monthly fund) - Pink */}
                   <tr>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
+                    <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה החודשית
                     </td>
                     {months.map((m, monthIdx) => {
@@ -4975,7 +5059,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   
                   {/* הוצאות (Expenses) - Yellow */}
                   <tr>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
+                    <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       הוצאות
                     </td>
                     {months.map((m, monthIdx) => {
@@ -4993,7 +5077,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   
                   {/* עודף (Surplus/Balance) - Light Blue */}
                   <tr>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
+                    <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       עודף
                     </td>
                     {months.map((m, monthIdx) => {
@@ -5012,7 +5096,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   
                   {/* סה"כ בקופה השנתית (Total in annual fund) - Light Green */}
                   <tr>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
+                    <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה השנתית
                     </td>
                     {months.map((m, monthIdx) => {

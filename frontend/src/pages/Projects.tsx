@@ -22,6 +22,7 @@ import { archiveProject, hardDeleteProject } from '../store/slices/projectsSlice
 import Modal from '../components/Modal'
 import CreateProjectModal from '../components/CreateProjectModal'
 import CreateTransactionModal from '../components/CreateTransactionModal'
+import GroupTransactionModal from '../components/GroupTransactionModal'
 import CategoryBarChart, { CategoryPoint } from '../components/charts/CategoryBarChart'
 import api from '../lib/api'
 
@@ -290,6 +291,7 @@ export default function Projects() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showTransactionModal, setShowTransactionModal] = useState(false)
+  const [showGroupTransactionModal, setShowGroupTransactionModal] = useState(false)
   const [transactionProject, setTransactionProject] = useState<ProjectWithFinance | null>(null)
   const [editingProject, setEditingProject] = useState<ProjectWithFinance | null>(null)
   const [selectedParentProject, setSelectedParentProject] = useState<ProjectWithFinance | null>(null)
@@ -581,28 +583,39 @@ export default function Projects() {
             ניהול וצפייה בכל הפרויקטים במערכת
           </p>
         </div>
-        {isAdmin && (
-          <div className="flex items-center gap-3">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => handleCreateProject('regular')}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              <span>צור פרויקט</span>
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => handleCreateProject('parent')}
-              className="px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              <span>צור פרויקט על</span>
-            </motion.button>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowGroupTransactionModal(true)}
+            className="px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            <span>עסקה קבוצתית</span>
+          </motion.button>
+          {isAdmin && (
+            <>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => handleCreateProject('regular')}
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                <span>צור פרויקט</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => handleCreateProject('parent')}
+                className="px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                <span>צור פרויקט על</span>
+              </motion.button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -792,6 +805,15 @@ export default function Projects() {
           allowSubprojectSelection={transactionProject.is_parent_project === true}
         />
       )}
+
+      {/* Group Transaction Modal */}
+      <GroupTransactionModal
+        isOpen={showGroupTransactionModal}
+        onClose={() => setShowGroupTransactionModal(false)}
+        onSuccess={() => {
+          loadProjectsData(archiveFilter !== 'active')
+        }}
+      />
 
       {/* Archive/Delete Choice Modal */}
       <Modal

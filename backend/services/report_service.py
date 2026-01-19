@@ -1,7 +1,7 @@
 from sqlalchemy import func, select, and_, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Dict, Any
 from dateutil.relativedelta import relativedelta
 import hashlib
@@ -208,6 +208,128 @@ class ReportService:
                 category_expenses[cat_name] = category_expenses.get(cat_name, 0.0) + amount
 
         return category_expenses
+
+    async def _calculate_monthly_category_supplier_expenses(
+            self,
+            project_id: int | None,
+            start_date: date,
+            end_date: date,
+            from_fund: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate expenses per month, category, and supplier for a period.
+        Returns list of dicts with: month, category, supplier, amount
+        If there are multiple suppliers in the same category/month, each gets a separate row.
+        If project_id is None, calculates for all projects.
+        """
+        from backend.models.supplier import Supplier
+        from collections import defaultdict
+        
+        # Structure: {(month_key, category_name, supplier_name): amount}
+        monthly_data = defaultdict(float)
+        
+        # 1. Regular expenses (no period dates)
+        query_regular = select(
+            Transaction.tx_date,
+            Category.name.label('category'),
+            Supplier.name.label('supplier'),
+            Transaction.amount
+        ).outerjoin(
+            Category, Transaction.category_id == Category.id
+        ).outerjoin(
+            Supplier, Transaction.supplier_id == Supplier.id
+        ).where(
+            and_(
+                Transaction.type == "Expense",
+                Transaction.from_fund == from_fund,
+                Transaction.tx_date >= start_date,
+                Transaction.tx_date <= end_date,
+                or_(
+                    Transaction.period_start_date.is_(None),
+                    Transaction.period_end_date.is_(None)
+                )
+            )
+        )
+        
+        if project_id is not None:
+            query_regular = query_regular.where(Transaction.project_id == project_id)
+        
+        regular_results = await self.db.execute(query_regular)
+        for row in regular_results:
+            month_key = row.tx_date.strftime('%Y-%m')
+            cat_name = row.category or REPORT_LABELS["general"]
+            supplier_name = row.supplier or "ללא ספק"
+            amount = float(row.amount)
+            monthly_data[(month_key, cat_name, supplier_name)] += amount
+        
+        # 2. Period expenses - split by month
+        query_period = select(Transaction).options(
+            selectinload(Transaction.category),
+            selectinload(Transaction.supplier)
+        ).where(
+            and_(
+                Transaction.type == "Expense",
+                Transaction.from_fund == from_fund,
+                Transaction.period_start_date.is_not(None),
+                Transaction.period_end_date.is_not(None),
+                Transaction.period_start_date <= end_date,
+                Transaction.period_end_date >= start_date
+            )
+        )
+        
+        if project_id is not None:
+            query_period = query_period.where(Transaction.project_id == project_id)
+        
+        period_txs = (await self.db.execute(query_period)).scalars().all()
+        
+        for tx in period_txs:
+            cat_name = tx.category.name if tx.category else REPORT_LABELS["general"]
+            supplier_name = tx.supplier.name if tx.supplier else "ללא ספק"
+            
+            # Split period transaction by month
+            current_date = tx.period_start_date
+            total_days = (tx.period_end_date - tx.period_start_date).days + 1
+            if total_days <= 0:
+                continue
+            
+            daily_rate = float(tx.amount) / total_days
+            
+            while current_date <= tx.period_end_date:
+                month_key = current_date.strftime('%Y-%m')
+                
+                # Calculate days in this month for this transaction
+                if current_date.month == 12:
+                    month_end = date(current_date.year + 1, 1, 1)
+                else:
+                    month_end = date(current_date.year, current_date.month + 1, 1)
+                
+                # The period end in this month is the minimum of transaction end and month end
+                period_end_in_month = min(tx.period_end_date, month_end - timedelta(days=1))
+                # Calculate days from current_date to period_end_in_month (inclusive)
+                days_in_month = (period_end_in_month - current_date).days + 1
+                
+                if days_in_month > 0:
+                    amount = daily_rate * days_in_month
+                    monthly_data[(month_key, cat_name, supplier_name)] += amount
+                
+                # Move to next month (start of next month)
+                current_date = month_end
+        
+        # Convert to list of dicts
+        result = []
+        for (month_key, cat_name, supplier_name), amount in monthly_data.items():
+            if amount > 0:  # Only include rows with expenses
+                result.append({
+                    'month': month_key,
+                    'category': cat_name,
+                    'supplier': supplier_name,
+                    'amount': amount
+                })
+        
+        # Sort by month, then category, then supplier
+        result.sort(key=lambda x: (x['month'], x['category'], x['supplier']))
+        
+        return result
 
     async def project_profitability(self, project_id: int) -> dict:
         income_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
@@ -970,17 +1092,47 @@ class ReportService:
                 # Use all-time calculation
                 summary_data = await self.project_profitability(project_id)
 
+        # --- Monthly Breakdown Data ---
+        monthly_breakdown = []
+        # Always calculate monthly breakdown if we have transactions (even if include_transactions is False, we still want the breakdown)
+        # Calculate monthly breakdown by category and supplier
+        start_date = options.start_date or date(2000, 1, 1)
+        end_date = options.end_date or date.today()
+        try:
+            monthly_breakdown = await self._calculate_monthly_category_supplier_expenses(
+                project_id,
+                start_date,
+                end_date,
+                from_fund=False
+            )
+            # Apply category filter if specified
+            if options.categories and len(options.categories) > 0:
+                monthly_breakdown = [row for row in monthly_breakdown if row['category'] in options.categories]
+            # Apply supplier filter if specified
+            if options.suppliers and len(options.suppliers) > 0:
+                # Need to get supplier names from IDs
+                supplier_query = select(Supplier).where(Supplier.id.in_(options.suppliers))
+                supplier_result = await self.db.execute(supplier_query)
+                supplier_names = {s.name for s in supplier_result.scalars().all()}
+                monthly_breakdown = [row for row in monthly_breakdown if row['supplier'] in supplier_names]
+            print(f"INFO: Monthly breakdown calculated: {len(monthly_breakdown)} rows")
+        except Exception as e:
+            print(f"WARNING: Error calculating monthly breakdown: {e}")
+            import traceback
+            traceback.print_exc()
+            monthly_breakdown = []
+
         # 2. Generate Output
         if options.format == "pdf":
             return await self._generate_pdf(proj, options, transactions, budgets_data, fund_data, summary_data,
-                                            chart_images)
+                                            chart_images, monthly_breakdown)
         elif options.format == "excel":
             return await self._generate_excel(proj, options, transactions, budgets_data, fund_data, summary_data,
-                                              chart_images)
+                                              chart_images, monthly_breakdown)
         elif options.format == "zip":
             # For ZIP, we generate the PDF/Excel report AND include documents
             report_content = await self._generate_excel(proj, options, transactions, budgets_data, fund_data,
-                                                        summary_data, chart_images)
+                                                        summary_data, chart_images, monthly_breakdown)
             return await self._generate_zip(proj, options, report_content, transactions)
 
         raise ValueError("Invalid format")
@@ -2169,7 +2321,7 @@ class ReportService:
         
         return charts_added
 
-    async def _generate_pdf(self, project, options, transactions, budgets, fund, summary, chart_images=None) -> bytes:
+    async def _generate_pdf(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None) -> bytes:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak
@@ -2723,6 +2875,62 @@ class ReportService:
             elements.append(summary_table)
             elements.append(Spacer(1, 25))
 
+        # Monthly Breakdown Table - דוח חודשי
+        if monthly_breakdown and len(monthly_breakdown) > 0:
+            elements.append(Paragraph(format_text(f"📅 דוח חודשי - הוצאות לפי קטגוריה וספק"), style_h2))
+            elements.append(Spacer(1, 12))
+            
+            # Prepare monthly breakdown table data
+            monthly_table_data = [
+                [
+                    format_text(REPORT_LABELS.get('date', 'חודש')),
+                    format_text(REPORT_LABELS['category']),
+                    format_text(REPORT_LABELS['supplier']),
+                    format_text(REPORT_LABELS['amount'])
+                ]
+            ]
+            
+            for row_data in monthly_breakdown:
+                # Format month as Hebrew date (YYYY-MM -> MM/YYYY)
+                month_str = row_data['month']
+                try:
+                    year, month = month_str.split('-')
+                    month_display = f"{month}/{year}"
+                except:
+                    month_display = month_str
+                
+                cat_name = row_data['category'] or REPORT_LABELS['general']
+                supplier_name = row_data['supplier'] or "ללא ספק"
+                amount = row_data['amount']
+                
+                monthly_table_data.append([
+                    format_text(month_display),
+                    format_text(cat_name),
+                    format_text(supplier_name),
+                    f"{amount:,.2f} ₪"
+                ])
+            
+            monthly_table = Table(monthly_table_data, colWidths=[100, 150, 150, 120])
+            monthly_table.setStyle(TableStyle([
+                ('FONT', (0, 0), (-1, -1), font_name),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                # Header row
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_DARK)),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('TOPPADDING', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                # Data rows
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
+                ('TOPPADDING', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('PADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(monthly_table)
+            elements.append(Spacer(1, 25))
+
         # ========== עמוד שני והלאה: עסקאות ==========
         
         # Transactions - Group by category and create separate tables
@@ -3067,7 +3275,7 @@ class ReportService:
         return buffer.read()
 
 
-    async def _generate_excel(self, project, options, transactions, budgets, fund, summary, chart_images=None) -> bytes:
+    async def _generate_excel(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None) -> bytes:
         wb = Workbook()
         ws = wb.active
         ws.title = "דוח"
@@ -3372,7 +3580,86 @@ class ReportService:
 
             current_row += 1  # Spacer
 
-        # 4. Transactions - Professional grouped transactions
+        # 4. Monthly Breakdown Table - Professional monthly breakdown by category and supplier
+        # Always show the table if we have monthly breakdown data
+        if monthly_breakdown and len(monthly_breakdown) > 0:
+            ws.merge_cells(f'A{current_row}:E{current_row}')
+            ws.row_dimensions[current_row].height = 30
+            monthly_header = ws[f'A{current_row}']
+            monthly_header.value = f"📅  דוח חודשי - הוצאות לפי קטגוריה וספק"
+            monthly_header.font = h2_font
+            monthly_header.fill = fill_h2
+            monthly_header.alignment = center_align
+            monthly_header.border = medium_border
+            current_row += 1
+
+            # Monthly breakdown table headers
+            ws.row_dimensions[current_row].height = 28
+            monthly_headers = [
+                REPORT_LABELS['date'] if 'date' in REPORT_LABELS else 'חודש',
+                REPORT_LABELS['category'],
+                REPORT_LABELS['supplier'],
+                REPORT_LABELS['amount']
+            ]
+            for idx, header in enumerate(monthly_headers):
+                col = get_column_letter(idx + 1)
+                cell = ws[f'{col}{current_row}']
+                cell.value = header
+                cell.font = header_font
+                cell.fill = fill_header
+                cell.alignment = center_align
+                cell.border = thin_border
+            current_row += 1
+
+            # Monthly breakdown data rows with alternating colors
+            for row_idx, row_data in enumerate(monthly_breakdown):
+                ws.row_dimensions[current_row].height = 24
+                
+                # Format month as Hebrew date (YYYY-MM -> MM/YYYY)
+                month_str = row_data['month']
+                try:
+                    year, month = month_str.split('-')
+                    # Convert to Hebrew month format
+                    month_display = f"{month}/{year}"
+                except:
+                    month_display = month_str
+                
+                cat_name = row_data['category'] or REPORT_LABELS['general']
+                supplier_name = row_data['supplier'] or "ללא ספק"
+                amount = row_data['amount']
+                
+                # Row fill - alternate colors
+                row_fill = fill_light if row_idx % 2 == 0 else fill_alt
+                
+                ws[f'A{current_row}'] = month_display
+                ws[f'A{current_row}'].font = data_font
+                ws[f'A{current_row}'].fill = row_fill
+                ws[f'A{current_row}'].border = thin_border
+                ws[f'A{current_row}'].alignment = center_align
+                
+                ws[f'B{current_row}'] = cat_name
+                ws[f'B{current_row}'].font = data_bold_font
+                ws[f'B{current_row}'].fill = row_fill
+                ws[f'B{current_row}'].border = thin_border
+                ws[f'B{current_row}'].alignment = center_align
+                
+                ws[f'C{current_row}'] = supplier_name
+                ws[f'C{current_row}'].font = data_font
+                ws[f'C{current_row}'].fill = row_fill
+                ws[f'C{current_row}'].border = thin_border
+                ws[f'C{current_row}'].alignment = center_align
+                
+                ws[f'D{current_row}'] = f"{amount:,.2f} ₪"
+                ws[f'D{current_row}'].font = money_negative_font
+                ws[f'D{current_row}'].fill = row_fill
+                ws[f'D{current_row}'].border = thin_border
+                ws[f'D{current_row}'].alignment = center_align
+                
+                current_row += 1
+
+            current_row += 1  # Spacer
+
+        # 5. Transactions - Professional grouped transactions
         if options.include_transactions and transactions:
             ws.merge_cells(f'A{current_row}:E{current_row}')
             ws.row_dimensions[current_row].height = 32
