@@ -400,26 +400,18 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
         budget_service = BudgetService(db)
         # Calculate spending for each budget from transactions already loaded
         for budget in budgets:
-            category_name = None
-            if budget.category_id:
-                # Get category name from transactions we already have
-                for tx in transactions_list:
-                    if tx.get('category'):
-                        # We need to look up category by ID
-                        pass
-            
-            # Calculate spent amount from already-loaded transactions
+            # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
                 tx['amount'] for tx in transactions_list 
                 if tx['type'] == 'Expense' 
-                and tx.get('category') 
+                and tx.get('category') == budget.category
                 and not tx.get('from_fund', False)
             )
             
             budget_dict = {
                 "id": budget.id,
                 "project_id": budget.project_id,
-                "category": budget.category.name if budget.category else "Unknown",
+                "category": budget.category or "Unknown",
                 "amount": float(budget.amount),
                 "period_type": budget.period_type,
                 "start_date": budget.start_date.isoformat() if budget.start_date else None,

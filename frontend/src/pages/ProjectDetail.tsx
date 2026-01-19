@@ -178,6 +178,7 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(false)
   const [updatingProject, setUpdatingProject] = useState(false)
   const [chartsLoading, setChartsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [projectImageUrl, setProjectImageUrl] = useState<string | null>(null)
   const [contractFileUrl, setContractFileUrl] = useState<string | null>(null)
   const [showContractModal, setShowContractModal] = useState(false)
@@ -466,6 +467,7 @@ export default function ProjectDetail() {
 
     setLoading(true)
     setChartsLoading(true)
+    setError(null)
     try {
       const fullData = await ProjectAPI.getProjectFull(parseInt(id))
 
@@ -522,12 +524,23 @@ export default function ProjectDetail() {
 
     } catch (err: any) {
       console.error('Error loading project data:', err)
+      setError(err?.response?.data?.detail || err?.message || 'שגיאה בטעינת נתוני הפרויקט')
       // Fallback to legacy loading if new endpoint fails
-      await Promise.all([
-        loadProjectInfo(),
-        load(),
-        loadChartsData()
-      ]).catch(e => console.error('Fallback loading also failed:', e))
+      try {
+        await Promise.all([
+          loadProjectInfo(),
+          load(),
+          loadChartsData()
+        ])
+        // If fallback succeeds, clear error
+        setError(null)
+      } catch (fallbackErr: any) {
+        console.error('Fallback loading also failed:', fallbackErr)
+        // Keep the error state so user can see what went wrong
+        if (!error) {
+          setError('שגיאה בטעינת נתוני הפרויקט. נא לנסות שוב.')
+        }
+      }
     } finally {
       setLoading(false)
       setChartsLoading(false)
@@ -865,6 +878,17 @@ const formatCurrency = (value: number | string | null | undefined) => {
       loadAllProjectData()
     }
   }, [id])
+
+  // Redirect to parent project route if this is a parent project
+  useEffect(() => {
+    if (isParentProject && id && !isNaN(Number(id)) && !loading) {
+      // Use setTimeout to ensure the navigation happens after the component has rendered
+      const timer = setTimeout(() => {
+        navigate(`/projects/${id}/parent`, { replace: true })
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [isParentProject, id, navigate, loading])
 
   useEffect(() => {
     dispatch(fetchSuppliers())
@@ -1652,6 +1676,52 @@ const formatCurrency = (value: number | string | null | undefined) => {
     )
   }
 
+  // Don't render main content if redirecting to parent project route
+  if (isParentProject && id && !isNaN(Number(id))) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-lg font-semibold text-gray-900 dark:text-white">
+              מעביר לדף פרויקט אב...
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error message if there was an error loading data
+  if (error && !loading) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 p-6 rounded-lg">
+          <h2 className="text-xl font-bold mb-2">שגיאה בטעינת הפרויקט</h2>
+          <p className="mb-4">{error}</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setError(null)
+                if (id && !isNaN(Number(id))) {
+                  loadAllProjectData()
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              נסה שוב
+            </button>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              חזור לדשבורד
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8 relative">
@@ -4902,7 +4972,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
           
           // Calculate main supplier for each category (by total amount)
           const categorySuppliers: Record<string, number | null> = {}
-          categories.forEach(category => {
+          // Get unique categories from categorySupplierList
+          const uniqueCategories = Array.from(new Set(categorySupplierList.map(item => item.category)))
+          uniqueCategories.forEach(category => {
             const supplierAmounts: Record<number, number> = {}
             regularSplits.forEach(split => {
               if (split.type === 'Expense' && (split.category || 'אחר') === category && split.supplier_id) {
