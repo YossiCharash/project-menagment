@@ -15,6 +15,11 @@ api.interceptors.request.use((config) => {
     config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
   }
+  
+  // For FormData, don't set Content-Type - let axios/browser set it with boundary
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type']
+  }
 
   return config
 })

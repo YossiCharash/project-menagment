@@ -52,12 +52,80 @@ def get_uploads_dir() -> str:
 @router.get("/", response_model=list[ProjectOut])
 async def list_projects(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """List projects - accessible to all authenticated users"""
-    return await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
+    from backend.services.fund_service import FundService
+    
+    projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
+    fund_service = FundService(db)
+    
+    # Add fund information to each project
+    result = []
+    for project in projects:
+        fund = await fund_service.get_fund_by_project(project.id)
+        project_dict = {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "start_date": project.start_date.isoformat() if project.start_date else None,
+            "end_date": project.end_date.isoformat() if project.end_date else None,
+            "budget_monthly": project.budget_monthly,
+            "budget_annual": project.budget_annual,
+            "manager_id": project.manager_id,
+            "relation_project": project.relation_project,
+            "is_parent_project": project.is_parent_project,
+            "num_residents": project.num_residents,
+            "monthly_price_per_apartment": project.monthly_price_per_apartment,
+            "address": project.address,
+            "city": project.city,
+            "image_url": project.image_url,
+            "contract_file_url": project.contract_file_url,
+            "is_active": project.is_active,
+            "created_at": project.created_at,
+            "total_value": getattr(project, 'total_value', 0.0),
+            "has_fund": fund is not None,
+            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+        }
+        result.append(project_dict)
+    
+    return result
 
 @router.get("", response_model=list[ProjectOut])
 async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
-    return await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
+    from backend.services.fund_service import FundService
+    
+    projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
+    fund_service = FundService(db)
+    
+    # Add fund information to each project
+    result = []
+    for project in projects:
+        fund = await fund_service.get_fund_by_project(project.id)
+        project_dict = {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "start_date": project.start_date.isoformat() if project.start_date else None,
+            "end_date": project.end_date.isoformat() if project.end_date else None,
+            "budget_monthly": project.budget_monthly,
+            "budget_annual": project.budget_annual,
+            "manager_id": project.manager_id,
+            "relation_project": project.relation_project,
+            "is_parent_project": project.is_parent_project,
+            "num_residents": project.num_residents,
+            "monthly_price_per_apartment": project.monthly_price_per_apartment,
+            "address": project.address,
+            "city": project.city,
+            "image_url": project.image_url,
+            "contract_file_url": project.contract_file_url,
+            "is_active": project.is_active,
+            "created_at": project.created_at,
+            "total_value": getattr(project, 'total_value', 0.0),
+            "has_fund": fund is not None,
+            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+        }
+        result.append(project_dict)
+    
+    return result
 
 @router.get("/check-name")
 async def check_project_name(
@@ -424,7 +492,41 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
 @router.get("/{project_id}/subprojects", response_model=list[ProjectOut])
 async def get_subprojects(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """Get subprojects - accessible to all authenticated users"""
-    return await ProjectRepository(db).get_subprojects(project_id)
+    from backend.services.fund_service import FundService
+    
+    subprojects = await ProjectRepository(db).get_subprojects(project_id)
+    fund_service = FundService(db)
+    
+    # Add fund information to each subproject
+    result = []
+    for subproject in subprojects:
+        fund = await fund_service.get_fund_by_project(subproject.id)
+        subproject_dict = {
+            "id": subproject.id,
+            "name": subproject.name,
+            "description": subproject.description,
+            "start_date": subproject.start_date.isoformat() if subproject.start_date else None,
+            "end_date": subproject.end_date.isoformat() if subproject.end_date else None,
+            "budget_monthly": subproject.budget_monthly,
+            "budget_annual": subproject.budget_annual,
+            "manager_id": subproject.manager_id,
+            "relation_project": subproject.relation_project,
+            "is_parent_project": subproject.is_parent_project,
+            "num_residents": subproject.num_residents,
+            "monthly_price_per_apartment": subproject.monthly_price_per_apartment,
+            "address": subproject.address,
+            "city": subproject.city,
+            "image_url": subproject.image_url,
+            "contract_file_url": subproject.contract_file_url,
+            "is_active": subproject.is_active,
+            "created_at": subproject.created_at,
+            "total_value": getattr(subproject, 'total_value', 0.0),
+            "has_fund": fund is not None,
+            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+        }
+        result.append(subproject_dict)
+    
+    return result
 
 @router.get("/get_values/{project_id}", response_model=ProjectOut)
 async def get_project_values(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
@@ -1239,28 +1341,31 @@ async def get_project_fund(
     initial_balance = 0.0
     monthly_amount = float(fund.monthly_amount)
     
-    # Calculate total monthly additions based on creation date and last addition
+    # Get project to access start_date
+    project_repo = ProjectRepository(db)
+    project = await project_repo.get_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Calculate total monthly additions based on project start date (not fund creation date)
+    # Use project.start_date if available, otherwise use fund.created_at date
     total_monthly_additions = 0.0
-    if fund.last_monthly_addition and monthly_amount > 0:
-        # Calculate months between creation and last addition (inclusive)
-        created_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
-        last_addition_date = fund.last_monthly_addition
-        
-        # Count months from creation to last addition
-        if last_addition_date >= created_date:
-            # Calculate number of months (including the creation month)
-            months_count = (last_addition_date.year - created_date.year) * 12 + (last_addition_date.month - created_date.month) + 1
-            total_monthly_additions = months_count * monthly_amount
-    elif monthly_amount > 0:
-        # If no monthly addition yet, but fund exists, at least the current month should count
-        # This handles the case where fund was just created
-        created_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
+    if monthly_amount > 0:
         today = date.today()
-        if created_date <= today:
-            months_count = (today.year - created_date.year) * 12 + (today.month - created_date.month) + 1
-            # Only count if this month's addition should have been made
-            if today.year > created_date.year or (today.year == created_date.year and today.month > created_date.month) or (today.year == created_date.year and today.month == created_date.month and today.day >= 1):
-                total_monthly_additions = months_count * monthly_amount
+        
+        # Determine the calculation start date: prefer project.start_date, fallback to fund.created_at
+        if project.start_date:
+            calculation_start_date = project.start_date
+        else:
+            calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else date.today()
+        
+        # Use calculate_monthly_income_amount to get the correct total from start date to today
+        # This function properly handles monthly occurrences from start_date to current_date
+        total_monthly_additions = calculate_monthly_income_amount(
+            monthly_amount, 
+            calculation_start_date, 
+            today
+        )
     
     # Total additions = monthly additions + income transactions to fund
     total_additions = total_monthly_additions + total_additions_from_transactions
