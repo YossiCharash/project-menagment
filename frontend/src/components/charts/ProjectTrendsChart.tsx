@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { parseLocalDate } from '../../lib/utils'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Calendar, Filter, TrendingUp, PieChart as PieChartIcon, BarChart as BarChartIcon, Activity } from 'lucide-react'
 
@@ -121,8 +122,8 @@ export default function ProjectTrendsChart({
       return [{ tx, dateKey: tx.tx_date, amount: tx.amount }]
     }
 
-    const periodStart = new Date(tx.period_start_date)
-    const periodEnd = new Date(tx.period_end_date)
+    const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+    const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
     const totalDays = Math.floor((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
     
     if (totalDays <= 0) {
@@ -183,17 +184,17 @@ export default function ProjectTrendsChart({
 
     switch (filterType) {
       case 'month':
-        filterStart = new Date(selectedMonth + '-01')
+        filterStart = parseLocalDate(selectedMonth + '-01') || new Date()
         filterEnd = new Date(filterStart.getFullYear(), filterStart.getMonth() + 1, 0)
         filteredTransactions = filteredTransactions.filter(tx => {
           // For period transactions, check if period overlaps with month
           if (tx.period_start_date && tx.period_end_date) {
-            const periodStart = new Date(tx.period_start_date)
-            const periodEnd = new Date(tx.period_end_date)
+            const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+            const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
             return periodStart <= filterEnd && periodEnd >= filterStart
           } else {
             // Regular transaction - check tx_date
-            const txDate = new Date(tx.tx_date)
+            const txDate = parseLocalDate(tx.tx_date) || new Date()
             return txDate >= filterStart && txDate <= filterEnd
           }
         })
@@ -204,12 +205,12 @@ export default function ProjectTrendsChart({
         filteredTransactions = filteredTransactions.filter(tx => {
           // For period transactions, check if period overlaps with year
           if (tx.period_start_date && tx.period_end_date) {
-            const periodStart = new Date(tx.period_start_date)
-            const periodEnd = new Date(tx.period_end_date)
+            const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+            const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
             return periodStart <= filterEnd && periodEnd >= filterStart
           } else {
             // Regular transaction - check tx_date
-            const txDate = new Date(tx.tx_date)
+            const txDate = parseLocalDate(tx.tx_date) || new Date()
             return txDate >= filterStart && txDate <= filterEnd
           }
         })
@@ -221,17 +222,17 @@ export default function ProjectTrendsChart({
         break
       case 'custom':
         if (customStartDate && customEndDate) {
-          filterStart = new Date(customStartDate)
-          filterEnd = new Date(customEndDate)
+          filterStart = parseLocalDate(customStartDate) || new Date()
+          filterEnd = parseLocalDate(customEndDate) || new Date()
           filteredTransactions = filteredTransactions.filter(tx => {
             // For period transactions, check if period overlaps with range
             if (tx.period_start_date && tx.period_end_date) {
-              const periodStart = new Date(tx.period_start_date)
-              const periodEnd = new Date(tx.period_end_date)
+              const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+              const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
               return periodStart <= filterEnd && periodEnd >= filterStart
             } else {
               // Regular transaction - check tx_date
-              const txDate = new Date(tx.tx_date)
+              const txDate = parseLocalDate(tx.tx_date) || new Date()
               return txDate >= filterStart && txDate <= filterEnd
             }
           })
@@ -315,17 +316,17 @@ export default function ProjectTrendsChart({
 
     switch (filterType) {
       case 'month':
-        filterStart = new Date(selectedMonth + '-01')
+        filterStart = parseLocalDate(selectedMonth + '-01') || new Date()
         filterEnd = new Date(filterStart.getFullYear(), filterStart.getMonth() + 1, 0)
         filteredTransactions = filteredTransactions.filter(tx => {
           // For period transactions, check if period overlaps with month
           if (tx.period_start_date && tx.period_end_date) {
-            const periodStart = new Date(tx.period_start_date)
-            const periodEnd = new Date(tx.period_end_date)
+            const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+            const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
             return periodStart <= filterEnd && periodEnd >= filterStart
           } else {
             // Regular transaction - check tx_date
-            const txDate = new Date(tx.tx_date)
+            const txDate = parseLocalDate(tx.tx_date) || new Date()
             return txDate >= filterStart && txDate <= filterEnd
           }
         })
@@ -336,12 +337,12 @@ export default function ProjectTrendsChart({
         filteredTransactions = filteredTransactions.filter(tx => {
           // For period transactions, check if period overlaps with year
           if (tx.period_start_date && tx.period_end_date) {
-            const periodStart = new Date(tx.period_start_date)
-            const periodEnd = new Date(tx.period_end_date)
+            const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+            const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
             return periodStart <= filterEnd && periodEnd >= filterStart
           } else {
             // Regular transaction - check tx_date
-            const txDate = new Date(tx.tx_date)
+            const txDate = parseLocalDate(tx.tx_date) || new Date()
             return txDate >= filterStart && txDate <= filterEnd
           }
         })
@@ -353,17 +354,17 @@ export default function ProjectTrendsChart({
         break
       case 'custom':
         if (customStartDate && customEndDate) {
-          filterStart = new Date(customStartDate)
-          filterEnd = new Date(customEndDate)
+          filterStart = parseLocalDate(customStartDate) || new Date()
+          filterEnd = parseLocalDate(customEndDate) || new Date()
           filteredTransactions = filteredTransactions.filter(tx => {
             // For period transactions, check if period overlaps with range
             if (tx.period_start_date && tx.period_end_date) {
-              const periodStart = new Date(tx.period_start_date)
-              const periodEnd = new Date(tx.period_end_date)
+              const periodStart = parseLocalDate(tx.period_start_date) || new Date()
+              const periodEnd = parseLocalDate(tx.period_end_date) || new Date()
               return periodStart <= filterEnd && periodEnd >= filterStart
             } else {
               // Regular transaction - check tx_date
-              const txDate = new Date(tx.tx_date)
+              const txDate = parseLocalDate(tx.tx_date) || new Date()
               return txDate >= filterStart && txDate <= filterEnd
             }
           })

@@ -25,8 +25,8 @@ class TransactionRepository:
         return tx
 
     async def delete(self, tx: Transaction) -> bool:
-        await self.db.delete(tx)  # async - marks object for deletion
-        await self.db.commit()  # async - commits the deletion
+        self.db.delete(tx)  # marks object for deletion (synchronous method)
+        await self.db.commit()  # commits the deletion
         return True
 
     async def list_by_project(self, project_id: int, exclude_fund: bool = False) -> list[Transaction]:
@@ -69,10 +69,15 @@ class TransactionRepository:
         
         # Add date filtering if project has contract period dates
         if project_start_date and project_end_date:
-            # Include transactions within contract period OR fund transactions
+            # Include:
+            # 1. Fund transactions (COALESCE(t.from_fund, false) = true)
+            # 2. Regular transactions within tx_date range (t.tx_date >= :start_date AND t.tx_date <= :end_date)
+            # 3. Period transactions that overlap with the range (t.period_start_date <= :end_date AND t.period_end_date >= :start_date)
             where_conditions.append(
                 "(COALESCE(t.from_fund, false) = true OR "
-                "(t.tx_date >= :start_date AND t.tx_date <= :end_date))"
+                "(t.tx_date >= :start_date AND t.tx_date <= :end_date) OR "
+                "(t.period_start_date IS NOT NULL AND t.period_end_date IS NOT NULL AND "
+                "t.period_start_date <= :end_date AND t.period_end_date >= :start_date))"
             )
             params["start_date"] = project_start_date
             params["end_date"] = project_end_date

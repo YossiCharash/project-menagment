@@ -6,9 +6,11 @@ from sqlalchemy import select
 from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.transaction_repository import TransactionRepository
+from backend.repositories.budget_repository import BudgetRepository
 from backend.models.contract_period import ContractPeriod
 from backend.models.project import Project
 from backend.models.archived_contract import ArchivedContract
+from backend.models.transaction import Transaction
 
 class ContractPeriodService:
     def __init__(self, db: AsyncSession):
@@ -16,6 +18,7 @@ class ContractPeriodService:
         self.contract_periods = ContractPeriodRepository(db)
         self.projects = ProjectRepository(db)
         self.transactions = TransactionRepository(db)
+        self.budgets = BudgetRepository(db)
 
     async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
         """Get the current active contract period for a project"""
@@ -307,7 +310,7 @@ class ContractPeriodService:
         }
 
     async def get_contract_period_summary(self, period_id: int) -> Optional[Dict[str, Any]]:
-        """Get detailed summary for a contract period"""
+        """Get detailed summary for a contract period including transactions and budgets"""
         # Hebrew letters for period labeling
         hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
         
@@ -338,6 +341,61 @@ class ContractPeriodService:
         else:
             year_label = ""  # No label for single period per year
         
+        # Fetch transactions for this period
+        from sqlalchemy import and_, or_
+        transactions_query = select(Transaction).where(
+            and_(
+                Transaction.project_id == period.project_id,
+                Transaction.from_fund == False,
+                or_(
+                    # Regular transactions within date range
+                    and_(
+                        Transaction.tx_date >= start_date,
+                        Transaction.tx_date <= end_date,
+                        or_(
+                            Transaction.period_start_date.is_(None),
+                            Transaction.period_end_date.is_(None)
+                        )
+                    ),
+                    # Period transactions that overlap with the period
+                    and_(
+                        Transaction.period_start_date.is_not(None),
+                        Transaction.period_end_date.is_not(None),
+                        Transaction.period_start_date <= end_date,
+                        Transaction.period_end_date >= start_date
+                    )
+                )
+            )
+        ).order_by(Transaction.tx_date.desc())
+        
+        transactions_result = await self.db.execute(transactions_query)
+        transactions_list = []
+        for tx in transactions_result.scalars().all():
+            transactions_list.append({
+                'id': tx.id,
+                'tx_date': tx.tx_date.isoformat(),
+                'type': tx.type,
+                'amount': float(tx.amount),
+                'description': tx.description,
+                'category': tx.category.name if tx.category else None,
+                'payment_method': tx.payment_method,
+                'notes': tx.notes,
+                'supplier_id': tx.supplier_id
+            })
+        
+        # Fetch budgets for this project
+        budgets_list = await self.budgets.get_active_budgets_for_project(period.project_id)
+        budgets_data = []
+        for budget in budgets_list:
+            budgets_data.append({
+                'category': budget.category,
+                'amount': float(budget.amount),
+                'period_type': budget.period_type,
+                'start_date': budget.start_date.isoformat() if budget.start_date else None,
+                'end_date': budget.end_date.isoformat() if budget.end_date else None,
+                'is_active': budget.is_active
+            })
+        
         return {
             'period_id': period.id,
             'project_id': period.project_id,
@@ -346,6 +404,8 @@ class ContractPeriodService:
             'contract_year': period.contract_year,
             'year_index': period.year_index,
             'year_label': year_label,
+            'transactions': transactions_list,
+            'budgets': budgets_data,
             **summary
         }
 

@@ -559,10 +559,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         onSuccess()
       }
     } else {
-      // All succeeded
+      // All succeeded - calculate totals
+      const incomeRows = rows.filter(r => r.type === 'Income')
+      const expenseRows = rows.filter(r => r.type === 'Expense')
+      const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+      const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+      
       const successMessage = totalFiles > 0 
-        ? `נוצרו ${results.success} עסקאות והועלו ${totalFiles} מסמכים בהצלחה`
-        : `נוצרו ${results.success} עסקאות בהצלחה`
+        ? `נוצרו ${results.success} עסקאות בהצלחה!\n\nסיכום:\n• ${incomeRows.length} עסקאות הכנסה: ${totalIncome.toLocaleString('he-IL')} ₪\n• ${expenseRows.length} עסקאות הוצאה: ${totalExpense.toLocaleString('he-IL')} ₪\n• הועלו ${totalFiles} מסמכים`
+        : `נוצרו ${results.success} עסקאות בהצלחה!\n\nסיכום:\n• ${incomeRows.length} עסקאות הכנסה: ${totalIncome.toLocaleString('he-IL')} ₪\n• ${expenseRows.length} עסקאות הוצאה: ${totalExpense.toLocaleString('he-IL')} ₪`
       
       // Show success message briefly before closing
       setError(null)
@@ -667,6 +672,68 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             </motion.div>
           )}
 
+          {/* Summary Card */}
+          {(() => {
+            const incomeRows = rows.filter(r => r.type === 'Income')
+            const expenseRows = rows.filter(r => r.type === 'Expense')
+            const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+            const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+            const netAmount = totalIncome - totalExpense
+            
+            return (
+              <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 shadow-md">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">סיכום עסקאות</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg p-3">
+                    <div className="text-sm text-green-700 dark:text-green-300 font-medium mb-1">הכנסות</div>
+                    <div className="text-2xl font-bold text-green-800 dark:text-green-200">
+                      {totalIncome.toLocaleString('he-IL')} ₪
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400 mt-1">
+                      {incomeRows.length} עסקאות
+                    </div>
+                  </div>
+                  <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-lg p-3">
+                    <div className="text-sm text-red-700 dark:text-red-300 font-medium mb-1">הוצאות</div>
+                    <div className="text-2xl font-bold text-red-800 dark:text-red-200">
+                      {totalExpense.toLocaleString('he-IL')} ₪
+                    </div>
+                    <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      {expenseRows.length} עסקאות
+                    </div>
+                  </div>
+                  <div className={`border-2 rounded-lg p-3 ${
+                    netAmount >= 0 
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700' 
+                      : 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700'
+                  }`}>
+                    <div className={`text-sm font-medium mb-1 ${
+                      netAmount >= 0 
+                        ? 'text-blue-700 dark:text-blue-300' 
+                        : 'text-orange-700 dark:text-orange-300'
+                    }`}>
+                      יתרה
+                    </div>
+                    <div className={`text-2xl font-bold ${
+                      netAmount >= 0 
+                        ? 'text-blue-800 dark:text-blue-200' 
+                        : 'text-orange-800 dark:text-orange-200'
+                    }`}>
+                      {netAmount.toLocaleString('he-IL')} ₪
+                    </div>
+                    <div className={`text-xs mt-1 ${
+                      netAmount >= 0 
+                        ? 'text-blue-600 dark:text-blue-400' 
+                        : 'text-orange-600 dark:text-orange-400'
+                    }`}>
+                      {netAmount >= 0 ? 'רווח' : 'הפסד'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
               <table className="w-full border-collapse">
@@ -684,9 +751,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       תאריך *
                     </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       סכום *
                     </th>
+                  </tr>
+                  <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
                     <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       תיאור
                     </th>
@@ -715,272 +784,285 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                       ? getSubprojectsForProject(row.projectId as number)
                       : []
 
+                    const rowBgClass = index % 2 === 0 
+                      ? 'bg-white dark:bg-gray-800' 
+                      : 'bg-gray-50/50 dark:bg-gray-800/50'
+
                     return (
-                      <tr 
-                        key={row.id} 
-                        className={`transition-colors ${
-                          index % 2 === 0 
-                            ? 'bg-white dark:bg-gray-800' 
-                            : 'bg-gray-50/50 dark:bg-gray-800/50'
-                        } hover:bg-blue-50 dark:hover:bg-gray-700/70 border-b border-gray-100 dark:border-gray-700`}
-                      >
-                        <td className="px-4 py-3">
-                          <select
-                            value={row.projectId}
-                            onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
-                            required
-                          >
-                            <option value="">בחר פרויקט</option>
-                            {projects.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          {isParentProject ? (
+                      <React.Fragment key={row.id}>
+                        {/* שורה ראשונה */}
+                        <tr 
+                          className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}
+                        >
+                          <td className="px-4 py-4">
                             <select
-                              value={row.subprojectId}
-                              onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                              value={row.projectId}
+                              onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
                               required
                             >
-                              <option value="">בחר תת-פרויקט</option>
-                              {subprojects.map((subproject) => (
-                                <option key={subproject.id} value={subproject.id}>
-                                  {subproject.name}
+                              <option value="">בחר פרויקט</option>
+                              {projects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
                                 </option>
                               ))}
                             </select>
-                          ) : (
-                            <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={row.type}
-                            onChange={(e) => {
-                              const newType = e.target.value as 'Income' | 'Expense'
-                              updateRow(row.id, 'type', newType)
-                              if (newType === 'Income') {
-                                updateRow(row.id, 'supplierId', '')
-                              }
-                            }}
-                            className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-medium ${
-                              row.type === 'Income' 
-                                ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300' 
-                                : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
-                            }`}
-                            required
-                          >
-                            <option value="Income">הכנסה</option>
-                            <option value="Expense">הוצאה</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="space-y-1">
-                            <input
-                              type="date"
-                              value={row.txDate}
-                              onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
-                              className={`w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow ${
-                                row.dateError
-                                  ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                  : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                          </td>
+                          <td className="px-4 py-4">
+                            {isParentProject ? (
+                              <select
+                                value={row.subprojectId}
+                                onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                                required
+                              >
+                                <option value="">בחר תת-פרויקט</option>
+                                {subprojects.map((subproject) => (
+                                  <option key={subproject.id} value={subproject.id}>
+                                    {subproject.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4">
+                            <select
+                              value={row.type}
+                              onChange={(e) => {
+                                const newType = e.target.value as 'Income' | 'Expense'
+                                updateRow(row.id, 'type', newType)
+                                if (newType === 'Income') {
+                                  updateRow(row.id, 'supplierId', '')
+                                }
+                              }}
+                              className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-medium ${
+                                row.type === 'Income' 
+                                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300' 
+                                  : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
                               }`}
                               required
-                            />
-                            {row.dateError && (
-                              <p className="text-xs text-red-600 dark:text-red-400">{row.dateError}</p>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={row.amount}
-                            onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-semibold"
-                            placeholder="0.00"
-                            required
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="text"
-                            readOnly
-                            onClick={() => openTextEditor(row.id, 'description', row.description)}
-                            value={row.description}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
-                            placeholder="תיאור העסקה"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={row.categoryId}
-                            onChange={(e) => updateRow(row.id, 'categoryId', e.target.value ? Number(e.target.value) : '')}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
-                          >
-                            <option value="">בחר קטגוריה</option>
-                            {availableCategories.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          {row.type === 'Expense' && !row.fromFund ? (
-                            <select
-                              value={row.supplierId}
-                              onChange={(e) => updateRow(row.id, 'supplierId', e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={!row.categoryId}
                             >
-                              <option value="">
-                                {row.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}
-                              </option>
-                              {(() => {
-                                // Filter suppliers by selected category name
-                                const selectedCategory = availableCategories.find(c => c.id === row.categoryId)
-                                if (!selectedCategory) {
-                                  return <option value="" disabled>בחר קודם קטגוריה</option>
-                                }
-                                
-                                const categoryName = selectedCategory.name
-                                const filteredSuppliers = suppliers.filter(s => {
-                                  if (!s.is_active) return false
-                                  // Match by category name (suppliers have category as string)
-                                  return s.category === categoryName
-                                })
-                                
-                                if (filteredSuppliers.length === 0) {
-                                  return <option value="" disabled>אין ספקים בקטגוריה זו</option>
-                                }
-                                
-                                return filteredSuppliers.map((supplier) => (
-                                  <option key={supplier.id} value={supplier.id}>
-                                    {supplier.name}
-                                  </option>
-                                ))
-                              })()}
+                              <option value="Income">הכנסה</option>
+                              <option value="Expense">הוצאה</option>
                             </select>
-                          ) : (
-                            <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={row.paymentMethod}
-                            onChange={(e) => updateRow(row.id, 'paymentMethod', e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
-                          >
-                            <option value="">בחר אמצעי תשלום</option>
-                            <option value="הוראת קבע">הוראת קבע</option>
-                            <option value="אשראי">אשראי</option>
-                            <option value="שיק">שיק</option>
-                            <option value="מזומן">מזומן</option>
-                            <option value="העברה בנקאית">העברה בנקאית</option>
-                            <option value="גבייה מרוכזת סוף שנה">גבייה מרוכזת סוף שנה</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="text"
-                            readOnly
-                            onClick={() => openTextEditor(row.id, 'notes', row.notes)}
-                            value={row.notes}
-                            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
-                            placeholder="הערות"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-3 flex-wrap">
-                              {row.type === 'Expense' && hasFundForRow(row) && (
-                                <label className="flex items-center gap-2 text-sm cursor-pointer group whitespace-nowrap">
-                                  <input
-                                    type="checkbox"
-                                    checked={row.fromFund}
-                                    onChange={(e) => {
-                                      const fromFund = e.target.checked
-                                      updateRow(row.id, 'fromFund', fromFund)
-                                      if (fromFund) {
-                                        updateRow(row.id, 'supplierId', '')
-                                      }
-                                    }}
-                                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-2 focus:ring-blue-500 cursor-pointer flex-shrink-0"
-                                  />
-                                  <span className="text-gray-700 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors font-medium whitespace-nowrap">
-                                    להוריד מקופה
-                                  </span>
-                                </label>
-                              )}
-                              {row.type === 'Expense' && !hasFundForRow(row) && (
-                                <span className="text-sm text-gray-400 dark:text-gray-500 whitespace-nowrap">-</span>
-                              )}
-                              {row.type === 'Income' && (
-                                <span className="text-sm text-gray-400 dark:text-gray-500 whitespace-nowrap">-</span>
-                              )}
-                              <label className="cursor-pointer">
-                                <input
-                                  type="file"
-                                  multiple
-                                  onChange={(e) => handleFileUpload(row.id, e.target.files)}
-                                  className="hidden"
-                                  id={`file-upload-${row.id}`}
-                                />
-                                <motion.button
-                                  type="button"
-                                  whileHover={{ scale: 1.05 }}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => document.getElementById(`file-upload-${row.id}`)?.click()}
-                                  className="p-1.5 text-blue-500 hover:text-white hover:bg-blue-500 rounded-lg transition-all flex-shrink-0"
-                                  title="הוסף מסמכים"
-                                >
-                                  <Upload className="w-4 h-4" />
-                                </motion.button>
-                              </label>
-                              {row.files.length > 0 && (
-                                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                                  {row.files.length}
-                                </span>
-                              )}
-                              {rows.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeRow(row.id)}
-                                  className="p-1.5 text-red-500 hover:text-white hover:bg-red-500 rounded-lg transition-all flex-shrink-0"
-                                  title="מחק שורה"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="space-y-1">
+                              <input
+                                type="date"
+                                value={row.txDate}
+                                onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
+                                className={`w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow ${
+                                  row.dateError
+                                    ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                    : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                                }`}
+                                required
+                              />
+                              {row.dateError && (
+                                <p className="text-xs text-red-600 dark:text-red-400">{row.dateError}</p>
                               )}
                             </div>
-                            {row.files.length > 0 && (
-                              <div className="space-y-1">
-                                {row.files.map((file, index) => (
-                                  <div key={index} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                                    <File className="w-3 h-3 flex-shrink-0" />
-                                    <span className="truncate flex-1">{file.name}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeFile(row.id, index)}
-                                      className="text-red-500 hover:text-red-700 flex-shrink-0"
-                                    >
-                                      <X className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={row.amount}
+                              onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
+                              className="w-full px-4 py-3 text-base bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-bold text-lg"
+                              placeholder="0.00"
+                              required
+                            />
+                          </td>
+                        </tr>
+                        {/* שורה שנייה */}
+                        <tr 
+                          className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 border-b-4 border-gray-400 dark:border-gray-500`}
+                        >
+                          <td className="px-4 py-4">
+                            <input
+                              type="text"
+                              readOnly
+                              onClick={() => openTextEditor(row.id, 'description', row.description)}
+                              value={row.description}
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                              placeholder="תיאור העסקה"
+                            />
+                          </td>
+                          <td className="px-4 py-4">
+                            <select
+                              value={row.categoryId}
+                              onChange={(e) => updateRow(row.id, 'categoryId', e.target.value ? Number(e.target.value) : '')}
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                            >
+                              <option value="">בחר קטגוריה</option>
+                              {availableCategories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-4">
+                            {row.type === 'Expense' && !row.fromFund ? (
+                              <select
+                                value={row.supplierId}
+                                onChange={(e) => updateRow(row.id, 'supplierId', e.target.value ? Number(e.target.value) : '')}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={!row.categoryId}
+                              >
+                                <option value="">
+                                  {row.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}
+                                </option>
+                                {(() => {
+                                  // Filter suppliers by selected category name
+                                  const selectedCategory = availableCategories.find(c => c.id === row.categoryId)
+                                  if (!selectedCategory) {
+                                    return <option value="" disabled>בחר קודם קטגוריה</option>
+                                  }
+                                  
+                                  const categoryName = selectedCategory.name
+                                  const filteredSuppliers = suppliers.filter(s => {
+                                    if (!s.is_active) return false
+                                    // Match by category name (suppliers have category as string)
+                                    return s.category === categoryName
+                                  })
+                                  
+                                  if (filteredSuppliers.length === 0) {
+                                    return <option value="" disabled>אין ספקים בקטגוריה זו</option>
+                                  }
+                                  
+                                  return filteredSuppliers.map((supplier) => (
+                                    <option key={supplier.id} value={supplier.id}>
+                                      {supplier.name}
+                                    </option>
+                                  ))
+                                })()}
+                              </select>
+                            ) : (
+                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
                             )}
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-4">
+                            <select
+                              value={row.paymentMethod}
+                              onChange={(e) => updateRow(row.id, 'paymentMethod', e.target.value)}
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                            >
+                              <option value="">בחר אמצעי תשלום</option>
+                              <option value="הוראת קבע">הוראת קבע</option>
+                              <option value="אשראי">אשראי</option>
+                              <option value="שיק">שיק</option>
+                              <option value="מזומן">מזומן</option>
+                              <option value="העברה בנקאית">העברה בנקאית</option>
+                              <option value="גבייה מרוכזת סוף שנה">גבייה מרוכזת סוף שנה</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-4">
+                            <input
+                              type="text"
+                              readOnly
+                              onClick={() => openTextEditor(row.id, 'notes', row.notes)}
+                              value={row.notes}
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                              placeholder="הערות"
+                            />
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                {row.type === 'Expense' && hasFundForRow(row) && (
+                                  <label className="flex items-center gap-2 text-sm cursor-pointer group whitespace-nowrap">
+                                    <input
+                                      type="checkbox"
+                                      checked={row.fromFund}
+                                      onChange={(e) => {
+                                        const fromFund = e.target.checked
+                                        updateRow(row.id, 'fromFund', fromFund)
+                                        if (fromFund) {
+                                          updateRow(row.id, 'supplierId', '')
+                                        }
+                                      }}
+                                      className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-2 focus:ring-blue-500 cursor-pointer flex-shrink-0"
+                                    />
+                                    <span className="text-gray-700 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors font-medium whitespace-nowrap">
+                                      להוריד מקופה
+                                    </span>
+                                  </label>
+                                )}
+                                {row.type === 'Expense' && !hasFundForRow(row) && (
+                                  <span className="text-sm text-gray-400 dark:text-gray-500 whitespace-nowrap">-</span>
+                                )}
+                                {row.type === 'Income' && (
+                                  <span className="text-sm text-gray-400 dark:text-gray-500 whitespace-nowrap">-</span>
+                                )}
+                                <label className="cursor-pointer">
+                                  <input
+                                    type="file"
+                                    multiple
+                                    onChange={(e) => handleFileUpload(row.id, e.target.files)}
+                                    className="hidden"
+                                    id={`file-upload-${row.id}`}
+                                  />
+                                  <motion.button
+                                    type="button"
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => document.getElementById(`file-upload-${row.id}`)?.click()}
+                                    className="p-1.5 text-blue-500 hover:text-white hover:bg-blue-500 rounded-lg transition-all flex-shrink-0"
+                                    title="הוסף מסמכים"
+                                  >
+                                    <Upload className="w-4 h-4" />
+                                  </motion.button>
+                                </label>
+                                {row.files.length > 0 && (
+                                  <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                    {row.files.length}
+                                  </span>
+                                )}
+                                {rows.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeRow(row.id)}
+                                    className="p-1.5 text-red-500 hover:text-white hover:bg-red-500 rounded-lg transition-all flex-shrink-0"
+                                    title="מחק שורה"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                              {row.files.length > 0 && (
+                                <div className="space-y-1">
+                                  {row.files.map((file, index) => (
+                                    <div key={index} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                                      <File className="w-3 h-3 flex-shrink-0" />
+                                      <span className="truncate flex-1">{file.name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeFile(row.id, index)}
+                                        className="text-red-500 hover:text-red-700 flex-shrink-0"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {/* רווח בין עסקאות */}
+                        {index < rows.length - 1 && (
+                          <tr>
+                            <td colSpan={6} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     )
                   })}
                 </tbody>

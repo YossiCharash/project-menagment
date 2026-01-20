@@ -23,7 +23,7 @@ import {
   normalizeCategoryForFilter,
   calculateMonthlyIncomeAccrual
 } from '../utils/calculations'
-import { formatDate } from '../lib/utils'
+import { formatDate, parseLocalDate } from '../lib/utils'
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   STANDING_ORDER: 'הוראת קבע',
@@ -71,7 +71,7 @@ interface SplitTransaction extends Transaction {
 const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
   if (!tx.period_start_date || !tx.period_end_date) {
     // Not a period transaction, return as-is
-    const txDate = new Date(tx.tx_date)
+    const txDate = parseLocalDate(tx.tx_date) || new Date()
     const monthKey = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`
     return [{
       ...tx,
@@ -84,16 +84,16 @@ const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
   }
 
   // Normalize dates to work with date-only (no time component)
-  const startDate = new Date(tx.period_start_date)
+  const startDate = parseLocalDate(tx.period_start_date) || new Date()
   startDate.setHours(0, 0, 0, 0)
-  const endDate = new Date(tx.period_end_date)
+  const endDate = parseLocalDate(tx.period_end_date) || new Date()
   endDate.setHours(23, 59, 59, 999) // Set to end of day to include the full last day
   
   const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
   
   if (totalDays <= 0) {
     // Invalid period, return as-is
-    const txDate = new Date(tx.tx_date)
+    const txDate = parseLocalDate(tx.tx_date) || new Date()
     const monthKey = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`
     return [{
       ...tx,
@@ -109,14 +109,17 @@ const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
   const splits: SplitTransaction[] = []
   
   // Iterate through each month in the period
-  const current = new Date(startDate)
-  current.setDate(1) // Start of month
+  // Start from the first day of the start date's month
+  const startYear = startDate.getFullYear()
+  const startMonth = startDate.getMonth()
+  const current = new Date(startYear, startMonth, 1)
+  current.setHours(0, 0, 0, 0)
   
   // Create a date for the end of the period month to compare
-  const periodEndMonth = new Date(endDate)
-  periodEndMonth.setDate(1)
-  periodEndMonth.setMonth(periodEndMonth.getMonth() + 1)
-  periodEndMonth.setDate(0) // Last day of end date's month
+  const endYear = endDate.getFullYear()
+  const endMonth = endDate.getMonth()
+  const periodEndMonth = new Date(endYear, endMonth + 1, 0) // Last day of end date's month
+  periodEndMonth.setHours(23, 59, 59, 999)
   
   while (current <= periodEndMonth) {
     const year = current.getFullYear()
@@ -129,11 +132,28 @@ const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
     const monthEnd = new Date(year, month + 1, 0) // Last day of month
     monthEnd.setHours(23, 59, 59, 999) // Set to end of day
     
-    const overlapStart = new Date(Math.max(startDate.getTime(), monthStart.getTime()))
-    const overlapEnd = new Date(Math.min(endDate.getTime(), monthEnd.getTime()))
+    // Calculate overlap between transaction period and this month
+    // Use getTime() for accurate comparison
+    const overlapStartTime = Math.max(startDate.getTime(), monthStart.getTime())
+    const overlapEndTime = Math.min(endDate.getTime(), monthEnd.getTime())
     
-    if (overlapStart <= overlapEnd) {
-      const daysInMonth = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    // Check if there's any overlap at all (even if it's just one day)
+    if (overlapStartTime <= overlapEndTime) {
+      // Calculate days including both start and end dates
+      // The difference in milliseconds divided by milliseconds per day, plus 1 to include both days
+      let daysInMonth = Math.floor((overlapEndTime - overlapStartTime) / (1000 * 60 * 60 * 24)) + 1
+      
+      // Ensure we have at least 1 day if there's any overlap
+      // This handles edge cases where the period starts and ends on the same day of the month
+      if (daysInMonth <= 0) {
+        daysInMonth = 1
+      }
+      
+      // Additional check: if startDate is exactly on the first day of the month, ensure we count it
+      if (startDate.getTime() === monthStart.getTime() && daysInMonth === 0) {
+        daysInMonth = 1
+      }
+      
       const proportionalAmount = dailyRate * daysInMonth
       
       splits.push({
@@ -146,8 +166,16 @@ const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
       })
     }
     
-    // Move to next month
-    current.setMonth(month + 1)
+    // Move to next month - use setMonth to handle year overflow correctly
+    if (month === 11) {
+      // December -> January of next year
+      current.setFullYear(year + 1)
+      current.setMonth(0)
+    } else {
+      current.setMonth(month + 1)
+    }
+    current.setDate(1)
+    current.setHours(0, 0, 0, 0)
   }
   
   // Normalize to ensure sum equals original amount (fix rounding errors)
@@ -1140,7 +1168,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
       return false
     }
     
-    const txDate = new Date(t.tx_date)
+    const txDate = parseLocalDate(t.tx_date) || new Date()
     
     // Project date filtering removed to allow viewing all transactions
     // The user can filter by date using the date filter controls
@@ -1148,8 +1176,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
     // First filter by current contract period (if project has start_date and end_date)
     let inCurrentContractPeriod = true
     if (projectStartDate && projectEndDate) {
-      const contractStart = new Date(projectStartDate)
-      const contractEnd = new Date(projectEndDate)
+      const contractStart = parseLocalDate(projectStartDate) || new Date(0)
+      const contractEnd = parseLocalDate(projectEndDate) || new Date()
       inCurrentContractPeriod = txDate >= contractStart && txDate <= contractEnd
     }
     
@@ -1163,8 +1191,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
 
     // For period transactions, check if the period overlaps with the filter range
     if (t.period_start_date && t.period_end_date) {
-      const periodStart = new Date(t.period_start_date)
-      const periodEnd = new Date(t.period_end_date)
+      const periodStart = parseLocalDate(t.period_start_date) || new Date()
+      const periodEnd = parseLocalDate(t.period_end_date) || new Date()
       
       if (dateFilterMode === 'current_month') {
         // Check if period overlaps with current month
@@ -1180,8 +1208,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
       } else if (dateFilterMode === 'date_range') {
         // Check if period overlaps with date range
         if (startDate && endDate) {
-          const rangeStart = new Date(startDate)
-          const rangeEnd = new Date(endDate)
+          const rangeStart = parseLocalDate(startDate) || new Date(0)
+          const rangeEnd = parseLocalDate(endDate) || new Date()
           rangeEnd.setHours(23, 59, 59, 999)
           dateMatches = periodStart <= rangeEnd && periodEnd >= rangeStart
         } else {
@@ -1210,7 +1238,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
         if (startDate && endDate) {
           // Use string comparison to avoid timezone issues with Date objects
           // tx_date is YYYY-MM-DD, startDate/endDate are YYYY-MM-DD
-          const txDateStr = typeof t.tx_date === 'string' ? t.tx_date.split('T')[0] : new Date(t.tx_date).toISOString().split('T')[0]
+          const txDateStr = typeof t.tx_date === 'string' ? t.tx_date.split('T')[0] : (parseLocalDate(t.tx_date as string)?.toISOString().split('T')[0] || '')
           dateMatches = txDateStr >= startDate && txDateStr <= endDate
         } else {
           dateMatches = true // Show all if dates not set
@@ -1428,6 +1456,20 @@ const formatCurrency = (value: number | string | null | undefined) => {
         await loadFundData() // Reload fund data
       }
 
+      // If period summary modal is open, refresh the summary to reflect deleted transaction
+      if (selectedPeriodSummary && selectedPeriodSummary.period_id) {
+        try {
+          const summary = await ProjectAPI.getContractPeriodSummary(
+            parseInt(id!),
+            selectedPeriodSummary.period_id
+          )
+          setSelectedPeriodSummary(summary)
+        } catch (err: any) {
+          // Silently fail - summary will be refreshed when user reopens modal
+          console.error('Failed to refresh period summary:', err)
+        }
+      }
+
       // Close modal and reset state
       setShowDeleteTransactionModal(false)
       setTransactionToDelete(null)
@@ -1456,8 +1498,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
         calculationStartDate = new Date(year, month - 1, 1)
         calculationEndDate = new Date(year, month, 0, 23, 59, 59, 999)
     } else if (globalDateFilterMode === 'date_range') {
-         calculationStartDate = globalStartDate ? new Date(globalStartDate) : new Date(0)
-         const customEnd = globalEndDate ? new Date(globalEndDate) : new Date()
+         calculationStartDate = globalStartDate ? (parseLocalDate(globalStartDate) || new Date(0)) : new Date(0)
+         const customEnd = globalEndDate ? (parseLocalDate(globalEndDate) || new Date()) : new Date()
          customEnd.setHours(23, 59, 59, 999)
          calculationEndDate = customEnd
     } else if (globalDateFilterMode === 'all_time') {
@@ -1467,7 +1509,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
     } else {
         // 'project' / default behavior
         if (projectStartDate) {
-          calculationStartDate = new Date(projectStartDate)
+          calculationStartDate = parseLocalDate(projectStartDate) || new Date(0)
         } else {
           // Fallback: use 1 year ago if no project start date
           const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
@@ -1505,14 +1547,14 @@ const formatCurrency = (value: number | string | null | undefined) => {
       
       // For period transactions, check if period overlaps with calculation range
       if (t.period_start_date && t.period_end_date) {
-        const periodStart = new Date(t.period_start_date)
-        const periodEnd = new Date(t.period_end_date)
+        const periodStart = parseLocalDate(t.period_start_date) || new Date()
+        const periodEnd = parseLocalDate(t.period_end_date) || new Date()
         // Check if periods overlap: (StartA <= EndB) and (EndA >= StartB)
         const overlaps = periodStart <= calculationEndDate && periodEnd >= calculationStartDate
         return overlaps
       } else {
         // Regular transaction - check if tx_date is in range
-        const txDate = new Date(t.tx_date)
+        const txDate = parseLocalDate(t.tx_date) || new Date()
         const isInDateRange = txDate >= calculationStartDate && txDate <= calculationEndDate
         return isInDateRange
       }
@@ -1537,8 +1579,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
     const transactionIncome = incomeTransactions.reduce((s, t) => {
       if (t.period_start_date && t.period_end_date) {
         // Period transaction - calculate proportional amount
-        const periodStart = new Date(t.period_start_date)
-        const periodEnd = new Date(t.period_end_date)
+        const periodStart = parseLocalDate(t.period_start_date) || new Date()
+        const periodEnd = parseLocalDate(t.period_end_date) || new Date()
         const totalDays = Math.floor((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
         
         if (totalDays > 0) {
@@ -1562,8 +1604,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
     const transactionExpense = expenseTransactions.reduce((s, t) => {
       if (t.period_start_date && t.period_end_date) {
         // Period transaction - calculate proportional amount
-        const periodStart = new Date(t.period_start_date)
-        const periodEnd = new Date(t.period_end_date)
+        const periodStart = parseLocalDate(t.period_start_date) || new Date()
+        const periodEnd = parseLocalDate(t.period_end_date) || new Date()
         const totalDays = Math.floor((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
         
         if (totalDays > 0) {
@@ -1933,10 +1975,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
             <span>מציג נתונים מחודש {new Date(globalSelectedMonth + '-01').toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
           )}
           {globalDateFilterMode === 'date_range' && globalStartDate && globalEndDate && (
-            <span>מציג נתונים מ-{new Date(globalStartDate).toLocaleDateString('he-IL')} עד {new Date(globalEndDate).toLocaleDateString('he-IL')}</span>
+            <span>מציג נתונים מ-{parseLocalDate(globalStartDate)?.toLocaleDateString('he-IL')} עד {parseLocalDate(globalEndDate)?.toLocaleDateString('he-IL')}</span>
           )}
           {globalDateFilterMode === 'project' && (
-            <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${new Date(projectStartDate).toLocaleDateString('he-IL')})` : ''}</span>
+            <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${parseLocalDate(projectStartDate)?.toLocaleDateString('he-IL')})` : ''}</span>
           )}
           {globalDateFilterMode === 'all_time' && (
             <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
@@ -4849,8 +4891,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
           let projectStartMonthDate: Date | null = null
           if (projectStartDate) {
             try {
-              const projectDate = new Date(projectStartDate)
-              projectStartMonthDate = new Date(projectDate.getFullYear(), projectDate.getMonth(), 1) // Start of month
+              const projectDate = parseLocalDate(projectStartDate)
+              if (projectDate) {
+                projectStartMonthDate = new Date(projectDate.getFullYear(), projectDate.getMonth(), 1) // Start of month
+              }
             } catch (e) {
               // Invalid date, ignore
             }
@@ -4910,6 +4954,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
           // Filter out fund transactions
           const regularSplits = allSplits.filter(s => !s.from_fund)
           
+          // DEBUG: Log months and splits
+          console.log('📊 Table months:', months.map(m => ({ monthKey: m.monthKey, label: m.label })))
+          console.log('📊 All splits:', regularSplits.map(s => ({ monthKey: s.monthKey, amount: s.proportionalAmount, type: s.type, category: s.category })))
+          console.log('📊 First month key:', months[0]?.monthKey)
+          console.log('📊 Splits for first month:', regularSplits.filter(s => s.monthKey === months[0]?.monthKey))
+          
           // Group by month, category, and supplier
           const monthlyData: Record<string, {
             income: number
@@ -4929,6 +4979,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
           // Process transactions
           regularSplits.forEach(split => {
             const monthKey = split.monthKey
+            console.log('📊 Processing split:', { monthKey, inMonthlyData: !!monthlyData[monthKey], type: split.type, amount: split.proportionalAmount })
             if (monthlyData[monthKey]) {
               if (split.type === 'Income') {
                 monthlyData[monthKey].income += split.proportionalAmount
@@ -5016,10 +5067,13 @@ const formatCurrency = (value: number | string | null | undefined) => {
           
           // Calculate monthly income - combine actual transactions with monthly budget
           // For months that have been reached, add the monthly budget amount
-          const monthlyIncome = months.map(m => {
+          // Always include the first month (monthIndex === 0) even if it hasn't been reached yet
+          const monthlyIncome = months.map((m, monthIndex) => {
             const transactionIncome = monthlyData[m.monthKey].income
+            const hasReached = hasReachedMonth(m.year, m.month)
             // Add monthly budget if we've reached this month and there's a budget
-            if (hasReachedMonth(m.year, m.month) && monthlyBudgetAmount > 0) {
+            // Always include budget for the first month if there's a budget
+            if ((monthIndex === 0 || hasReached) && monthlyBudgetAmount > 0) {
               return transactionIncome + monthlyBudgetAmount
             }
             return transactionIncome
@@ -5032,13 +5086,13 @@ const formatCurrency = (value: number | string | null | undefined) => {
           // Include future months if they have transactions
           let runningTotal = 0
           const runningTotals: number[] = []
-          months.forEach(m => {
+          months.forEach((m, monthIndex) => {
             const monthData = monthlyData[m.monthKey]
-            const monthIndex = months.indexOf(m)
             const hasReached = hasReachedMonth(m.year, m.month)
             const hasTransactions = hasMonthTransactions(m.monthKey)
             // Accumulate if we've reached this month OR if there are transactions for this month
-            if (hasReached || hasTransactions) {
+            // Always include the first month (monthIndex === 0) even if it hasn't been reached yet
+            if (monthIndex === 0 || hasReached || hasTransactions) {
               const monthBalance = monthlyIncome[monthIndex] - monthData.totalExpenses
               runningTotal += monthBalance
             }
@@ -5077,7 +5131,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
                         const hasReached = hasReachedMonth(m.year, m.month)
                         const hasTransactions = hasMonthTransactions(m.monthKey)
                         // Show if month has been reached OR if there are transactions for this month
-                        const shouldShow = hasReached || hasTransactions
+                        // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
+                        const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                         const amount = monthlyData[m.monthKey].expenses[item.category]?.[item.supplier] || 0
                         return (
                           <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white">
@@ -5104,14 +5159,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה החודשית
                     </td>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
-                      {/* Empty cell for supplier column */}
-                    </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
                       const hasTransactions = hasMonthTransactions(m.monthKey)
                       // Show if month has been reached OR if there are transactions for this month
-                      const shouldShow = hasReached || hasTransactions
+                      // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
+                      const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                       return (
                         <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-pink-200 dark:bg-pink-900 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white">
                           {shouldShow ? formatCurrency(monthlyIncome[monthIdx]) : ''}
@@ -5125,14 +5178,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       הוצאות
                     </td>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
-                      {/* Empty cell for supplier column */}
-                    </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
                       const hasTransactions = hasMonthTransactions(m.monthKey)
                       // Show if month has been reached OR if there are transactions for this month
-                      const shouldShow = hasReached || hasTransactions
+                      // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
+                      const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                       return (
                         <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-yellow-200 dark:bg-yellow-900 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white">
                           {shouldShow ? formatCurrency(monthlyTotals[monthIdx]) : ''}
@@ -5146,14 +5197,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       עודף
                     </td>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
-                      {/* Empty cell for supplier column */}
-                    </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
                       const hasTransactions = hasMonthTransactions(m.monthKey)
                       // Show if month has been reached OR if there are transactions for this month
-                      const shouldShow = hasReached || hasTransactions
+                      // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
+                      const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                       const balance = monthlyIncome[monthIdx] - monthlyTotals[monthIdx]
                       return (
                         <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-blue-200 dark:bg-blue-900 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white">
@@ -5168,14 +5217,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     <td colSpan={2} className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10">
                       סה"כ בקופה השנתית
                     </td>
-                    <td className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-[120px] z-10">
-                      {/* Empty cell for supplier column */}
-                    </td>
                     {months.map((m, monthIdx) => {
                       const hasReached = hasReachedMonth(m.year, m.month)
                       const hasTransactions = hasMonthTransactions(m.monthKey)
                       // Show if month has been reached OR if there are transactions for this month
-                      const shouldShow = hasReached || hasTransactions
+                      // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
+                      const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                       return (
                         <td key={monthIdx} className="border border-gray-300 dark:border-gray-600 bg-green-200 dark:bg-green-900 px-1 py-1 text-center font-semibold text-gray-900 dark:text-white">
                           {shouldShow ? formatCurrency(runningTotals[monthIdx]) : ''}

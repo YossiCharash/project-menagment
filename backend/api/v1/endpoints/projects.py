@@ -567,10 +567,28 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
     if has_fund:
         fund_service = FundService(db)
         monthly_amount = monthly_fund_amount if monthly_fund_amount is not None and monthly_fund_amount > 0 else 0
+        
+        # Calculate initial balance based on project start_date if it's in the past
+        initial_balance = 0.0
+        last_monthly_addition = None
+        if monthly_amount > 0 and project.start_date:
+            today = date.today()
+            if project.start_date <= today:
+                # Calculate accumulated amount from contract start date to today
+                initial_balance = calculate_monthly_income_amount(
+                    monthly_amount,
+                    project.start_date,
+                    today
+                )
+                # Set last_monthly_addition to today to indicate all months up to today are accounted for
+                if initial_balance > 0:
+                    last_monthly_addition = today
+        
         await fund_service.create_fund(
             project_id=project.id,
             monthly_amount=monthly_amount,
-            initial_balance=0
+            initial_balance=initial_balance,
+            last_monthly_addition=last_monthly_addition
         )
     
     # Create recurring transactions if provided
@@ -738,10 +756,27 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                 await fund_service.update_fund(existing_fund, monthly_amount=monthly_amount)
             else:
                 # Create new fund (repository already commits)
+                # Calculate initial balance based on project start_date if it's in the past
+                initial_balance = 0.0
+                last_monthly_addition = None
+                if monthly_amount > 0 and updated_project.start_date:
+                    today = date.today()
+                    if updated_project.start_date <= today:
+                        # Calculate accumulated amount from contract start date to today
+                        initial_balance = calculate_monthly_income_amount(
+                            monthly_amount,
+                            updated_project.start_date,
+                            today
+                        )
+                        # Set last_monthly_addition to today to indicate all months up to today are accounted for
+                        if initial_balance > 0:
+                            last_monthly_addition = today
+                
                 await fund_service.create_fund(
                     project_id=project_id,
                     monthly_amount=monthly_amount,
-                    initial_balance=0
+                    initial_balance=initial_balance,
+                    last_monthly_addition=last_monthly_addition
                 )
         elif not has_fund and existing_fund:
             # Delete fund if has_fund is False (repository already commits)
@@ -1442,11 +1477,28 @@ async def create_project_fund(
     if existing_fund:
         raise HTTPException(status_code=400, detail="Fund already exists for this project")
     
+    # Calculate initial balance based on project start_date if it's in the past
+    initial_balance = 0.0
+    last_monthly_addition = None
+    if monthly_amount > 0 and project.start_date:
+        today = date.today()
+        if project.start_date <= today:
+            # Calculate accumulated amount from contract start date to today
+            initial_balance = calculate_monthly_income_amount(
+                monthly_amount,
+                project.start_date,
+                today
+            )
+            # Set last_monthly_addition to today to indicate all months up to today are accounted for
+            if initial_balance > 0:
+                last_monthly_addition = today
+    
     # Create fund
     fund = await fund_service.create_fund(
         project_id=project_id,
         monthly_amount=monthly_amount,
-        initial_balance=0
+        initial_balance=initial_balance,
+        last_monthly_addition=last_monthly_addition
     )
     
     return {

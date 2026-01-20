@@ -10,13 +10,13 @@ class FundService:
         self.db = db
         self.funds = FundRepository(db)
 
-    async def create_fund(self, project_id: int, monthly_amount: float = 0, initial_balance: float = 0) -> Fund:
+    async def create_fund(self, project_id: int, monthly_amount: float = 0, initial_balance: float = 0, last_monthly_addition: date | None = None) -> Fund:
         """Create a new fund for a project"""
         fund = Fund(
             project_id=project_id,
             current_balance=initial_balance,
             monthly_amount=monthly_amount,
-            last_monthly_addition=None
+            last_monthly_addition=last_monthly_addition
         )
         return await self.funds.create(fund)
 
