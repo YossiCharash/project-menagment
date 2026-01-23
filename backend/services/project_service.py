@@ -429,29 +429,33 @@ class ProjectService:
         if start_date and contract_duration_months:
             from backend.services.contract_period_service import ContractPeriodService
             contract_service = ContractPeriodService(self.db)
+            # Capture ID before expiring to avoid lazy load issues
+            project_id = created_project.id
             # This will create historical periods if start_date is in the past
             await contract_service.generate_initial_periods_by_duration(
-                project_id=created_project.id,
+                project_id=project_id,
                 start_date=start_date,
                 duration_months=contract_duration_months,
                 user_id=user_id
             )
             # CRITICAL: Force expire to ensure next fetch gets fresh data from DB
             self.db.expire(created_project)
-            created_project = await self.projects.get_by_id(created_project.id)
+            created_project = await self.projects.get_by_id(project_id)
         elif start_date and end_date:
             # Legacy support: if end_date is provided (old projects), use old method
             from backend.services.contract_period_service import ContractPeriodService
             contract_service = ContractPeriodService(self.db)
+            # Capture ID before expiring to avoid lazy load issues
+            project_id = created_project.id
             await contract_service.generate_initial_periods(
-                project_id=created_project.id,
+                project_id=project_id,
                 start_date=start_date,
                 end_date=end_date,
                 user_id=user_id
             )
             # CRITICAL: Force expire to ensure next fetch gets fresh data from DB
             self.db.expire(created_project)
-            created_project = await self.projects.get_by_id(created_project.id)
+            created_project = await self.projects.get_by_id(project_id)
             
         return created_project
 

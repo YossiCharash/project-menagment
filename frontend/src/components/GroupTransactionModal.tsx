@@ -493,15 +493,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           from_fund: row.fromFund
         }
 
-        console.log('🔄 [GROUP TX] Creating transaction for row', i + 1, ':', transactionData)
         const transaction = await TransactionAPI.createTransaction(transactionData)
-        console.log('✅ [GROUP TX] Transaction created successfully:', {
-          id: transaction.id,
-          project_id: transaction.project_id,
-          type: transaction.type,
-          amount: transaction.amount,
-          tx_date: transaction.tx_date
-        })
         
         if (!transaction || !transaction.id) {
           console.error('❌ [GROUP TX] Transaction created but no ID returned:', transaction)

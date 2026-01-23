@@ -71,12 +71,8 @@ class ContractPeriodService:
         # Check if the first period starts one day before project.start_date
         # This indicates a timezone issue that needs to be fixed
         if first_period.start_date == project_start_date - timedelta(days=1):
-            print(f"🔧 [FIX PERIOD] Found timezone issue: period {first_period.id} starts {first_period.start_date}, project starts {project_start_date}")
-            
             # If project has contract_duration_months, fix all periods by shifting them forward by 1 day
             if project_contract_duration_months:
-                print(f"🔧 [FIX PERIOD] Project has duration_months={project_contract_duration_months}, fixing all periods by shifting dates forward by 1 day...")
-                
                 # Fix all periods by shifting start_date and end_date forward by 1 day
                 for period in periods:
                     if period.start_date and period.end_date:
@@ -86,7 +82,6 @@ class ContractPeriodService:
                         period.end_date = old_end + timedelta(days=1)
                         period.contract_year = period.start_date.year
                         await self.contract_periods.update(period)
-                        print(f"  ✓ Fixed period {period.id}: {old_start}->{period.start_date}, {old_end}->{period.end_date}")
                 
                 await self.db.commit()
                 
@@ -98,11 +93,8 @@ class ContractPeriodService:
                         project.end_date = first_period.end_date
                     await self.projects.update(project)
                     await self.db.commit()
-                
-                print(f"✓ [FIX PERIOD] Fixed all {len(periods)} periods for project {project_id}")
             else:
                 # Legacy projects: just fix the first period
-                print(f"🔧 [FIX PERIOD] Fixing first period {first_period.id} for project {project_id}: {first_period.start_date} -> {project_start_date}")
                 old_start = first_period.start_date
                 first_period.start_date = project_start_date
                 
@@ -116,7 +108,6 @@ class ContractPeriodService:
                 
                 await self.contract_periods.update(first_period)
                 await self.db.commit()
-                print(f"✓ [FIX PERIOD] Fixed period {first_period.id}: start_date={first_period.start_date}, end_date={first_period.end_date}")
 
     async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
         """Get the current active contract period for a project"""
@@ -223,7 +214,6 @@ class ContractPeriodService:
         # Get project to identify current active dates
         project = await self.projects.get_by_id(project_id)
         if not project:
-            print(f"❌ [GET PREVIOUS CONTRACTS] Project {project_id} not found!")
             return {}
         
         # Fix periods with incorrect dates before checking
@@ -235,18 +225,6 @@ class ContractPeriodService:
         # Get all periods ordered by year and index
         periods = await self.contract_periods.get_by_project(project_id)
         
-        # Debug: Print all periods to see what we have
-        print(f"")
-        print(f"=" * 80)
-        print(f"🔍 [GET PREVIOUS CONTRACTS] Project {project_id}")
-        print(f"   Project dates: start={project.start_date}, end={project.end_date}")
-        print(f"   Duration months: {project.contract_duration_months}")
-        print(f"   Total periods in DB: {len(periods)}")
-        print(f"-" * 80)
-        for p in periods:
-            print(f"   Period ID={p.id}: {p.start_date} to {p.end_date}, contract_year={p.contract_year}, year_index={p.year_index}")
-        print(f"=" * 80)
-            
         active_start = project.start_date
         
         # If no periods exist, create a virtual one based on project dates
@@ -276,17 +254,12 @@ class ContractPeriodService:
             # Sort periods by start_date descending to find the most recent one
             sorted_periods = sorted(periods, key=lambda p: p.start_date, reverse=True)
             current_active_period = sorted_periods[0]
-            print(f"🔍 [GET PREVIOUS CONTRACTS] Current active period: {current_active_period.id} ({current_active_period.start_date} to {current_active_period.end_date})")
-        
-        print(f"   Current active period ID: {current_active_period.id if current_active_period else 'None'}")
-        print(f"-" * 80)
         
         for period in periods:
             # Exclude the current active period (the one with the latest start_date)
             if current_active_period and period.id == current_active_period.id:
                 # This is the current active period - skip it
                 excluded_count += 1
-                print(f"   ⏭️ EXCLUDING period {period.id}: {period.start_date} to {period.end_date} (current active)")
                 continue
             
             # Include all other periods (past periods that ended before current period started)
@@ -294,14 +267,6 @@ class ContractPeriodService:
             period_key = (period.start_date, period.end_date)
             if period_key not in unique_periods or period.id > unique_periods[period_key].id:
                 unique_periods[period_key] = period
-                print(f"   ✓ INCLUDING period {period.id}: {period.start_date} to {period.end_date}")
-            else:
-                print(f"   ⚠️ DUPLICATE period {period.id}: {period.start_date} to {period.end_date} (already have period with same dates)")
-        
-        print(f"-" * 80)
-        print(f"   SUMMARY: {len(periods)} total, {excluded_count} excluded (current), {len(unique_periods)} included (previous)")
-        print(f"=" * 80)
-        print(f"")
         
         # First pass: Group periods by year
         periods_by_year = {}
@@ -621,7 +586,7 @@ class ContractPeriodService:
                 'is_active': budget.is_active
             })
         
-        return {
+        return 
             'period_id': period.id if period else None,
             'project_id': project_id,
             'start_date': start_date.isoformat(),
@@ -657,22 +622,8 @@ class ContractPeriodService:
         # If not, we need to generate all historical periods retroactively
         existing_periods = await self.contract_periods.get_by_project(project_id)
         
-        print(f"")
-        print(f"=" * 80)
-        print(f"🔄 [CHECK AND RENEW] Project {project_id}")
-        print(f"   Existing periods count: {len(existing_periods)}")
-        print(f"   Project start_date: {project.start_date}")
-        print(f"   Project end_date: {project.end_date}")
-        print(f"   Contract duration months: {project.contract_duration_months}")
-        if existing_periods:
-            for p in existing_periods:
-                print(f"   - Period {p.id}: {p.start_date} to {p.end_date}")
-        print(f"=" * 80)
-        
         if not existing_periods and project.start_date:
             # Legacy project with no periods - generate them retroactively
-            print(f"🔧 [CONTRACT RENEWAL] Project {project_id} has no periods. Generating historical periods retroactively...")
-            
             if project.contract_duration_months:
                 # Use duration-based generation
                 await self.generate_initial_periods_by_duration(
@@ -692,7 +643,6 @@ class ContractPeriodService:
             
             # Refresh project after generating periods
             await self.db.refresh(project)
-            print(f"✓ [CONTRACT RENEWAL] Generated historical periods for project {project_id}")
             
             # Return the most recent period created
             new_periods = await self.contract_periods.get_by_project(project_id)
@@ -707,8 +657,6 @@ class ContractPeriodService:
             earliest_period = min(existing_periods, key=lambda p: p.start_date)
             earliest_start = earliest_period.start_date
             
-            print(f"   Earliest period starts at: {earliest_start}")
-            
             # Calculate how many periods SHOULD exist based on duration
             # from the earliest period start date to today
             today = date.today()
@@ -719,13 +667,11 @@ class ContractPeriodService:
                 check_date = check_date + relativedelta(months=project.contract_duration_months)
             
             actual_period_count = len(existing_periods)
-            print(f"   Expected periods (from {earliest_start} to today): {expected_period_count}")
-            print(f"   Actual periods: {actual_period_count}")
             
             # If we have fewer periods than expected, there's a gap
             # This could happen if periods were generated incorrectly
             if actual_period_count < expected_period_count:
-                print(f"⚠️ [CONTRACT RENEWAL] Missing {expected_period_count - actual_period_count} periods! Will try to fill gaps...")
+                pass  # Will try to fill gaps
             
             # NEW: Check for transactions before the earliest period
             # If transactions exist before the earliest period, we need to generate historical periods
@@ -739,21 +685,14 @@ class ContractPeriodService:
             earliest_tx_date = earliest_tx_result.scalar_one_or_none()
             
             if earliest_tx_date:
-                print(f"   Earliest transaction date: {earliest_tx_date}")
-                
                 # If the earliest transaction is BEFORE the earliest period, we need to generate more periods
                 if earliest_tx_date < earliest_start:
-                    print(f"🔧 [CONTRACT RENEWAL] Found transactions before earliest period! Generating missing historical periods...")
-                    print(f"   Earliest tx: {earliest_tx_date}, Earliest period: {earliest_start}")
-                    
                     # Calculate what the original start date should have been
                     # Round down to the nearest duration boundary before earliest_tx_date
                     original_start = earliest_tx_date
                     
                     # Adjust to the first day of the month for cleaner periods
                     original_start = date(original_start.year, original_start.month, 1)
-                    
-                    print(f"   Generating periods from {original_start} (adjusted from tx date {earliest_tx_date})")
                     
                     # Generate periods from original start to earliest existing period
                     await self._fill_historical_periods(
@@ -766,7 +705,6 @@ class ContractPeriodService:
                     
                     # Refresh existing periods
                     existing_periods = await self.contract_periods.get_by_project(project_id)
-                    print(f"✓ [CONTRACT RENEWAL] Now have {len(existing_periods)} periods")
         
         # If project uses duration_months, use duration-based renewal
         if project.contract_duration_months and project.start_date:
@@ -792,7 +730,6 @@ class ContractPeriodService:
             
             # Prevent infinite loops if end_date doesn't advance
             if last_processed_end_date and project.end_date <= last_processed_end_date:
-                print(f"⚠️ [CONTRACT RENEWAL] Stuck at {project.end_date} for project {project_id}. Advancing manually.")
                 project.end_date = project.end_date + relativedelta(years=1)
                 await self.projects.update(project)
                 continue
@@ -816,7 +753,7 @@ class ContractPeriodService:
                         project.end_date = p.end_date
                         break
                     else:
-                        print(f"⚠️ [CONTRACT RENEWAL] Found broken period record (ID={p.id}) for project {project_id} where end_date <= start_date. Skipping.")
+                        pass  # Found broken period record where end_date <= start_date. Skipping.
             
             if is_duplicate:
                 # Refresh project and continue loop to see if we're still behind today
@@ -839,11 +776,10 @@ class ContractPeriodService:
                 
                 # Double check progress - if close_year_manually didn't advance project.end_date, we must do it
                 if project.end_date <= last_processed_end_date:
-                    print(f"⚠️ [CONTRACT RENEWAL] close_year_manually didn't advance end_date for project {project_id}. Advancing manually.")
                     project.end_date = project.end_date + relativedelta(years=1)
                     await self.projects.update(project)
             except Exception as e:
-                print(f"❌ [CONTRACT RENEWAL] Error auto-renewing contract for project {project_id}: {e}")
+                pass  # Error auto-renewing contract
                 # If we're stuck and can't close year, try to at least advance the project dates to prevent being stuck forever
                 try:
                     project.end_date = project.end_date + relativedelta(years=1)
@@ -883,7 +819,6 @@ class ContractPeriodService:
             
             # Prevent infinite loops if start_date doesn't advance
             if last_processed_start_date and current_start <= last_processed_start_date:
-                print(f"⚠️ [CONTRACT RENEWAL BY DURATION] Stuck at {current_start} for project {project_id}. Advancing manually.")
                 current_start = current_start + relativedelta(months=duration_months)
                 continue
                 
@@ -903,7 +838,7 @@ class ContractPeriodService:
                         project.end_date = p.end_date
                         break
                     else:
-                        print(f"⚠️ [CONTRACT RENEWAL BY DURATION] Found broken period record (ID={p.id}) for project {project_id} where end_date <= start_date. Skipping.")
+                        pass  # Found broken period record where end_date <= start_date. Skipping.
             
             if is_duplicate:
                 # Refresh project and continue loop to see if we're still behind today
@@ -936,7 +871,7 @@ class ContractPeriodService:
                 current_start = new_period.end_date
                 
             except Exception as e:
-                print(f"❌ [CONTRACT RENEWAL BY DURATION] Error auto-renewing contract for project {project_id}: {e}")
+                pass  # Error auto-renewing contract
                 # If we're stuck and can't close year, try to at least advance the project dates
                 try:
                     current_start = current_start + relativedelta(months=duration_months)
@@ -1020,7 +955,6 @@ class ContractPeriodService:
             # Check if a period with these dates already exists
             existing = await self.contract_periods.get_by_exact_dates(project_id, current_start, current_end)
             if existing:
-                print(f"   Skipping existing period: {current_start} to {current_end}")
                 current_start = current_end
                 continue
             
@@ -1038,7 +972,6 @@ class ContractPeriodService:
             )
             period = await self.contract_periods.create(period)
             periods_created += 1
-            print(f"   Created historical period {period.id}: {current_start} to {current_end}")
             
             # Archive this historical period since it's in the past
             from backend.models.archived_contract import ArchivedContract
@@ -1061,7 +994,6 @@ class ContractPeriodService:
             
             current_start = current_end
         
-        print(f"   Created {periods_created} historical periods")
         return periods_created
 
     async def generate_initial_periods_by_duration(
@@ -1144,9 +1076,6 @@ class ContractPeriodService:
                 from_period_id=previous_period_id,
                 to_period=period,
             )
-            if copied_count == 0 and current_end > today:
-                # Only warn for current period (not past periods)
-                print(f"⚠️ [GENERATE PERIODS BY DURATION] No budgets copied to current period {period.id} for project {project_id} (from_period_id={previous_period_id})")
             
             # A period is in the past if its end_date (exclusive) is <= today
             if current_end <= today:
@@ -1254,9 +1183,6 @@ class ContractPeriodService:
                 from_period_id=previous_period_id,
                 to_period=period,
             )
-            if copied_count == 0 and current_end > today:
-                # Only warn for current period (not past periods)
-                print(f"⚠️ [GENERATE PERIODS] No budgets copied to current period {period.id} for project {project_id} (from_period_id={previous_period_id})")
             
             # A period is in the past if its end_date (exclusive) is <= today
             if current_end <= today:
@@ -1490,8 +1416,6 @@ class ContractPeriodService:
             from_period_id=current_period.id if current_period else None,
             to_period=new_period,
         )
-        if copied_count == 0:
-            print(f"⚠️ [CLOSE YEAR] No budgets copied to new period {new_period.id} for project {project_id} (from_period_id={current_period.id if current_period else None})")
 
         # Update project dates to reflect new period (this makes the new period the "current" one)
         # The old period will automatically be excluded from "previous periods" because its

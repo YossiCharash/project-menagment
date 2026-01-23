@@ -67,32 +67,36 @@ async def list_projects(db: DBSessionDep, include_archived: bool = Query(False),
         if first_start is None and project.start_date:
             s = project.start_date
             first_start = s.date() if hasattr(s, 'date') else s
-        project_dict = {
+        
+        # Create ProjectOut instance using model_validate to ensure proper validation
+        # Keep dates as date objects (not strings) - Pydantic will serialize them
+        project_data = {
             "id": project.id,
             "name": project.name,
             "description": project.description,
-            "start_date": project.start_date.isoformat() if project.start_date else None,
-            "end_date": project.end_date.isoformat() if project.end_date else None,
+            "start_date": project.start_date,
+            "end_date": project.end_date,
             "contract_duration_months": project.contract_duration_months,
-            "budget_monthly": project.budget_monthly,
-            "budget_annual": project.budget_annual,
+            "budget_monthly": float(project.budget_monthly) if project.budget_monthly else 0.0,
+            "budget_annual": float(project.budget_annual) if project.budget_annual else 0.0,
             "manager_id": project.manager_id,
             "relation_project": project.relation_project,
             "is_parent_project": project.is_parent_project,
             "num_residents": project.num_residents,
-            "monthly_price_per_apartment": project.monthly_price_per_apartment,
+            "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
             "address": project.address,
             "city": project.city,
             "image_url": project.image_url,
             "contract_file_url": project.contract_file_url,
             "is_active": project.is_active,
             "created_at": project.created_at,
-            "total_value": getattr(project, 'total_value', 0.0),
+            "total_value": float(getattr(project, 'total_value', 0.0)),
             "has_fund": fund is not None,
             "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
             "first_contract_start_date": first_start.isoformat() if first_start else None,
         }
-        result.append(project_dict)
+        project_out = ProjectOut.model_validate(project_data)
+        result.append(project_out)
     
     return result
 
@@ -114,32 +118,36 @@ async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Quer
         if first_start is None and project.start_date:
             s = project.start_date
             first_start = s.date() if hasattr(s, 'date') else s
-        project_dict = {
+        
+        # Create ProjectOut instance using model_validate to ensure proper validation
+        # Keep dates as date objects (not strings) - Pydantic will serialize them
+        project_data = {
             "id": project.id,
             "name": project.name,
             "description": project.description,
-            "start_date": project.start_date.isoformat() if project.start_date else None,
-            "end_date": project.end_date.isoformat() if project.end_date else None,
+            "start_date": project.start_date,
+            "end_date": project.end_date,
             "contract_duration_months": project.contract_duration_months,
-            "budget_monthly": project.budget_monthly,
-            "budget_annual": project.budget_annual,
+            "budget_monthly": float(project.budget_monthly) if project.budget_monthly else 0.0,
+            "budget_annual": float(project.budget_annual) if project.budget_annual else 0.0,
             "manager_id": project.manager_id,
             "relation_project": project.relation_project,
             "is_parent_project": project.is_parent_project,
             "num_residents": project.num_residents,
-            "monthly_price_per_apartment": project.monthly_price_per_apartment,
+            "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
             "address": project.address,
             "city": project.city,
             "image_url": project.image_url,
             "contract_file_url": project.contract_file_url,
             "is_active": project.is_active,
             "created_at": project.created_at,
-            "total_value": getattr(project, 'total_value', 0.0),
+            "total_value": float(getattr(project, 'total_value', 0.0)),
             "has_fund": fund is not None,
             "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
             "first_contract_start_date": first_start.isoformat() if first_start else None,
         }
-        result.append(project_dict)
+        project_out = ProjectOut.model_validate(project_data)
+        result.append(project_out)
     
     return result
 
@@ -296,37 +304,44 @@ async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_curr
     
     # Add fund information to project response
     from backend.services.fund_service import FundService
+    from backend.repositories.contract_period_repository import ContractPeriodRepository
     fund_service = FundService(db)
     fund = await fund_service.get_fund_by_project(project_id)
+    period_repo = ContractPeriodRepository(db)
+    first_start = await period_repo.get_earliest_start_date(project_id)
+    if first_start is None and project.start_date:
+        s = project.start_date
+        first_start = s.date() if hasattr(s, 'date') else s
 
     
-    # Convert to dict to modify
-    # Explicitly convert dates to ISO format strings to avoid timezone issues
-    project_dict = {
+    # Create ProjectOut instance using model_validate to ensure proper validation
+    # Keep dates as date objects (not strings) - Pydantic will serialize them
+    project_data = {
         "id": project.id,
         "name": project.name,
         "description": project.description,
-        "start_date": project.start_date.isoformat() if project.start_date else None,
-        "end_date": project.end_date.isoformat() if project.end_date else None,
+        "start_date": project.start_date,
+        "end_date": project.end_date,
         "contract_duration_months": project.contract_duration_months,
-        "budget_monthly": project.budget_monthly,
-        "budget_annual": project.budget_annual,
+        "budget_monthly": float(project.budget_monthly) if project.budget_monthly else 0.0,
+        "budget_annual": float(project.budget_annual) if project.budget_annual else 0.0,
         "manager_id": project.manager_id,
         "relation_project": project.relation_project,
-        "is_parent_project": project.is_parent_project,  # Add is_parent_project field
+        "is_parent_project": project.is_parent_project,
         "num_residents": project.num_residents,
-        "monthly_price_per_apartment": project.monthly_price_per_apartment,
+        "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
         "address": project.address,
         "city": project.city,
         "image_url": project.image_url,
         "contract_file_url": project.contract_file_url,
         "is_active": project.is_active,
         "created_at": project.created_at,
-        "total_value": getattr(project, 'total_value', 0.0),  # Use getattr with default value
+        "total_value": float(getattr(project, 'total_value', 0.0)),
         "has_fund": fund is not None,
-        "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+        "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
+        "first_contract_start_date": first_start.isoformat() if first_start else None,
     }
-    return project_dict
+    return ProjectOut.model_validate(project_data)
 
 @router.get("/{project_id}/full")
 async def get_project_full(
