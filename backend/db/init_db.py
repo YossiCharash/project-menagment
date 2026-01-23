@@ -45,6 +45,12 @@ async def init_database(engine: AsyncEngine):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         
+        # Run migration to add contract_period_id to budgets table if it doesn't exist
+        await _add_contract_period_id_to_budgets(engine)
+        
+        # Run migration to add contract_duration_months to projects table if it doesn't exist
+        await _add_contract_duration_months_to_projects(engine)
+        
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
     except OSError as e:
@@ -80,3 +86,87 @@ async def init_database(engine: AsyncEngine):
         # The migration will be retried on next startup
         import traceback
         traceback.print_exc()
+
+
+async def _add_contract_period_id_to_budgets(engine: AsyncEngine):
+    """Add contract_period_id column to budgets table if it doesn't exist"""
+    try:
+        async with engine.begin() as conn:
+            # Check if column already exists
+            check_query = text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'budgets' AND column_name = 'contract_period_id'
+            """)
+            result = await conn.execute(check_query)
+            exists = result.scalar_one_or_none() is not None
+            
+            if exists:
+                print("✓ Column contract_period_id already exists in budgets table")
+            else:
+                # Add contract_period_id column
+                print("Adding contract_period_id column to budgets table...")
+                alter_query = text("""
+                    ALTER TABLE budgets
+                    ADD COLUMN contract_period_id INTEGER
+                """)
+                await conn.execute(alter_query)
+                
+                # Add foreign key constraint (check if it exists first)
+                fk_check_query = text("""
+                    SELECT constraint_name 
+                    FROM information_schema.table_constraints 
+                    WHERE table_name = 'budgets' AND constraint_name = 'fk_budgets_contract_period_id'
+                """)
+                fk_result = await conn.execute(fk_check_query)
+                fk_exists = fk_result.scalar_one_or_none() is not None
+                
+                if not fk_exists:
+                    fk_query = text("""
+                        ALTER TABLE budgets
+                        ADD CONSTRAINT fk_budgets_contract_period_id 
+                            FOREIGN KEY (contract_period_id) REFERENCES contract_periods(id) ON DELETE SET NULL
+                    """)
+                    await conn.execute(fk_query)
+                
+                # Create index
+                index_query = text("""
+                    CREATE INDEX IF NOT EXISTS ix_budgets_contract_period_id 
+                    ON budgets(contract_period_id)
+                """)
+                await conn.execute(index_query)
+                
+                print("✓ Added contract_period_id column to budgets table successfully")
+    except Exception as e:
+        # Log but don't fail - column might already exist or there might be a constraint issue
+        print(f"Note: Could not add contract_period_id column (may already exist): {e}")
+
+
+async def _add_contract_duration_months_to_projects(engine: AsyncEngine):
+    """Add contract_duration_months column to projects table if it doesn't exist"""
+    try:
+        async with engine.begin() as conn:
+            # Check if column already exists
+            check_query = text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'projects' AND column_name = 'contract_duration_months'
+            """)
+            result = await conn.execute(check_query)
+            exists = result.scalar_one_or_none() is not None
+            
+            if exists:
+                print("✓ Column contract_duration_months already exists in projects table")
+            else:
+                # Add contract_duration_months column
+                print("Adding contract_duration_months column to projects table...")
+                alter_query = text("""
+                    ALTER TABLE projects
+                    ADD COLUMN contract_duration_months INTEGER
+                """)
+                await conn.execute(alter_query)
+                
+                print("✓ Added contract_duration_months column to projects table successfully")
+    except Exception as e:
+        # Log but don't fail - column might already exist or there might be a constraint issue
+        print(f"Note: Could not add contract_duration_months column (may already exist): {e}")

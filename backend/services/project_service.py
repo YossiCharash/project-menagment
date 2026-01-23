@@ -403,15 +403,57 @@ class ProjectService:
         transaction_val = float(await self.transactions.get_transaction_value(project_id))
         return monthly_payment_tenants - transaction_val
 
-    async def create(self, **data) -> Project:
+    async def create(self, user_id: int = 1, **data) -> Project:
         # Convert date strings to date objects for SQLite compatibility
         from datetime import date as date_type
-        if 'start_date' in data and isinstance(data['start_date'], str):
-            data['start_date'] = date_type.fromisoformat(data['start_date'])
-        if 'end_date' in data and isinstance(data['end_date'], str):
-            data['end_date'] = date_type.fromisoformat(data['end_date'])
+        
+        # Explicitly extract and convert dates to ensure they are date objects
+        start_date = data.get('start_date')
+        if start_date and isinstance(start_date, str):
+            start_date = date_type.fromisoformat(start_date)
+            data['start_date'] = start_date
+            
+        end_date = data.get('end_date')
+        if end_date and isinstance(end_date, str):
+            end_date = date_type.fromisoformat(end_date)
+            data['end_date'] = end_date
+        
+        # Create the project first
         project = Project(**data)
-        return await self.projects.create(project)
+        created_project = await self.projects.create(project)
+        
+        # If start_date and contract_duration_months are provided, generate initial contract periods
+        start_date = data.get('start_date')
+        contract_duration_months = data.get('contract_duration_months')
+        
+        if start_date and contract_duration_months:
+            from backend.services.contract_period_service import ContractPeriodService
+            contract_service = ContractPeriodService(self.db)
+            # This will create historical periods if start_date is in the past
+            await contract_service.generate_initial_periods_by_duration(
+                project_id=created_project.id,
+                start_date=start_date,
+                duration_months=contract_duration_months,
+                user_id=user_id
+            )
+            # CRITICAL: Force expire to ensure next fetch gets fresh data from DB
+            self.db.expire(created_project)
+            created_project = await self.projects.get_by_id(created_project.id)
+        elif start_date and end_date:
+            # Legacy support: if end_date is provided (old projects), use old method
+            from backend.services.contract_period_service import ContractPeriodService
+            contract_service = ContractPeriodService(self.db)
+            await contract_service.generate_initial_periods(
+                project_id=created_project.id,
+                start_date=start_date,
+                end_date=end_date,
+                user_id=user_id
+            )
+            # CRITICAL: Force expire to ensure next fetch gets fresh data from DB
+            self.db.expire(created_project)
+            created_project = await self.projects.get_by_id(created_project.id)
+            
+        return created_project
 
     async def update(self, project: Project, **data) -> Project:
         for k, v in data.items():

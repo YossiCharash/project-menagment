@@ -23,7 +23,8 @@ export class ProjectAPI {
 
   // OPTIMIZED: Get complete project data in a single API call
   // Replaces 5+ separate API calls with ONE for faster page load
-  static async getProjectFull(projectId: number): Promise<{
+  // Optional periodId parameter: When provided, returns data filtered to that specific contract period
+  static async getProjectFull(projectId: number, periodId?: number): Promise<{
     project: Project & { has_fund?: boolean; monthly_fund_amount?: number | null }
     transactions: Transaction[]
     budgets: BudgetWithSpending[]
@@ -36,8 +37,47 @@ export class ProjectAPI {
       total_deductions: number
       transactions: Transaction[]
     } | null
+    current_period: {
+      period_id: number | null
+      start_date: string
+      end_date: string | null
+      contract_year: number
+      year_index: number
+      year_label: string
+      total_income: number
+      total_expense: number
+      total_profit: number
+    } | null
+    selected_period: {
+      period_id: number
+      start_date: string
+      end_date: string | null
+      contract_year: number
+      year_index: number
+      year_label: string
+      total_income: number
+      total_expense: number
+      total_profit: number
+    } | null
+    contract_periods: {
+      project_id: number
+      periods_by_year: Array<{
+        year: number
+        periods: Array<{
+          period_id: number
+          start_date: string
+          end_date: string
+          year_index: number
+          year_label: string
+          total_income: number
+          total_expense: number
+          total_profit: number
+        }>
+      }>
+    } | null
   }> {
-    const { data } = await api.get(`/projects/${projectId}/full`)
+    const params = periodId ? { period_id: periodId } : {}
+    const { data } = await api.get(`/projects/${projectId}/full`, { params })
     return data
   }
 
@@ -83,6 +123,25 @@ export class ProjectAPI {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     return data
+  }
+
+  // Upload project document
+  static async uploadProjectDocument(projectId: number, formData: FormData): Promise<any> {
+    const { data } = await api.post(`/projects/${projectId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    return data
+  }
+
+  // Get project documents
+  static async getProjectDocuments(projectId: number): Promise<any[]> {
+    const { data } = await api.get(`/projects/${projectId}/documents`)
+    return data
+  }
+
+  // Delete project document
+  static async deleteProjectDocument(projectId: number, documentId: number): Promise<void> {
+    await api.delete(`/projects/${projectId}/documents/${documentId}`)
   }
 
   // Get profitability alerts
@@ -156,39 +215,16 @@ export class ProjectAPI {
   }
 
   // Get contract period summary
-  static async getContractPeriodSummary(projectId: number, periodId: number): Promise<{
-    period_id: number
-    project_id: number
-    start_date: string
-    end_date: string
-    contract_year: number
-    year_index: number
-    year_label: string
-    total_income: number
-    total_expense: number
-    total_profit: number
-    transactions: Array<{
-      id: number
-      tx_date: string
-      type: string
-      amount: number
-      description: string | null
-      category: string | null
-      payment_method: string | null
-      notes: string | null
-      supplier_id: number | null
-    }>
-    budgets: Array<{
-      category: string
-      amount: number
-      period_type: string
-      start_date: string | null
-      end_date: string | null
-      is_active: boolean
-    }>
-  }> {
-    const { data } = await api.get(`/projects/${projectId}/contract-periods/${periodId}`)
-    return data
+  static async getContractPeriodSummary(projectId: number, periodId: number | null, startDate?: string, endDate?: string): Promise<any> {
+    if (periodId) {
+      const { data } = await api.get(`/projects/${projectId}/contract-periods/${periodId}`)
+      return data
+    } else {
+      const { data } = await api.get(`/projects/${projectId}/contract-periods/summary/by-dates`, {
+        params: { start_date: startDate, end_date: endDate }
+      })
+      return data
+    }
   }
 
   // Update contract period dates
@@ -197,8 +233,17 @@ export class ProjectAPI {
   }
 
   // Export contract period to CSV
-  static async exportContractPeriodCSV(projectId: number, periodId: number): Promise<Blob> {
-    const response = await api.get(`/projects/${projectId}/contract-periods/${periodId}/export-csv`, {
+  static async exportContractPeriodCSV(projectId: number, periodId: number | null, startDate?: string, endDate?: string): Promise<Blob> {
+    const response = await api.get(`/projects/${projectId}/contract-periods/${periodId || 0}/export-csv`, {
+      params: { start_date: startDate, end_date: endDate },
+      responseType: 'blob'
+    })
+    return response.data
+  }
+
+  // Export all contract periods for a year to CSV
+  static async exportContractYearCSV(projectId: number, year: number): Promise<Blob> {
+    const response = await api.get(`/projects/${projectId}/contract-periods/year/${year}/export-csv`, {
       responseType: 'blob'
     })
     return response.data
@@ -496,13 +541,20 @@ export class BudgetAPI {
     period_type?: 'Annual' | 'Monthly'
     start_date: string
     end_date?: string | null
+    contract_period_id?: number | null
   }): Promise<void> {
     await api.post('/budgets', payload)
   }
 
-  // Get all budgets for a project with spending information
-  static async getProjectBudgets(projectId: number): Promise<BudgetWithSpending[]> {
-    const { data } = await api.get<BudgetWithSpending[]>(`/budgets/project/${projectId}`)
+  // Get all budgets for a project with spending information, optionally filtered by contract period
+  static async getProjectBudgets(projectId: number, contractPeriodId?: number | null): Promise<BudgetWithSpending[]> {
+    const params = new URLSearchParams()
+    if (contractPeriodId) {
+      params.append('contract_period_id', contractPeriodId.toString())
+    }
+    const queryString = params.toString()
+    const url = `/budgets/project/${projectId}${queryString ? '?' + queryString : ''}`
+    const { data } = await api.get<BudgetWithSpending[]>(url)
     return data
   }
 

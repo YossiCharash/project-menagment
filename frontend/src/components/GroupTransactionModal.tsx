@@ -29,6 +29,8 @@ interface TransactionRow {
   fromFund: boolean
   files: File[]
   dateError: string | null
+  duplicateError: string | null
+  checkingDuplicate: boolean
 }
 
 const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
@@ -64,7 +66,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       isExceptional: false,
       fromFund: false,
       files: [],
-      dateError: null
+      dateError: null,
+      duplicateError: null,
+      checkingDuplicate: false
     }
   ])
 
@@ -131,6 +135,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           // Validate date after project change
           setTimeout(() => validateRowDate(updatedRow), 0)
           
+          // Check for duplicates after project change
+          setTimeout(() => {
+            setRows(currentRows => {
+              const currentRow = currentRows.find(r => r.id === rowId)
+              if (currentRow) {
+                checkDuplicateTransaction(currentRow)
+              }
+              return currentRows
+            })
+          }, 300)
+          
           return updatedRow
         }
         return row
@@ -140,7 +155,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   }
 
   const addRow = () => {
-    const newRow: TransactionRow = {
+      const newRow: TransactionRow = {
       id: Date.now().toString(),
       projectId: '',
       subprojectId: '',
@@ -155,7 +170,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       isExceptional: false,
       fromFund: false,
       files: [],
-      dateError: null
+      dateError: null,
+      duplicateError: null,
+      checkingDuplicate: false
     }
     setRows([...rows, newRow])
   }
@@ -198,6 +215,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             validateRowDate(updatedRow)
           }
           
+          // Check for duplicates when relevant fields change
+          // Use setTimeout to allow state to update first
+          if (field === 'projectId' || field === 'subprojectId' || field === 'txDate' || 
+              field === 'amount' || field === 'supplierId' || field === 'type' || field === 'fromFund') {
+            setTimeout(() => {
+              setRows(currentRows => {
+                const currentRow = currentRows.find(r => r.id === rowId)
+                if (currentRow) {
+                  checkDuplicateTransaction(currentRow)
+                }
+                return currentRows
+              })
+            }, 300) // Debounce: wait 300ms after last change
+          }
+          
           return updatedRow
         }
         return row
@@ -218,8 +250,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     const project = getSelectedProject(row)
     const subproject = row.subprojectId ? getSelectedSubproject(row) : null
     const selectedProject = subproject || project
+    const thresholdDate = selectedProject?.first_contract_start_date || selectedProject?.start_date
     
-    if (!selectedProject?.start_date) {
+    if (!thresholdDate) {
       setRows(prevRows =>
         prevRows.map(r =>
           r.id === row.id ? { ...r, dateError: null } : r
@@ -228,7 +261,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       return
     }
 
-    const contractStartDateStr = selectedProject.start_date.split('T')[0]
+    const contractStartDateStr = thresholdDate.split('T')[0]
     const transactionDateStr = row.txDate.split('T')[0]
     
     const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
@@ -242,7 +275,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           r.id === row.id
             ? {
                 ...r,
-                dateError: `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
+                dateError: `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
               }
             : r
         )
@@ -251,6 +284,84 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       setRows(prevRows =>
         prevRows.map(r =>
           r.id === row.id ? { ...r, dateError: null } : r
+        )
+      )
+    }
+  }
+
+  const checkDuplicateTransaction = async (row: TransactionRow) => {
+    // Only check for Expense transactions that are not from fund
+    if (row.type !== 'Expense' || row.fromFund) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
+        )
+      )
+      return
+    }
+
+    // Need project, date, and amount to check for duplicates
+    if (!row.projectId || !row.txDate || !row.amount || Number(row.amount) <= 0) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
+        )
+      )
+      return
+    }
+
+    // Set checking state
+    setRows(prevRows =>
+      prevRows.map(r =>
+        r.id === row.id ? { ...r, checkingDuplicate: true, duplicateError: null } : r
+      )
+    )
+
+    try {
+      const projectId = row.subprojectId || row.projectId as number
+      const params = new URLSearchParams({
+        project_id: String(projectId),
+        tx_date: row.txDate,
+        amount: String(row.amount),
+        type: 'Expense'
+      })
+      
+      if (row.supplierId) {
+        params.append('supplier_id', String(row.supplierId))
+      }
+
+      const response = await api.get(`/transactions/check-duplicate?${params.toString()}`)
+      
+      if (response.data.has_duplicate && response.data.duplicates.length > 0) {
+        const duplicates = response.data.duplicates
+        const duplicateDetails = duplicates.map((dup: any) => {
+          let info = `עסקה #${dup.id} מתאריך ${dup.tx_date}`
+          if (dup.supplier_name) {
+            info += ` לספק ${dup.supplier_name}`
+          }
+          return info
+        }).join('\n')
+
+        const errorMessage = `⚠️ זוהתה עסקה כפולה!\n\nקיימת עסקה עם אותם פרטים:\n${duplicateDetails}\n\nאם זה תשלום שונה, אנא שנה את התאריך או הסכום.\nאם זה אותו תשלום, אנא בדוק את הרשומות הקיימות.`
+
+        setRows(prevRows =>
+          prevRows.map(r =>
+            r.id === row.id ? { ...r, duplicateError: errorMessage, checkingDuplicate: false } : r
+          )
+        )
+      } else {
+        setRows(prevRows =>
+          prevRows.map(r =>
+            r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
+          )
+        )
+      }
+    } catch (error) {
+      // On error, clear the duplicate error (don't block user)
+      console.error('Error checking duplicate:', error)
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
         )
       )
     }
@@ -334,6 +445,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
       if (row.dateError) {
         errors.push(`שורה ${index + 1}: ${row.dateError}`)
+      }
+      if (row.duplicateError) {
+        errors.push(`שורה ${index + 1}: ${row.duplicateError}`)
       }
       if (row.type === 'Expense' && !row.fromFund && !row.supplierId) {
         // Check if category is "אחר" (Other) - if so, supplier is not required
@@ -597,7 +711,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         isExceptional: false,
         fromFund: false,
         files: [],
-        dateError: null
+        dateError: null,
+        duplicateError: null,
+        checkingDuplicate: false
       }
     ])
     setError(null)
@@ -868,16 +984,38 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                             </div>
                           </td>
                           <td className="px-4 py-4">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={row.amount}
-                              onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-4 py-3 text-base bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-bold text-lg"
-                              placeholder="0.00"
-                              required
-                            />
+                            <div className="space-y-1">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={row.amount}
+                                  onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
+                                  className={`w-full px-4 py-3 text-base bg-white dark:bg-gray-700 border-2 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow font-bold text-lg ${
+                                    row.duplicateError
+                                      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                                  }`}
+                                  placeholder="0.00"
+                                  required
+                                />
+                                {row.checkingDuplicate && (
+                                  <div className="absolute left-2 top-1/2 transform -translate-y-1/2">
+                                    <motion.div
+                                      animate={{ rotate: 360 }}
+                                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                      className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              {row.duplicateError && (
+                                <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg">
+                                  <pre className="text-xs text-red-800 dark:text-red-200 whitespace-pre-wrap font-medium">{row.duplicateError}</pre>
+                                </div>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {/* שורה שנייה */}

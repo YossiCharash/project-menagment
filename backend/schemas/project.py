@@ -13,6 +13,7 @@ class ProjectBase(BaseModel):
     description: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+    contract_duration_months: int | None = None
     budget_monthly: float = 0
     budget_annual: float = 0
     manager_id: int | None = None
@@ -51,6 +52,7 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+    contract_duration_months: int | None = None
     budget_monthly: float | None = None
     budget_annual: float | None = None
     manager_id: int | None = None
@@ -67,6 +69,9 @@ class ProjectUpdate(BaseModel):
     # Fund fields
     has_fund: bool | None = None
     monthly_fund_amount: float | None = None
+    
+    # Period selection for duration change
+    apply_from_period_id: int | None = None
 
 
 class ProjectOut(ProjectBase):
@@ -74,6 +79,8 @@ class ProjectOut(ProjectBase):
     is_active: bool = True
     created_at: datetime
     total_value: float = 0.0
+    """First (earliest) contract start date. Used for validation: allow transactions in any contract, block only before the first."""
+    first_contract_start_date: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

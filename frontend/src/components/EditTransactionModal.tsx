@@ -204,7 +204,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedPeriodStart = periodStart.toLocaleDateString('he-IL')
       setPeriodStartDateError(
-        `לא ניתן לערוך עסקה תאריכית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התקופה: ${formattedPeriodStart}`
+        `לא ניתן לערוך עסקה תאריכית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התקופה: ${formattedPeriodStart}`
       )
     } else {
       setPeriodStartDateError(null)
@@ -230,7 +230,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedPeriodEnd = periodEnd.toLocaleDateString('he-IL')
       setPeriodEndDateError(
-        `לא ניתן לערוך עסקה תאריכית עם תאריך סיום לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך סיום של התקופה: ${formattedPeriodEnd}`
+        `לא ניתן לערוך עסקה תאריכית עם תאריך סיום לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך סיום של התקופה: ${formattedPeriodEnd}`
       )
     } else {
       setPeriodEndDateError(null)

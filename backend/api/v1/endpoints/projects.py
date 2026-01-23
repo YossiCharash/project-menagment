@@ -53,20 +53,27 @@ def get_uploads_dir() -> str:
 async def list_projects(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """List projects - accessible to all authenticated users"""
     from backend.services.fund_service import FundService
+    from backend.repositories.contract_period_repository import ContractPeriodRepository
     
     projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
     fund_service = FundService(db)
+    period_repo = ContractPeriodRepository(db)
     
-    # Add fund information to each project
+    # Add fund information and first_contract_start_date to each project
     result = []
     for project in projects:
         fund = await fund_service.get_fund_by_project(project.id)
+        first_start = await period_repo.get_earliest_start_date(project.id)
+        if first_start is None and project.start_date:
+            s = project.start_date
+            first_start = s.date() if hasattr(s, 'date') else s
         project_dict = {
             "id": project.id,
             "name": project.name,
             "description": project.description,
             "start_date": project.start_date.isoformat() if project.start_date else None,
             "end_date": project.end_date.isoformat() if project.end_date else None,
+            "contract_duration_months": project.contract_duration_months,
             "budget_monthly": project.budget_monthly,
             "budget_annual": project.budget_annual,
             "manager_id": project.manager_id,
@@ -82,7 +89,8 @@ async def list_projects(db: DBSessionDep, include_archived: bool = Query(False),
             "created_at": project.created_at,
             "total_value": getattr(project, 'total_value', 0.0),
             "has_fund": fund is not None,
-            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+            "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
+            "first_contract_start_date": first_start.isoformat() if first_start else None,
         }
         result.append(project_dict)
     
@@ -92,20 +100,27 @@ async def list_projects(db: DBSessionDep, include_archived: bool = Query(False),
 async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
     from backend.services.fund_service import FundService
+    from backend.repositories.contract_period_repository import ContractPeriodRepository
     
     projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
     fund_service = FundService(db)
+    period_repo = ContractPeriodRepository(db)
     
-    # Add fund information to each project
+    # Add fund information and first_contract_start_date to each project
     result = []
     for project in projects:
         fund = await fund_service.get_fund_by_project(project.id)
+        first_start = await period_repo.get_earliest_start_date(project.id)
+        if first_start is None and project.start_date:
+            s = project.start_date
+            first_start = s.date() if hasattr(s, 'date') else s
         project_dict = {
             "id": project.id,
             "name": project.name,
             "description": project.description,
             "start_date": project.start_date.isoformat() if project.start_date else None,
             "end_date": project.end_date.isoformat() if project.end_date else None,
+            "contract_duration_months": project.contract_duration_months,
             "budget_monthly": project.budget_monthly,
             "budget_annual": project.budget_annual,
             "manager_id": project.manager_id,
@@ -121,7 +136,8 @@ async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Quer
             "created_at": project.created_at,
             "total_value": getattr(project, 'total_value', 0.0),
             "has_fund": fund is not None,
-            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
+            "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
+            "first_contract_start_date": first_start.isoformat() if first_start else None,
         }
         result.append(project_dict)
     
@@ -292,6 +308,7 @@ async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_curr
         "description": project.description,
         "start_date": project.start_date.isoformat() if project.start_date else None,
         "end_date": project.end_date.isoformat() if project.end_date else None,
+        "contract_duration_months": project.contract_duration_months,
         "budget_monthly": project.budget_monthly,
         "budget_annual": project.budget_annual,
         "manager_id": project.manager_id,
@@ -312,33 +329,94 @@ async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_curr
     return project_dict
 
 @router.get("/{project_id}/full")
-async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
+async def get_project_full(
+    project_id: int, 
+    db: DBSessionDep, 
+    user = Depends(get_current_user),
+    period_id: Optional[int] = None
+):
     """
     OPTIMIZED: Get complete project data in a single API call.
     Returns: project info + transactions + budgets + expense categories + fund data
     
     This replaces 5+ separate API calls with ONE, dramatically improving page load time.
+    
+    Optional period_id parameter: When provided, returns data filtered to that specific
+    contract period (for viewing historical periods).
     """
-    from sqlalchemy import select, and_
+    from sqlalchemy import select, and_, or_
     from sqlalchemy.orm import selectinload
     from backend.models.transaction import Transaction
     from backend.models.budget import Budget
     from backend.models.fund import Fund
     from backend.services.budget_service import BudgetService
     from backend.services.report_service import ReportService
+    from backend.repositories.contract_period_repository import ContractPeriodRepository
     
     # Get project
     project = await ProjectRepository(db).get_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    # If period_id is provided, load the specific period and filter data accordingly
+    selected_period = None
+    period_start_date = None
+    period_end_date = None
+    
+    if period_id:
+        period_repo = ContractPeriodRepository(db)
+        selected_period = await period_repo.get_by_id(period_id)
+        if not selected_period:
+            raise HTTPException(status_code=404, detail="Contract period not found")
+        if selected_period.project_id != project_id:
+            raise HTTPException(status_code=400, detail="Contract period does not belong to this project")
+        period_start_date = selected_period.start_date
+        period_end_date = selected_period.end_date
+    
     # Batch query all data in parallel-style (minimize round trips)
-    # Query 1: Get all transactions for project with category info
-    transactions_query = select(Transaction).options(
-        selectinload(Transaction.category)
-    ).where(
-        Transaction.project_id == project_id
-    ).order_by(Transaction.tx_date.desc())
+    # Query 1: Get transactions for project with category info
+    # If period_id provided, filter by period dates
+    if period_id and period_start_date and period_end_date:
+        # Filter transactions: same logic as current contract -
+        # regular within [start,end), period overlap, fund tx within [start,end)
+        transactions_query = select(Transaction).options(
+            selectinload(Transaction.category)
+        ).where(
+            and_(
+                Transaction.project_id == project_id,
+                or_(
+                    # Fund transactions within date range (like current contract)
+                    and_(
+                        Transaction.from_fund == True,
+                        Transaction.tx_date >= period_start_date,
+                        Transaction.tx_date < period_end_date
+                    ),
+                    # Regular (non-fund) transactions within date range [start_date, end_date)
+                    and_(
+                        Transaction.from_fund == False,
+                        Transaction.tx_date >= period_start_date,
+                        Transaction.tx_date < period_end_date,
+                        or_(
+                            Transaction.period_start_date.is_(None),
+                            Transaction.period_end_date.is_(None)
+                        )
+                    ),
+                    # Period transactions that overlap with the period
+                    and_(
+                        Transaction.period_start_date.is_not(None),
+                        Transaction.period_end_date.is_not(None),
+                        Transaction.period_start_date < period_end_date,
+                        Transaction.period_end_date >= period_start_date
+                    )
+                )
+            )
+        ).order_by(Transaction.tx_date.desc())
+    else:
+        transactions_query = select(Transaction).options(
+            selectinload(Transaction.category)
+        ).where(
+            Transaction.project_id == project_id
+        ).order_by(Transaction.tx_date.desc())
     
     # Query 2: Get all active budgets for project
     budgets_query = select(Budget).where(
@@ -351,13 +429,51 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
     # Query 3: Get fund for project
     funds_query = select(Fund).where(Fund.project_id == project_id)
     
+    # Query 4: Get contract periods and current period
+    from backend.services.contract_period_service import ContractPeriodService
+    contract_service = ContractPeriodService(db)
+    
+    # Ensure project is up to date with current date (catch up if needed)
+    await contract_service.check_and_renew_contract(project_id)
+    
+    # Also ensure all recurring transactions are generated for the current state of the project
+    # This is important when new contract periods were just created by check_and_renew_contract
+    from backend.services.recurring_transaction_service import RecurringTransactionService
+    recurring_service = RecurringTransactionService(db)
+    await recurring_service.ensure_project_transactions_generated(project_id)
+    
+    # Refresh project to get updated dates
+    await db.refresh(project)
+    
     # Execute all queries
-    tx_result, budgets_result, fund_result = await asyncio.gather(
+    tx_result, budgets_result, fund_result, current_period, contract_periods_by_year = await asyncio.gather(
         db.execute(transactions_query),
         db.execute(budgets_query),
         db.execute(funds_query),
+        contract_service.get_current_contract_period(project_id),
+        contract_service.get_previous_contracts_by_year(project_id),
         return_exceptions=True
     )
+    
+    # Handle exceptions from gather
+    if isinstance(current_period, Exception):
+        print(f"❌ [GET PROJECT FULL] Error getting current_period: {current_period}")
+        import traceback
+        traceback.print_exception(type(current_period), current_period, current_period.__traceback__)
+        current_period = None
+    if isinstance(contract_periods_by_year, Exception):
+        print(f"❌ [GET PROJECT FULL] Error getting contract_periods_by_year: {contract_periods_by_year}")
+        import traceback
+        traceback.print_exception(type(contract_periods_by_year), contract_periods_by_year, contract_periods_by_year.__traceback__)
+        contract_periods_by_year = {}
+    
+    # Convert contract_periods_by_year to list format
+    periods_by_year_list = []
+    for year in sorted(contract_periods_by_year.keys(), reverse=True):
+        periods_by_year_list.append({
+            'year': year,
+            'periods': contract_periods_by_year[year]
+        })
     
     # Process transactions
     transactions_list = []
@@ -394,20 +510,26 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
                 expense_by_category[category_name] = expense_by_category.get(category_name, 0) + float(tx.amount or 0)
     
     # Process budgets with spending calculations
+    # Filter budgets by period: when viewing a specific period, show only that period's budgets
     budgets_list = []
     if not isinstance(budgets_result, Exception):
         budgets = list(budgets_result.scalars().all())
         budget_service = BudgetService(db)
-        # Calculate spending for each budget from transactions already loaded
+        # Determine which period's budgets to show
+        effective_period_id = period_id
+        if effective_period_id is None and current_period and isinstance(current_period, dict):
+            effective_period_id = current_period.get("period_id")
+        # Filter to this period's budgets (contract_period_id match)
+        if effective_period_id is not None:
+            budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
         for budget in budgets:
             # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
-                tx['amount'] for tx in transactions_list 
-                if tx['type'] == 'Expense' 
-                and tx.get('category') == budget.category
-                and not tx.get('from_fund', False)
+                tx["amount"] for tx in transactions_list
+                if tx["type"] == "Expense"
+                and tx.get("category") == budget.category
+                and not tx.get("from_fund", False)
             )
-            
             budget_dict = {
                 "id": budget.id,
                 "project_id": budget.project_id,
@@ -419,7 +541,7 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
                 "is_active": budget.is_active,
                 "spent_amount": spent,
                 "remaining_amount": float(budget.amount) - spent,
-                "spent_percentage": (spent / float(budget.amount) * 100) if budget.amount else 0
+                "spent_percentage": (spent / float(budget.amount) * 100) if budget.amount else 0,
             }
             budgets_list.append(budget_dict)
     
@@ -454,6 +576,7 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
         "description": project.description,
         "start_date": project.start_date.isoformat() if project.start_date else None,
         "end_date": project.end_date.isoformat() if project.end_date else None,
+        "contract_duration_months": project.contract_duration_months,
         "budget_monthly": project.budget_monthly,
         "budget_annual": project.budget_annual,
         "manager_id": project.manager_id,
@@ -472,12 +595,56 @@ async def get_project_full(project_id: int, db: DBSessionDep, user = Depends(get
         "monthly_fund_amount": fund_data['monthly_amount'] if fund_data else None
     }
     
+    # Build selected_period info if viewing a historical period
+    selected_period_info = None
+    if selected_period:
+        # Hebrew letters for period labeling
+        hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
+        
+        # Count periods in the same year for labeling
+        periods_in_year = [
+            p for year_data in periods_by_year_list 
+            for p in year_data['periods'] 
+            if year_data['year'] == selected_period.contract_year
+        ]
+        show_period_label = len(periods_in_year) > 1
+        
+        # Determine year_label
+        if show_period_label:
+            idx = selected_period.year_index - 1
+            letter = hebrew_letters[idx] if idx < len(hebrew_letters) else str(idx + 1)
+            year_label = f"תקופה {letter}"
+        else:
+            year_label = ""
+        
+        # Calculate financials for selected period
+        contract_service = ContractPeriodService(db)
+        period_financials = await contract_service._get_period_financials(selected_period)
+        
+        selected_period_info = {
+            'period_id': selected_period.id,
+            'start_date': selected_period.start_date.isoformat() if selected_period.start_date else None,
+            'end_date': selected_period.end_date.isoformat() if selected_period.end_date else None,
+            'contract_year': selected_period.contract_year,
+            'year_index': selected_period.year_index,
+            'year_label': year_label,
+            'total_income': period_financials['total_income'],
+            'total_expense': period_financials['total_expense'],
+            'total_profit': period_financials['total_profit']
+        }
+    
     return {
         "project": project_dict,
         "transactions": transactions_list,
         "budgets": budgets_list,
         "expense_categories": expense_categories,
-        "fund": fund_data
+        "fund": fund_data,
+        "current_period": current_period,
+        "selected_period": selected_period_info,  # New field for historical period viewing
+        "contract_periods": {
+            "project_id": project_id,
+            "periods_by_year": periods_by_year_list
+        }
     }
 
 
@@ -499,6 +666,7 @@ async def get_subprojects(project_id: int, db: DBSessionDep, user = Depends(get_
             "description": subproject.description,
             "start_date": subproject.start_date.isoformat() if subproject.start_date else None,
             "end_date": subproject.end_date.isoformat() if subproject.end_date else None,
+            "contract_duration_months": subproject.contract_duration_months,
             "budget_monthly": subproject.budget_monthly,
             "budget_annual": subproject.budget_annual,
             "manager_id": subproject.manager_id,
@@ -561,35 +729,11 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
             project_data['is_parent_project'] = False
     
     # Create the project
-    project = await ProjectService(db).create(**project_data)
+    project = await ProjectService(db).create(user_id=user.id, **project_data)
     
-    # Create fund if requested (even if monthly_amount is 0)
-    if has_fund:
-        fund_service = FundService(db)
-        monthly_amount = monthly_fund_amount if monthly_fund_amount is not None and monthly_fund_amount > 0 else 0
-        
-        # Calculate initial balance based on project start_date if it's in the past
-        initial_balance = 0.0
-        last_monthly_addition = None
-        if monthly_amount > 0 and project.start_date:
-            today = date.today()
-            if project.start_date <= today:
-                # Calculate accumulated amount from contract start date to today
-                initial_balance = calculate_monthly_income_amount(
-                    monthly_amount,
-                    project.start_date,
-                    today
-                )
-                # Set last_monthly_addition to today to indicate all months up to today are accounted for
-                if initial_balance > 0:
-                    last_monthly_addition = today
-        
-        await fund_service.create_fund(
-            project_id=project.id,
-            monthly_amount=monthly_amount,
-            initial_balance=initial_balance,
-            last_monthly_addition=last_monthly_addition
-        )
+    # Note: Fund creation is now handled by the frontend after project creation
+    # The has_fund flag is still set on the project, but the actual fund creation
+    # happens through a separate modal that allows the user to choose fund setup options
     
     # Create recurring transactions if provided
     if recurring_transactions:
@@ -701,6 +845,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
     budgets_to_add = data.budgets or []
     has_fund = data.has_fund
     monthly_fund_amount = data.monthly_fund_amount
+    apply_from_period_id = data.apply_from_period_id
 
     # Store old values for audit log
     old_values = {
@@ -712,7 +857,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
         'city': project.city or ''
     }
 
-    update_payload = data.model_dump(exclude_unset=True, exclude={'budgets', 'has_fund', 'monthly_fund_amount'})
+    update_payload = data.model_dump(exclude_unset=True, exclude={'budgets', 'has_fund', 'monthly_fund_amount', 'apply_from_period_id'})
     
     # Validate relation_project if it's being set
     if 'relation_project' in update_payload and update_payload['relation_project'] is not None:
@@ -737,6 +882,163 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
         subprojects = await repo.get_subprojects(project_id)
         if len(subprojects) > 0 and not update_payload['is_parent_project']:
             raise HTTPException(status_code=400, detail="לא ניתן לשנות פרויקט על לפרויקט רגיל כאשר יש לו תת-פרויקטים")
+    
+    # Handle contract_duration_months changes
+    # If apply_from_period_id is provided, allow changing duration from that period onwards
+    # Otherwise, prevent retroactive changes if there are past periods
+    if 'contract_duration_months' in update_payload:
+        new_duration = update_payload['contract_duration_months']
+        old_duration = project.contract_duration_months
+        
+        # Only check if duration is actually changing
+        if new_duration is not None and new_duration != old_duration:
+            from backend.repositories.contract_period_repository import ContractPeriodRepository
+            from sqlalchemy import select, or_
+            from backend.services.contract_period_service import ContractPeriodService
+            from dateutil.relativedelta import relativedelta
+            
+            period_repo = ContractPeriodRepository(db)
+            today = date.today()
+            
+            # If apply_from_period_id is provided, regenerate periods from that period onwards
+            if apply_from_period_id is not None:
+                # Validate that the period exists and belongs to this project
+                from_period = await period_repo.get_by_id(apply_from_period_id)
+                if not from_period or from_period.project_id != project_id:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"תקופת חוזה עם מזהה {apply_from_period_id} לא נמצאה"
+                    )
+                
+                # Validate new duration
+                if new_duration <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="משך החוזה חייב להיות גדול מ-0"
+                    )
+                
+                # Get all periods for this project
+                all_periods = await period_repo.get_by_project(project_id)
+                all_periods.sort(key=lambda p: p.start_date)
+                
+                # Find the period to start from
+                from_period_idx = next((i for i, p in enumerate(all_periods) if p.id == apply_from_period_id), None)
+                if from_period_idx is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="לא ניתן למצוא את התקופה שנבחרה"
+                    )
+                
+                # Delete all periods from the selected period onwards (except the selected period itself)
+                # We'll regenerate them with the new duration
+                periods_to_delete = all_periods[from_period_idx + 1:]
+                
+                # Update the selected period's end_date based on new duration
+                from_period.end_date = from_period.start_date + relativedelta(months=new_duration)
+                from_period.contract_year = from_period.start_date.year
+                await period_repo.update(from_period)
+                
+                # Delete future periods
+                for period in periods_to_delete:
+                    await period_repo.delete(period)
+                
+                # Regenerate periods from the selected period's end_date onwards
+                contract_period_service = ContractPeriodService(db)
+                current_start = from_period.end_date
+                current_end = None
+                
+                # Generate periods until we reach today or beyond
+                max_iterations = 200
+                for i in range(max_iterations):
+                    current_end = current_start + relativedelta(months=new_duration)
+                    
+                    # Stop if we've reached today or beyond
+                    if current_end > today:
+                        # Update project dates to match the last period
+                        project.start_date = from_period.start_date
+                        project.end_date = current_end
+                        break
+                    
+                    # Create new period
+                    contract_year = current_start.year
+                    periods_in_year = await period_repo.get_by_project_and_year(project_id, contract_year)
+                    year_index = len(periods_in_year) + 1
+                    
+                    new_period = ContractPeriod(
+                        project_id=project_id,
+                        start_date=current_start,
+                        end_date=current_end,
+                        contract_year=contract_year,
+                        year_index=year_index
+                    )
+                    new_period = await period_repo.create(new_period)
+                    
+                    # Copy budgets from previous period
+                    from backend.services.budget_service import BudgetService
+                    budget_service = BudgetService(db)
+                    previous_period_id = from_period.id if current_start == from_period.end_date else None
+                    if previous_period_id is None:
+                        # Find the previous period
+                        prev_periods = await period_repo.get_by_project(project_id)
+                        prev_periods.sort(key=lambda p: p.start_date)
+                        for p in reversed(prev_periods):
+                            if p.end_date == current_start:
+                                previous_period_id = p.id
+                                break
+                    
+                    await budget_service.copy_budgets_to_new_period(
+                        project_id=project_id,
+                        from_period_id=previous_period_id,
+                        to_period=new_period,
+                    )
+                    
+                    # Archive if period has ended
+                    if current_end <= today:
+                        summary = await contract_period_service._get_period_financials(new_period)
+                        archived = ArchivedContract(
+                            contract_period_id=new_period.id,
+                            project_id=project_id,
+                            start_date=new_period.start_date,
+                            end_date=new_period.end_date,
+                            contract_year=new_period.contract_year,
+                            year_index=new_period.year_index,
+                            total_income=summary['total_income'],
+                            total_expense=summary['total_expense'],
+                            total_profit=summary['total_profit'],
+                            archived_by_user_id=user.id
+                        )
+                        db.add(archived)
+                        await db.commit()
+                    
+                    current_start = current_end
+                
+                # Update project dates
+                project.start_date = from_period.start_date
+                if current_end and current_end > today:
+                    project.end_date = current_end
+                else:
+                    # Find the last period
+                    all_periods_after = await period_repo.get_by_project(project_id)
+                    if all_periods_after:
+                        last_period = max(all_periods_after, key=lambda p: p.end_date)
+                        project.end_date = last_period.end_date
+                
+                await db.commit()
+            else:
+                # Old behavior: prevent retroactive changes if there are past periods
+                periods = await period_repo.get_by_project(project_id)
+                past_periods = [p for p in periods if p.end_date and p.end_date <= today]
+                
+                # Also check archived contracts
+                archived_query = select(ArchivedContract).where(ArchivedContract.project_id == project_id)
+                archived_result = await db.execute(archived_query)
+                archived_contracts = archived_result.scalars().all()
+                
+                if len(past_periods) > 0 or len(archived_contracts) > 0:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="לא ניתן לשנות את משך החוזה בחודשים לפרויקט שיש לו תקופות חוזה בעבר. יש לבחור תקופה להתחלה או לשנות את משך החוזה רק לפרויקטים חדשים."
+                    )
     
     # NOTE: No end_date subtraction logic here.
     # Users expect the updated end_date to be exactly what they entered.
@@ -874,6 +1176,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
         "description": updated_project.description,
         "start_date": updated_project.start_date.isoformat() if updated_project.start_date else None,
         "end_date": updated_project.end_date.isoformat() if updated_project.end_date else None,
+        "contract_duration_months": updated_project.contract_duration_months,
         "budget_monthly": updated_project.budget_monthly,
         "budget_annual": updated_project.budget_annual,
         "manager_id": updated_project.manager_id,
@@ -962,6 +1265,93 @@ async def upload_project_contract(project_id: int, db: DBSessionDep, file: Uploa
     await repo.update(project)
 
     return project
+
+
+@router.post("/{project_id}/documents", response_model=dict)
+async def upload_project_document(
+    project_id: int, 
+    db: DBSessionDep, 
+    file: UploadFile = File(...),
+    description: str | None = Form(None),
+    user = Depends(get_current_user)
+):
+    """Upload a document for a project - accessible to all authenticated users"""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    s3 = S3Service()
+    content = await file.read()
+
+    from io import BytesIO
+    file_obj = BytesIO(content)
+
+    file_url = s3.upload_file(
+        prefix=f"projects/{project_id}/documents",
+        file_obj=file_obj,
+        filename=file.filename or "document",
+        content_type=file.content_type,
+    )
+
+    from backend.models.project_document import ProjectDocument
+    doc = ProjectDocument(project_id=project_id, file_path=file_url, description=description)
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    return {
+        "id": doc.id,
+        "file_path": doc.file_path,
+        "description": doc.description,
+        "uploaded_at": doc.uploaded_at.isoformat()
+    }
+
+
+@router.get("/{project_id}/documents", response_model=list[dict])
+async def get_project_documents(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
+    """Get all documents for a project"""
+    from backend.models.project_document import ProjectDocument
+    from sqlalchemy import select
+    
+    docs_query = select(ProjectDocument).where(ProjectDocument.project_id == project_id)
+    docs_result = await db.execute(docs_query)
+    docs = docs_result.scalars().all()
+
+    return [
+        {
+            "id": doc.id,
+            "file_path": doc.file_path,
+            "description": doc.description,
+            "uploaded_at": doc.uploaded_at.isoformat()
+        } for doc in docs
+    ]
+
+
+@router.delete("/{project_id}/documents/{doc_id}")
+async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep, user = Depends(get_current_user)):
+    """Delete a document from a project"""
+    from backend.models.project_document import ProjectDocument
+    from sqlalchemy import select
+    import asyncio
+    
+    doc = await db.get(ProjectDocument, doc_id)
+    if not doc or doc.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = doc.file_path
+    await db.delete(doc)
+    await db.commit()
+
+    # Try to delete from S3
+    if file_path and ("s3" in file_path.lower() or "amazonaws.com" in file_path):
+        try:
+            s3 = S3Service()
+            await asyncio.to_thread(s3.delete_file, file_path)
+        except Exception as e:
+            print(f"Warning: Failed to delete file from S3: {e}")
+
+    return {"ok": True}
 
 
 @router.post("/{project_id}/archive", response_model=ProjectOut)
@@ -1462,6 +1852,8 @@ async def create_project_fund(
     db: DBSessionDep,
     project_id: int,
     monthly_amount: float = Query(0, description="Monthly amount to add to fund"),
+    initial_balance: Optional[float] = Query(None, description="Initial balance for the fund"),
+    last_monthly_addition: Optional[str] = Query(None, description="Last monthly addition date (YYYY-MM-DD)"),
     user = Depends(get_current_user)
 ):
     """Create a fund for an existing project"""
@@ -1477,28 +1869,39 @@ async def create_project_fund(
     if existing_fund:
         raise HTTPException(status_code=400, detail="Fund already exists for this project")
     
-    # Calculate initial balance based on project start_date if it's in the past
-    initial_balance = 0.0
-    last_monthly_addition = None
-    if monthly_amount > 0 and project.start_date:
-        today = date.today()
-        if project.start_date <= today:
-            # Calculate accumulated amount from contract start date to today
-            initial_balance = calculate_monthly_income_amount(
-                monthly_amount,
-                project.start_date,
-                today
-            )
-            # Set last_monthly_addition to today to indicate all months up to today are accounted for
-            if initial_balance > 0:
-                last_monthly_addition = today
+    # Use provided initial_balance, or calculate based on project start_date if not provided
+    final_initial_balance = 0.0
+    final_last_monthly_addition = None
+    
+    if initial_balance is not None:
+        # Use provided initial_balance
+        final_initial_balance = initial_balance
+        if last_monthly_addition:
+            try:
+                final_last_monthly_addition = date.fromisoformat(last_monthly_addition)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid last_monthly_addition date format. Use YYYY-MM-DD")
+    else:
+        # Calculate initial balance based on project start_date if it's in the past (backward compatibility)
+        if monthly_amount > 0 and project.start_date:
+            today = date.today()
+            if project.start_date <= today:
+                # Calculate accumulated amount from contract start date to today
+                final_initial_balance = calculate_monthly_income_amount(
+                    monthly_amount,
+                    project.start_date,
+                    today
+                )
+                # Set last_monthly_addition to today to indicate all months up to today are accounted for
+                if final_initial_balance > 0:
+                    final_last_monthly_addition = today
     
     # Create fund
     fund = await fund_service.create_fund(
         project_id=project_id,
         monthly_amount=monthly_amount,
-        initial_balance=initial_balance,
-        last_monthly_addition=last_monthly_addition
+        initial_balance=final_initial_balance,
+        last_monthly_addition=final_last_monthly_addition
     )
     
     return {
@@ -1516,6 +1919,7 @@ async def update_project_fund(
     project_id: int,
     monthly_amount: Optional[float] = Query(None, description="Monthly amount to add to fund"),
     current_balance: Optional[float] = Query(None, description="Current balance of the fund"),
+    update_scope: Optional[str] = Query(None, description="Scope of update: from_start, from_this_month, only_this_month"),
     user = Depends(get_current_user)
 ):
     """Update fund monthly amount and/or balance for a project"""
@@ -1538,8 +1942,12 @@ async def update_project_fund(
     if current_balance is not None:
         update_data['current_balance'] = current_balance
     
-    if update_data:
-        await fund_service.update_fund(fund, **update_data)
+    await fund_service.update_fund(
+        fund, 
+        update_scope=update_scope, 
+        project_start_date=project.start_date, 
+        **update_data
+    )
     
     return {
         'id': fund.id,
@@ -1690,6 +2098,7 @@ async def get_previous_contract_periods(
     
     # Convert to list format for easier frontend handling
     result = []
+    # Sort years in descending order (most recent first)
     for year in sorted(periods_by_year.keys(), reverse=True):
         result.append({
             'year': year,
@@ -1700,6 +2109,36 @@ async def get_previous_contract_periods(
         'project_id': project_id,
         'periods_by_year': result
     }
+
+
+@router.get("/{project_id}/contract-periods/summary/by-dates")
+async def get_contract_period_summary_by_dates(
+    project_id: int,
+    start_date: str,
+    db: DBSessionDep,
+    user = Depends(get_current_user),
+    end_date: Optional[str] = None
+):
+    """Get full summary of a contract period by dates (for virtual periods)"""
+    from datetime import date as date_type
+    service = ContractPeriodService(db)
+    
+    try:
+        start = date_type.fromisoformat(start_date)
+        end = date_type.fromisoformat(end_date) if end_date else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+    summary = await service.get_contract_period_summary(
+        project_id=project_id,
+        start_date=start,
+        end_date=end
+    )
+    
+    if not summary:
+        raise HTTPException(status_code=404, detail="Contract period summary could not be generated")
+    
+    return summary
 
 
 @router.get("/{project_id}/contract-periods/{period_id}")
@@ -1761,12 +2200,24 @@ async def export_contract_period_csv(
     project_id: int,
     period_id: int,
     db: DBSessionDep,
-    user = Depends(get_current_user)
+    user = Depends(get_current_user),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ):
     """Export contract period data to Excel with colors and formatting"""
     try:
         service = ContractPeriodService(db)
-        summary = await service.get_contract_period_summary(period_id)
+        if period_id > 0:
+            summary = await service.get_contract_period_summary(period_id)
+        else:
+            from datetime import date as date_type
+            start = date_type.fromisoformat(start_date) if start_date else date_type.today()
+            end = date_type.fromisoformat(end_date) if end_date else date_type.today()
+            summary = await service.get_contract_period_summary(
+                project_id=project_id,
+                start_date=start,
+                end_date=end
+            )
         
         if not summary:
             raise HTTPException(status_code=404, detail="Contract period not found")
@@ -1788,6 +2239,8 @@ async def export_contract_period_csv(
             wb = Workbook()
             ws = wb.active
             ws.title = "סיכום תקופת חוזה"
+            ws.sheet_view.rightToLeft = True
+            ws.sheet_view.rightToLeft = True
             
             # Define colors and styles
             header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -2041,11 +2494,68 @@ async def export_contract_period_csv(
                     ws[f'A{row}'] = budget.get('category', '')
                     ws[f'B{row}'] = budget.get('amount', 0)
                     ws[f'B{row}'].number_format = '#,##0.00'
-                    ws[f'C{row}'] = budget.get('period_type', '')
+                    
+                    p_type = budget.get('period_type', '')
+                    if p_type == 'Annual':
+                        p_type = 'שנתי'
+                    elif p_type == 'Monthly':
+                        p_type = 'חודשי'
+                    ws[f'C{row}'] = p_type
+                    
                     ws[f'D{row}'] = budget.get('start_date', '') or ''
                     ws[f'E{row}'] = budget.get('end_date', '') or ''
                     ws[f'F{row}'] = 'כן' if budget.get('is_active', False) else 'לא'
                     for col_idx in range(1, 7):
+                        col = get_column_letter(col_idx)
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+                    row += 1
+            
+            # Fund Transactions
+            if summary.get('fund_transactions'):
+                ws.merge_cells(f'A{row}:G{row}')
+                cell = ws[f'A{row}']
+                cell.value = 'עסקאות קופה'
+                cell.fill = section_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                # Fund Transaction headers
+                headers = ['תאריך', 'סוג', 'סכום (₪)', 'תיאור', 'קטגוריה', 'אמצעי תשלום', 'הערות']
+                for idx, header in enumerate(headers, 1):
+                    col = get_column_letter(idx)
+                    cell = ws[f'{col}{row}']
+                    cell.value = header
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                # Fund Transaction data
+                for tx in summary['fund_transactions']:
+                    tx_type = 'הכנסה' if tx.get('type') == 'Income' else 'הוצאה'
+                    amount = tx.get('amount', 0)
+                    
+                    ws[f'A{row}'] = tx.get('tx_date', '')
+                    ws[f'B{row}'] = tx_type
+                    ws[f'C{row}'] = amount
+                    ws[f'C{row}'].number_format = '#,##0.00'
+                    ws[f'D{row}'] = tx.get('description', '') or ''
+                    ws[f'E{row}'] = tx.get('category', '') or ''
+                    ws[f'F{row}'] = tx.get('payment_method', '') or ''
+                    ws[f'G{row}'] = tx.get('notes', '') or ''
+                    
+                    # Color code by type
+                    if tx.get('type') == 'Income':
+                        ws[f'B{row}'].fill = income_fill
+                        ws[f'C{row}'].fill = income_fill
+                    else:
+                        ws[f'B{row}'].fill = expense_fill
+                        ws[f'C{row}'].fill = expense_fill
+                    
+                    for col_idx in range(1, 8):
                         col = get_column_letter(col_idx)
                         ws[f'{col}{row}'].border = border
                     row += 1
@@ -2248,10 +2758,15 @@ async def export_contract_period_csv(
                 writer.writerow(['תקציבים'])
                 writer.writerow(['קטגוריה', 'סכום', 'סוג תקופה', 'תאריך התחלה', 'תאריך סיום', 'פעיל'])
                 for budget in summary['budgets']:
+                    p_type = budget.get('period_type', '')
+                    if p_type == 'Annual':
+                        p_type = 'שנתי'
+                    elif p_type == 'Monthly':
+                        p_type = 'חודשי'
                     writer.writerow([
                         budget.get('category', ''),
                         budget.get('amount', 0),
-                        budget.get('period_type', ''),
+                        p_type,
                         budget.get('start_date', ''),
                         budget.get('end_date', ''),
                         'כן' if budget.get('is_active', False) else 'לא'
@@ -2327,7 +2842,7 @@ async def check_and_renew_contract(
         # Reload contract periods after renewal to ensure they're up to date
         periods_by_year = await service.get_previous_contracts_by_year(project_id)
         result = []
-        for year in sorted(periods_by_year.keys(), reverse=True):
+        for year in sorted(periods_by_year.keys(), reverse=False):
             result.append({
                 'year': year,
                 'periods': periods_by_year[year]
@@ -2348,6 +2863,449 @@ async def check_and_renew_contract(
             'renewed': False,
             'message': 'החוזה עדיין לא הסתיים או אין תאריך סיום מוגדר'
         }
+
+
+@router.get("/{project_id}/contract-periods/year/{year}/export-csv")
+async def export_contract_year_csv(
+    project_id: int,
+    year: int,
+    db: DBSessionDep,
+    user = Depends(get_current_user)
+):
+    """Export all contract periods for a specific year to Excel"""
+    try:
+        service = ContractPeriodService(db)
+        from backend.repositories.contract_period_repository import ContractPeriodRepository
+        period_repo = ContractPeriodRepository(db)
+        all_year_periods = await period_repo.get_by_project_and_year(project_id, year)
+        
+        # Get project info
+        project = await ProjectRepository(db).get_by_id(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # If no periods exist for this year, create a virtual one for the whole year
+        if not all_year_periods:
+            from backend.models.contract_period import ContractPeriod
+            from datetime import date as date_type
+            
+            # Determine start and end dates for the year, clipped by project dates
+            year_start = max(project.start_date, date_type(year, 1, 1)) if project.start_date else date_type(year, 1, 1)
+            project_end = project.end_date if project.end_date else date_type.today()
+            year_end = min(project_end, date_type(year, 12, 31))
+            
+            if year_start > year_end:
+                raise HTTPException(status_code=404, detail=f"Project does not cover year {year}")
+                
+            # Create a virtual period object (not saved to DB)
+            virtual_period = ContractPeriod(
+                id=None,
+                project_id=project_id,
+                start_date=year_start,
+                end_date=year_end,
+                contract_year=year,
+                year_index=1
+            )
+            
+            # Use the virtual period for summary
+            summary_data = await service.get_contract_period_summary(
+                project_id=project_id,
+                start_date=year_start,
+                end_date=year_end
+            )
+            
+            # Reconstruct all_year_periods structure for the rest of the function
+            # We'll use a simplified flow for virtual year
+            summary = {
+                'year_label': f"שנת {year}",
+                'start_date': year_start.isoformat(),
+                'end_date': year_end.isoformat(),
+                'total_income': summary_data.get('total_income', 0),
+                'total_expense': summary_data.get('total_expense', 0),
+                'total_profit': summary_data.get('total_profit', 0),
+                'transactions': summary_data.get('transactions', []),
+                'fund_transactions': summary_data.get('fund_transactions', []),
+                'budgets': summary_data.get('budgets', []),
+                'all_periods': [virtual_period],
+                'contract_year': year
+            }
+        else:
+            # Sort periods by start date
+            all_year_periods.sort(key=lambda p: p.start_date)
+            
+            # Aggregate data for the whole year
+            year_total_income = 0
+            year_total_expense = 0
+            all_transactions = []
+            all_fund_transactions = []
+            all_budgets = []
+            
+            for period in all_year_periods:
+                summary_data = await service.get_contract_period_summary(period.id)
+                year_total_income += summary_data.get('total_income', 0)
+                year_total_expense += summary_data.get('total_expense', 0)
+                
+                # Add period label to transactions to distinguish them
+                period_label = summary_data.get('year_label') or f"תקופה {period.year_index}"
+                for tx in summary_data.get('transactions', []):
+                    tx['period_label'] = period_label
+                    all_transactions.append(tx)
+                for tx in summary_data.get('fund_transactions', []):
+                    tx['period_label'] = period_label
+                    all_fund_transactions.append(tx)
+                    
+                # Use budgets from the latest period in that year as they are likely the most up to date
+                all_budgets = summary_data.get('budgets', [])
+
+            summary = {
+                'year_label': f"שנת {year}",
+                'start_date': all_year_periods[0].start_date.isoformat(),
+                'end_date': all_year_periods[-1].end_date.isoformat() if all_year_periods[-1].end_date else date.today().isoformat(),
+                'total_income': year_total_income,
+                'total_expense': year_total_expense,
+                'total_profit': year_total_income - year_total_expense,
+                'transactions': all_transactions,
+                'fund_transactions': all_fund_transactions,
+                'budgets': all_budgets,
+                'all_periods': all_year_periods,
+                'contract_year': year
+            }
+
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+            
+            # Create workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = f"סיכום שנת {year}"
+            ws.sheet_view.rightToLeft = True
+            ws.sheet_view.rightToLeft = True
+            
+            # Define colors and styles
+            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            title_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            income_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            expense_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            profit_positive_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            profit_negative_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            section_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+            
+            header_font = Font(bold=True, color="FFFFFF", size=12)
+            title_font = Font(bold=True, color="FFFFFF", size=14)
+            normal_font = Font(size=11)
+            bold_font = Font(bold=True, size=11)
+            
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            row = 1
+            
+            # Title
+            ws.merge_cells(f'A{row}:B{row}')
+            cell = ws[f'A{row}']
+            cell.value = f'סיכום שנת חוזה {year}'
+            cell.fill = title_fill
+            cell.font = title_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 2
+            
+            # Project info
+            ws[f'A{row}'] = 'שם פרויקט'
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'] = project.name
+            row += 1
+            
+            ws[f'A{row}'] = 'שנה'
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'] = year
+            row += 1
+            
+            ws[f'A{row}'] = 'תאריך התחלה'
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'] = summary['start_date']
+            row += 1
+            
+            ws[f'A{row}'] = 'תאריך סיום'
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'] = summary['end_date']
+            row += 2
+            
+            # Financial Summary
+            ws.merge_cells(f'A{row}:B{row}')
+            cell = ws[f'A{row}']
+            cell.value = 'סיכום כלכלי שנתי'
+            cell.fill = section_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 1
+            
+            ws[f'A{row}'] = 'סוג'
+            ws[f'B{row}'] = 'סכום (₪)'
+            for col in ['A', 'B']:
+                cell = ws[f'{col}{row}']
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 1
+            
+            ws[f'A{row}'] = 'סה"כ הכנסות'
+            ws[f'B{row}'] = summary['total_income']
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'].fill = income_fill
+            ws[f'B{row}'].number_format = '#,##0.00'
+            for col in ['A', 'B']:
+                ws[f'{col}{row}'].border = border
+            row += 1
+            
+            ws[f'A{row}'] = 'סה"כ הוצאות'
+            ws[f'B{row}'] = summary['total_expense']
+            ws[f'A{row}'].font = bold_font
+            ws[f'B{row}'].fill = expense_fill
+            ws[f'B{row}'].number_format = '#,##0.00'
+            for col in ['A', 'B']:
+                ws[f'{col}{row}'].border = border
+            row += 1
+            
+            ws[f'A{row}'] = 'סה"כ רווח'
+            ws[f'B{row}'] = summary['total_profit']
+            ws[f'A{row}'].font = bold_font
+            profit_fill = profit_positive_fill if summary['total_profit'] >= 0 else profit_negative_fill
+            ws[f'B{row}'].fill = profit_fill
+            ws[f'B{row}'].number_format = '#,##0.00'
+            for col in ['A', 'B']:
+                ws[f'{col}{row}'].border = border
+            row += 2
+
+            # Periods Summary Table
+            ws.merge_cells(f'A{row}:F{row}')
+            cell = ws[f'A{row}']
+            cell.value = 'פירוט תקופות בשנה'
+            cell.fill = section_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 1
+            
+            headers = ['תקופה', 'תאריך התחלה', 'תאריך סיום', 'הכנסות', 'הוצאות', 'רווח']
+            for idx, header in enumerate(headers, 1):
+                col = get_column_letter(idx)
+                cell = ws[f'{col}{row}']
+                cell.value = header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 1
+            
+            for p in all_year_periods:
+                p_label = f"תקופה {p.year_index}"
+                ws[f'A{row}'] = p_label
+                ws[f'B{row}'] = p.start_date.isoformat()
+                ws[f'C{row}'] = p.end_date.isoformat() if p.end_date else ''
+                ws[f'D{row}'] = float(p.total_income or 0)
+                ws[f'D{row}'].number_format = '#,##0.00'
+                ws[f'E{row}'] = float(p.total_expense or 0)
+                ws[f'E{row}'].number_format = '#,##0.00'
+                ws[f'F{row}'] = float(p.total_profit or 0)
+                ws[f'F{row}'].number_format = '#,##0.00'
+                for col_idx in range(1, 7):
+                    col = get_column_letter(col_idx)
+                    ws[f'{col}{row}'].border = border
+                row += 1
+            row += 2
+
+            # Budgets
+            if summary.get('budgets'):
+                ws.merge_cells(f'A{row}:F{row}')
+                cell = ws[f'A{row}']
+                cell.value = 'תקציבים'
+                cell.fill = section_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                headers = ['קטגוריה', 'סכום (₪)', 'סוג תקופה', 'תאריך התחלה', 'תאריך סיום', 'פעיל']
+                for idx, header in enumerate(headers, 1):
+                    col = get_column_letter(idx)
+                    cell = ws[f'{col}{row}']
+                    cell.value = header
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                for budget in summary['budgets']:
+                    ws[f'A{row}'] = budget.get('category', '')
+                    ws[f'B{row}'] = budget.get('amount', 0)
+                    ws[f'B{row}'].number_format = '#,##0.00'
+                    p_type = budget.get('period_type', '')
+                    if p_type == 'Annual':
+                        p_type = 'שנתי'
+                    elif p_type == 'Monthly':
+                        p_type = 'חודשי'
+                    ws[f'C{row}'] = p_type
+                    ws[f'D{row}'] = budget.get('start_date', '') or ''
+                    ws[f'E{row}'] = budget.get('end_date', '') or ''
+                    ws[f'F{row}'] = 'כן' if budget.get('is_active', False) else 'לא'
+                    for col_idx in range(1, 7):
+                        col = get_column_letter(col_idx)
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+                row += 2
+
+            # Fund Transactions
+            if summary.get('fund_transactions'):
+                ws.merge_cells(f'A{row}:H{row}')
+                cell = ws[f'A{row}']
+                cell.value = 'עסקאות קופה'
+                cell.fill = section_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                headers = ['תאריך', 'תקופה', 'סוג', 'סכום (₪)', 'תיאור', 'קטגוריה', 'אמצעי תשלום', 'הערות']
+                for idx, header in enumerate(headers, 1):
+                    col = get_column_letter(idx)
+                    cell = ws[f'{col}{row}']
+                    cell.value = header
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                for tx in summary['fund_transactions']:
+                    tx_type = 'הכנסה' if tx.get('type') == 'Income' else 'הוצאה'
+                    ws[f'A{row}'] = tx.get('tx_date', '')
+                    ws[f'B{row}'] = tx.get('period_label', '')
+                    ws[f'C{row}'] = tx_type
+                    ws[f'D{row}'] = tx.get('amount', 0)
+                    ws[f'D{row}'].number_format = '#,##0.00'
+                    ws[f'E{row}'] = tx.get('description', '') or ''
+                    ws[f'F{row}'] = tx.get('category', '') or ''
+                    ws[f'G{row}'] = tx.get('payment_method', '') or ''
+                    ws[f'H{row}'] = tx.get('notes', '') or ''
+                    
+                    if tx.get('type') == 'Income':
+                        ws[f'C{row}'].fill = income_fill
+                        ws[f'D{row}'].fill = income_fill
+                    else:
+                        ws[f'C{row}'].fill = expense_fill
+                        ws[f'D{row}'].fill = expense_fill
+                    
+                    for col_idx in range(1, 9):
+                        col = get_column_letter(col_idx)
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+                row += 2
+
+            # All Transactions
+            if summary.get('transactions'):
+                ws.merge_cells(f'A{row}:H{row}')
+                cell = ws[f'A{row}']
+                cell.value = 'עסקאות'
+                cell.fill = section_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                headers = ['תאריך', 'תקופה', 'סוג', 'סכום (₪)', 'תיאור', 'קטגוריה', 'אמצעי תשלום', 'הערות']
+                for idx, header in enumerate(headers, 1):
+                    col = get_column_letter(idx)
+                    cell = ws[f'{col}{row}']
+                    cell.value = header
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                for tx in summary['transactions']:
+                    tx_type = 'הכנסה' if tx.get('type') == 'Income' else 'הוצאה'
+                    ws[f'A{row}'] = tx.get('tx_date', '')
+                    ws[f'B{row}'] = tx.get('period_label', '')
+                    ws[f'C{row}'] = tx_type
+                    ws[f'D{row}'] = tx.get('amount', 0)
+                    ws[f'D{row}'].number_format = '#,##0.00'
+                    ws[f'E{row}'] = tx.get('description', '') or ''
+                    ws[f'F{row}'] = tx.get('category', '') or ''
+                    ws[f'G{row}'] = tx.get('payment_method', '') or ''
+                    ws[f'H{row}'] = tx.get('notes', '') or ''
+                    
+                    if tx.get('type') == 'Income':
+                        ws[f'C{row}'].fill = income_fill
+                        ws[f'D{row}'].fill = income_fill
+                    else:
+                        ws[f'C{row}'].fill = expense_fill
+                        ws[f'D{row}'].fill = expense_fill
+                    
+                    for col_idx in range(1, 9):
+                        col = get_column_letter(col_idx)
+                        ws[f'{col}{row}'].border = border
+                    row += 1
+
+            # Auto-adjust column widths
+            for col in ws.columns:
+                try:
+                    max_length = 0
+                    col_letter = col[0].column_letter
+                    for cell in col:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    adjusted_width = min(max_length + 2, 50)
+                    if adjusted_width > 0:
+                        ws.column_dimensions[col_letter].width = adjusted_width
+                except:
+                    pass
+
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            import re
+            safe_project_name = re.sub(r'[^\x00-\x7F]', '_', project.name).replace('"', '').replace('/', '_').replace('\\', '_').strip()
+            filename = f"{safe_project_name}_year_{year}.xlsx"
+            
+            return Response(
+                content=output.getvalue(),
+                media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"'
+                }
+            )
+        except ImportError:
+            # Simple CSV fallback
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([f'סיכום שנת {year}', project.name])
+            writer.writerow(['סה"כ הכנסות', summary['total_income']])
+            writer.writerow(['סה"כ הוצאות', summary['total_expense']])
+            writer.writerow(['סה"כ רווח', summary['total_profit']])
+            writer.writerow([])
+            writer.writerow(['עסקאות'])
+            writer.writerow(['תאריך', 'תקופה', 'סוג', 'סכום', 'תיאור'])
+            for tx in summary['transactions']:
+                tx_type = 'הכנסה' if tx.get('type') == 'Income' else 'הוצאה'
+                writer.writerow([tx.get('tx_date'), tx.get('period_label'), tx_type, tx.get('amount'), tx.get('description')])
+            
+            return Response(
+                content=output.getvalue(),
+                media_type='text/csv',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{year}_summary.csv"'
+                }
+            )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error exporting year CSV: {str(e)}")
 
 
 @router.post("/{project_id}/close-year")
@@ -2373,6 +3331,11 @@ async def close_contract_year(
             end_date=end_date_obj,
             archived_by_user_id=user.id
         )
+        
+        # Ensure recurring transactions are generated for the new period
+        from backend.services.recurring_transaction_service import RecurringTransactionService
+        recurring_service = RecurringTransactionService(db)
+        await recurring_service.ensure_project_transactions_generated(project_id)
         
         # Reload contract periods after closing
         periods_by_year = await service.get_previous_contracts_by_year(project_id)

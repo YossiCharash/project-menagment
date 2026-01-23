@@ -37,6 +37,9 @@ class ContractPeriod(Base):
     # Budgets snapshot (JSON stored as text)
     budgets_snapshot: Mapped[str | None] = mapped_column(Text, default=None)
     
+    # Relationship to budgets for this contract period
+    budgets: Mapped[list["Budget"]] = relationship(back_populates="contract_period", cascade="all, delete-orphan")
+    
     # Metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     

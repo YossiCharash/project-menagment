@@ -1,8 +1,12 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import api from '../lib/api'
 import IncomeExpensePie from '../components/charts/IncomeExpensePie'
-import { FileText, Archive, Download, Filter, ChevronDown, ChevronUp } from 'lucide-react'
-import { CategoryAPI, SupplierAPI } from '../lib/apiClient'
+import ProjectTrendsChart from '../components/charts/ProjectTrendsChart'
+import { FileText, Archive, Download, Filter, ChevronDown, ChevronUp, Calendar } from 'lucide-react'
+import { CategoryAPI, SupplierAPI, ReportAPI, ProjectAPI } from '../lib/apiClient'
+import { parseLocalDate } from '../lib/utils'
+import { ExpenseCategory, Transaction } from '../types/api'
+import html2canvas from 'html2canvas'
 
 interface Report {
     income: number;
@@ -26,14 +30,65 @@ export default function Reports() {
 
   // Chart Refs for capturing
   const incomeExpenseChartRef = useRef<HTMLDivElement>(null)
+  const trendsChartRef = useRef<HTMLDivElement>(null)
 
-  // Options State
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  // State for ProjectTrendsChart
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([])
+  const [projectName, setProjectName] = useState<string>('')
+  const [projectBudget, setProjectBudget] = useState<{ budget_monthly: number; budget_annual: number }>({ budget_monthly: 0, budget_annual: 0 })
+  
+  // Chart selection state - user can choose which chart to include in report
+  const [selectedChartViewMode, setSelectedChartViewMode] = useState<'categories' | 'profitability'>('categories')
+  const [selectedChartType, setSelectedChartType] = useState<'pie' | 'bar' | 'line'>('pie')
+
+  // Global Date Filter State - Used across all components
+  const [dateFilterMode, setDateFilterMode] = useState<'current_month' | 'selected_month' | 'date_range' | 'all_time'>('current_month')
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [filterStartDate, setFilterStartDate] = useState<string>('')
+  const [filterEndDate, setFilterEndDate] = useState<string>('')
+
+  // Calculate actual startDate and endDate based on filter mode
+  const { startDate, endDate } = useMemo(() => {
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+
+    let calculatedStartDate = ''
+    let calculatedEndDate = ''
+
+    if (dateFilterMode === 'current_month') {
+      // Current month
+      const monthStart = new Date(currentYear, currentMonth - 1, 1)
+      const monthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999)
+      calculatedStartDate = monthStart.toISOString().split('T')[0]
+      calculatedEndDate = monthEnd.toISOString().split('T')[0]
+    } else if (dateFilterMode === 'selected_month') {
+      // Selected month
+      const [year, month] = selectedMonth.split('-').map(Number)
+      const monthStart = new Date(year, month - 1, 1)
+      const monthEnd = new Date(year, month, 0, 23, 59, 59, 999)
+      calculatedStartDate = monthStart.toISOString().split('T')[0]
+      calculatedEndDate = monthEnd.toISOString().split('T')[0]
+    } else if (dateFilterMode === 'date_range') {
+      // Date range
+      calculatedStartDate = filterStartDate
+      calculatedEndDate = filterEndDate
+    } else if (dateFilterMode === 'all_time') {
+      // All time - empty dates means no filter
+      calculatedStartDate = ''
+      calculatedEndDate = ''
+    }
+
+    return { startDate: calculatedStartDate, endDate: calculatedEndDate }
+  }, [dateFilterMode, selectedMonth, filterStartDate, filterEndDate])
   const [includeSummary, setIncludeSummary] = useState(true)
   const [includeBudgets, setIncludeBudgets] = useState(true)
   const [includeFunds, setIncludeFunds] = useState(false)
-  const [includeTransactions, setIncludeTransactions] = useState(true)
+  const [includeTransactions, setIncludeTransactions] = useState(false) // Default: don't show transaction table, only charts
   const [onlyRecurring, setOnlyRecurring] = useState(false)
   const [txType, setTxType] = useState<string[]>([]) // empty = all
 
@@ -50,7 +105,7 @@ export default function Reports() {
   const [showZipOptions, setShowZipOptions] = useState(false)
 
   // Chart Options
-  const [includeCharts, setIncludeCharts] = useState(false)
+  const [includeCharts, setIncludeCharts] = useState(true) // Default: show charts
   const [selectedChartTypes, setSelectedChartTypes] = useState<string[]>([])
 
   // Supplier Report State
@@ -85,41 +140,52 @@ export default function Reports() {
     SupplierAPI.getSuppliers().then(setSuppliers).catch(console.error)
   }, [])
 
-  // Update default dates when project changes
-  useEffect(() => {
-    if (!projectId) return
-
-    const selectedProject = projects.find(p => String(p.id) === projectId)
-    if (selectedProject) {
-      // Set default dates from project start_date and end_date
-      if (selectedProject.start_date) {
-        // Handle both ISO string format (with time) and date-only format
-        const dateStr = selectedProject.start_date.split('T')[0]
-        setStartDate(dateStr)
-      } else {
-        setStartDate('')
-      }
-
-      if (selectedProject.end_date) {
-        // Handle both ISO string format (with time) and date-only format
-        const dateStr = selectedProject.end_date.split('T')[0]
-        setEndDate(dateStr)
-      } else {
-        setEndDate('')
-      }
-    }
-  }, [projectId, projects])
+  // Note: Removed the effect that sets dates from project - now dates are controlled by the date filter
 
   useEffect(() => {
     if (!projectId) return
     const run = async () => {
       setLoading(true)
       try {
-          const { data } = await api.get(`/reports/project/${projectId}`)
+          // Build query params with date filters
+          const params = new URLSearchParams()
+          if (startDate) params.append('start_date', startDate)
+          if (endDate) params.append('end_date', endDate)
+          
+          const queryString = params.toString()
+          const url = `/reports/project/${projectId}${queryString ? '?' + queryString : ''}`
+          const { data } = await api.get(url)
           setData(data)
           // Update checkbox defaults based on availability
           setIncludeBudgets(!!data.has_budget)
           setIncludeFunds(!!data.has_fund)
+
+          // Load project full data for charts
+          try {
+            const fullData = await ProjectAPI.getProjectFull(Number(projectId))
+            setProjectName(fullData.project.name || '')
+            setProjectBudget({
+              budget_monthly: fullData.project.budget_monthly || 0,
+              budget_annual: fullData.project.budget_annual || 0
+            })
+            
+            // Filter transactions by date range if specified
+            let filteredTransactions = fullData.transactions || []
+            if (startDate || endDate) {
+              filteredTransactions = filteredTransactions.filter((tx: Transaction) => {
+                const txDate = tx.tx_date
+                if (startDate && txDate < startDate) return false
+                if (endDate && txDate > endDate) return false
+                return true
+              })
+            }
+            setTransactions(filteredTransactions)
+            setExpenseCategories(fullData.expense_categories || [])
+          } catch (e) {
+            console.error('Error loading project full data:', e)
+            setTransactions([])
+            setExpenseCategories([])
+          }
       } catch (e) {
           console.error(e)
       } finally {
@@ -127,7 +193,7 @@ export default function Reports() {
       }
     }
     run()
-  }, [projectId])
+  }, [projectId, startDate, endDate])
 
   // Filter suppliers based on selected categories
   // Only show suppliers if categories are selected
@@ -160,47 +226,21 @@ export default function Reports() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredSuppliers, selectedCategories])
 
-  // Function to capture chart as base64
+  // Function to capture chart as base64 using html2canvas
   const captureChartAsBase64 = async (chartRef: React.RefObject<HTMLDivElement>): Promise<string | null> => {
     if (!chartRef.current) return null
 
     try {
-      const svgElement = chartRef.current.querySelector('svg')
-
-      if (svgElement) {
-        // Create canvas
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return null
-
-        // Set size
-        const svgRect = svgElement.getBoundingClientRect()
-        canvas.width = svgRect.width * 2 // Higher resolution
-        canvas.height = svgRect.height * 2
-        ctx.scale(2, 2)
-
-        // Convert SVG to image
-        const svgData = new XMLSerializer().serializeToString(svgElement)
-        const img = new Image()
-        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-        const url = URL.createObjectURL(svgBlob)
-
-        return new Promise((resolve) => {
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0)
-            URL.revokeObjectURL(url)
-            const base64 = canvas.toDataURL('image/png')
-            resolve(base64)
-          }
-          img.onerror = () => {
-            URL.revokeObjectURL(url)
-            resolve(null)
-          }
-          img.src = url
-        })
-      }
-
-      return null
+      // Use html2canvas for more reliable capture
+      const canvas = await html2canvas(chartRef.current, {
+        backgroundColor: document.documentElement.classList.contains('dark') ? '#1f2937' : '#ffffff',
+        scale: 2, // Higher quality
+        logging: false,
+        useCORS: true
+      })
+      
+      const base64 = canvas.toDataURL('image/png')
+      return base64
     } catch (error) {
       console.error('Error capturing chart:', error)
       return null
@@ -221,23 +261,44 @@ export default function Reports() {
       try {
         // Capture charts if requested
         let chartImages: Record<string, string> | null = null
-        if (includeCharts && selectedChartTypes.length > 0) {
+        let componentChartType = '' // Define outside the if block
+        
+        if (includeCharts) {
           chartImages = {}
 
-          // Capture income/expense pie chart if selected
-          if (selectedChartTypes.includes('income_expense_pie') && incomeExpenseChartRef.current) {
-            const chartBase64 = await captureChartAsBase64(incomeExpenseChartRef)
-            if (chartBase64) {
-              chartImages['income_expense_pie'] = chartBase64
+          // Don't capture income/expense pie - only expense breakdown charts
+
+          // Always capture the ProjectTrendsChart if it's displayed (user's selected chart)
+          if (trendsChartRef.current) {
+            // Map the selected chart type to backend chart type
+            if (selectedChartViewMode === 'categories') {
+              if (selectedChartType === 'pie') {
+                componentChartType = 'expense_by_category_pie'
+              } else if (selectedChartType === 'bar') {
+                componentChartType = 'expense_by_category_bar'
+              } else if (selectedChartType === 'line') {
+                componentChartType = 'trends_line'
+              }
+            } else {
+              // profitability mode - only line chart makes sense
+              if (selectedChartType === 'line') {
+                componentChartType = 'trends_line'
+              } else if (selectedChartType === 'bar') {
+                componentChartType = 'trends_line' // Use line chart type for backend
+              }
+            }
+
+            // Always capture the chart that the user selected in the component
+            if (componentChartType) {
+              const chartBase64 = await captureChartAsBase64(trendsChartRef)
+              if (chartBase64) {
+                chartImages[componentChartType] = chartBase64
+              }
             }
           }
 
+          // Capture other charts if selected
           // You can add more chart captures here based on selectedChartTypes
-          // For example:
-          // if (selectedChartTypes.includes('expense_by_category_pie') && categoryChartRef.current) {
-          //   const chartBase64 = await captureChartAsBase64(categoryChartRef)
-          //   if (chartBase64) chartImages['expense_by_category_pie'] = chartBase64
-          // }
         }
 
         const payload = {
@@ -255,11 +316,21 @@ export default function Reports() {
           include_project_contract: format === 'zip' ? includeContract : false,
           include_project_image: format === 'zip' ? includeImage : false,
           include_charts: includeCharts,
-          chart_types: includeCharts && selectedChartTypes.length > 0 ? selectedChartTypes : null,
+          // Include the chart from component plus any selected checkboxes
+          chart_types: includeCharts 
+            ? (componentChartType 
+                ? [...new Set([componentChartType, ...selectedChartTypes])] 
+                : (selectedChartTypes.length > 0 ? selectedChartTypes : ['expense_by_category_pie']))
+            : null,
           format: format,
           chart_images: chartImages // Add captured charts
         }
 
+        console.log('Sending report request with payload:', {
+          ...payload,
+          chart_images: chartImages ? Object.keys(chartImages) : null
+        })
+        
         const response = await api.post('/reports/project/custom-report', payload, { responseType: 'blob' })
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
@@ -282,9 +353,33 @@ export default function Reports() {
 
         // Reset zip options visibility after download
         if (format === 'zip') setShowZipOptions(false)
-      } catch (e) {
+      } catch (e: any) {
           console.error("Export failed", e)
-          alert("שגיאה בהפקת הדוח")
+          let errorMessage = "שגיאה לא ידועה"
+          
+          if (e?.response) {
+            // Try to parse error from response
+            if (e.response.data instanceof Blob) {
+              // If it's a blob, try to read it as text
+              const text = await e.response.data.text()
+              try {
+                const json = JSON.parse(text)
+                errorMessage = json.detail || json.message || text
+              } catch {
+                errorMessage = text || "שגיאה בהפקת הדוח"
+              }
+            } else if (e.response.data?.detail) {
+              errorMessage = e.response.data.detail
+            } else if (e.response.data?.message) {
+              errorMessage = e.response.data.message
+            } else if (typeof e.response.data === 'string') {
+              errorMessage = e.response.data
+            }
+          } else if (e?.message) {
+            errorMessage = e.message
+          }
+          
+          alert(`שגיאה בהפקת הדוח: ${errorMessage}`)
       } finally {
           setGenerating(false)
       }
@@ -339,7 +434,7 @@ export default function Reports() {
   }
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20" dir="rtl">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white">דוחות וייצוא נתונים</h1>
 
       {/* Project Selector */}
@@ -356,33 +451,106 @@ export default function Reports() {
           </select>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-          {/* Quick Stats */}
-          {data && !loading && (
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">סקירה כללית (מצטבר)</h2>
-                <div className="flex flex-col md:flex-row gap-8 items-center">
-                    {/* Wrap chart in ref div for capturing */}
-                    <div className="w-48 h-48" ref={incomeExpenseChartRef}>
-                        <IncomeExpensePie income={data.income} expenses={data.expenses} />
-                    </div>
-                    <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300 flex-1">
-                        <li className="flex justify-between">
-                            <span>הכנסות:</span>
-                            <span className="font-bold text-green-600 dark:text-green-400">{data.income.toFixed(2)} ₪</span>
-                        </li>
-                        <li className="flex justify-between">
-                            <span>הוצאות:</span>
-                            <span className="font-bold text-red-600 dark:text-red-400">{data.expenses.toFixed(2)} ₪</span>
-                        </li>
-                        <li className="flex justify-between border-t border-gray-200 dark:border-gray-700 pt-2">
-                            <span>רווח:</span>
-                            <span className={`font-bold ${data.profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {data.profit.toFixed(2)} ₪
-                            </span>
-                        </li>
-                    </ul>
+      {/* Global Date Filter - Prominent at top */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl shadow-sm border border-blue-200 dark:border-blue-800 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Calendar className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-lg font-semibold text-blue-900 dark:text-white">סינון לפי תאריך</h3>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={dateFilterMode}
+              onChange={(e) => setDateFilterMode(e.target.value as any)}
+              className="px-4 py-2 border border-blue-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500 font-medium"
+            >
+              <option value="current_month">חודש נוכחי</option>
+              <option value="selected_month">חודש ספציפי</option>
+              <option value="date_range">טווח תאריכים</option>
+              <option value="all_time">כל הזמן</option>
+            </select>
+
+            {dateFilterMode === 'selected_month' && (
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-4 py-2 border border-blue-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            )}
+
+            {dateFilterMode === 'date_range' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                  className="px-3 py-2 border border-blue-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
+                  placeholder="מתאריך"
+                />
+                <span className="text-gray-500 font-medium">עד</span>
+                <input
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  min={filterStartDate}
+                  className="px-3 py-2 border border-blue-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500"
+                  placeholder="עד תאריך"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Filter description */}
+        <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
+          {dateFilterMode === 'current_month' && (
+            <span>מציג נתונים מהחודש הנוכחי ({new Date().toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })})</span>
+          )}
+          {dateFilterMode === 'selected_month' && selectedMonth && (
+            <span>מציג נתונים מחודש {new Date(selectedMonth + '-01').toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
+          )}
+          {dateFilterMode === 'date_range' && filterStartDate && filterEndDate && (
+            <span>מציג נתונים מ-{parseLocalDate(filterStartDate)?.toLocaleDateString('he-IL')} עד {parseLocalDate(filterEndDate)?.toLocaleDateString('he-IL')}</span>
+          )}
+          {dateFilterMode === 'all_time' && (
+            <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6" dir="rtl">
+          {/* Project Trends Chart - Interactive Chart Selection - Replaces Quick Stats */}
+          {projectId && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6" dir="rtl">
+              {loading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center text-gray-500 dark:text-gray-400">
+                    <div className="text-lg mb-2">טוען נתונים...</div>
+                  </div>
                 </div>
+              ) : (
+                <div ref={trendsChartRef}>
+                  <ProjectTrendsChart
+                    projectId={Number(projectId)}
+                    projectName={projectName || 'פרויקט'}
+                    transactions={transactions}
+                    expenseCategories={expenseCategories}
+                    compact={false}
+                    projectIncome={projectBudget?.budget_monthly || 0}
+                    globalFilterType={dateFilterMode === 'current_month' ? 'current_month' : dateFilterMode === 'selected_month' ? 'selected_month' : dateFilterMode === 'date_range' ? 'date_range' : 'all_time'}
+                    globalSelectedMonth={selectedMonth}
+                    globalStartDate={startDate}
+                    globalEndDate={endDate}
+                    hideFilterControls={true}
+                    onViewModeChange={setSelectedChartViewMode}
+                    onChartTypeChange={setSelectedChartType}
+                    controlledViewMode={selectedChartViewMode}
+                    controlledChartType={selectedChartType}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -394,20 +562,6 @@ export default function Reports() {
               </h2>
 
               <div className="space-y-4">
-                  {/* Date Range */}
-                  <div className="grid grid-cols-2 gap-4">
-                      <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">מתאריך</label>
-                          <input type="date" className="w-full border border-gray-300 dark:border-gray-600 rounded p-1.5 dark:bg-gray-700 dark:text-white" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                      </div>
-                      <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">עד תאריך</label>
-                          <input type="date" className="w-full border border-gray-300 dark:border-gray-600 rounded p-1.5 dark:bg-gray-700 dark:text-white" value={endDate} onChange={e => setEndDate(e.target.value)} />
-                      </div>
-                  </div>
-
-                  <hr className="dark:border-gray-700" />
-
                   {/* Components */}
                   <div>
                       <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">רכיבי הדוח</label>
@@ -452,23 +606,8 @@ export default function Reports() {
 
                       {includeCharts && (
                           <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg text-sm space-y-2 mt-2">
-                              <label className="block text-xs font-medium text-gray-500 mb-1">בחר סוגי גרפים:</label>
+                              <label className="block text-xs font-medium text-gray-500 mb-1">בחר סוגי גרפים לדוח:</label>
                               <div className="grid grid-cols-2 gap-2">
-                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
-                                      <input
-                                          type="checkbox"
-                                          checked={selectedChartTypes.includes('income_expense_pie')}
-                                          onChange={e => {
-                                              if (e.target.checked) {
-                                                  setSelectedChartTypes([...selectedChartTypes, 'income_expense_pie'])
-                                              } else {
-                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'income_expense_pie'))
-                                              }
-                                          }}
-                                          className="rounded text-blue-600"
-                                      />
-                                      עוגה: הכנסות מול הוצאות
-                                  </label>
                                   <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
                                       <input
                                           type="checkbox"
@@ -476,6 +615,9 @@ export default function Reports() {
                                           onChange={e => {
                                               if (e.target.checked) {
                                                   setSelectedChartTypes([...selectedChartTypes, 'expense_by_category_pie'])
+                                                  // Sync preview to show pie chart
+                                                  setSelectedChartViewMode('categories')
+                                                  setSelectedChartType('pie')
                                               } else {
                                                   setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'expense_by_category_pie'))
                                               }
@@ -491,6 +633,9 @@ export default function Reports() {
                                           onChange={e => {
                                               if (e.target.checked) {
                                                   setSelectedChartTypes([...selectedChartTypes, 'expense_by_category_bar'])
+                                                  // Sync preview to show bar chart
+                                                  setSelectedChartViewMode('categories')
+                                                  setSelectedChartType('bar')
                                               } else {
                                                   setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'expense_by_category_bar'))
                                               }
@@ -506,6 +651,9 @@ export default function Reports() {
                                           onChange={e => {
                                               if (e.target.checked) {
                                                   setSelectedChartTypes([...selectedChartTypes, 'trends_line'])
+                                                  // Sync preview to show line chart
+                                                  setSelectedChartViewMode('profitability')
+                                                  setSelectedChartType('line')
                                               } else {
                                                   setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'trends_line'))
                                               }
@@ -514,70 +662,10 @@ export default function Reports() {
                                       />
                                       קו: מגמות לאורך זמן
                                   </label>
-                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
-                                      <input
-                                          type="checkbox"
-                                          checked={selectedChartTypes.includes('expense_by_supplier_bar')}
-                                          onChange={e => {
-                                              if (e.target.checked) {
-                                                  setSelectedChartTypes([...selectedChartTypes, 'expense_by_supplier_bar'])
-                                              } else {
-                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'expense_by_supplier_bar'))
-                                              }
-                                          }}
-                                          className="rounded text-blue-600"
-                                      />
-                                      עמודות: הוצאות לפי ספק
-                                  </label>
-                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
-                                      <input
-                                          type="checkbox"
-                                          checked={selectedChartTypes.includes('monthly_trends_line')}
-                                          onChange={e => {
-                                              if (e.target.checked) {
-                                                  setSelectedChartTypes([...selectedChartTypes, 'monthly_trends_line'])
-                                              } else {
-                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'monthly_trends_line'))
-                                              }
-                                          }}
-                                          className="rounded text-blue-600"
-                                      />
-                                      קו: מגמות חודשיות
-                                  </label>
-                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
-                                      <input
-                                          type="checkbox"
-                                          checked={selectedChartTypes.includes('budget_vs_actual')}
-                                          onChange={e => {
-                                              if (e.target.checked) {
-                                                  setSelectedChartTypes([...selectedChartTypes, 'budget_vs_actual'])
-                                              } else {
-                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'budget_vs_actual'))
-                                              }
-                                          }}
-                                          className="rounded text-blue-600"
-                                      />
-                                      עמודות: תקציב מול ביצוע
-                                  </label>
-                                  <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
-                                      <input
-                                          type="checkbox"
-                                          checked={selectedChartTypes.includes('cumulative_expenses')}
-                                          onChange={e => {
-                                              if (e.target.checked) {
-                                                  setSelectedChartTypes([...selectedChartTypes, 'cumulative_expenses'])
-                                              } else {
-                                                  setSelectedChartTypes(selectedChartTypes.filter(t => t !== 'cumulative_expenses'))
-                                              }
-                                          }}
-                                          className="rounded text-blue-600"
-                                      />
-                                      קו: הוצאות מצטברות
-                                  </label>
                               </div>
-                              {includeCharts && selectedChartTypes.length > 0 && (
-                                  <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-800 dark:text-blue-300">
-                                      💡 הגרפים יילכדו אוטומטית מהמסך וייכללו בדוח
+                              {selectedChartTypes.length > 0 && (
+                                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded text-xs text-green-800 dark:text-green-300">
+                                      ✓ {selectedChartTypes.length} גרפים יופיעו בדוח
                                   </div>
                               )}
                           </div>

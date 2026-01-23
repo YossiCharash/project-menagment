@@ -16,7 +16,7 @@ async def create_budget(
     db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new budget for a project category"""
+    """Create a new budget for a project category, optionally linked to a contract period"""
     try:
 
         service = BudgetService(db)
@@ -40,7 +40,8 @@ async def create_budget(
             amount=budget.amount,
             period_type=budget.period_type,
             start_date=budget.start_date,
-            end_date=budget.end_date
+            end_date=budget.end_date,
+            contract_period_id=budget.contract_period_id
         )
         return BudgetOut.model_validate(created_budget)
     except ValueError as e:
@@ -55,12 +56,16 @@ async def create_budget(
 async def get_project_budgets(
     project_id: int,
     db: DBSessionDep,
+    contract_period_id: Optional[int] = None,
     current_user: User = Depends(get_current_user)
 ):
-    """Get all budgets for a project with spending information"""
+    """Get all budgets for a project with spending information, optionally filtered by contract period"""
     try:
         service = BudgetService(db)
-        budgets_data = await service.get_project_budgets_with_spending(project_id)
+        budgets_data = await service.get_project_budgets_with_spending(
+            project_id, 
+            contract_period_id=contract_period_id
+        )
         # Convert dict to BudgetWithSpending schema
         budgets = [BudgetWithSpending.model_validate(budget_dict) for budget_dict in budgets_data]
         return budgets

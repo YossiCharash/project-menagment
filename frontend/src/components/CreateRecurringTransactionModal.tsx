@@ -78,7 +78,7 @@ const CreateRecurringTransactionModal: React.FC<CreateRecurringTransactionModalP
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
       setDateError(
-        `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
+        `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
       )
     } else {
       setDateError(null)
@@ -193,7 +193,7 @@ const CreateRecurringTransactionModal: React.FC<CreateRecurringTransactionModalP
         const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
         const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
         setError(
-          `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
+          `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
         )
         return
       }

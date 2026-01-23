@@ -84,11 +84,43 @@ def create_app() -> FastAPI:
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError):
         """Handle database integrity errors (unique constraints, foreign keys)"""
+        import re
         error_msg = str(exc.orig) if exc.orig else str(exc)
-        if "unique constraint" in error_msg.lower():
+        error_lower = error_msg.lower()
+        
+        if "unique constraint" in error_lower or "duplicate key" in error_lower:
+            # Try to extract field name and value from error message
+            # Format: duplicate key value violates unique constraint "ix_projects_name"
+            # DETAIL:  Key (name)=(בדיקה4) already exists.
             detail = "הפעולה נכשלה: הרשומה כבר קיימת במערכת."
+            
+            # Extract constraint name (e.g., "ix_projects_name")
+            constraint_match = re.search(r'constraint\s+"([^"]+)"', error_msg, re.IGNORECASE)
+            if constraint_match:
+                constraint_name = constraint_match.group(1)
+                # Extract field name from constraint (e.g., "ix_projects_name" -> "name")
+                # Common patterns: ix_tablename_fieldname or ix_tablename_fieldname
+                field_match = re.search(r'ix_\w+_(.+)$', constraint_name)
+                if field_match:
+                    field_name = field_match.group(1)
+                    # Map field names to Hebrew labels
+                    field_labels = {
+                        'name': 'שם',
+                        'email': 'אימייל',
+                        'username': 'שם משתמש',
+                    }
+                    field_label = field_labels.get(field_name, field_name)
+                    
+                    # Try to extract duplicate value
+                    value_match = re.search(r'Key\s+\([^)]+\)=\(([^)]+)\)', error_msg, re.IGNORECASE)
+                    if value_match:
+                        duplicate_value = value_match.group(1)
+                        detail = f"הפעולה נכשלה: {field_label} '{duplicate_value}' כבר קיים במערכת."
+                    else:
+                        detail = f"הפעולה נכשלה: {field_label} כבר קיים במערכת."
+            
             status_code = 409
-        elif "foreign key constraint" in error_msg.lower():
+        elif "foreign key constraint" in error_lower:
             detail = "הפעולה נכשלה: קיימת תלות ברשומות אחרות המונעת את הפעולה."
             status_code = 400
         else:
@@ -371,6 +403,7 @@ async def run_contract_renewal_scheduler():
     """
     from backend.db.session import AsyncSessionLocal
     from backend.services.contract_period_service import ContractPeriodService
+    from backend.services.recurring_transaction_service import RecurringTransactionService
     from backend.repositories.project_repository import ProjectRepository
     from sqlalchemy import select
     from backend.models.project import Project
@@ -393,6 +426,7 @@ async def run_contract_renewal_scheduler():
                 try:
                     service = ContractPeriodService(db)
                     project_repo = ProjectRepository(db)
+                    recurring_service = RecurringTransactionService(db)
                     
                     # Get all active projects with end dates
                     result = await db.execute(
@@ -406,9 +440,11 @@ async def run_contract_renewal_scheduler():
                     renewed_count = 0
                     for project in projects:
                         try:
-                            renewed_project = await service.check_and_renew_contract(project.id)
-                            if renewed_project:
+                            renewed_period = await service.check_and_renew_contract(project.id)
+                            if renewed_period:
                                 renewed_count += 1
+                                # If contract was renewed, also ensure recurring transactions are generated
+                                await recurring_service.ensure_project_transactions_generated(project.id)
                         except Exception as e:
                             import traceback
                             traceback.print_exc()

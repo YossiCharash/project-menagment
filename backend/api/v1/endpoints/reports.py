@@ -47,22 +47,26 @@ async def generate_custom_report(
         # Generate report with images
         content = await report_service.generate_custom_report(request, chart_images=processed_images)
 
-        # Build filename: [Project Name]_[Start Date]_[End Date]
+        # Build filename: [Project Name]_[Year(s)]
         # Sanitize project name for filename
         safe_project_name = "".join([c for c in (project_name or f"project_{request.project_id}") if
                                      c.isalnum() or c in (' ', '-', '_')]).strip()
-        # Add date range to filename
+        # Add year(s) to filename
         if request.start_date and request.end_date:
-            date_range_str = f"{request.start_date.strftime('%Y-%m-%d')}_{request.end_date.strftime('%Y-%m-%d')}"
+            start_year = request.start_date.year
+            end_year = request.end_date.year
+            if start_year == end_year:
+                year_str = str(start_year)
+            else:
+                year_str = f"{start_year}-{end_year}"
         elif request.start_date:
-            date_range_str = f"מ-{request.start_date.strftime('%Y-%m-%d')}"
+            year_str = str(request.start_date.year)
         elif request.end_date:
-            date_range_str = f"עד-{request.end_date.strftime('%Y-%m-%d')}"
+            year_str = str(request.end_date.year)
         else:
-            # If no date range, use current date
-            now = datetime.now()
-            date_range_str = now.strftime("%Y-%m-%d")
-        filename = f"{safe_project_name}_{date_range_str}"
+            # If no date range, use current year
+            year_str = str(datetime.now().year)
+        filename = f"{safe_project_name}_{year_str}"
 
         if request.format == "pdf":
             media_type = "application/pdf"
@@ -126,9 +130,8 @@ async def export_project_excel(
         project_name = project_result.scalar_one_or_none()
         safe_project_name = "".join([c for c in (project_name or f"project_{project_id}") if
                                      c.isalnum() or c in (' ', '-', '_')]).strip()
-        now = datetime.now()
-        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
-        filename = f"{safe_project_name}_{date_time_str}.xlsx"
+        year_str = str(datetime.now().year)
+        filename = f"{safe_project_name}_{year_str}.xlsx"
 
         from urllib.parse import quote
         encoded_filename = quote(filename)
@@ -180,9 +183,8 @@ async def export_project_zip(
         project_name = project_result.scalar_one_or_none()
         safe_project_name = "".join([c for c in (project_name or f"project_{project_id}") if
                                      c.isalnum() or c in (' ', '-', '_')]).strip()
-        now = datetime.now()
-        date_time_str = now.strftime("%Y-%m-%d_%H-%M")
-        filename = f"{safe_project_name}_{date_time_str}.zip"
+        year_str = str(datetime.now().year)
+        filename = f"{safe_project_name}_{year_str}.zip"
 
         from urllib.parse import quote
         encoded_filename = quote(filename)
@@ -199,9 +201,15 @@ async def export_project_zip(
 
 
 @router.get("/project/{project_id}")
-async def project_report(project_id: int, db: DBSessionDep, user=Depends(get_current_user)):
-    """Get project report - accessible to all authenticated users"""
-    return await ReportService(db).project_profitability(project_id)
+async def project_report(
+    project_id: int, 
+    db: DBSessionDep, 
+    user=Depends(get_current_user),
+    start_date: Optional[date] = Query(None, description="Start date for filtering transactions"),
+    end_date: Optional[date] = Query(None, description="End date for filtering transactions")
+):
+    """Get project report - accessible to all authenticated users. Can filter by date range."""
+    return await ReportService(db).project_profitability(project_id, start_date=start_date, end_date=end_date)
 
 
 @router.get("/dashboard-snapshot")

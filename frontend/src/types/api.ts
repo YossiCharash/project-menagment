@@ -16,6 +16,7 @@ export interface Project {
   description?: string | null
   start_date?: string | null
   end_date?: string | null
+  contract_duration_months?: number | null
   budget_monthly: number
   budget_annual: number
   num_residents?: number | null
@@ -32,6 +33,8 @@ export interface Project {
   total_value: number
   has_fund?: boolean
   monthly_fund_amount?: number | null
+  /** First (earliest) contract start date. Used for validation: allow transactions in any contract, block only before the first. */
+  first_contract_start_date?: string | null
 }
 
 export interface Subproject {
@@ -77,6 +80,7 @@ export interface ProjectCreate {
   description?: string | null
   start_date?: string | null
   end_date?: string | null
+  contract_duration_months?: number | null
   budget_monthly: number
   budget_annual: number
   num_residents?: number | null

@@ -176,3 +176,17 @@ export function formatDateForInput(dateStr: string | null | undefined): string {
   }
   return dateStr
 }
+
+/**
+ * Convert a Date object to YYYY-MM-DD string using LOCAL time (not UTC).
+ * This avoids timezone issues where toISOString() would shift the date back.
+ * @param date - Date object
+ * @returns Date string in YYYY-MM-DD format, or empty string if invalid
+ */
+export function dateToLocalString(date: Date | null | undefined): string {
+  if (!date || isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}

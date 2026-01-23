@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import api from '../lib/api'
 import { ReportAPI, BudgetAPI, ProjectAPI, CategoryAPI, RecurringTransactionAPI } from '../lib/apiClient'
@@ -16,14 +16,14 @@ import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
 import { archiveProject, hardDeleteProject } from '../store/slices/projectsSlice'
 import { fetchMe } from '../store/slices/authSlice'
-import { ChevronDown, History, Download, Edit, ChevronLeft, Archive } from 'lucide-react'
+import { ChevronDown, History, Download, Edit, ChevronLeft, Archive, ChevronRight, Eye } from 'lucide-react'
 import Modal from '../components/Modal'
 import {
   CATEGORY_LABELS,
   normalizeCategoryForFilter,
   calculateMonthlyIncomeAccrual
 } from '../utils/calculations'
-import { formatDate, parseLocalDate } from '../lib/utils'
+import { formatDate, parseLocalDate, dateToLocalString } from '../lib/utils'
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   STANDING_ORDER: 'הוראת קבע',
@@ -195,6 +195,9 @@ const splitPeriodTransactionByMonth = (tx: Transaction): SplitTransaction[] => {
 export default function ProjectDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const periodIdParam = searchParams.get('period')
+  const viewingPeriodId = periodIdParam ? parseInt(periodIdParam) : null
   const dispatch = useAppDispatch()
   const { items: suppliers } = useAppSelector(s => s.suppliers)
   const me = useAppSelector(s => s.auth.me)
@@ -262,6 +265,7 @@ export default function ProjectDetail() {
   const [showDeleteTransactionModal, setShowDeleteTransactionModal] = useState(false)
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null)
   const [isDeletingTransaction, setIsDeletingTransaction] = useState(false)
+  const [monthlyTableYear, setMonthlyTableYear] = useState(() => new Date().getFullYear())
 
   const loadRecurringTemplates = async () => {
     if (!id || isNaN(Number(id))) return
@@ -297,6 +301,16 @@ export default function ProjectDetail() {
 
     const generateForSelectedPeriod = async () => {
       try {
+        if (viewingPeriodId) {
+          try {
+            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
+          } catch (genErr) {
+            console.log('Could not ensure recurring transactions for historical period:', genErr)
+          }
+          await loadAllProjectData(viewingPeriodId)
+          return
+        }
+
         if (dateFilterMode === 'selected_month' && selectedMonth) {
           // First, ensure all transactions up to current month are generated (optimized single API call)
           try {
@@ -349,19 +363,17 @@ export default function ProjectDetail() {
           }
         }
         
-        // Reload transactions to show the newly generated ones (except for current_month which is handled by load())
         if (dateFilterMode !== 'current_month') {
           const { data } = await api.get(`/transactions/project/${id}`)
           setTxs(data || [])
         }
       } catch (err) {
-        // Silently fail - transactions might already exist or there might be no active templates
         console.log('Could not generate recurring transactions:', err)
       }
     }
 
     generateForSelectedPeriod()
-  }, [selectedMonth, dateFilterMode, startDate, endDate, id])
+  }, [selectedMonth, dateFilterMode, startDate, endDate, id, viewingPeriodId])
   const [showRecurringSelectionModal, setShowRecurringSelectionModal] = useState(false)
   const [showCreateTransactionModal, setShowCreateTransactionModal] = useState(false)
   const [showDocumentsModal, setShowDocumentsModal] = useState(false)
@@ -375,6 +387,7 @@ export default function ProjectDetail() {
   const [showAddBudgetForm, setShowAddBudgetForm] = useState(false)
   const [budgetSaving, setBudgetSaving] = useState(false)
   const [budgetFormError, setBudgetFormError] = useState<string | null>(null)
+  const [budgetDateMode, setBudgetDateMode] = useState<'project_start' | 'today' | 'custom'>('today')
   const [newBudgetForm, setNewBudgetForm] = useState({
     category: '',
     amount: '',
@@ -412,6 +425,17 @@ export default function ProjectDetail() {
     }
     loadCategories()
   }, [])
+
+  // Update budget start date based on date mode
+  useEffect(() => {
+    if (budgetDateMode === 'project_start' && projectStartDate) {
+      const dateStr = projectStartDate.includes('T') ? projectStartDate.split('T')[0] : projectStartDate
+      setNewBudgetForm(prev => ({ ...prev, start_date: dateStr }))
+    } else if (budgetDateMode === 'today') {
+      setNewBudgetForm(prev => ({ ...prev, start_date: new Date().toISOString().split('T')[0] }))
+    }
+    // For 'custom' mode, user will manually select the date
+  }, [budgetDateMode, projectStartDate])
   
   // Use only categories from database (settings) - these are the only valid options
   const allCategoryOptions = availableCategories
@@ -450,10 +474,13 @@ export default function ProjectDetail() {
   const [showFundTransactionsModal, setShowFundTransactionsModal] = useState(false)
   const [showCreateFundModal, setShowCreateFundModal] = useState(false)
   const [showEditFundModal, setShowEditFundModal] = useState(false)
+  const [fundUpdateScope, setFundUpdateScope] = useState<'from_start' | 'from_this_month' | 'only_this_month'>('from_this_month')
   const [monthlyFundAmount, setMonthlyFundAmount] = useState<number>(0)
   const [currentBalance, setCurrentBalance] = useState<number>(0)
   const [creatingFund, setCreatingFund] = useState(false)
   const [updatingFund, setUpdatingFund] = useState(false)
+  /** When adding fund in a previous year: 'only_period' = only that period, 'also_current' = also through current period */
+  const [fundScopePreviousYear, setFundScopePreviousYear] = useState<'only_period' | 'also_current' | null>(null)
   
   // Contract periods state
   const [contractPeriods, setContractPeriods] = useState<{
@@ -472,6 +499,19 @@ export default function ProjectDetail() {
       }>
     }>
   } | null>(null)
+
+  // Calculate total periods: previous periods + current period (if exists)
+  // Show button if there are any periods at all
+  const totalPeriods = useMemo(() => {
+    // Count previous periods (excluding current)
+    const previousPeriodsCount = contractPeriods?.periods_by_year 
+      ? contractPeriods.periods_by_year.reduce((sum, year) => sum + year.periods.length, 0)
+      : 0;
+    // Show button if there are previous periods OR if we have contractPeriods data (indicating periods system is active)
+    // This ensures button shows even if only current period exists
+    return previousPeriodsCount > 0 || (contractPeriods !== null && contractPeriods !== undefined) ? 1 : 0;
+  }, [contractPeriods]);
+
   const [currentContractPeriod, setCurrentContractPeriod] = useState<{
     period_id: number | null
     start_date: string
@@ -483,21 +523,77 @@ export default function ProjectDetail() {
     total_expense: number
     total_profit: number
   } | null>(null)
+
+  /** First (earliest) contract start date. Used for validation: allow transactions in any contract (including old ones), block only before the first. */
+  const firstContractStartDate = useMemo(() => {
+    let min: string | null = null;
+    if (currentContractPeriod?.start_date) {
+      min = currentContractPeriod.start_date;
+    }
+    if (contractPeriods?.periods_by_year?.length) {
+      for (const yearGroup of contractPeriods.periods_by_year) {
+        for (const p of yearGroup.periods || []) {
+          if (p.start_date) {
+            if (!min || p.start_date < min) min = p.start_date;
+          }
+        }
+      }
+    }
+    return min;
+  }, [contractPeriods, currentContractPeriod?.start_date]);
+  
+  // Selected period state - for viewing historical periods
+  const [selectedPeriod, setSelectedPeriod] = useState<{
+    period_id: number
+    start_date: string
+    end_date: string | null
+    contract_year: number
+    year_index: number
+    year_label: string
+    total_income: number
+    total_expense: number
+    total_profit: number
+  } | null>(null)
+  
+  // Determine if we're viewing a historical period
+  const isViewingHistoricalPeriod = viewingPeriodId !== null && selectedPeriod !== null
+
+  // Flattened list of all periods sorted by date
+  const allPeriods = useMemo(() => {
+    if (!contractPeriods?.periods_by_year) return [];
+    return contractPeriods.periods_by_year
+      .flatMap(yearGroup => yearGroup.periods)
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  }, [contractPeriods]);
+
+  // Find the index of the currently viewed period
+  const currentViewingPeriodIndex = useMemo(() => {
+    if (!selectedPeriod || allPeriods.length === 0) return -1;
+    return allPeriods.findIndex(p => p.period_id === selectedPeriod.period_id);
+  }, [selectedPeriod, allPeriods]);
+
+  // Previous and next periods for navigation
+  const prevPeriod = currentViewingPeriodIndex > 0 ? allPeriods[currentViewingPeriodIndex - 1] : null;
+  const nextPeriod = currentViewingPeriodIndex !== -1 && currentViewingPeriodIndex < allPeriods.length - 1 
+    ? allPeriods[currentViewingPeriodIndex + 1] 
+    : null;
+  
   const [showPreviousYearsModal, setShowPreviousYearsModal] = useState(false)
   const [selectedPeriodSummary, setSelectedPeriodSummary] = useState<any | null>(null)
   const [showPeriodSummaryModal, setShowPeriodSummaryModal] = useState(false)
   const [loadingPeriodSummary, setLoadingPeriodSummary] = useState(false)
-
+  
   // OPTIMIZED: Load all project data in a SINGLE API call
   // Replaces 5+ separate API calls with ONE for much faster page load
-  const loadAllProjectData = async () => {
+  // Optional periodId parameter for viewing historical periods
+  const loadAllProjectData = async (periodId?: number | null) => {
     if (!id || isNaN(Number(id))) return
 
     setLoading(true)
     setChartsLoading(true)
     setError(null)
     try {
-      const fullData = await ProjectAPI.getProjectFull(parseInt(id))
+      const fullData = await ProjectAPI.getProjectFull(parseInt(id), periodId || undefined)
 
       // Set project info
       const proj = fullData.project
@@ -512,6 +608,16 @@ export default function ProjectDetail() {
       setHasFund(proj.has_fund || false)
       setContractFileUrl(proj.contract_file_url || null)
       setProjectImageUrl(proj.image_url || null)
+
+      // Set default filter mode if viewing current month but project has already ended
+      if (proj.end_date && globalDateFilterMode === 'current_month') {
+        const endDate = parseLocalDate(proj.end_date)
+        const today = new Date()
+        // If project ended before this month, default to 'project' (full project view)
+        if (endDate && endDate < new Date(today.getFullYear(), today.getMonth(), 1)) {
+          setGlobalDateFilterMode('project')
+        }
+      }
 
       // Set transactions
       setTxs(fullData.transactions || [])
@@ -549,11 +655,65 @@ export default function ProjectDetail() {
       } else {
         setFundData(null)
       }
+      
+      // Set contract periods and current period (New from optimized endpoint)
+      if (fullData.contract_periods) {
+        setContractPeriods(fullData.contract_periods)
+      }
+      if (fullData.current_period) {
+        setCurrentContractPeriod(fullData.current_period)
+        // Update project dates to reflect current contract period (only if not viewing historical period)
+        if (!periodId) {
+          if (fullData.current_period.start_date) {
+            setProjectStartDate(fullData.current_period.start_date)
+          }
+          if (fullData.current_period.end_date) {
+            setProjectEndDate(fullData.current_period.end_date)
+            
+            // Re-check filter mode with current period end date
+            if (globalDateFilterMode === 'current_month') {
+              const endDate = parseLocalDate(fullData.current_period.end_date)
+              const today = new Date()
+              if (endDate && endDate < new Date(today.getFullYear(), today.getMonth(), 1)) {
+                setGlobalDateFilterMode('project')
+              }
+            }
+          }
+        }
+      }
+      
+      // Handle selected period (for historical period viewing)
+      if (fullData.selected_period) {
+        setSelectedPeriod(fullData.selected_period)
+        // When viewing historical period, default to 'project' filter to show all data for that period
+        setGlobalDateFilterMode('project')
+        // When viewing historical period, use that period's dates for display
+        if (fullData.selected_period.start_date) {
+          setProjectStartDate(fullData.selected_period.start_date)
+        }
+        if (fullData.selected_period.end_date) {
+          setProjectEndDate(fullData.selected_period.end_date)
+        }
+      } else {
+        setSelectedPeriod(null)
+      }
 
     } catch (err: any) {
       console.error('Error loading project data:', err)
-      setError(err?.response?.data?.detail || err?.message || 'שגיאה בטעינת נתוני הפרויקט')
-      // Fallback to legacy loading if new endpoint fails
+      const status = err?.response?.status
+      const errorMessage = err?.response?.data?.detail || err?.message || 'שגיאה בטעינת נתוני הפרויקט'
+      
+      // If project not found (404), navigate back to dashboard
+      if (status === 404) {
+        console.log('Project not found (404), navigating to dashboard')
+        setLoading(false)
+        setChartsLoading(false)
+        navigate('/dashboard')
+        return
+      }
+      
+      setError(errorMessage)
+      // Fallback to legacy loading if new endpoint fails (only for non-404 errors)
       try {
         await Promise.all([
           loadProjectInfo(),
@@ -564,6 +724,13 @@ export default function ProjectDetail() {
         setError(null)
       } catch (fallbackErr: any) {
         console.error('Fallback loading also failed:', fallbackErr)
+        // If fallback also returns 404, navigate to dashboard
+        if (fallbackErr?.response?.status === 404) {
+          setLoading(false)
+          setChartsLoading(false)
+          navigate('/dashboard')
+          return
+        }
         // Keep the error state so user can see what went wrong
         if (!error) {
           setError('שגיאה בטעינת נתוני הפרויקט. נא לנסות שוב.')
@@ -590,13 +757,16 @@ export default function ProjectDetail() {
     }
   }
 
+  // Effective period for budgets: when viewing a specific period, use it; otherwise current
+  const effectiveBudgetPeriodId = viewingPeriodId ?? selectedPeriod?.period_id ?? currentContractPeriod?.period_id ?? null
+
   // Helper function to reload only categories and budgets (without transactions)
   const reloadChartsDataOnly = async () => {
     if (!id || isNaN(Number(id))) return
     try {
       const [categoriesData, budgetsData] = await Promise.all([
         ReportAPI.getProjectExpenseCategories(parseInt(id)),
-        BudgetAPI.getProjectBudgets(parseInt(id)).catch((err) => {
+        BudgetAPI.getProjectBudgets(parseInt(id), effectiveBudgetPeriodId).catch((err) => {
           console.error('Failed to load project budgets:', err)
           return []
         })
@@ -616,7 +786,7 @@ export default function ProjectDetail() {
     try {
       const [categoriesData, budgetsData] = await Promise.all([
         ReportAPI.getProjectExpenseCategories(parseInt(id)),
-        BudgetAPI.getProjectBudgets(parseInt(id)).catch((err) => {
+        BudgetAPI.getProjectBudgets(parseInt(id), effectiveBudgetPeriodId).catch((err) => {
           console.error('Failed to load project budgets:', err)
           return []
         })
@@ -744,15 +914,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
       
       const { data } = await api.get(`/projects/${id}`)
       
-      console.log('📥 DEBUG - Project data loaded:', {
-        id,
-        name: data.name,
-        start_date: data.start_date,
-        end_date: data.end_date,
-        budget_monthly: data.budget_monthly,
-        budget_annual: data.budget_annual
-      })
-      
       setProjectName(data.name || `פרויקט ${id}`)
       setProjectBudget({
         budget_monthly: data.budget_monthly || 0,
@@ -762,13 +923,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
       setProjectEndDate(data.end_date || null)
       setIsParentProject(data.is_parent_project || false)
       setRelationProject(data.relation_project || null)
-
-      console.log('📥 DEBUG - State set:', {
-        projectStartDate: data.start_date || null,
-        projectEndDate: data.end_date || null,
-        budgetMonthly: data.budget_monthly || 0,
-        isParentProject: data.is_parent_project || false
-      })
 
       // Load subprojects if this is a parent project
       if (data.is_parent_project) {
@@ -903,9 +1057,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
       // OPTIMIZED: Load ALL project data in a SINGLE API call
       // Before: 5+ separate API calls (project, transactions, budgets, categories, fund)
       // After: 1 API call that returns everything
-      loadAllProjectData()
+      // Pass viewingPeriodId for historical period viewing
+      loadAllProjectData(viewingPeriodId)
     }
-  }, [id])
+  }, [id, viewingPeriodId])
 
   // Redirect to parent project route if this is a parent project
   useEffect(() => {
@@ -929,14 +1084,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
       if (customEvent.detail?.projectId && id && customEvent.detail.projectId === parseInt(id)) {
         setUpdatingProject(true)
         try {
-          // Reload all data: project info, transactions, charts, and fund data
-          await loadProjectInfo()
-          await load()
-          await loadChartsData()
-          // Reload fund data if project has fund
-          if (hasFund) {
-            await loadFundData()
-          }
+          // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+          await loadAllProjectData(viewingPeriodId)
         } catch (err) {
           console.error('Error reloading project data after update:', err)
         } finally {
@@ -947,7 +1096,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
 
     window.addEventListener('projectUpdated', handleProjectUpdated)
     return () => window.removeEventListener('projectUpdated', handleProjectUpdated)
-  }, [id, hasFund])
+  }, [id, hasFund, viewingPeriodId])
 
   const handleDeleteBudget = async (budgetId: number) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק את התקציב?')) {
@@ -994,15 +1143,17 @@ const formatCurrency = (value: number | string | null | undefined) => {
         amount: Number(newBudgetForm.amount),
         period_type: newBudgetForm.period_type,
         start_date: newBudgetForm.start_date,
-        end_date: newBudgetForm.period_type === 'Annual' ? (newBudgetForm.end_date || null) : null
+        end_date: newBudgetForm.period_type === 'Annual' ? (newBudgetForm.end_date || null) : null,
+        contract_period_id: effectiveBudgetPeriodId
       })
       await reloadChartsDataOnly() // Only reload budgets and categories, not transactions
       setShowAddBudgetForm(false)
+      setBudgetDateMode('today')
       setNewBudgetForm({
         category: '',
         amount: '',
         period_type: 'Annual',
-        start_date: newBudgetForm.start_date,
+        start_date: new Date().toISOString().split('T')[0],
         end_date: ''
       })
     } catch (err: any) {
@@ -1189,8 +1340,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
     
     let dateMatches = false
 
+    // When viewing historical period, skip date filtering - data is already filtered by backend
+    if (viewingPeriodId) {
+      dateMatches = true
+    }
     // For period transactions, check if the period overlaps with the filter range
-    if (t.period_start_date && t.period_end_date) {
+    else if (t.period_start_date && t.period_end_date) {
       const periodStart = parseLocalDate(t.period_start_date) || new Date()
       const periodEnd = parseLocalDate(t.period_end_date) || new Date()
       
@@ -1289,19 +1444,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
       if (tx.period_start_date && tx.period_end_date) {
         const splits = splitPeriodTransactionByMonth(tx)
         
-        console.log('📅 Period transaction split:', {
-          txId: tx.id,
-          amount: tx.amount,
-          period: `${tx.period_start_date} - ${tx.period_end_date}`,
-          splits: splits.map(s => ({
-            month: s.monthKey,
-            proportional: s.proportionalAmount,
-            full: s.fullAmount,
-            days: s.daysInMonth,
-            totalDays: s.totalDays
-          }))
-        })
-        
         // If filtering by month, show only the relevant month
         if (dateFilterMode === 'current_month') {
           const currentMonthKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`
@@ -1336,17 +1478,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
         // Regular transaction - add as-is
         expanded.push(tx)
       }
-    })
-    
-    console.log('📊 Expanded transactions:', {
-      total: expanded.length,
-      withProportional: expanded.filter(t => (t as any).proportionalAmount !== undefined).length,
-      periodSplits: expanded.filter(t => (t as any).proportionalAmount !== undefined).map(t => ({
-        id: t.id,
-        month: (t as any).monthKey,
-        proportional: (t as any).proportionalAmount,
-        full: (t as any).fullAmount
-      }))
     })
     
     return expanded
@@ -1441,27 +1572,23 @@ const formatCurrency = (value: number | string | null | undefined) => {
 
           await Promise.all(deletePromises)
         }
-        await load() // For regular transactions, use full load
+        // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+        await loadAllProjectData(viewingPeriodId)
       } else {
         // Regular transaction or single period transaction deletion
         await api.delete(`/transactions/${transactionToDelete.id}`)
-        await load() // For regular transactions, use full load
-      }
-
-      // Only reload charts data (categories and budgets), not transactions (already loaded by load())
-      // This avoids duplicate transaction loading
-      await reloadChartsDataOnly()
-      
-      if (hasFund) {
-        await loadFundData() // Reload fund data
+        // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+        await loadAllProjectData(viewingPeriodId)
       }
 
       // If period summary modal is open, refresh the summary to reflect deleted transaction
-      if (selectedPeriodSummary && selectedPeriodSummary.period_id) {
+      if (selectedPeriodSummary) {
         try {
           const summary = await ProjectAPI.getContractPeriodSummary(
             parseInt(id!),
-            selectedPeriodSummary.period_id
+            selectedPeriodSummary.period_id,
+            selectedPeriodSummary.start_date,
+            selectedPeriodSummary.end_date
           )
           setSelectedPeriodSummary(summary)
         } catch (err: any) {
@@ -1517,26 +1644,19 @@ const formatCurrency = (value: number | string | null | undefined) => {
         }
         
         // Calculate end date: use project.end_date if available and in the past, otherwise use now
-        // This ensures we only count transactions from the current contract period
+        // IMPORTANT: end_date is EXCLUSIVE - the actual last day of the contract is end_date - 1
+        // Example: if end_date is 1.1.2027, the contract covers until 31.12.2026
         calculationEndDate = now
         if (projectEndDate) {
-          const endDateObj = new Date(projectEndDate)
-          // If contract has ended, use end_date; otherwise use now
-          calculationEndDate = endDateObj < now ? endDateObj : now
+          const endDateObj = parseLocalDate(projectEndDate) || new Date()
+          // Subtract 1 day to get the actual last day of the contract (exclusive end_date)
+          const actualLastDay = new Date(endDateObj)
+          actualLastDay.setDate(actualLastDay.getDate() - 1)
+          actualLastDay.setHours(23, 59, 59, 999)
+          // If contract has ended (actualLastDay is in the past), use actualLastDay; otherwise use now
+          calculationEndDate = actualLastDay < now ? actualLastDay : now
         }
     }
-    
-    // Debug: Check all transactions
-    console.log('🔍 DEBUG - All transactions:', {
-      totalTxs: txs.length,
-      incomeTxs: txs.filter(t => t.type === 'Income').length,
-      expenseTxs: txs.filter(t => t.type === 'Expense').length,
-      incomeTxsList: txs.filter(t => t.type === 'Income').map(t => ({ id: t.id, amount: t.amount, date: t.tx_date, from_fund: t.from_fund })),
-      projectStartDate,
-      projectEndDate,
-      calculationStartDate: calculationStartDate.toISOString(),
-      calculationEndDate: calculationEndDate.toISOString()
-    })
     
     // Filter transactions from calculationStartDate to calculationEndDate (current contract period only)
     // Exclude fund transactions (from_fund == true) - only include regular transactions
@@ -1565,13 +1685,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
     // For period transactions, use proportional amounts based on overlap with calculation period
     const incomeTransactions = summaryTransactions.filter(t => t.type === 'Income')
     const expenseTransactions = summaryTransactions.filter(t => t.type === 'Expense')
-    
-    console.log('🔍 DEBUG - Filtered transactions:', {
-      summaryTransactionsCount: summaryTransactions.length,
-      incomeTransactionsCount: incomeTransactions.length,
-      expenseTransactionsCount: expenseTransactions.length,
-      incomeTransactions: incomeTransactions.map(t => ({ id: t.id, amount: t.amount }))
-    })
     
     const monthlyIncome = Number(projectBudget?.budget_monthly || 0)
     
@@ -1628,14 +1741,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
     // Calculate income from project monthly budget (treated as expected monthly income)
     // Calculate only for the current year, from project start date (or start of year if project started earlier)
     
-    console.log('🔍 DEBUG - Checking project income conditions:', {
-      monthlyIncome,
-      calculationStartDate: calculationStartDate?.toISOString(),
-      hasMonthlyIncome: monthlyIncome > 0,
-      hasStartDate: !!calculationStartDate,
-      allConditionsMet: !!(monthlyIncome > 0 && calculationStartDate)
-    })
-    
     let projectIncome = 0
     if (monthlyIncome > 0 && calculationStartDate) {
       // Use project start_date (or created_at if start_date not available) directly
@@ -1643,20 +1748,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
       const incomeCalculationStart = calculationStartDate
       const incomeCalculationEnd = calculationEndDate  // Use calculationEndDate which respects contract period
       projectIncome = calculateMonthlyIncomeAccrual(monthlyIncome, incomeCalculationStart, incomeCalculationEnd)
-      
-      console.log('✅ DEBUG - Project income calculation:', {
-        monthlyIncome,
-        calculationStartDate: calculationStartDate.toISOString(),
-        incomeCalculationStart: incomeCalculationStart.toISOString(),
-        incomeCalculationEnd: incomeCalculationEnd.toISOString(),
-        monthlyOccurrences: monthlyIncome > 0 ? projectIncome / monthlyIncome : 0,
-        projectIncome
-      })
-    } else {
-      console.log('❌ DEBUG - Project income NOT calculated because:', {
-        missingMonthlyIncome: !(monthlyIncome > 0),
-        missingStartDate: !calculationStartDate
-      })
     }
     
     // Total income logic:
@@ -1667,13 +1758,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
     // If both exist, we show the larger of the two (Accrued vs Actual) to reflect value.
     const totalIncome = monthlyIncome > 0 ? Math.max(transactionIncome, projectIncome) : transactionIncome
     
-    console.log('🔍 DEBUG - Final calculation:', {
-      transactionIncome,
-      projectIncome,
-      totalIncome,
-      transactionExpense
-    })
-    
     return {
       income: totalIncome,
       expense: transactionExpense
@@ -1682,25 +1766,12 @@ const formatCurrency = (value: number | string | null | undefined) => {
   
   // Use useMemo to recalculate only when txs, projectStartDate, projectEndDate, projectBudget, or global filter changes
   const financialSummary = useMemo(() => {
-    console.log('🔄 useMemo triggered - recalculating financial summary', {
-      txsCount: txs.length,
-      projectStartDate,
-      projectEndDate,
-      projectBudget,
-      globalDateFilterMode,
-      globalSelectedMonth,
-      globalSelectedYear,
-      globalStartDate,
-      globalEndDate
-    })
     return calculateFinancialSummary()
   }, [txs, projectStartDate, projectEndDate, projectBudget, globalDateFilterMode, globalSelectedMonth, globalSelectedYear, globalStartDate, globalEndDate])
   
   const income = financialSummary.income
   const expense = financialSummary.expense
   const contractViewerUrl = getContractViewerUrl()
-  
-  console.log('💰 Final values displayed:', { income, expense, txsCount: txs.length })
 
   if (!id) {
     return (
@@ -1746,7 +1817,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
               onClick={() => {
                 setError(null)
                 if (id && !isNaN(Number(id))) {
-                  loadAllProjectData()
+                  loadAllProjectData(viewingPeriodId)
                 }
               }}
               className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -1778,6 +1849,68 @@ const formatCurrency = (value: number | string | null | undefined) => {
           </div>
         </div>
       )}
+
+      {/* Historical Period Banner */}
+      {isViewingHistoricalPeriod && selectedPeriod && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl shadow-lg p-4"
+        >
+          <div className="flex items-center justify-between gap-3">
+            {/* Left side: Next period arrow or return to current */}
+            <div className="flex items-center gap-2">
+              {nextPeriod ? (
+                <button
+                  onClick={() => setSearchParams({ period: nextPeriod.period_id.toString() })}
+                  className="p-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all shadow-md flex items-center gap-1 group"
+                  title="לתקופה הבאה"
+                >
+                  <ChevronLeft className="w-6 h-6 group-hover:-translate-x-0.5 transition-transform" />
+                  <span className="hidden sm:inline font-medium px-1">לתקופה הבאה</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="px-4 py-2 bg-white text-orange-600 font-medium rounded-lg hover:bg-orange-50 transition-all flex items-center shadow-md"
+                >
+                  חזור לתקופה נוכחית
+                </button>
+              )}
+            </div>
+
+            {/* Middle/Right: Info and Previous arrow */}
+            <div className="flex items-center gap-4">
+              <div className="text-right flex flex-col items-end">
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-lg leading-tight">
+                    צפייה בתקופה היסטורית
+                  </p>
+                  <div className="p-1 bg-white/20 rounded-md">
+                    <History className="w-5 h-5" />
+                  </div>
+                </div>
+                <p className="text-white/90 text-sm">
+                  {selectedPeriod.year_label ? `שנת ${selectedPeriod.contract_year} - ${selectedPeriod.year_label}` : `שנת ${selectedPeriod.contract_year}`}
+                  {' | '}
+                  {formatDate(selectedPeriod.start_date)} - {formatDate(selectedPeriod.end_date)}
+                </p>
+              </div>
+
+              {prevPeriod && (
+                <button
+                  onClick={() => setSearchParams({ period: prevPeriod.period_id.toString() })}
+                  className="p-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all shadow-md flex items-center gap-1 group"
+                  title="לתקופה הקודמת"
+                >
+                  <span className="hidden sm:inline font-medium px-1">לתקופה הקודמת</span>
+                  <ChevronRight className="w-6 h-6 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
       
       {/* Header */}
       <motion.div
@@ -1803,18 +1936,22 @@ const formatCurrency = (value: number | string | null | undefined) => {
               <p className="text-gray-600 dark:text-gray-400">
                 ניהול פיננסי מפורט
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
-                <span className="flex items-center gap-1">
-                  <span className="text-gray-400 dark:text-gray-500">📅</span>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">תאריך התחלה:</span>
-                  {formatDate(projectStartDate)}
-                </span>
-                <span className="hidden sm:block text-gray-300 dark:text-gray-600">|</span>
-                <span className="flex items-center gap-1">
-                  <span className="text-gray-400 dark:text-gray-500">🏁</span>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">תאריך סיום:</span>
-                  {formatDate(projectEndDate)}
-                </span>
+              {/* Show dates only for regular projects and subprojects, not for parent projects */}
+              {!isParentProject && (
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <span className="text-gray-400 dark:text-gray-500">📅</span>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">תאריך התחלה:</span>
+                    {formatDate(projectStartDate)}
+                  </span>
+                  <span className="hidden sm:block text-gray-300 dark:text-gray-600">|</span>
+                  <span className="flex items-center gap-1">
+                    <span className="text-gray-400 dark:text-gray-500">🏁</span>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">תאריך סיום:</span>
+                    {formatDate(projectEndDate)}
+                  </span>
+                </div>
+              )}
                 {contractFileUrl && (
                   <>
                     <span className="hidden sm:block text-gray-300 dark:text-gray-600">|</span>
@@ -1831,17 +1968,16 @@ const formatCurrency = (value: number | string | null | undefined) => {
               </div>
             </div>
           </div>
-        </div>
         <div className="flex flex-col gap-3 w-full md:w-auto">
           {/* שורה ראשונה */}
           <div className="flex flex-wrap gap-3 justify-end">
-            {contractPeriods && contractPeriods.periods_by_year && contractPeriods.periods_by_year.length > 0 && (
+            {totalPeriods > 0 && (
               <button
                 onClick={() => setShowPreviousYearsModal(true)}
                 className="px-4 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all shadow-md flex items-center gap-2 text-sm flex-1 sm:flex-none"
               >
                 <History className="w-4 h-4" />
-                שנים קודמות
+                תקופות ושנים
               </button>
             )}
             <button
@@ -1858,6 +1994,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
               onClick={() => {
                 setShowAddBudgetForm(true)
                 setBudgetFormError(null)
+                setBudgetDateMode(isViewingHistoricalPeriod ? 'project_start' : 'today')
               }}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
             >
@@ -1868,7 +2005,10 @@ const formatCurrency = (value: number | string | null | undefined) => {
             </button>
             {!hasFund && !fundData && (
               <button
-                onClick={() => setShowCreateFundModal(true)}
+                onClick={() => {
+                  setFundScopePreviousYear(null)
+                  setShowCreateFundModal(true)
+                }}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm flex-1 sm:flex-none"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1911,77 +2051,95 @@ const formatCurrency = (value: number | string | null | undefined) => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.02 }}
-        className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-gray-800 dark:to-gray-800 rounded-2xl shadow-sm border border-indigo-200 dark:border-gray-700 p-4"
+        className={`rounded-2xl shadow-sm border p-4 ${
+          isViewingHistoricalPeriod 
+            ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 border-amber-200 dark:border-gray-700' 
+            : 'bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-gray-800 dark:to-gray-800 border-indigo-200 dark:border-gray-700'
+        }`}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-5 h-5 ${isViewingHistoricalPeriod ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <h3 className="text-lg font-semibold text-indigo-900 dark:text-white">סינון לפי תאריך</h3>
+            <h3 className={`text-lg font-semibold ${isViewingHistoricalPeriod ? 'text-amber-900 dark:text-white' : 'text-indigo-900 dark:text-white'}`}>
+              {isViewingHistoricalPeriod ? 'צפייה בתקופה היסטורית' : 'סינון לפי תאריך'}
+            </h3>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={globalDateFilterMode}
-              onChange={(e) => setGlobalDateFilterMode(e.target.value as any)}
-              className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
-            >
-              <option value="current_month">חודש נוכחי</option>
-              <option value="selected_month">חודש ספציפי</option>
-              <option value="date_range">טווח תאריכים</option>
-              <option value="project">מתחילת הפרויקט</option>
-              <option value="all_time">כל הזמן</option>
-            </select>
+          {/* Hide filter controls when viewing historical period - data is already filtered by period */}
+          {!isViewingHistoricalPeriod && (
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={globalDateFilterMode}
+                onChange={(e) => setGlobalDateFilterMode(e.target.value as any)}
+                className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
+              >
+                <option value="current_month">חודש נוכחי</option>
+                <option value="selected_month">חודש ספציפי</option>
+                <option value="date_range">טווח תאריכים</option>
+                <option value="project">מתחילת הפרויקט</option>
+                <option value="all_time">כל הזמן</option>
+              </select>
 
-            {globalDateFilterMode === 'selected_month' && (
-              <input
-                type="month"
-                value={globalSelectedMonth}
-                onChange={(e) => setGlobalSelectedMonth(e.target.value)}
-                className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
-              />
-            )}
+              {globalDateFilterMode === 'selected_month' && (
+                <input
+                  type="month"
+                  value={globalSelectedMonth}
+                  onChange={(e) => setGlobalSelectedMonth(e.target.value)}
+                  className="px-4 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+                />
+              )}
 
-            {globalDateFilterMode === 'date_range' && (
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={globalStartDate}
-                  onChange={(e) => setGlobalStartDate(e.target.value)}
-                  className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
-                  placeholder="מתאריך"
-                />
-                <span className="text-gray-500 font-medium">עד</span>
-                <input
-                  type="date"
-                  value={globalEndDate}
-                  onChange={(e) => setGlobalEndDate(e.target.value)}
-                  min={globalStartDate}
-                  className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
-                  placeholder="עד תאריך"
-                />
-              </div>
-            )}
-          </div>
+              {globalDateFilterMode === 'date_range' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={globalStartDate}
+                    onChange={(e) => setGlobalStartDate(e.target.value)}
+                    className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="מתאריך"
+                  />
+                  <span className="text-gray-500 font-medium">עד</span>
+                  <input
+                    type="date"
+                    value={globalEndDate}
+                    onChange={(e) => setGlobalEndDate(e.target.value)}
+                    min={globalStartDate}
+                    className="px-3 py-2 border border-indigo-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="עד תאריך"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Filter description */}
-        <div className="mt-2 text-sm text-indigo-700 dark:text-indigo-300">
-          {globalDateFilterMode === 'current_month' && (
-            <span>מציג נתונים מהחודש הנוכחי ({new Date().toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })})</span>
-          )}
-          {globalDateFilterMode === 'selected_month' && globalSelectedMonth && (
-            <span>מציג נתונים מחודש {new Date(globalSelectedMonth + '-01').toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
-          )}
-          {globalDateFilterMode === 'date_range' && globalStartDate && globalEndDate && (
-            <span>מציג נתונים מ-{parseLocalDate(globalStartDate)?.toLocaleDateString('he-IL')} עד {parseLocalDate(globalEndDate)?.toLocaleDateString('he-IL')}</span>
-          )}
-          {globalDateFilterMode === 'project' && (
-            <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${parseLocalDate(projectStartDate)?.toLocaleDateString('he-IL')})` : ''}</span>
-          )}
-          {globalDateFilterMode === 'all_time' && (
-            <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
+        <div className={`mt-2 text-sm ${isViewingHistoricalPeriod ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-700 dark:text-indigo-300'}`}>
+          {isViewingHistoricalPeriod && selectedPeriod ? (
+            <span>
+              מציג נתונים מתקופה: {selectedPeriod.year_label ? `שנת ${selectedPeriod.contract_year} - ${selectedPeriod.year_label}` : `שנת ${selectedPeriod.contract_year}`}
+              {' '}({formatDate(selectedPeriod.start_date)} - {formatDate(selectedPeriod.end_date)})
+            </span>
+          ) : (
+            <>
+              {globalDateFilterMode === 'current_month' && (
+                <span>מציג נתונים מהחודש הנוכחי ({new Date().toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })})</span>
+              )}
+              {globalDateFilterMode === 'selected_month' && globalSelectedMonth && (
+                <span>מציג נתונים מחודש {new Date(globalSelectedMonth + '-01').toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
+              )}
+              {globalDateFilterMode === 'date_range' && globalStartDate && globalEndDate && (
+                <span>מציג נתונים מ-{parseLocalDate(globalStartDate)?.toLocaleDateString('he-IL')} עד {parseLocalDate(globalEndDate)?.toLocaleDateString('he-IL')}</span>
+              )}
+              {globalDateFilterMode === 'project' && (
+                <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${parseLocalDate(projectStartDate)?.toLocaleDateString('he-IL')})` : ''}</span>
+              )}
+              {globalDateFilterMode === 'all_time' && (
+                <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
+              )}
+            </>
           )}
         </div>
       </motion.div>
@@ -2025,6 +2183,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
           )}
         </motion.div>
       )}
+
 
       {/* Financial Summary */}
       <motion.div
@@ -2247,7 +2406,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                                     <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(tx.tx_date)}</div>
                                     {tx.period_start_date && tx.period_end_date ? (
                                         <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`}>
-                                            {formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} - {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
+                                            \u200E{formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} - {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
                                         </div>
                                     ) : null}
                                 </div>
@@ -2271,7 +2430,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                                     <div className="text-sm text-blue-800 dark:text-blue-300 font-bold mb-2">עסקה תאריכית</div>
                                     <div className="text-xs text-blue-700 dark:text-blue-400 mb-1">תקופת תשלום:</div>
                                     <div className="text-base text-blue-900 dark:text-blue-200 font-semibold mb-2">
-                                      {formatDate(tx.period_start_date)} - {formatDate(tx.period_end_date)}
+                                      \u200E{formatDate(tx.period_start_date)} - {formatDate(tx.period_end_date)}
                                     </div>
                                     {(tx as any).proportionalAmount !== undefined && (tx as any).daysInMonth !== undefined && (tx as any).totalDays !== undefined ? (
                                       <div className="text-xs text-blue-700 dark:text-blue-400 space-y-1 mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">
@@ -2395,12 +2554,15 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   if (currentBalance !== undefined && currentBalance !== null) {
                     params.append('current_balance', currentBalance.toString())
                   }
+                  params.append('update_scope', fundUpdateScope)
+                  
                   await api.put(`/projects/${id}/fund?${params.toString()}`)
                   // Reload fund data
                   await loadFundData()
                   setShowEditFundModal(false)
                   setMonthlyFundAmount(0)
                   setCurrentBalance(0)
+                  setFundUpdateScope('from_this_month')
                 } catch (err: any) {
                   alert(err.response?.data?.detail || 'שגיאה בעדכון הקופה')
                 } finally {
@@ -2446,6 +2608,56 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 </p>
               </div>
 
+              <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl space-y-3">
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
+                  היקף השינוי:
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="radio"
+                      name="updateScope"
+                      value="from_start"
+                      checked={fundUpdateScope === 'from_start'}
+                      onChange={() => setFundUpdateScope('from_start')}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white">
+                      מתחילת החוזה
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">מחשב מחדש את כל יתרת הקופה רטרואקטיבית</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="radio"
+                      name="updateScope"
+                      value="from_this_month"
+                      checked={fundUpdateScope === 'from_this_month'}
+                      onChange={() => setFundUpdateScope('from_this_month')}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white">
+                      מהחודש הזה והלאה
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">מעדכן את הסכום החודשי החל מהחודש הנוכחי</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="radio"
+                      name="updateScope"
+                      value="only_this_month"
+                      checked={fundUpdateScope === 'only_this_month'}
+                      onChange={() => setFundUpdateScope('only_this_month')}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white">
+                      רק החודש הזה (חד-פעמי)
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">שינוי חד-פעמי ליתרה מבלי לשנות את הסכום החודשי הקבוע</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
@@ -2473,102 +2685,189 @@ const formatCurrency = (value: number | string | null | undefined) => {
       )}
 
       {/* Create Fund Modal */}
-      {showCreateFundModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                הוסף קופה לפרויקט
-              </h3>
-              <button
-                onClick={() => {
-                  setShowCreateFundModal(false)
-                  setMonthlyFundAmount(0)
-                }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+      {showCreateFundModal && (() => {
+        const periodEnd = selectedPeriod?.end_date ? parseLocalDate(selectedPeriod.end_date) : null
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        /** Show prompt when viewing a period that ended in the past (incl. earlier this year) */
+        const isAddingFundInPreviousYear = !!(
+          isViewingHistoricalPeriod &&
+          selectedPeriod?.start_date &&
+          selectedPeriod?.end_date &&
+          periodEnd &&
+          periodEnd.getTime() < today.getTime()
+        )
+        const canSubmit = monthlyFundAmount > 0 && (!isAddingFundInPreviousYear || fundScopePreviousYear !== null)
 
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault()
-                setCreatingFund(true)
-                try {
-                  await api.post(`/projects/${id}/fund?monthly_amount=${monthlyFundAmount}`)
-                  // Success - reload data
-                  await loadProjectInfo()
-                  await loadFundData()
-                  setShowCreateFundModal(false)
-                  setMonthlyFundAmount(0)
-                } catch (err: any) {
-                  // If status is 2xx, it's actually a success
-                  const status = err.response?.status
-                  if (status >= 200 && status < 300) {
-                    // Success - reload data
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  הוסף קופה לפרויקט
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowCreateFundModal(false)
+                    setMonthlyFundAmount(0)
+                    setFundScopePreviousYear(null)
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!canSubmit) return
+                  setCreatingFund(true)
+                  try {
+                    const params = new URLSearchParams()
+                    params.append('monthly_amount', monthlyFundAmount.toString())
+
+                    if (isAddingFundInPreviousYear && fundScopePreviousYear) {
+                      const periodStart = parseLocalDate(selectedPeriod!.start_date!)
+                      const periodEndDate = parseLocalDate(selectedPeriod!.end_date!)
+                      if (!periodStart || !periodEndDate) {
+                        alert('שגיאה: לא ניתן לחשב תאריכי תקופה')
+                        return
+                      }
+                      const todayDate = new Date()
+                      todayDate.setHours(12, 0, 0, 0)
+
+                      if (fundScopePreviousYear === 'only_period') {
+                        const initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, periodStart, periodEndDate)
+                        params.set('monthly_amount', '0')
+                        params.append('initial_balance', initialBalance.toString())
+                        params.append('last_monthly_addition', selectedPeriod!.end_date!)
+                      } else {
+                        const initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, periodStart, todayDate)
+                        const y = todayDate.getFullYear()
+                        const m = String(todayDate.getMonth() + 1).padStart(2, '0')
+                        const d = String(todayDate.getDate()).padStart(2, '0')
+                        params.append('initial_balance', initialBalance.toString())
+                        params.append('last_monthly_addition', `${y}-${m}-${d}`)
+                      }
+                    }
+
+                    await api.post(`/projects/${id}/fund?${params.toString()}`)
                     await loadProjectInfo()
                     await loadFundData()
                     setShowCreateFundModal(false)
                     setMonthlyFundAmount(0)
-                  } else {
-                    alert(err.response?.data?.detail || 'שגיאה ביצירת הקופה')
+                    setFundScopePreviousYear(null)
+                  } catch (err: any) {
+                    const status = err.response?.status
+                    if (status >= 200 && status < 300) {
+                      await loadProjectInfo()
+                      await loadFundData()
+                      setShowCreateFundModal(false)
+                      setMonthlyFundAmount(0)
+                      setFundScopePreviousYear(null)
+                    } else {
+                      alert(err.response?.data?.detail || 'שגיאה ביצירת הקופה')
+                    }
+                  } finally {
+                    setCreatingFund(false)
                   }
-                } finally {
-                  setCreatingFund(false)
-                }
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  סכום חודשי (₪)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={monthlyFundAmount}
-                  onChange={(e) => setMonthlyFundAmount(Number(e.target.value))}
-                  placeholder="הכנס סכום חודשי"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  הסכום יתווסף לקופה כל חודש באופן אוטומטי
-                </p>
-              </div>
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    סכום חודשי (₪)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={monthlyFundAmount}
+                    onChange={(e) => setMonthlyFundAmount(Number(e.target.value))}
+                    placeholder="הכנס סכום חודשי"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  {(!isAddingFundInPreviousYear || fundScopePreviousYear === 'also_current') && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      הסכום יתווסף לקופה כל חודש באופן אוטומטי
+                    </p>
+                  )}
+                </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="submit"
-                  disabled={creatingFund}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  {creatingFund ? 'יוצר...' : 'צור קופה'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateFundModal(false)
-                    setMonthlyFundAmount(0)
-                  }}
-                  disabled={creatingFund}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-                >
-                  ביטול
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
+                {isAddingFundInPreviousYear && (
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                      אתה מוסיף קופה בשנה קודמת. איך ליצור את הקופה?
+                    </p>
+                    <div className="space-y-2">
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-700 cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30">
+                        <input
+                          type="radio"
+                          name="fundScopePreviousYear"
+                          checked={fundScopePreviousYear === 'only_period'}
+                          onChange={() => setFundScopePreviousYear('only_period')}
+                          className="mt-1 text-amber-600 dark:text-amber-400"
+                        />
+                        <div>
+                          <span className="font-medium text-gray-900 dark:text-white">רק לתקופה ההיא</span>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                            קופה עם יתרה מחושבת מתחילת התקופה לסוף התקופה בלבד, בלי הוספה חודשית להמשך
+                          </p>
+                        </div>
+                      </label>
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-700 cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30">
+                        <input
+                          type="radio"
+                          name="fundScopePreviousYear"
+                          checked={fundScopePreviousYear === 'also_current'}
+                          onChange={() => setFundScopePreviousYear('also_current')}
+                          className="mt-1 text-amber-600 dark:text-amber-400"
+                        />
+                        <div>
+                          <span className="font-medium text-gray-900 dark:text-white">גם לתקופה הנוכחית</span>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                            קופה עם יתרה מתחילת התקופה עד היום, והסכום החודשי ימשיך להתווסף מדי חודש
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={creatingFund || !canSubmit}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    {creatingFund ? 'יוצר...' : 'צור קופה'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateFundModal(false)
+                      setMonthlyFundAmount(0)
+                      setFundScopePreviousYear(null)
+                    }}
+                    disabled={creatingFund}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )
+      })()}
 
       {/* Fund Transactions Modal */}
       {showFundTransactionsModal && fundData && (
@@ -3256,7 +3555,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                       <div>{t.tx_date}</div>
                       {t.period_start_date && t.period_end_date && (
                         <div className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded" key={`dated-dates-${t.id}`}>
-                          תאריכית: {formatDate(t.period_start_date)} - {formatDate(t.period_end_date)}
+                          תאריכית: \u200E{formatDate(t.period_start_date)} - {formatDate(t.period_end_date)}
                         </div>
                       )}
                     </td>
@@ -3351,17 +3650,13 @@ const formatCurrency = (value: number | string | null | undefined) => {
         onClose={() => setShowCreateTransactionModal(false)}
         onSuccess={async () => {
           setShowCreateTransactionModal(false)
-          await load() // Reload transactions list to get updated data with created_by_user
-          // Reload only categories and budgets (not transactions - already loaded by load())
-          await reloadChartsDataOnly()
-          if (hasFund) {
-            await loadFundData() // Reload fund data
-          }
+          // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+          await loadAllProjectData(viewingPeriodId)
         }}
         projectId={parseInt(id || '0')}
         isSubproject={!!relationProject}
         projectName={projectName}
-        projectStartDate={projectStartDate}
+        projectStartDate={firstContractStartDate || projectStartDate}
       />
 
       <EditTransactionModal
@@ -3373,15 +3668,11 @@ const formatCurrency = (value: number | string | null | undefined) => {
         onSuccess={async () => {
           setEditTransactionModalOpen(false)
           setSelectedTransactionForEdit(null)
-          await load() // Reload transactions list to get updated data
-          // Reload only categories and budgets (not transactions - already loaded by load())
-          await reloadChartsDataOnly()
-          if (hasFund) {
-            await loadFundData() // Reload fund data
-          }
+          // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+          await loadAllProjectData(viewingPeriodId)
         }}
         transaction={selectedTransactionForEdit}
-        projectStartDate={projectStartDate}
+        projectStartDate={firstContractStartDate || projectStartDate}
         getAllTransactions={async (): Promise<ApiTransaction[]> => {
           // Return all transactions for the project (used for deleteAll functionality)
           return txs as ApiTransaction[]
@@ -3408,8 +3699,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
         onSuccess={async () => {
           setEditTemplateModalOpen(false)
           setSelectedTemplateForEdit(null)
-          await load()
-          await reloadChartsDataOnly() // Only reload budgets and categories, not transactions (already loaded by load())
+          // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
+          await loadAllProjectData(viewingPeriodId)
           if (transactionTypeFilter === 'recurring') {
             await loadRecurringTemplates()
           }
@@ -3775,6 +4066,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
           onClick={() => {
             setShowAddBudgetForm(false)
             setBudgetFormError(null)
+            setBudgetDateMode('today')
           }}
         >
           <motion.div
@@ -3793,6 +4085,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 onClick={() => {
                   setShowAddBudgetForm(false)
                   setBudgetFormError(null)
+                  setBudgetDateMode('today')
                 }}
                 className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
               >
@@ -3866,17 +4159,79 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      תאריך התחלה *
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      מתי להחיל את התקציב? *
                     </label>
-                    <input
-                      type="date"
-                      value={newBudgetForm.start_date}
-                      onChange={(e) => setNewBudgetForm(prev => ({ ...prev, start_date: e.target.value }))}
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                      required
-                    />
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="budgetDateMode"
+                          value="project_start"
+                          checked={budgetDateMode === 'project_start'}
+                          onChange={() => {
+                            setBudgetDateMode('project_start')
+                          }}
+                          className="w-4 h-4 text-green-600 focus:ring-green-500"
+                          disabled={!projectStartDate}
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          {isViewingHistoricalPeriod ? 'מתחילת התקופה' : 'מתחילת הפרויקט'} {projectStartDate && `(${new Date(projectStartDate).toLocaleDateString('he-IL')})`}
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="budgetDateMode"
+                          value="today"
+                          checked={budgetDateMode === 'today'}
+                          onChange={() => {
+                            setBudgetDateMode('today')
+                          }}
+                          className="w-4 h-4 text-green-600 focus:ring-green-500"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          מהיום ({new Date().toLocaleDateString('he-IL')})
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="budgetDateMode"
+                          value="custom"
+                          checked={budgetDateMode === 'custom'}
+                          onChange={() => {
+                            setBudgetDateMode('custom')
+                          }}
+                          className="w-4 h-4 text-green-600 focus:ring-green-500"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          מתאריך מותאם אישית
+                        </span>
+                      </label>
+                    </div>
+                    {budgetDateMode === 'custom' && (
+                      <div className="mt-3">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          תאריך התחלה *
+                        </label>
+                        <input
+                          type="date"
+                          value={newBudgetForm.start_date}
+                          onChange={(e) => setNewBudgetForm(prev => ({ ...prev, start_date: e.target.value }))}
+                          className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                          required
+                        />
+                      </div>
+                    )}
+                    {budgetDateMode !== 'custom' && (
+                      <div className="mt-3">
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          תאריך התחלה: {newBudgetForm.start_date ? new Date(newBudgetForm.start_date).toLocaleDateString('he-IL') : '-'}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {newBudgetForm.period_type === 'Annual' && (
@@ -3906,6 +4261,7 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     onClick={() => {
                       setShowAddBudgetForm(false)
                       setBudgetFormError(null)
+                      setBudgetDateMode('today')
                     }}
                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
                   >
@@ -4260,130 +4616,130 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   טוען תקופות חוזה...
                 </div>
-              ) : !contractPeriods.periods_by_year || contractPeriods.periods_by_year.length === 0 ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  <p className="text-lg mb-2">אין תקופות חוזה קודמות</p>
-                  <p className="text-sm">תקופות חוזה קודמות יופיעו כאן לאחר סיום תקופות חוזה בעבר</p>
-                </div>
               ) : (
                 <div className="space-y-6">
-                  {contractPeriods.periods_by_year.map((yearGroup) => (
-                    <div key={yearGroup.year} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                        שנת {yearGroup.year}
-                      </h3>
+                  {/* Show previous periods only (not the current period) */}
+                  {contractPeriods.periods_by_year && contractPeriods.periods_by_year.length > 0 && (
+                    <>
+                      {contractPeriods.periods_by_year.map((yearGroup) => (
+                    <div key={yearGroup.year} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm">
+                      <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                          <span className="text-blue-600 dark:text-blue-400">📅</span>
+                          שנת {yearGroup.year}
+                        </h3>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const blob = await ProjectAPI.exportContractYearCSV(parseInt(id!), yearGroup.year)
+                              const url = window.URL.createObjectURL(blob)
+                              const link = document.createElement('a')
+                              link.href = url
+                              const safeProjectName = (projectName || 'project').replace(/[^a-zA-Z0-9_\-]/g, '_')
+                              link.setAttribute('download', `${safeProjectName}_year_${yearGroup.year}.xlsx`)
+                              document.body.appendChild(link)
+                              link.click()
+                              link.remove()
+                              window.URL.revokeObjectURL(url)
+                            } catch (err) {
+                              console.error('Error exporting year CSV:', err)
+                              alert('שגיאה בייצוא קובץ שנה')
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm"
+                          title={`הורד סיכום שנתי לשנת ${yearGroup.year}`}
+                        >
+                          <Download className="w-4 h-4" />
+                          הורד סיכום שנתי
+                        </button>
+                      </div>
                       <div className="space-y-3">
                         {yearGroup.periods.map((period) => (
                           <div
-                            key={period.period_id}
-                            className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                            key={period.period_id || `${period.start_date}-${period.end_date}`}
+                            className="bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600 rounded-xl p-4 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all duration-200 group"
                           >
                             <div className="flex items-center justify-between">
                               <div 
                                 className="flex-1 cursor-pointer"
-                                onClick={async () => {
-                                  setLoadingPeriodSummary(true)
-                                  try {
-                                    const summary = await ProjectAPI.getContractPeriodSummary(
-                                      parseInt(id!),
-                                      period.period_id
-                                    )
-                                    setSelectedPeriodSummary(summary)
-                                    setShowPeriodSummaryModal(true)
+                                onClick={() => {
+                                  // Navigate to the same page with period parameter
+                                  if (period.period_id) {
                                     setShowPreviousYearsModal(false)
-                                  } catch (err: any) {
-                                    alert(err?.response?.data?.detail || 'שגיאה בטעינת סיכום תקופת החוזה')
-                                  } finally {
-                                    setLoadingPeriodSummary(false)
+                                    setSearchParams({ period: period.period_id.toString() })
                                   }
                                 }}
                               >
-                                <div className="font-semibold text-gray-900 dark:text-white mb-1">
-                                  {period.year_label || `שנת ${new Date(period.start_date).getFullYear()}`}
+                                <div className="font-bold text-gray-900 dark:text-white mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                  {period.year_label || `תקופה ${period.year_index || ''}`}
                                 </div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400">
+                                <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                                  <span>📅</span>
                                   {period.start_date && period.end_date ? (
                                     (() => {
-                                      const start = new Date(period.start_date);
-                                      const end = new Date(period.end_date);
-                                      // Ensure start_date is before end_date for display
+                                      // Parse dates as local dates to avoid timezone issues
+                                      const start = parseLocalDate(period.start_date);
+                                      const end = parseLocalDate(period.end_date);
+                                      if (!start || !end) {
+                                        return `\u200E${formatDate(period.start_date)} - ${formatDate(period.end_date)}`;
+                                      }
+                                      // Ensure start is before end
                                       const displayStart = start <= end ? start : end;
                                       const displayEnd = start <= end ? end : start;
-                                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                                      // Use dateToLocalString instead of toISOString to avoid timezone shift
+                                      return `\u200E${formatDate(dateToLocalString(displayStart))} - ${formatDate(dateToLocalString(displayEnd))}`;
                                     })()
                                   ) : period.start_date ? formatDate(period.start_date) : ''}
                                 </div>
                               </div>
-                              <div className="text-right mr-4">
-                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">סיכום כלכלי:</div>
-                                <div className="text-green-600 dark:text-green-400 font-semibold">
-                                  הכנסות: {formatCurrency(period.total_income)} ₪
-                                </div>
-                                <div className="text-red-600 dark:text-red-400 font-semibold">
-                                  הוצאות: {formatCurrency(period.total_expense)} ₪
-                                </div>
-                                <div className={`font-semibold ${
-                                  period.total_profit >= 0
-                                    ? 'text-green-600 dark:text-green-400'
-                                    : 'text-red-600 dark:text-red-400'
-                                }`}>
-                                  רווח: {formatCurrency(period.total_profit)} ₪
-                                </div>
-                              </div>
-                              <div className="ml-4 flex items-center gap-2">
+
+                              <div className="flex items-center gap-2">
                                 <button
                                   onClick={async (e) => {
                                     e.stopPropagation()
                                     try {
-                                      const response = await api.get(
-                                        `/projects/${id}/contract-periods/${period.period_id}/export-csv`,
-                                        { responseType: 'blob' }
+                                      const blob = await ProjectAPI.exportContractPeriodCSV(
+                                        parseInt(id!),
+                                        period.period_id,
+                                        period.start_date,
+                                        period.end_date
                                       )
-                                      const url = window.URL.createObjectURL(new Blob([response.data]))
+                                      const url = window.URL.createObjectURL(blob)
                                       const link = document.createElement('a')
                                       link.href = url
-                                      const safeProjectName = projectName.replace(/[^a-zA-Z0-9_\-]/g, '_')
-                                      const yearLabel = period.year_label || `שנת_${new Date(period.start_date).getFullYear()}`
+                                      const safeProjectName = (projectName || 'project').replace(/[^a-zA-Z0-9_\-]/g, '_')
+                                      const yearLabel = period.year_label || `period_${period.period_id}`
                                       const safeYearLabel = yearLabel.replace(/[^a-zA-Z0-9_\-א-ת]/g, '_')
-                                      link.setAttribute('download', `contract_period_${safeYearLabel}_${safeProjectName}.xlsx`)
+                                      link.setAttribute('download', `${safeProjectName}_${safeYearLabel}.xlsx`)
                                       document.body.appendChild(link)
                                       link.click()
                                       link.remove()
                                       window.URL.revokeObjectURL(url)
                                     } catch (err) {
                                       console.error('Error exporting CSV:', err)
-                                      alert('שגיאה בייצוא CSV')
+                                      alert('שגיאה בייצוא קובץ תקופה')
                                     }
                                   }}
-                                  className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1 text-sm"
-                                  title="הורד CSV"
+                                  className="px-3 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors flex items-center gap-2 text-sm font-medium"
+                                  title="הורד פירוט תקופתי"
                                 >
                                   <Download className="w-4 h-4" />
-                                  CSV
+                                  <span className="hidden sm:inline">הורדה</span>
                                 </button>
-                                <div 
-                                  className="cursor-pointer"
-                                  onClick={async () => {
-                                    setLoadingPeriodSummary(true)
-                                    try {
-                                      const summary = await ProjectAPI.getContractPeriodSummary(
-                                        parseInt(id!),
-                                        period.period_id
-                                      )
-                                      setSelectedPeriodSummary(summary)
-                                      setShowPeriodSummaryModal(true)
+                                <button 
+                                  onClick={() => {
+                                    // Navigate to the same page with period parameter
+                                    if (period.period_id) {
                                       setShowPreviousYearsModal(false)
-                                    } catch (err: any) {
-                                      alert(err?.response?.data?.detail || 'שגיאה בטעינת סיכום תקופת החוזה')
-                                    } finally {
-                                      setLoadingPeriodSummary(false)
+                                      setSearchParams({ period: period.period_id.toString() })
                                     }
                                   }}
+                                  className="px-3 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center gap-2 text-sm font-medium"
+                                  title="צפה בתקופה"
                                 >
-                                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                  </svg>
-                                </div>
+                                  <Eye className="w-4 h-4" />
+                                  <span className="hidden sm:inline">צפייה</span>
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -4391,6 +4747,16 @@ const formatCurrency = (value: number | string | null | undefined) => {
                       </div>
                     </div>
                   ))}
+                    </>
+                  )}
+                  
+                  {/* Show message if no previous periods */}
+                  {(!contractPeriods.periods_by_year || contractPeriods.periods_by_year.length === 0) && (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <p className="text-lg mb-2">אין חוזים קודמים</p>
+                      <p className="text-sm">חוזים קודמים יופיעו כאן לאחר חידוש החוזה</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -4426,12 +4792,17 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {selectedPeriodSummary.start_date && selectedPeriodSummary.end_date ? (
                     (() => {
-                      const start = new Date(selectedPeriodSummary.start_date);
-                      const end = new Date(selectedPeriodSummary.end_date);
+                      // Use parseLocalDate to avoid timezone issues
+                      const start = parseLocalDate(selectedPeriodSummary.start_date);
+                      const end = parseLocalDate(selectedPeriodSummary.end_date);
+                      if (!start || !end) {
+                        return `\u200E${formatDate(selectedPeriodSummary.start_date)} - ${formatDate(selectedPeriodSummary.end_date)}`;
+                      }
                       // Ensure start_date is before end_date for display
                       const displayStart = start <= end ? start : end;
                       const displayEnd = start <= end ? end : start;
-                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                      // Use dateToLocalString instead of toISOString to avoid timezone shift
+                      return `\u200E${formatDate(dateToLocalString(displayStart))} - ${formatDate(dateToLocalString(displayEnd))}`;
                     })()
                   ) : selectedPeriodSummary.start_date ? formatDate(selectedPeriodSummary.start_date) : ''}
                 </p>
@@ -4442,7 +4813,9 @@ const formatCurrency = (value: number | string | null | undefined) => {
                     try {
                       const blob = await ProjectAPI.exportContractPeriodCSV(
                         parseInt(id!),
-                        selectedPeriodSummary.period_id
+                        selectedPeriodSummary.period_id,
+                        selectedPeriodSummary.start_date,
+                        selectedPeriodSummary.end_date
                       )
                       const url = window.URL.createObjectURL(blob)
                       const a = document.createElement('a')
@@ -4645,12 +5018,17 @@ const formatCurrency = (value: number | string | null | undefined) => {
                 {selectedPeriodSummary && selectedPeriodSummary.start_date && selectedPeriodSummary.end_date && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {(() => {
-                      const start = new Date(selectedPeriodSummary.start_date);
-                      const end = new Date(selectedPeriodSummary.end_date);
+                      // Use parseLocalDate to avoid timezone issues
+                      const start = parseLocalDate(selectedPeriodSummary.start_date);
+                      const end = parseLocalDate(selectedPeriodSummary.end_date);
+                      if (!start || !end) {
+                        return `\u200E${formatDate(selectedPeriodSummary.start_date)} - ${formatDate(selectedPeriodSummary.end_date)}`;
+                      }
                       // Ensure start_date is before end_date for display
                       const displayStart = start <= end ? start : end;
                       const displayEnd = start <= end ? end : start;
-                      return `${formatDate(displayStart.toISOString().split('T')[0])} - ${formatDate(displayEnd.toISOString().split('T')[0])}`;
+                      // Use dateToLocalString instead of toISOString to avoid timezone shift
+                      return `\u200E${formatDate(dateToLocalString(displayStart))} - ${formatDate(dateToLocalString(displayEnd))}`;
                     })()}
                   </p>
                 )}
@@ -4873,10 +5251,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
         transition={{ duration: 0.3 }}
         className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4"
       >
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 text-right">
-          דוח הוצאות חודשי
-        </h2>
-        
         {(() => {
           // Get current date
           const now = new Date()
@@ -4900,48 +5274,83 @@ const formatCurrency = (value: number | string | null | undefined) => {
             }
           }
           
-          // Choose the start date
-          let tableStartDate: Date = hebrewYearStartDate
+          // Hebrew month names by calendar month (0=Jan, 11=Dec)
+          const monthNamesByCalendarMonth = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
           
-          if (projectStartMonthDate) {
-            // Check if project start is later than hebrew year start (e.g. started in August)
-            if (projectStartMonthDate > hebrewYearStartDate) {
-              tableStartDate = projectStartMonthDate
-            } else {
-              // If project started before hebrew year start (e.g. May),
-              // check if we are still within the first year of the project relative to now.
-              // If the project started recently (within the last ~year) and using its start date
-              // covers the current date, we prefer the project start date.
-              const oneYearAfterProjectStart = new Date(projectStartMonthDate)
-              oneYearAfterProjectStart.setMonth(oneYearAfterProjectStart.getMonth() + 12)
+          // Create months array - use historical period dates if viewing one, otherwise use default logic
+          const months: Array<{ year: number; month: number; monthIndex: number; monthKey: string; label: string }> = []
+          
+          if (isViewingHistoricalPeriod && selectedPeriod?.start_date && selectedPeriod?.end_date) {
+            // When viewing historical period, show months from that period's date range
+            const periodStart = parseLocalDate(selectedPeriod.start_date)
+            const periodEnd = parseLocalDate(selectedPeriod.end_date)
+            
+            if (periodStart && periodEnd && periodEnd >= periodStart) {
+              // Start from first day of start month
+              let current = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1)
+              const endYear = periodEnd.getFullYear()
+              const endMonth = periodEnd.getMonth()
+              let i = 0
               
-              // If current date is within the first year of the project
-              if (now < oneYearAfterProjectStart) {
-                tableStartDate = projectStartMonthDate
+              // Iterate through all months from period start to period end (inclusive)
+              while (current.getFullYear() < endYear || (current.getFullYear() === endYear && current.getMonth() <= endMonth)) {
+                const year = current.getFullYear()
+                const month = current.getMonth()
+                const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`
+                months.push({
+                  year,
+                  month,
+                  monthIndex: i,
+                  monthKey,
+                  label: monthNamesByCalendarMonth[month]
+                })
+                i++
+                // Move to next month
+                current = new Date(year, month + 1, 1)
               }
             }
           }
           
-          const startYear = tableStartDate.getFullYear()
-          const startMonth = tableStartDate.getMonth() // 0-11
-          
-          // Create 12 month periods starting from the chosen start date
-          const months: Array<{ year: number; month: number; monthIndex: number; monthKey: string; label: string }> = []
-          
-          // Hebrew month names by calendar month (0=Jan, 11=Dec)
-          const monthNamesByCalendarMonth = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
-          
-          for (let i = 0; i < 12; i++) {
-            const monthIndex = (startMonth + i) % 12
-            const year = startYear + Math.floor((startMonth + i) / 12)
-            const monthKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`
-            months.push({
-              year,
-              month: monthIndex,
-              monthIndex: i,
-              monthKey,
-              label: monthNamesByCalendarMonth[monthIndex]
-            })
+          // If no months were created (not viewing historical period or invalid dates), use default logic
+          if (months.length === 0) {
+            // Choose the start date
+            let tableStartDate: Date = hebrewYearStartDate
+            
+            if (projectStartMonthDate) {
+              const projectStartMonth = projectStartMonthDate.getMonth() // 0=Jan, 11=Dec
+              
+              // Contract starts January: use calendar year (Jan–Dec) so table starts in January
+              if (projectStartMonth === 0) {
+                tableStartDate = new Date(monthlyTableYear, 0, 1)
+              } else if (projectStartMonthDate > hebrewYearStartDate) {
+                // Project start is later than Hebrew year start (e.g. August)
+                tableStartDate = projectStartMonthDate
+              } else {
+                // Project started before Hebrew year start (e.g. May)
+                const oneYearAfterProjectStart = new Date(projectStartMonthDate)
+                oneYearAfterProjectStart.setMonth(oneYearAfterProjectStart.getMonth() + 12)
+                if (now < oneYearAfterProjectStart) {
+                  tableStartDate = projectStartMonthDate
+                }
+              }
+            }
+            
+            const startYear = tableStartDate.getFullYear()
+            const startMonth = tableStartDate.getMonth() // 0-11
+            
+            // Create 12 month periods starting from the chosen start date
+            for (let i = 0; i < 12; i++) {
+              const monthIndex = (startMonth + i) % 12
+              const year = startYear + Math.floor((startMonth + i) / 12)
+              const monthKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`
+              months.push({
+                year,
+                month: monthIndex,
+                monthIndex: i,
+                monthKey,
+                label: monthNamesByCalendarMonth[monthIndex]
+              })
+            }
           }
           
           // Split all transactions by month (including period transactions)
@@ -4953,12 +5362,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
           
           // Filter out fund transactions
           const regularSplits = allSplits.filter(s => !s.from_fund)
-          
-          // DEBUG: Log months and splits
-          console.log('📊 Table months:', months.map(m => ({ monthKey: m.monthKey, label: m.label })))
-          console.log('📊 All splits:', regularSplits.map(s => ({ monthKey: s.monthKey, amount: s.proportionalAmount, type: s.type, category: s.category })))
-          console.log('📊 First month key:', months[0]?.monthKey)
-          console.log('📊 Splits for first month:', regularSplits.filter(s => s.monthKey === months[0]?.monthKey))
           
           // Group by month, category, and supplier
           const monthlyData: Record<string, {
@@ -4979,7 +5382,6 @@ const formatCurrency = (value: number | string | null | undefined) => {
           // Process transactions
           regularSplits.forEach(split => {
             const monthKey = split.monthKey
-            console.log('📊 Processing split:', { monthKey, inMonthlyData: !!monthlyData[monthKey], type: split.type, amount: split.proportionalAmount })
             if (monthlyData[monthKey]) {
               if (split.type === 'Income') {
                 monthlyData[monthKey].income += split.proportionalAmount
@@ -5099,9 +5501,33 @@ const formatCurrency = (value: number | string | null | undefined) => {
             runningTotals.push(runningTotal)
           })
           
+          const projectStartsInJanuary = projectStartMonthDate !== null && projectStartMonthDate.getMonth() === 0
+          const projectStartYear = projectStartMonthDate ? projectStartMonthDate.getFullYear() : currentYear
+          const yearOptions = Array.from({ length: currentYear - projectStartYear + 1 }, (_, i) => projectStartYear + i)
+          
           return (
-            <div className="overflow-x-auto" dir="rtl">
-              <table className="w-full border-collapse text-xs">
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white text-right">
+                  דוח הוצאות חודשי
+                </h2>
+                {projectStartsInJanuary && !isViewingHistoricalPeriod && (
+                  <label className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">שנה:</span>
+                    <select
+                      value={monthlyTableYear}
+                      onChange={(e) => setMonthlyTableYear(parseInt(e.target.value, 10))}
+                      className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {yearOptions.map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+              <div className="overflow-x-auto" dir="rtl">
+                <table className="w-full border-collapse text-xs">
                 <thead>
                   <tr>
                     <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 text-right font-semibold text-gray-900 dark:text-white sticky left-0 z-10 min-w-[120px]">
@@ -5232,7 +5658,8 @@ const formatCurrency = (value: number | string | null | undefined) => {
                   </tr>
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )
         })()}
       </motion.div>

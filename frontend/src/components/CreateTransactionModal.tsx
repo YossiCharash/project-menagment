@@ -118,7 +118,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedTxDate = transactionDate.toLocaleDateString('he-IL')
       setDateError(
-        `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
+        `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
       )
     } else {
       setDateError(null)
@@ -144,7 +144,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
       setRecurringDateError(
-        `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
+        `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
       )
     } else {
       setRecurringDateError(null)
@@ -170,7 +170,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedPeriodStart = periodStart.toLocaleDateString('he-IL')
       setPeriodStartDateError(
-        `לא ניתן ליצור עסקה תאריכית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התקופה: ${formattedPeriodStart}`
+        `לא ניתן ליצור עסקה תאריכית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התקופה: ${formattedPeriodStart}`
       )
     } else {
       setPeriodStartDateError(null)
@@ -196,7 +196,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
       const formattedPeriodEnd = periodEnd.toLocaleDateString('he-IL')
       setPeriodEndDateError(
-        `לא ניתן ליצור עסקה תאריכית עם תאריך סיום לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך סיום של התקופה: ${formattedPeriodEnd}`
+        `לא ניתן ליצור עסקה תאריכית עם תאריך סיום לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך סיום של התקופה: ${formattedPeriodEnd}`
       )
     } else {
       setPeriodEndDateError(null)
@@ -393,7 +393,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
         const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
         const formattedTxDate = transactionDate.toLocaleDateString('he-IL')
         setError(
-          `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
+          `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
         )
         return
       }
@@ -536,7 +536,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
         const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
         const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
         setError(
-          `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה. תאריך תחילת החוזה: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
+          `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
         )
         return
       }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Project, ProjectCreate, BudgetCreate, BudgetWithSpending } from '../types/api'
 import { ProjectAPI, BudgetAPI, CategoryAPI, Category } from '../lib/apiClient'
 import { formatDateForInput } from '../lib/utils'
+import FundSetupModal from './FundSetupModal'
 
 interface CreateProjectModalProps {
   isOpen: boolean
@@ -25,6 +26,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     description: '',
     start_date: '',
     end_date: '',
+    contract_duration_months: undefined,
     budget_monthly: 0,
     budget_annual: 0,
     address: '',
@@ -48,8 +50,24 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [hasFund, setHasFund] = useState(false)
   const [monthlyFundAmount, setMonthlyFundAmount] = useState<number>(0)
   const [nameError, setNameError] = useState<string | null>(null)
+  const [showFundSetupModal, setShowFundSetupModal] = useState(false)
+  const [createdProjectId, setCreatedProjectId] = useState<number | null>(null)
   const [isCheckingName, setIsCheckingName] = useState(false)
   const [nameValid, setNameValid] = useState<boolean | null>(null)
+  const [hasPastPeriods, setHasPastPeriods] = useState(false)
+  const [checkingPastPeriods, setCheckingPastPeriods] = useState(false)
+  const [contractPeriods, setContractPeriods] = useState<Array<{
+    period_id: number
+    start_date: string
+    end_date: string
+    contract_year: number
+    year_index: number
+    year_label: string
+  }>>([])
+  const [selectedPeriodId, setSelectedPeriodId] = useState<number | null>(null)
+  const [editFromCurrentPeriod, setEditFromCurrentPeriod] = useState(true) // Default to editing from current period
+  // Calculated end date based on contract_duration_months
+  const [calculatedEndDate, setCalculatedEndDate] = useState<string | null>(null)
   // Default to 'regular' if no projectType is provided, but allow override
   const [selectedProjectType, setSelectedProjectType] = useState<'parent' | 'regular'>(
     projectType || 'regular'
@@ -75,6 +93,91 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setSelectedProjectType(projectType || 'regular')
     }
   }, [isOpen, parentProjectId, editingProject, projectType])
+
+  // Update start_date when a period is selected (current or specific)
+  useEffect(() => {
+    if (!editingProject || !hasPastPeriods || contractPeriods.length === 0) {
+      return
+    }
+
+    if (editFromCurrentPeriod) {
+      // When editing from current period, use the current period's start date
+      // The current period is the one with the latest start_date
+      const currentPeriod = contractPeriods[contractPeriods.length - 1]
+      if (currentPeriod) {
+        const periodStartDate = currentPeriod.start_date.split('T')[0]
+        setFormData(prev => ({
+          ...prev,
+          start_date: periodStartDate
+        }))
+      }
+    } else if (selectedPeriodId) {
+      // When a specific period is selected, use that period's start date
+      const selectedPeriod = contractPeriods.find(p => p.period_id === selectedPeriodId)
+      if (selectedPeriod) {
+        const periodStartDate = selectedPeriod.start_date.split('T')[0]
+        setFormData(prev => ({
+          ...prev,
+          start_date: periodStartDate
+        }))
+      }
+    }
+  }, [editingProject, selectedPeriodId, contractPeriods, hasPastPeriods, editFromCurrentPeriod])
+
+  // Calculate end date automatically when editing based on selected period and contract_duration_months
+  useEffect(() => {
+    if (!editingProject || !formData.contract_duration_months || formData.contract_duration_months <= 0) {
+      setCalculatedEndDate(null)
+      return
+    }
+
+    let startDateStr: string | null = null
+
+    // If editing from current period, use current period's start date
+    if (editFromCurrentPeriod && hasPastPeriods && contractPeriods.length > 0) {
+      const currentPeriod = contractPeriods[contractPeriods.length - 1]
+      if (currentPeriod) {
+        startDateStr = currentPeriod.start_date.split('T')[0]
+      }
+    }
+    // If editing from a specific period, use that period's start date
+    else if (!editFromCurrentPeriod && hasPastPeriods && selectedPeriodId && contractPeriods.length > 0) {
+      const selectedPeriod = contractPeriods.find(p => p.period_id === selectedPeriodId)
+      if (selectedPeriod) {
+        startDateStr = selectedPeriod.start_date.split('T')[0]
+      }
+    }
+
+    // Fallback to form start_date if no period found
+    if (!startDateStr && formData.start_date) {
+      startDateStr = formData.start_date
+    }
+
+    if (!startDateStr) {
+      setCalculatedEndDate(null)
+      return
+    }
+
+    // Parse date as local date to avoid timezone issues
+    const [year, month, day] = startDateStr.split('-').map(Number)
+    const startDate = new Date(year, month - 1, day)
+    const endDate = new Date(startDate)
+    endDate.setMonth(endDate.getMonth() + formData.contract_duration_months)
+    
+    // Format as YYYY-MM-DD
+    const endYear = endDate.getFullYear()
+    const endMonth = String(endDate.getMonth() + 1).padStart(2, '0')
+    const endDay = String(endDate.getDate()).padStart(2, '0')
+    const newEndDateStr = `${endYear}-${endMonth}-${endDay}`
+    
+    setCalculatedEndDate(newEndDateStr)
+    
+    // Also update the form data with the calculated end date
+    setFormData(prev => ({
+      ...prev,
+      end_date: newEndDateStr
+    }))
+  }, [editingProject, formData.contract_duration_months, formData.start_date, selectedPeriodId, hasPastPeriods, contractPeriods, editFromCurrentPeriod])
 
   // Clear focus when modal opens to prevent buttons staying "pressed"
   useEffect(() => {
@@ -132,6 +235,71 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     }
   }
 
+  // Check if project has past contract periods and load all periods
+  const checkPastPeriods = async (projectId: number) => {
+    setCheckingPastPeriods(true)
+    try {
+      const periodsData = await ProjectAPI.getContractPeriods(projectId)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      // Collect all periods from all years
+      const allPeriods: Array<{
+        period_id: number
+        start_date: string
+        end_date: string
+        contract_year: number
+        year_index: number
+        year_label: string
+      }> = []
+      
+      // Check all periods to see if any ended in the past
+      let foundPastPeriod = false
+      for (const yearGroup of periodsData.periods_by_year) {
+        for (const period of yearGroup.periods) {
+          allPeriods.push({
+            period_id: period.period_id,
+            start_date: period.start_date,
+            end_date: period.end_date,
+            contract_year: yearGroup.year,
+            year_index: period.year_index,
+            year_label: period.year_label
+          })
+          
+          const endDate = new Date(period.end_date)
+          endDate.setHours(0, 0, 0, 0)
+          if (endDate <= today) {
+            foundPastPeriod = true
+          }
+        }
+      }
+      
+      // Sort periods by start_date (oldest first)
+      allPeriods.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+      
+      setContractPeriods(allPeriods)
+      setHasPastPeriods(foundPastPeriod)
+      
+      // Default to editing from current period (not from a specific past period)
+      setEditFromCurrentPeriod(true)
+      // Find the current period (the one with the latest start_date that hasn't ended)
+      if (allPeriods.length > 0) {
+        // The current period is the one with the latest start_date
+        const currentPeriod = allPeriods[allPeriods.length - 1]
+        setSelectedPeriodId(currentPeriod.period_id)
+      } else {
+        setSelectedPeriodId(null)
+      }
+    } catch (err) {
+      console.error('Error checking past periods:', err)
+      // On error, assume there might be past periods to be safe
+      setHasPastPeriods(true)
+      setContractPeriods([])
+    } finally {
+      setCheckingPastPeriods(false)
+    }
+  }
+
   // Populate form when editing
   useEffect(() => {
     if (editingProject) {
@@ -140,6 +308,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         description: editingProject.description || '',
         start_date: formatDateForInput(editingProject.start_date),
         end_date: formatDateForInput(editingProject.end_date),
+        contract_duration_months: editingProject.contract_duration_months || undefined,
         budget_monthly: editingProject.budget_monthly,
         budget_annual: editingProject.budget_annual,
         address: editingProject.address || '',
@@ -159,6 +328,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       // Load existing budgets
       loadExistingBudgets(editingProject.id)
       loadFundLockState(editingProject.id)
+      // Check for past periods
+      checkPastPeriods(editingProject.id)
       // Reset image states when editing
       setSelectedImage(null)
       setImagePreview(editingProject.image_url ? getImageUrl(editingProject.image_url) : null)
@@ -174,6 +345,9 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setNameValid(null)
     } else {
       resetForm()
+      setHasPastPeriods(false)
+      setContractPeriods([])
+      setSelectedPeriodId(null)
     }
   }, [editingProject])
 
@@ -296,6 +470,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       description: '',
       start_date: '',
       end_date: '',
+      contract_duration_months: undefined,
       budget_monthly: 0,
       budget_annual: 0,
       address: '',
@@ -319,6 +494,12 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     setNameValid(null)
     setIsCheckingName(false)
     setSelectedProjectType(projectType) // Reset to default project type
+    setShowFundSetupModal(false)
+    setCreatedProjectId(null)
+    setContractPeriods([])
+    setSelectedPeriodId(null)
+    setEditFromCurrentPeriod(true)
+    setCalculatedEndDate(null)
   }
 
   const getImageUrl = (imageUrl: string): string => {
@@ -431,40 +612,28 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           return
         }
       } else if (!editingProject && isParentProjectCreation) {
-        // For parent projects (minimal): name and dates are required
+        // For parent projects: only name is required (no dates)
         if (!formData.name || formData.name.trim() === '') {
           setError('שם הפרויקט נדרש')
           setLoading(false)
           return
         }
-        if (!formData.start_date || !formData.end_date) {
-          setError('תאריך התחלה ותאריך סיום נדרשים')
-          setLoading(false)
-          return
-        }
-        // Validate that end_date is after start_date
-        if (new Date(formData.end_date) <= new Date(formData.start_date)) {
-          setError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה')
-          setLoading(false)
-          return
-        }
       } else if (!editingProject && isRegularProjectCreation) {
-        // For regular projects: name and dates are required
+        // For regular projects: name, start_date and duration are required
         if (!formData.name || formData.name.trim() === '') {
           setError('שם הפרויקט נדרש')
           setLoading(false)
           return
         }
         
-        if (!formData.start_date || !formData.end_date) {
-          setError('תאריך התחלה ותאריך סיום נדרשים')
+        if (!formData.start_date) {
+          setError('תאריך התחלה נדרש')
           setLoading(false)
           return
         }
 
-        // Validate that end_date is after start_date
-        if (new Date(formData.end_date) <= new Date(formData.start_date)) {
-          setError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה')
+        if (!formData.contract_duration_months || formData.contract_duration_months <= 0) {
+          setError('משך החוזה בחודשים נדרש וחייב להיות גדול מ-0')
           setLoading(false)
           return
         }
@@ -489,18 +658,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           setLoading(false)
           return
         }
-        // For parent projects, dates are required
-        if (isParentProject && (!formData.start_date || !formData.end_date)) {
-          setError('תאריך התחלה ותאריך סיום נדרשים לפרויקט על')
-          setLoading(false)
-          return
-        }
-        // Validate dates if both are provided
-        if (formData.start_date && formData.end_date && new Date(formData.end_date) <= new Date(formData.start_date)) {
-          setError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה')
-          setLoading(false)
-          return
-        }
+        // For parent projects, dates are not required (they are hidden)
       }
 
       // Filter and validate budgets - remove project_id if present (not needed for project creation)
@@ -539,14 +697,34 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         }
       }
 
-      const projectData: ProjectCreate = {
+      // Calculate end_date from start_date + duration if creating new project
+      let calculatedEndDate: string | undefined = undefined
+      if (!editingProject && formData.start_date && formData.contract_duration_months) {
+        // Parse date as local date to avoid timezone issues
+        // Extract date parts from YYYY-MM-DD format
+        const [year, month, day] = formData.start_date.split('-').map(Number)
+        const startDate = new Date(year, month - 1, day)
+        const endDate = new Date(startDate)
+        endDate.setMonth(endDate.getMonth() + formData.contract_duration_months)
+        // Format as YYYY-MM-DD without timezone conversion
+        const endYear = endDate.getFullYear()
+        const endMonth = String(endDate.getMonth() + 1).padStart(2, '0')
+        const endDay = String(endDate.getDate()).padStart(2, '0')
+        calculatedEndDate = `${endYear}-${endMonth}-${endDay}`
+      }
+
+      const projectData: ProjectCreate & { apply_from_period_id?: number } = {
         // Name is always required by backend (min_length=1), ensure it exists
         name: formData.name.trim(),
         description: formData.description || undefined,
         // For updates, always send dates (even if empty string, convert to null/undefined)
         // This ensures dates are updated properly
-        start_date: (formData.start_date && formData.start_date.trim()) || undefined,
-        end_date: (formData.end_date && formData.end_date.trim()) || undefined,
+        // For parent projects, don't send dates (they should be null/undefined)
+        start_date: isParentProject ? undefined : ((formData.start_date && formData.start_date.trim()) || undefined),
+        end_date: isParentProject ? undefined : (editingProject ? ((formData.end_date && formData.end_date.trim()) || undefined) : calculatedEndDate),
+        contract_duration_months: isParentProject ? undefined : (formData.contract_duration_months || undefined),
+        // Add apply_from_period_id if editing and period is selected
+        ...(editingProject && selectedPeriodId ? { apply_from_period_id: selectedPeriodId } : {}),
         // Budget fields are required with default 0
         budget_monthly: formData.budget_monthly || 0,
         budget_annual: formData.budget_annual || 0,
@@ -562,8 +740,9 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         manager_id: formData.manager_id || undefined,
         // Only include budgets for regular projects or subprojects (not for parent projects)
         budgets: (isParentProject || isParentProjectCreation ? undefined : (validBudgets.length > 0 ? validBudgets : undefined)),
-        has_fund: (isParentProject || isParentProjectCreation) ? false : (hasFund || false),
-        monthly_fund_amount: (isParentProject || isParentProjectCreation) ? undefined : (hasFund ? (monthlyFundAmount || 0) : undefined)
+        // Don't set has_fund on project creation - it will be set after fund is created via the modal
+        has_fund: false,
+        monthly_fund_amount: undefined
       }
       
       // When updating, explicitly include dates even if they're empty to allow clearing them
@@ -587,7 +766,15 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
       let result: Project
       if (editingProject) {
-        result = await ProjectAPI.updateProject(editingProject.id, projectData)
+        // For updates, we need to send apply_from_period_id separately if it exists
+        // If editing from current period, send the current period ID
+        // If editing from a specific period, send that period ID
+        const updateData: any = { ...projectData }
+        if (selectedPeriodId && formData.contract_duration_months) {
+          // Always send the period ID - either current or selected
+          updateData.apply_from_period_id = selectedPeriodId
+        }
+        result = await ProjectAPI.updateProject(editingProject.id, updateData)
       } else {
         result = await ProjectAPI.createProject(projectData)
       }
@@ -628,6 +815,14 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       // Dispatch custom event to notify other components (e.g., ProjectDetail) that project was updated
       if (editingProject) {
         window.dispatchEvent(new CustomEvent('projectUpdated', { detail: { projectId: result.id } }))
+      }
+      
+      // If creating a new project with fund, show fund setup modal
+      if (!editingProject && hasFund && !existingFundLocked && monthlyFundAmount > 0) {
+        setCreatedProjectId(result.id)
+        setShowFundSetupModal(true)
+        // Don't close the modal yet - wait for fund setup
+        return
       }
       
       // Always close modal and call onSuccess, even if image upload failed
@@ -1035,54 +1230,202 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           </div>
           )}
 
-          {/* Dates are always shown and required for parent projects */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                תאריך התחלה {(isParentProjectCreation || isRegularProjectCreation) ? '*' : ''}
-              </label>
-              <input
-                type="date"
-                required={isParentProjectCreation || isRegularProjectCreation}
-                value={formData.start_date || ''}
-                onChange={(e) => {
-                  const newStartDate = e.target.value
-                  // If end_date exists and is before new start_date, clear the error
-                  if (formData.end_date && newStartDate && new Date(formData.end_date) <= new Date(newStartDate)) {
-                    setError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה')
-                  } else {
-                    setError(null)
-                  }
-                  setFormData({ ...formData, start_date: newStartDate })
-                }}
-                max={formData.end_date || undefined}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+          {/* Dates and duration - hidden for parent projects, shown for regular projects and subprojects */}
+          {!isParentProject && (
+            <div className="space-y-4">
+              {/* Top row: Period selection and Contract duration */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(!editingProject || (editingProject && !isParentProject)) && (
+                  <>
+                    {editingProject && hasPastPeriods && contractPeriods.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          מתי יחול השינוי?
+                        </label>
+                        <div className="space-y-2 mb-3">
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="radio"
+                              name="editPeriodOption"
+                              checked={editFromCurrentPeriod}
+                              onChange={() => {
+                                setEditFromCurrentPeriod(true)
+                                // Reset to current period ID (will be set by checkPastPeriods)
+                                if (contractPeriods.length > 0) {
+                                  const currentPeriod = contractPeriods[contractPeriods.length - 1]
+                                  setSelectedPeriodId(currentPeriod.period_id)
+                                } else {
+                                  setSelectedPeriodId(null)
+                                }
+                              }}
+                              className="mr-2"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              מהחוזה הנוכחי ואילך
+                            </span>
+                          </label>
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="radio"
+                              name="editPeriodOption"
+                              checked={!editFromCurrentPeriod}
+                              onChange={() => {
+                                setEditFromCurrentPeriod(false)
+                              }}
+                              className="mr-2"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              מתקופה ספציפית
+                            </span>
+                          </label>
+                        </div>
+                        {!editFromCurrentPeriod && (
+                          <>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              בחר תקופה להתחלה
+                            </label>
+                            <select
+                              value={selectedPeriodId || ''}
+                              onChange={(e) => {
+                                const periodId = e.target.value ? parseInt(e.target.value) : null
+                                setSelectedPeriodId(periodId)
+                                // The start_date will be updated automatically by the useEffect
+                              }}
+                              className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">-- בחר תקופה --</option>
+                              {contractPeriods.map((period) => {
+                                const startDate = new Date(period.start_date).toLocaleDateString('he-IL')
+                                const endDate = new Date(period.end_date).toLocaleDateString('he-IL')
+                                const label = period.year_label 
+                                  ? `${period.contract_year} - ${period.year_label} (${startDate} - ${endDate})`
+                                  : `${period.contract_year} (${startDate} - ${endDate})`
+                                return (
+                                  <option key={period.period_id} value={period.period_id}>
+                                    {label}
+                                  </option>
+                                )
+                              })}
+                            </select>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              בחר תקופה להתחלה. תאריך ההתחלה יתעדכן אוטומטית לתאריך תחילת התקופה שנבחרה, וממנו יספרו החודשים. תקופות קודמות לא ישתנו.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        משך החוזה בחודשים {(isParentProjectCreation || isRegularProjectCreation) ? '*' : ''}
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        required={isParentProjectCreation || isRegularProjectCreation}
+                        value={formData.contract_duration_months || ''}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value) || undefined
+                          if (value !== undefined && value <= 0) {
+                            setError('משך החוזה חייב להיות גדול מ-0')
+                          } else {
+                            setError(null)
+                          }
+                          setFormData({ ...formData, contract_duration_months: value })
+                        }}
+                        placeholder="לדוגמה: 3"
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {!editingProject && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          כל תקופה תימשך מספר החודשים שצוין, ותקופות חדשות ייווצרו אוטומטית
+                        </p>
+                      )}
+                      {editingProject && hasPastPeriods && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {editFromCurrentPeriod 
+                            ? 'משך החוזה החדש יחול מהחוזה הנוכחי ואילך'
+                            : 'משך החוזה החדש יחול מהתקופה שנבחרה ואילך'
+                          }
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                תאריך סיום {(isParentProjectCreation || isRegularProjectCreation) ? '*' : ''}
-              </label>
-              <input
-                type="date"
-                required={isParentProjectCreation || isRegularProjectCreation}
-                value={formData.end_date || ''}
-                onChange={(e) => {
-                  const newEndDate = e.target.value
-                  // Validate that end_date is after start_date
-                  if (formData.start_date && newEndDate && new Date(newEndDate) <= new Date(formData.start_date)) {
-                    setError('תאריך הסיום חייב להיות אחרי תאריך ההתחלה')
-                  } else {
-                    setError(null)
-                  }
-                  setFormData({ ...formData, end_date: newEndDate })
-                }}
-                min={formData.start_date || undefined}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              {/* Bottom row: Start date and End date */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    תאריך התחלה {(isParentProjectCreation || isRegularProjectCreation) ? '*' : ''}
+                    {editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId) && (
+                      <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(מחושב אוטומטית)</span>
+                    )}
+                  </label>
+                  <input
+                    type="date"
+                    required={isParentProjectCreation || isRegularProjectCreation}
+                    value={formData.start_date || ''}
+                    onChange={(e) => {
+                      // Only allow manual editing if not editing a project with past periods
+                      if (!editingProject || !hasPastPeriods) {
+                        setFormData({ ...formData, start_date: e.target.value })
+                        setError(null)
+                      }
+                    }}
+                    readOnly={editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId) ? true : false}
+                    className={`w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId)
+                        ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
+                        : 'bg-white dark:bg-gray-700'
+                    }`}
+                  />
+                  {editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId) && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {editFromCurrentPeriod 
+                        ? 'תאריך ההתחלה מחושב אוטומטית מתאריך תחילת החוזה הנוכחי'
+                        : 'תאריך ההתחלה מחושב אוטומטית מתאריך תחילת התקופה שנבחרה'
+                      }
+                    </p>
+                  )}
+                </div>
+
+                {editingProject && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      תאריך סיום {calculatedEndDate && <span className="text-xs text-blue-600 dark:text-blue-400">(מחושב אוטומטית)</span>}
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.end_date || ''}
+                      onChange={(e) => {
+                        // Only allow manual editing if not editing a project with past periods and calculated end date
+                        if (!editingProject || !hasPastPeriods || !calculatedEndDate) {
+                          setFormData({ ...formData, end_date: e.target.value })
+                          setError(null)
+                        }
+                      }}
+                      min={formData.start_date || undefined}
+                      readOnly={!!calculatedEndDate || (editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId))}
+                      className={`w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        calculatedEndDate || (editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId))
+                          ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                          : 'bg-white dark:bg-gray-700'
+                      }`}
+                    />
+                    {calculatedEndDate && formData.contract_duration_months && (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {editingProject && hasPastPeriods && (editFromCurrentPeriod || selectedPeriodId)
+                          ? `תאריך הסיום מחושב אוטומטית: ${new Date(calculatedEndDate).toLocaleDateString('he-IL')} (תאריך התחלה + ${formData.contract_duration_months} חודשים)`
+                          : `התקופה תסתיים ב-${new Date(calculatedEndDate).toLocaleDateString('he-IL')} (לאחר ${formData.contract_duration_months} חודשים)`
+                        }
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Removed num_residents and monthly_price_per_apartment inputs */}
 
@@ -1415,6 +1758,52 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             </button>
           </div>
         </form>
+
+        {/* Fund Setup Modal - shown after project creation if fund is enabled */}
+        {showFundSetupModal && createdProjectId && (
+          <FundSetupModal
+            isOpen={showFundSetupModal}
+            onClose={() => {
+              setShowFundSetupModal(false)
+              setCreatedProjectId(null)
+              onClose()
+              resetForm()
+              // Still call onSuccess with the created project (fund was not created)
+              if (createdProjectId) {
+                ProjectAPI.getProject(createdProjectId).then(onSuccess).catch(() => {
+                  // If we can't fetch the project, still call onSuccess with a basic object
+                  onSuccess({ id: createdProjectId } as Project)
+                })
+              }
+            }}
+            onSuccess={async () => {
+              // Update project to set has_fund=true after fund is created
+              try {
+                await ProjectAPI.updateProject(createdProjectId, {
+                  has_fund: true,
+                  monthly_fund_amount: monthlyFundAmount
+                } as any)
+              } catch (err) {
+                console.error('Error updating project with fund flag:', err)
+                // Continue anyway - fund was created
+              }
+              setShowFundSetupModal(false)
+              setCreatedProjectId(null)
+              onClose()
+              resetForm()
+              // Fetch the updated project with fund data
+              if (createdProjectId) {
+                ProjectAPI.getProject(createdProjectId).then(onSuccess).catch(() => {
+                  // If we can't fetch the project, still call onSuccess with a basic object
+                  onSuccess({ id: createdProjectId } as Project)
+                })
+              }
+            }}
+            projectId={createdProjectId}
+            projectStartDate={formData.start_date || null}
+            monthlyFundAmount={monthlyFundAmount}
+          />
+        )}
       </div>
     </div>
   )

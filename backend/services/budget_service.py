@@ -1,6 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.models.contract_period import ContractPeriod
 from backend.models.budget import Budget
 from backend.repositories.budget_repository import BudgetRepository
 from backend.repositories.category_repository import CategoryRepository
@@ -38,16 +41,19 @@ class BudgetService:
         category_id: int,
         period_type: str = "Annual",
         start_date: date | None = None,
-        end_date: date | None = None
+        end_date: date | None = None,
+        contract_period_id: int | None = None
     ) -> Budget:
-        """Create a new budget for a project category"""
+        """Create a new budget for a project category, optionally linked to a contract period"""
         # Validate that the category exists in the Category table - ONLY categories from DB are allowed
         resolved_category = await self._resolve_category(category_id=category_id)
 
+        # Check for existing budget in the same contract period (or no contract period)
         existing_budget = await self.repository.get_by_project_and_category(
             project_id,
             resolved_category.id,  # Pass category_id, function will convert to category name internally
-            active_only=True
+            active_only=True,
+            contract_period_id=contract_period_id
         )
         if existing_budget:
             raise ValueError(
@@ -63,6 +69,7 @@ class BudgetService:
         
         budget = Budget(
             project_id=project_id,
+            contract_period_id=contract_period_id,
             category=resolved_category.name,  # Store category name as string
             amount=amount,
             period_type=period_type,
@@ -71,7 +78,132 @@ class BudgetService:
             is_active=True
         )
         
-        return await self.repository.create(budget)
+        created_budget = await self.repository.create(budget)
+        
+        # If budget was created in a historical period, also copy it to the current period
+        # This ensures that budgets created in past periods are available in the current period
+        if contract_period_id is not None:
+            from backend.repositories.contract_period_repository import ContractPeriodRepository
+            from backend.repositories.project_repository import ProjectRepository
+            
+            contract_repo = ContractPeriodRepository(self.db)
+            project_repo = ProjectRepository(self.db)
+            
+            # Get all periods for this project
+            all_periods = await contract_repo.get_by_project(project_id)
+            
+            # Find the current period (the one whose start_date matches project.start_date)
+            project = await project_repo.get_by_id(project_id)
+            
+            current_period = None
+            if project and project.start_date and all_periods:
+                for period in all_periods:
+                    if period.start_date == project.start_date:
+                        current_period = period
+                        break
+            
+            # If we found a current period and it's different from the one where we created the budget
+            if current_period and current_period.id != contract_period_id:
+                # Check if this category already exists in the current period
+                existing_budgets = await self.repository.get_active_budgets_for_project(
+                    project_id, contract_period_id=current_period.id
+                )
+                category_exists = any(bg.category == resolved_category.name for bg in existing_budgets)
+                
+                if not category_exists:
+                    # Copy the budget to the current period
+                    new_start = current_period.start_date
+                    new_end_date = None
+                    if period_type == "Annual":
+                        new_end_date = new_start.replace(year=new_start.year + 1) - timedelta(days=1)
+                    
+                    new_budget = Budget(
+                        project_id=project_id,
+                        contract_period_id=current_period.id,
+                        category=resolved_category.name,
+                        amount=amount,
+                        period_type=period_type,
+                        start_date=new_start,
+                        end_date=new_end_date,
+                        is_active=True,
+                    )
+                    await self.repository.create(new_budget)
+                    print(f"✓ [BUDGET AUTO-COPY] Copied budget '{resolved_category.name}' (amount: {amount}) from period {contract_period_id} to current period {current_period.id}")
+        
+        return created_budget
+
+    async def copy_budgets_to_new_period(
+        self,
+        project_id: int,
+        from_period_id: int | None,
+        to_period: "ContractPeriod",
+    ) -> int:
+        """
+        Copy all budgets that were ever created in the project to a new period.
+        Takes the most recent budget for each category (active or inactive) from any period.
+        Used when a new year/contract starts so budgets "restart" with the same definitions.
+        Returns the number of budgets copied.
+        """
+        # Get ALL budgets for the project (including inactive ones) - this ensures we get
+        # every budget that was ever created, regardless of which period it belongs to
+        all_budgets = await self.repository.list_by_project(project_id, active_only=False)
+        
+        if not all_budgets:
+            print(f"⚠️ [BUDGET COPY] No budgets found for project {project_id}")
+            return 0
+        
+        # Group by category and take the most recent budget for each category
+        # This ensures we copy the latest version of each budget category
+        from collections import OrderedDict
+        budgets_by_category = OrderedDict()
+        for budget in sorted(all_budgets, key=lambda b: b.created_at, reverse=True):
+            if budget.category not in budgets_by_category:
+                budgets_by_category[budget.category] = budget
+        
+        source_budgets = list(budgets_by_category.values())
+        
+        if not source_budgets:
+            print(f"⚠️ [BUDGET COPY] No unique budget categories found for project {project_id}")
+            return 0
+
+        new_start = to_period.start_date
+        count = 0
+        
+        # Get existing budgets for the new period to avoid duplicates
+        existing_budgets = await self.repository.get_active_budgets_for_project(
+            project_id, contract_period_id=to_period.id
+        )
+        existing_categories = {bg.category for bg in existing_budgets}
+        
+        for b in source_budgets:
+            # Check if a budget for this category already exists in the new period
+            if b.category in existing_categories:
+                print(f"ℹ️ [BUDGET COPY] Budget for category '{b.category}' already exists in period {to_period.id}, skipping")
+                continue
+            
+            end_date = None
+            if b.period_type == "Annual":
+                end_date = new_start.replace(year=new_start.year + 1) - timedelta(days=1)
+            new_budget = Budget(
+                project_id=project_id,
+                contract_period_id=to_period.id,
+                category=b.category,
+                amount=b.amount,
+                period_type=b.period_type,
+                start_date=new_start,
+                end_date=end_date,
+                is_active=True,
+            )
+            await self.repository.create(new_budget)
+            count += 1
+            print(f"✓ [BUDGET COPY] Copied budget '{b.category}' (amount: {b.amount}) to period {to_period.id}")
+        
+        if count > 0:
+            print(f"✓ [BUDGET COPY] Successfully copied {count} budget(s) to period {to_period.id} (project {project_id})")
+        else:
+            print(f"⚠️ [BUDGET COPY] No new budgets copied to period {to_period.id} (project {project_id}) - all categories already exist")
+        
+        return count
 
     async def get_budget_with_spending(
         self, 
@@ -156,10 +288,11 @@ class BudgetService:
     async def get_project_budgets_with_spending(
         self,
         project_id: int,
-        as_of_date: date | None = None
+        as_of_date: date | None = None,
+        contract_period_id: int | None = None
     ) -> List[Dict[str, Any]]:
-        """Get all budgets for a project with spending information"""
-        budgets = await self.repository.get_active_budgets_for_project(project_id)
+        """Get all budgets for a project with spending information, optionally filtered by contract period"""
+        budgets = await self.repository.get_active_budgets_for_project(project_id, contract_period_id=contract_period_id)
         result = []
         
         for budget in budgets:

@@ -111,6 +111,16 @@ class ContractPeriodRepository:
         )
         return [row[0] for row in result.all()]
 
+    async def get_earliest_start_date(self, project_id: int) -> Optional[date]:
+        """Get the start date of the first (earliest) contract period for a project.
+        Used for validation: allow transactions in any contract (including old ones),
+        but block only before the first contract."""
+        result = await self.db.execute(
+            select(func.min(ContractPeriod.start_date))
+            .where(ContractPeriod.project_id == project_id)
+        )
+        return result.scalar_one_or_none()
+
     async def update(self, contract_period: ContractPeriod) -> ContractPeriod:
         """Update a contract period"""
         await self.db.commit()

@@ -10,6 +10,7 @@ from backend.repositories.recurring_transaction_repository import RecurringTrans
 from backend.repositories.transaction_repository import TransactionRepository
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.project_repository import ProjectRepository
+from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.schemas.recurring_transaction import (
     RecurringTransactionTemplateCreate,
     RecurringTransactionTemplateUpdate,
@@ -45,25 +46,25 @@ class RecurringTransactionService:
         """Create a new recurring transaction template"""
         template_data = data.model_dump()
         
-        # Validate template start_date is not before project contract start date
+        # Validate template start_date is not before FIRST contract start (allow old contracts)
         project_id = template_data.get('project_id')
         start_date = template_data.get('start_date')
         
         if project_id and start_date:
-            project_repo = ProjectRepository(self.db)
-            project = await project_repo.get_by_id(project_id)
-            if project and project.start_date:
-                # Convert project.start_date to date if it's datetime
-                project_start_date = project.start_date
-                if hasattr(project_start_date, 'date'):
-                    project_start_date = project_start_date.date()
-                
-                if start_date < project_start_date:
-                    raise ValueError(
-                        f"לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה. "
-                        f"תאריך תחילת החוזה: {project_start_date.strftime('%d/%m/%Y')}, "
-                        f"תאריך התחלה של התבנית: {start_date.strftime('%d/%m/%Y')}"
-                    )
+            period_repo = ContractPeriodRepository(self.db)
+            first_start = await period_repo.get_earliest_start_date(project_id)
+            if first_start is None:
+                project_repo = ProjectRepository(self.db)
+                project = await project_repo.get_by_id(project_id)
+                if project and project.start_date:
+                    s = project.start_date
+                    first_start = s.date() if hasattr(s, 'date') else s
+            if first_start and start_date < first_start:
+                raise ValueError(
+                    f"לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. "
+                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
+                    f"תאריך התחלה של התבנית: {start_date.strftime('%d/%m/%Y')}"
+                )
         
         # Set the user who created the template
         if user_id:
@@ -108,22 +109,22 @@ class RecurringTransactionService:
         
         update_data = data.model_dump(exclude_unset=True)
 
-        # Validate start_date is not before project contract start date (if updating start_date)
+        # Validate start_date is not before FIRST contract start (if updating start_date)
         if 'start_date' in update_data:
-            project_repo = ProjectRepository(self.db)
-            project = await project_repo.get_by_id(template.project_id)
-            if project and project.start_date:
-                # Convert project.start_date to date if it's datetime
-                project_start_date = project.start_date
-                if hasattr(project_start_date, 'date'):
-                    project_start_date = project_start_date.date()
-                
-                if update_data['start_date'] < project_start_date:
-                    raise ValueError(
-                        f"לא ניתן לעדכן תבנית מחזורית לתאריך התחלה לפני תאריך תחילת החוזה. "
-                        f"תאריך תחילת החוזה: {project_start_date.strftime('%d/%m/%Y')}, "
-                        f"תאריך התחלה של התבנית: {update_data['start_date'].strftime('%d/%m/%Y')}"
-                    )
+            period_repo = ContractPeriodRepository(self.db)
+            first_start = await period_repo.get_earliest_start_date(template.project_id)
+            if first_start is None:
+                project_repo = ProjectRepository(self.db)
+                project = await project_repo.get_by_id(template.project_id)
+                if project and project.start_date:
+                    s = project.start_date
+                    first_start = s.date() if hasattr(s, 'date') else s
+            if first_start and update_data['start_date'] < first_start:
+                raise ValueError(
+                    f"לא ניתן לעדכן תבנית מחזורית לתאריך התחלה לפני תאריך תחילת החוזה הראשון. "
+                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
+                    f"תאריך התחלה של התבנית: {update_data['start_date'].strftime('%d/%m/%Y')}"
+                )
 
         if 'category_id' in update_data:
             if update_data['category_id'] is None:
@@ -372,18 +373,17 @@ class RecurringTransactionService:
                         should_create = False
                     
                     if should_create:
-                        # Validate transaction date is not before project contract start date
-                        project_repo = ProjectRepository(self.db)
-                        project = await project_repo.get_by_id(template.project_id)
-                        if project and project.start_date:
-                            # Convert project.start_date to date if it's datetime
-                            project_start_date = project.start_date
-                            if hasattr(project_start_date, 'date'):
-                                project_start_date = project_start_date.date()
-                            
-                            if target_date < project_start_date:
-                                # Skip this transaction - it's before contract start date
-                                continue
+                        # Skip only if before FIRST contract start (allow generated tx in old contracts)
+                        period_repo = ContractPeriodRepository(self.db)
+                        first_start = await period_repo.get_earliest_start_date(template.project_id)
+                        if first_start is None:
+                            project_repo = ProjectRepository(self.db)
+                            project = await project_repo.get_by_id(template.project_id)
+                            if project and project.start_date:
+                                s = project.start_date
+                                first_start = s.date() if hasattr(s, 'date') else s
+                        if first_start and target_date < first_start:
+                            continue
                         
                         transaction_data = {
                             "project_id": template.project_id,

@@ -89,6 +89,34 @@ REPORT_LABELS = {
     "supplier": "ספק"
 }
 
+# Payment method translation - maps enum names to Hebrew values
+PAYMENT_METHOD_TRANSLATIONS = {
+    "STANDING_ORDER": "הוראת קבע",
+    "CREDIT": "אשראי",
+    "CHECK": "שיק",
+    "CASH": "מזומן",
+    "BANK_TRANSFER": "העברה בנקאית",
+    "CENTRALIZED_YEAR_END": "גבייה מרוכזת סוף שנה",
+    # Also include the PaymentMethod enum format (e.g. PaymentMethod.BANK_TRANSFER)
+    "PaymentMethod.STANDING_ORDER": "הוראת קבע",
+    "PaymentMethod.CREDIT": "אשראי",
+    "PaymentMethod.CHECK": "שיק",
+    "PaymentMethod.CASH": "מזומן",
+    "PaymentMethod.BANK_TRANSFER": "העברה בנקאית",
+    "PaymentMethod.CENTRALIZED_YEAR_END": "גבייה מרוכזת סוף שנה",
+}
+
+def translate_payment_method(payment_method) -> str:
+    """Translate payment method enum to Hebrew"""
+    if not payment_method:
+        return ""
+    pm_str = str(payment_method)
+    # Check if it's already in Hebrew (one of the values)
+    if pm_str in PAYMENT_METHOD_TRANSLATIONS.values():
+        return pm_str
+    # Look up in translations
+    return PAYMENT_METHOD_TRANSLATIONS.get(pm_str, pm_str)
+
 
 class ReportService:
     def __init__(self, db: AsyncSession):
@@ -305,14 +333,24 @@ class ReportService:
             supplier_name = tx.supplier.name if tx.supplier else "ללא ספק"
             
             # Split period transaction by month
-            current_date = tx.period_start_date
+            # Start from the later of: transaction start or filter start_date
+            # End at the earlier of: transaction end or filter end_date
+            effective_start = max(tx.period_start_date, start_date)
+            effective_end = min(tx.period_end_date, end_date)
+            
+            if effective_start > effective_end:
+                continue
+            
             total_days = (tx.period_end_date - tx.period_start_date).days + 1
             if total_days <= 0:
                 continue
             
             daily_rate = float(tx.amount) / total_days
             
-            while current_date <= tx.period_end_date:
+            # Start from the first day of the month containing effective_start
+            current_date = date(effective_start.year, effective_start.month, 1)
+            
+            while current_date <= effective_end:
                 month_key = current_date.strftime('%Y-%m')
                 
                 # Calculate days in this month for this transaction
@@ -321,10 +359,13 @@ class ReportService:
                 else:
                     month_end = date(current_date.year, current_date.month + 1, 1)
                 
-                # The period end in this month is the minimum of transaction end and month end
-                period_end_in_month = min(tx.period_end_date, month_end - timedelta(days=1))
-                # Calculate days from current_date to period_end_in_month (inclusive)
-                days_in_month = (period_end_in_month - current_date).days + 1
+                # Calculate the overlap between the transaction period and this month
+                # within the filtered date range
+                month_period_start = max(effective_start, current_date)
+                month_period_end = min(effective_end, month_end - timedelta(days=1))
+                
+                # Calculate days from month_period_start to month_period_end (inclusive)
+                days_in_month = (month_period_end - month_period_start).days + 1
                 
                 if days_in_month > 0:
                     amount = daily_rate * days_in_month
@@ -349,28 +390,139 @@ class ReportService:
         
         return result
 
-    async def project_profitability(self, project_id: int) -> dict:
-        income_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-            and_(
-                Transaction.project_id == project_id,
-                Transaction.type == "Income",
-                Transaction.from_fund == False  # Exclude fund transactions
+    async def project_profitability(self, project_id: int, start_date: date | None = None, end_date: date | None = None) -> dict:
+        from sqlalchemy import or_
+        from datetime import timedelta
+        
+        # For period transactions, we need to calculate proportional amounts
+        # So we'll fetch transactions and calculate manually
+        
+        # 1. Regular income (no period dates) - filter by tx_date
+        income_conditions_regular = [
+            Transaction.project_id == project_id,
+            Transaction.type == "Income",
+            Transaction.from_fund == False,
+            or_(
+                Transaction.period_start_date.is_(None),
+                Transaction.period_end_date.is_(None)
             )
+        ]
+        if start_date:
+            income_conditions_regular.append(Transaction.tx_date >= start_date)
+        if end_date:
+            income_conditions_regular.append(Transaction.tx_date <= end_date)
+        
+        regular_income_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(*income_conditions_regular)
         )
-        expense_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-            and_(
-                Transaction.project_id == project_id,
-                Transaction.type == "Expense",
-                Transaction.from_fund == False  # Exclude fund transactions
+        regular_income = float((await self.db.execute(regular_income_q)).scalar_one())
+        
+        # 2. Period income - check if period overlaps with date range
+        period_income_conditions = [
+            Transaction.project_id == project_id,
+            Transaction.type == "Income",
+            Transaction.from_fund == False,
+            Transaction.period_start_date.is_not(None),
+            Transaction.period_end_date.is_not(None)
+        ]
+        if start_date or end_date:
+            if start_date and end_date:
+                # Period overlaps if: period_start <= end_date AND period_end >= start_date
+                period_income_conditions.append(
+                    and_(
+                        Transaction.period_start_date <= end_date,
+                        Transaction.period_end_date >= start_date
+                    )
+                )
+            elif start_date:
+                period_income_conditions.append(Transaction.period_end_date >= start_date)
+            elif end_date:
+                period_income_conditions.append(Transaction.period_start_date <= end_date)
+        
+        period_income_q = select(Transaction).where(and_(*period_income_conditions))
+        period_income_txs = (await self.db.execute(period_income_q)).scalars().all()
+        
+        period_income = 0.0
+        for tx in period_income_txs:
+            if start_date or end_date:
+                # Calculate proportional amount for the overlap
+                overlap_start = max(tx.period_start_date, start_date if start_date else tx.period_start_date)
+                overlap_end = min(tx.period_end_date, end_date if end_date else tx.period_end_date)
+                total_days = (tx.period_end_date - tx.period_start_date).days + 1
+                overlap_days = (overlap_end - overlap_start).days + 1
+                if total_days > 0 and overlap_days > 0:
+                    period_income += float(tx.amount) * (overlap_days / total_days)
+            else:
+                # No date filter, include full amount
+                period_income += float(tx.amount)
+        
+        total_income = regular_income + period_income
+        
+        # 3. Regular expenses (no period dates) - filter by tx_date
+        expense_conditions_regular = [
+            Transaction.project_id == project_id,
+            Transaction.type == "Expense",
+            Transaction.from_fund == False,
+            or_(
+                Transaction.period_start_date.is_(None),
+                Transaction.period_end_date.is_(None)
             )
+        ]
+        if start_date:
+            expense_conditions_regular.append(Transaction.tx_date >= start_date)
+        if end_date:
+            expense_conditions_regular.append(Transaction.tx_date <= end_date)
+        
+        regular_expense_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(*expense_conditions_regular)
         )
-        income_val = (await self.db.execute(income_q)).scalar_one()
-        expense_val = (await self.db.execute(expense_q)).scalar_one()
+        regular_expense = float((await self.db.execute(regular_expense_q)).scalar_one())
+        
+        # 4. Period expenses - check if period overlaps with date range
+        period_expense_conditions = [
+            Transaction.project_id == project_id,
+            Transaction.type == "Expense",
+            Transaction.from_fund == False,
+            Transaction.period_start_date.is_not(None),
+            Transaction.period_end_date.is_not(None)
+        ]
+        if start_date or end_date:
+            if start_date and end_date:
+                # Period overlaps if: period_start <= end_date AND period_end >= start_date
+                period_expense_conditions.append(
+                    and_(
+                        Transaction.period_start_date <= end_date,
+                        Transaction.period_end_date >= start_date
+                    )
+                )
+            elif start_date:
+                period_expense_conditions.append(Transaction.period_end_date >= start_date)
+            elif end_date:
+                period_expense_conditions.append(Transaction.period_start_date <= end_date)
+        
+        period_expense_q = select(Transaction).where(and_(*period_expense_conditions))
+        period_expense_txs = (await self.db.execute(period_expense_q)).scalars().all()
+        
+        period_expense = 0.0
+        for tx in period_expense_txs:
+            if start_date or end_date:
+                # Calculate proportional amount for the overlap
+                overlap_start = max(tx.period_start_date, start_date if start_date else tx.period_start_date)
+                overlap_end = min(tx.period_end_date, end_date if end_date else tx.period_end_date)
+                total_days = (tx.period_end_date - tx.period_start_date).days + 1
+                overlap_days = (overlap_end - overlap_start).days + 1
+                if total_days > 0 and overlap_days > 0:
+                    period_expense += float(tx.amount) * (overlap_days / total_days)
+            else:
+                # No date filter, include full amount
+                period_expense += float(tx.amount)
+        
+        total_expense = regular_expense + period_expense
 
         proj = (await self.db.execute(select(Project).where(Project.id == project_id))).scalar_one()
 
-        income = float(income_val)
-        expenses = float(expense_val)
+        income = total_income
+        expenses = total_expense
         profit = income - expenses
 
         # Check if project has budgets or funds
@@ -415,31 +567,124 @@ class ReportService:
                 if tx.get('type') == 'Expense'
             )
         else:
-            # Query database with date filters
-            income_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-                and_(
-                    Transaction.project_id == project_id,
-                    Transaction.type == "Income",
-                    Transaction.from_fund == False
-                )
-            )
-            expense_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-                and_(
-                    Transaction.project_id == project_id,
-                    Transaction.type == "Expense",
-                    Transaction.from_fund == False
-                )
-            )
+            # Query database with date filters, handling period transactions
+            from sqlalchemy import or_
             
+            # Regular income
+            regular_income_conditions = [
+                Transaction.project_id == project_id,
+                Transaction.type == "Income",
+                Transaction.from_fund == False,
+                or_(
+                    Transaction.period_start_date.is_(None),
+                    Transaction.period_end_date.is_(None)
+                )
+            ]
             if start_date:
-                income_q = income_q.where(Transaction.tx_date >= start_date)
-                expense_q = expense_q.where(Transaction.tx_date >= start_date)
+                regular_income_conditions.append(Transaction.tx_date >= start_date)
             if end_date:
-                income_q = income_q.where(Transaction.tx_date <= end_date)
-                expense_q = expense_q.where(Transaction.tx_date <= end_date)
+                regular_income_conditions.append(Transaction.tx_date <= end_date)
             
-            income = float((await self.db.execute(income_q)).scalar_one())
-            expenses = float((await self.db.execute(expense_q)).scalar_one())
+            regular_income_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+                and_(*regular_income_conditions)
+            )
+            regular_income = float((await self.db.execute(regular_income_q)).scalar_one())
+            
+            # Period income
+            period_income_conditions = [
+                Transaction.project_id == project_id,
+                Transaction.type == "Income",
+                Transaction.from_fund == False,
+                Transaction.period_start_date.is_not(None),
+                Transaction.period_end_date.is_not(None)
+            ]
+            if start_date or end_date:
+                if start_date and end_date:
+                    period_income_conditions.append(
+                        and_(
+                            Transaction.period_start_date <= end_date,
+                            Transaction.period_end_date >= start_date
+                        )
+                    )
+                elif start_date:
+                    period_income_conditions.append(Transaction.period_end_date >= start_date)
+                elif end_date:
+                    period_income_conditions.append(Transaction.period_start_date <= end_date)
+            
+            period_income_q = select(Transaction).where(and_(*period_income_conditions))
+            period_income_txs = (await self.db.execute(period_income_q)).scalars().all()
+            
+            period_income = 0.0
+            for tx in period_income_txs:
+                if start_date or end_date:
+                    overlap_start = max(tx.period_start_date, start_date if start_date else tx.period_start_date)
+                    overlap_end = min(tx.period_end_date, end_date if end_date else tx.period_end_date)
+                    total_days = (tx.period_end_date - tx.period_start_date).days + 1
+                    overlap_days = (overlap_end - overlap_start).days + 1
+                    if total_days > 0 and overlap_days > 0:
+                        period_income += float(tx.amount) * (overlap_days / total_days)
+                else:
+                    period_income += float(tx.amount)
+            
+            income = regular_income + period_income
+            
+            # Regular expenses
+            regular_expense_conditions = [
+                Transaction.project_id == project_id,
+                Transaction.type == "Expense",
+                Transaction.from_fund == False,
+                or_(
+                    Transaction.period_start_date.is_(None),
+                    Transaction.period_end_date.is_(None)
+                )
+            ]
+            if start_date:
+                regular_expense_conditions.append(Transaction.tx_date >= start_date)
+            if end_date:
+                regular_expense_conditions.append(Transaction.tx_date <= end_date)
+            
+            regular_expense_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+                and_(*regular_expense_conditions)
+            )
+            regular_expense = float((await self.db.execute(regular_expense_q)).scalar_one())
+            
+            # Period expenses
+            period_expense_conditions = [
+                Transaction.project_id == project_id,
+                Transaction.type == "Expense",
+                Transaction.from_fund == False,
+                Transaction.period_start_date.is_not(None),
+                Transaction.period_end_date.is_not(None)
+            ]
+            if start_date or end_date:
+                if start_date and end_date:
+                    period_expense_conditions.append(
+                        and_(
+                            Transaction.period_start_date <= end_date,
+                            Transaction.period_end_date >= start_date
+                        )
+                    )
+                elif start_date:
+                    period_expense_conditions.append(Transaction.period_end_date >= start_date)
+                elif end_date:
+                    period_expense_conditions.append(Transaction.period_start_date <= end_date)
+            
+            period_expense_q = select(Transaction).where(and_(*period_expense_conditions))
+            period_expense_txs = (await self.db.execute(period_expense_q)).scalars().all()
+            
+            period_expense = 0.0
+            for tx in period_expense_txs:
+                if start_date or end_date:
+                    overlap_start = max(tx.period_start_date, start_date if start_date else tx.period_start_date)
+                    overlap_end = min(tx.period_end_date, end_date if end_date else tx.period_end_date)
+                    total_days = (tx.period_end_date - tx.period_start_date).days + 1
+                    overlap_days = (overlap_end - overlap_start).days + 1
+                    if total_days > 0 and overlap_days > 0:
+                        period_expense += float(tx.amount) * (overlap_days / total_days)
+                else:
+                    period_expense += float(tx.amount)
+            
+            expenses = regular_expense + period_expense
 
         profit = income - expenses
 
@@ -1461,48 +1706,125 @@ class ReportService:
         """
         Get expenses aggregated by transaction date for dashboard.
         Shows expenses related to specific transaction dates with aggregation.
+        Handles both regular transactions (by tx_date) and period transactions (split by month).
         """
-        # Build query
-        query = select(
+        from sqlalchemy import or_
+        from collections import defaultdict
+        from datetime import timedelta
+        
+        # 1. Regular expenses (no period dates) - filter by tx_date
+        regular_conditions = [
+            Transaction.type == 'Expense',
+            Transaction.from_fund == False,
+            or_(
+                Transaction.period_start_date.is_(None),
+                Transaction.period_end_date.is_(None)
+            )
+        ]
+        
+        if project_id:
+            regular_conditions.append(Transaction.project_id == project_id)
+        if start_date:
+            regular_conditions.append(Transaction.tx_date >= start_date)
+        if end_date:
+            regular_conditions.append(Transaction.tx_date <= end_date)
+        
+        regular_query = select(
             Transaction.tx_date,
             func.sum(Transaction.amount).label('total_expense'),
             func.count(Transaction.id).label('transaction_count')
         ).where(
+            and_(*regular_conditions)
+        ).group_by(Transaction.tx_date).order_by(Transaction.tx_date.desc())
+        
+        regular_result = await self.db.execute(regular_query)
+        regular_rows = regular_result.all()
+        
+        # Aggregate expenses by date
+        expenses_by_date_dict = defaultdict(lambda: {'expense': 0.0, 'transaction_count': 0})
+        
+        for row in regular_rows:
+            date_key = row.tx_date.isoformat()
+            expenses_by_date_dict[date_key]['expense'] += float(row.total_expense)
+            expenses_by_date_dict[date_key]['transaction_count'] += row.transaction_count
+        
+        # 2. Period expenses - split by month
+        period_conditions = [
             Transaction.type == 'Expense',
-            Transaction.from_fund == False
-        )
-
-        # Filter by project if provided
+            Transaction.from_fund == False,
+            Transaction.period_start_date.is_not(None),
+            Transaction.period_end_date.is_not(None)
+        ]
+        
         if project_id:
-            query = query.where(Transaction.project_id == project_id)
-
-        # Filter by date range if provided
-        if start_date:
-            query = query.where(Transaction.tx_date >= start_date)
-        if end_date:
-            query = query.where(Transaction.tx_date <= end_date)
-
-        # Group by date and order
-        query = query.group_by(Transaction.tx_date).order_by(Transaction.tx_date.desc())
-
-        result = await self.db.execute(query)
-        rows = result.all()
-
-        # Format results
+            period_conditions.append(Transaction.project_id == project_id)
+        if start_date or end_date:
+            if start_date and end_date:
+                period_conditions.append(
+                    and_(
+                        Transaction.period_start_date <= end_date,
+                        Transaction.period_end_date >= start_date
+                    )
+                )
+            elif start_date:
+                period_conditions.append(Transaction.period_end_date >= start_date)
+            elif end_date:
+                period_conditions.append(Transaction.period_start_date <= end_date)
+        
+        period_query = select(Transaction).where(and_(*period_conditions))
+        period_txs = (await self.db.execute(period_query)).scalars().all()
+        
+        for tx in period_txs:
+            # Calculate the effective date range for this period transaction
+            effective_start = max(tx.period_start_date, start_date if start_date else tx.period_start_date)
+            effective_end = min(tx.period_end_date, end_date if end_date else tx.period_end_date)
+            
+            if effective_start > effective_end:
+                continue
+            
+            total_days = (tx.period_end_date - tx.period_start_date).days + 1
+            if total_days <= 0:
+                continue
+            
+            daily_rate = float(tx.amount) / total_days
+            
+            # Split period transaction by month
+            current_date = effective_start
+            while current_date <= effective_end:
+                # Calculate month end
+                if current_date.month == 12:
+                    month_end = date(current_date.year + 1, 1, 1)
+                else:
+                    month_end = date(current_date.year, current_date.month + 1, 1)
+                
+                # The period end in this month
+                period_end_in_month = min(effective_end, month_end - timedelta(days=1))
+                days_in_month = (period_end_in_month - current_date).days + 1
+                
+                if days_in_month > 0:
+                    amount = daily_rate * days_in_month
+                    # Use first day of month as the date key for aggregation
+                    month_start = date(current_date.year, current_date.month, 1)
+                    date_key = month_start.isoformat()
+                    expenses_by_date_dict[date_key]['expense'] += amount
+                    expenses_by_date_dict[date_key]['transaction_count'] += 1
+                
+                # Move to next month
+                current_date = month_end
+        
+        # Convert to list and sort
         expenses_by_date = []
         total_expense = 0.0
         total_count = 0
-
-        for row in rows:
-            expense_amount = float(row.total_expense)
-            total_expense += expense_amount
-            total_count += row.transaction_count
-
+        
+        for date_key, data in sorted(expenses_by_date_dict.items(), reverse=True):
             expenses_by_date.append({
-                'date': row.tx_date.isoformat(),
-                'expense': expense_amount,
-                'transaction_count': row.transaction_count
+                'date': date_key,
+                'expense': data['expense'],
+                'transaction_count': data['transaction_count']
             })
+            total_expense += data['expense']
+            total_count += data['transaction_count']
 
         return {
             'expenses_by_date': expenses_by_date,
@@ -1623,8 +1945,39 @@ class ReportService:
         monthly_breakdown = []
         # Always calculate monthly breakdown if we have transactions (even if include_transactions is False, we still want the breakdown)
         # Calculate monthly breakdown by category and supplier
+        # If filtering by year, start from the first month of the contract in that year, not January
         start_date = options.start_date or date(2000, 1, 1)
         end_date = options.end_date or date.today()
+        
+        # If filtering by a specific year and project has a start_date, adjust start_date 
+        # to begin from the contract's first month in that year (not January)
+        if options.start_date and options.end_date and proj.start_date:
+            start_year = options.start_date.year
+            end_year = options.end_date.year
+            # If filtering by a single year
+            if start_year == end_year:
+                # Use the first day of the contract start month in the filtered year
+                # This works even if contract started in a different year
+                contract_start_month = proj.start_date.month
+                contract_start_day = proj.start_date.day
+                adjusted_start = date(start_year, contract_start_month, contract_start_day)
+                # If contract start month is within the filtered range, use it
+                if adjusted_start >= options.start_date and adjusted_start <= options.end_date:
+                    # Contract start month is within the filter range - use it as start
+                    start_date = adjusted_start
+                elif adjusted_start < options.start_date:
+                    # Contract start month is before the filter start - use filter start
+                    start_date = options.start_date
+                else:
+                    # Contract start month is after the filter end - use filter start
+                    start_date = options.start_date
+            else:
+                # Multi-year filter, use provided start_date
+                start_date = options.start_date
+        elif not options.start_date and not options.end_date and proj.start_date:
+            # No date filter, use project start_date
+            start_date = proj.start_date
+        
         try:
             monthly_breakdown = await self._calculate_monthly_category_supplier_expenses(
                 project_id,
@@ -1798,13 +2151,40 @@ class ReportService:
             font_loaded = False
             if font_path and os.path.exists(font_path):
                 try:
-                    pdfmetrics.registerFont(TTFont('Hebrew', font_path))
+                    # Register with proper embedding
+                    hebrew_font = TTFont('Hebrew', font_path, subfontIndex=0)
+                    pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    print(f"✓ גופן עברי נרשם בהצלחה לדוח ספק: {font_path}")
+                except Exception as e:
+                    print(f"✗ רישום גופן לדוח ספק נכשל: {e}")
+                    font_path = None
+            
+            # Try Windows system fonts if Heebo not found
+            if not font_loaded and os.name == 'nt':
+                windows_fonts_dir = r'C:\Windows\Fonts'
+                windows_fonts = [
+                    ['arial.ttf', 'arial.ttc', 'Arial.ttf'],
+                    ['tahoma.ttf', 'Tahoma.ttf'],
+                    ['arialuni.ttf', 'Arial Unicode MS.ttf'],
+                ]
+                for font_variants in windows_fonts:
+                    for font_file in font_variants:
+                        win_font_path = os.path.join(windows_fonts_dir, font_file)
+                        if os.path.exists(win_font_path):
+                            try:
+                                hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                pdfmetrics.registerFont(hebrew_font)
+                                font_name = 'Hebrew'
+                                font_loaded = True
+                                break
+                            except Exception:
+                                continue
+                    if font_loaded:
+                        break
+        except Exception as e:
+            print(f"✗ שגיאה בטעינת גופן לדוח ספק: {e}")
 
         styles = getSampleStyleSheet()
         style_normal = ParagraphStyle('HebrewNormal', parent=styles['Normal'], fontName=font_name, fontSize=10,
@@ -2065,7 +2445,7 @@ class ReportService:
                         'amount': tx.get('amount'),
                         'category': cat_name,
                         'description': tx.get('description') or "",
-                        'payment_method': tx.get('payment_method') or "",
+                        'payment_method': translate_payment_method(tx.get('payment_method')),
                         'notes': tx.get('notes') or "",
                         'file': REPORT_LABELS['yes'] if tx.get('file_path') else REPORT_LABELS['no']
                     }
@@ -2082,7 +2462,7 @@ class ReportService:
                         'amount': tx.amount,
                         'category': cat_name,
                         'description': tx.description or "",
-                        'payment_method': tx.payment_method or "",
+                        'payment_method': translate_payment_method(tx.payment_method),
                         'notes': tx.notes or "",
                         'file': REPORT_LABELS['yes'] if tx.file_path else REPORT_LABELS['no']
                     }
@@ -2134,14 +2514,26 @@ class ReportService:
         
         print(f"INFO: Starting chart creation for: {chart_type}")
 
-        # הגדרת labels
+        # Helper function to fix Hebrew text for matplotlib (RTL support)
+        def fix_hebrew(text: str) -> str:
+            """Reverse Hebrew text for proper display in matplotlib"""
+            if not text:
+                return text
+            # Check if text contains Hebrew characters
+            has_hebrew = any('\u0590' <= c <= '\u05FF' for c in text)
+            if has_hebrew:
+                # Reverse the text for RTL display
+                return text[::-1]
+            return text
+
+        # הגדרת labels - already reversed for matplotlib
         labels_dict = {
-            'income': 'הכנסות',
-            'expenses': 'הוצאות',
-            'general': 'כללי',
-            'category': 'קטגוריה',
-            'amount': 'סכום',
-            'date': 'תאריך'
+            'income': fix_hebrew('הכנסות'),
+            'expenses': fix_hebrew('הוצאות'),
+            'general': fix_hebrew('כללי'),
+            'category': fix_hebrew('קטגוריה'),
+            'amount': fix_hebrew('סכום'),
+            'date': fix_hebrew('תאריך')
         }
         
         fig = None
@@ -2162,7 +2554,8 @@ class ReportService:
             plt.close('all')
             
             # יצירת figure ישירות (לא דרך pyplot) - גדול יותר ומקצועי יותר
-            fig = Figure(figsize=(10, 7), dpi=120, facecolor='white')
+            # DPI גבוה יותר לאיכות טובה יותר ב-PDF וב-Excel
+            fig = Figure(figsize=(12, 8), dpi=150, facecolor='white')
             canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFAFA')  # רקע אפור בהיר מקצועי
@@ -2230,7 +2623,7 @@ class ReportService:
                         wedge.set_alpha(0.9)
                     
                     # מקרא מקצועי עם סכומים
-                    legend_labels = [f"{l}\n{s:,.0f} ₪" for l, s in zip(labels, sizes)]
+                    legend_labels = [f"₪ {s:,.0f}\n{l}" for l, s in zip(labels, sizes)]
                     legend = ax.legend(
                         wedges,
                         legend_labels,
@@ -2249,7 +2642,7 @@ class ReportService:
                         ax.text(0, 0, f"100%", ha='center', va='center', fontsize=24, 
                                color='white', fontweight='bold')
                     
-                    ax.set_title(f"{labels_dict['income']} מול {labels_dict['expenses']}", 
+                    ax.set_title(fix_hebrew('הכנסות מול הוצאות'), 
                                 fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                     chart_created = True
 
@@ -2258,7 +2651,7 @@ class ReportService:
                 category_expenses = {}
                 for tx in transactions:
                     if tx.get('type') == 'Expense':
-                        cat = tx.get('category') or labels_dict['general']
+                        cat = tx.get('category') or 'כללי'
                         category_expenses[cat] = category_expenses.get(cat, 0) + float(tx.get('amount', 0) or 0)
 
                 category_expenses = {k: v for k, v in category_expenses.items() if v > 0}
@@ -2269,7 +2662,8 @@ class ReportService:
                     return None
                 
                 sorted_pairs = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)
-                labels = [p[0] for p in sorted_pairs]
+                # Fix Hebrew for category names
+                labels = [fix_hebrew(p[0]) for p in sorted_pairs]
                 sizes = [p[1] for p in sorted_pairs]
 
                 # צבעים מקצועיים - פלטת צבעים מגוונת
@@ -2295,8 +2689,8 @@ class ReportService:
                     wedge.set_linewidth(2.5)
                     wedge.set_alpha(0.9)
 
-                # מקרא מקצועי עם סכומים
-                legend_labels = [f"{l}\n{s:,.0f} ₪" for l, s in zip(labels, sizes)]
+                # מקרא מקצועי עם סכומים - format: amount first, then name
+                legend_labels = [f"₪ {s:,.0f}\n{l}" for l, s in zip(labels, sizes)]
                 legend = ax.legend(
                     wedges,
                     legend_labels,
@@ -2311,7 +2705,7 @@ class ReportService:
                 )
                 legend.get_frame().set_linewidth(1.5)
                 
-                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}", 
+                ax.set_title(fix_hebrew('הוצאות לפי קטגוריה'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 chart_created = True
             # --- תרשים עמודות: הוצאות לפי קטגוריה ---
@@ -2319,7 +2713,7 @@ class ReportService:
                 category_expenses = {}
                 for tx in transactions:
                     if tx.get('type') == 'Expense':
-                        cat = tx.get('category') or labels_dict['general']
+                        cat = tx.get('category') or 'כללי'
                         category_expenses[cat] = category_expenses.get(cat, 0) + float(tx.get('amount', 0) or 0)
 
                 category_expenses = {k: v for k, v in category_expenses.items() if v > 0}
@@ -2329,7 +2723,8 @@ class ReportService:
                     return None
 
                 sorted_cats = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)
-                categories = [x[0] for x in sorted_cats]
+                # Fix Hebrew for category names
+                categories = [fix_hebrew(x[0]) for x in sorted_cats]
                 amounts = [x[1] for x in sorted_cats]
 
                 print(f"INFO: Creating bar chart with {len(categories)} categories")
@@ -2348,7 +2743,7 @@ class ReportService:
                 
                 # רשת רקע עדינה
                 ax.grid(axis='y', alpha=0.2, linestyle='--', linewidth=0.8)
-                ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_ylabel(fix_hebrew('סכום (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.tick_params(axis='x', rotation=45, labelsize=10)
                 ax.tick_params(axis='y', labelsize=10)
 
@@ -2356,10 +2751,10 @@ class ReportService:
                 for bar in bars:
                     height = bar.get_height()
                     ax.text(bar.get_x() + bar.get_width() / 2., height + (max(amounts) * 0.02), 
-                           f'{height:,.0f} ₪', ha='center', va='bottom', 
+                           f'₪ {height:,.0f}', ha='center', va='bottom', 
                            fontsize=9, fontweight='bold', color=COLOR_TEXT)
                 
-                ax.set_title(f"{labels_dict['expenses']} לפי {labels_dict['category']}", 
+                ax.set_title(fix_hebrew('הוצאות לפי קטגוריה'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
@@ -2400,11 +2795,11 @@ class ReportService:
                 print(f"INFO: Creating trends chart with {len(sorted_dates)} dates")
                 
                 # קו הכנסות מקצועי
-                ax.plot(sorted_dates, incomes, marker='o', label=labels_dict['income'], 
+                ax.plot(sorted_dates, incomes, marker='o', label=fix_hebrew('הכנסות'), 
                        color=COLOR_INCOME, linewidth=3, markersize=8, markerfacecolor=COLOR_INCOME,
                        markeredgecolor='white', markeredgewidth=2)
                 # קו הוצאות מקצועי
-                ax.plot(sorted_dates, expenses, marker='s', label=labels_dict['expenses'], 
+                ax.plot(sorted_dates, expenses, marker='s', label=fix_hebrew('הוצאות'), 
                        color=COLOR_EXPENSE, linewidth=3, markersize=8, markerfacecolor=COLOR_EXPENSE,
                        markeredgecolor='white', markeredgewidth=2)
                 # מילוי תחת הקווים - אפקט מקצועי
@@ -2415,9 +2810,9 @@ class ReportService:
                 ax.tick_params(axis='y', labelsize=10)
                 ax.legend(loc='upper right', fontsize=12, framealpha=0.95, 
                          edgecolor='#E2E8F0', facecolor='white', shadow=True)
-                ax.set_title("מגמות הכנסות והוצאות לאורך זמן", 
+                ax.set_title(fix_hebrew('מגמות הכנסות והוצאות לאורך זמן'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
-                ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_ylabel(fix_hebrew('סכום (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
                 ax.spines['left'].set_color('#E2E8F0')
@@ -2440,7 +2835,7 @@ class ReportService:
                     return None
 
                 sorted_suppliers = sorted(supplier_expenses.items(), key=lambda x: x[1], reverse=True)[:10]  # Top 10
-                suppliers = [x[0] for x in sorted_suppliers]
+                suppliers = [fix_hebrew(x[0]) for x in sorted_suppliers]
                 amounts = [x[1] for x in sorted_suppliers]
 
                 print(f"INFO: Creating supplier bar chart with {len(suppliers)} suppliers")
@@ -2449,17 +2844,17 @@ class ReportService:
                              linewidth=2, alpha=0.85)
                 
                 ax.grid(axis='x', alpha=0.2, linestyle='--', linewidth=0.8)
-                ax.set_xlabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_xlabel(fix_hebrew('סכום (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.tick_params(axis='x', labelsize=10)
                 ax.tick_params(axis='y', labelsize=9)
 
                 for i, bar in enumerate(bars):
                     width = bar.get_width()
                     ax.text(width + (max(amounts) * 0.02), bar.get_y() + bar.get_height() / 2., 
-                           f'{width:,.0f} ₪', ha='left', va='center', 
+                           f'₪ {width:,.0f}', ha='left', va='center', 
                            fontsize=9, fontweight='bold', color=COLOR_TEXT)
                 
-                ax.set_title("הוצאות לפי ספק (10 הגדולים)", 
+                ax.set_title(fix_hebrew('הוצאות לפי ספק (10 הגדולים)'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
@@ -2498,10 +2893,10 @@ class ReportService:
 
                 print(f"INFO: Creating monthly trends chart with {len(sorted_months)} months")
                 
-                ax.plot(sorted_months, incomes, marker='o', label=labels_dict['income'], 
+                ax.plot(sorted_months, incomes, marker='o', label=fix_hebrew('הכנסות'), 
                        color=COLOR_INCOME, linewidth=3, markersize=8, markerfacecolor=COLOR_INCOME,
                        markeredgecolor='white', markeredgewidth=2)
-                ax.plot(sorted_months, expenses, marker='s', label=labels_dict['expenses'], 
+                ax.plot(sorted_months, expenses, marker='s', label=fix_hebrew('הוצאות'), 
                        color=COLOR_EXPENSE, linewidth=3, markersize=8, markerfacecolor=COLOR_EXPENSE,
                        markeredgecolor='white', markeredgewidth=2)
                 ax.fill_between(sorted_months, incomes, alpha=0.2, color=COLOR_INCOME)
@@ -2511,9 +2906,9 @@ class ReportService:
                 ax.tick_params(axis='y', labelsize=10)
                 ax.legend(loc='upper right', fontsize=12, framealpha=0.95, 
                          edgecolor='#E2E8F0', facecolor='white', shadow=True)
-                ax.set_title("מגמות חודשיות - הכנסות והוצאות", 
+                ax.set_title(fix_hebrew('מגמות חודשיות - הכנסות והוצאות'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
-                ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_ylabel(fix_hebrew('סכום (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
                 ax.spines['left'].set_color('#E2E8F0')
@@ -2528,12 +2923,12 @@ class ReportService:
                 labels = []
                 
                 for b in budgets:
-                    cat_name = b.get('category') or labels_dict['general']
+                    cat_name = b.get('category') or 'כללי'
                     budget_amount = float(b.get('amount', 0) or 0)
                     spent_amount = float(b.get('spent_amount', 0) or 0)
                     
                     if budget_amount > 0:
-                        labels.append(cat_name)
+                        labels.append(fix_hebrew(cat_name))
                         budget_data.append(budget_amount)
                         actual_data.append(spent_amount)
 
@@ -2545,13 +2940,13 @@ class ReportService:
                 width = 0.35
 
                 bars1 = ax.bar([i - width/2 for i in x], budget_data, width, 
-                              label='תקציב', color=COLOR_INCOME, alpha=0.8, edgecolor='white', linewidth=2)
+                              label=fix_hebrew('תקציב'), color=COLOR_INCOME, alpha=0.8, edgecolor='white', linewidth=2)
                 bars2 = ax.bar([i + width/2 for i in x], actual_data, width, 
-                              label='ביצוע', color=COLOR_EXPENSE, alpha=0.8, edgecolor='white', linewidth=2)
+                              label=fix_hebrew('ביצוע'), color=COLOR_EXPENSE, alpha=0.8, edgecolor='white', linewidth=2)
 
-                ax.set_xlabel('קטגוריה', fontsize=12, fontweight='bold', color=COLOR_TEXT)
-                ax.set_ylabel('סכום (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
-                ax.set_title('תקציב מול ביצוע לפי קטגוריה', 
+                ax.set_xlabel(fix_hebrew('קטגוריה'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_ylabel(fix_hebrew('סכום (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_title(fix_hebrew('תקציב מול ביצוע לפי קטגוריה'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
                 ax.set_xticks(x)
                 ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
@@ -2601,9 +2996,9 @@ class ReportService:
                 
                 ax.tick_params(axis='x', rotation=45, labelsize=10)
                 ax.tick_params(axis='y', labelsize=10)
-                ax.set_title("הוצאות מצטברות לאורך זמן", 
+                ax.set_title(fix_hebrew('הוצאות מצטברות לאורך זמן'), 
                             fontsize=18, fontweight='bold', color=COLOR_TEXT, pad=20)
-                ax.set_ylabel('סכום מצטבר (₪)', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+                ax.set_ylabel(fix_hebrew('סכום מצטבר (₪)'), fontsize=12, fontweight='bold', color=COLOR_TEXT)
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
                 ax.spines['left'].set_color('#E2E8F0')
@@ -2950,51 +3345,88 @@ class ReportService:
             font_loaded = False
             if font_path and os.path.exists(font_path):
                 try:
-                    pdfmetrics.registerFont(TTFont('Hebrew', font_path))
+                    # Test if font can be loaded and supports Hebrew
+                    test_font_obj = TTFont('TestHebrew', font_path, subfontIndex=0)
+                    # Check if font has Hebrew character support by checking Unicode ranges
+                    # This is a basic check - if font loads, it should work
+                    test_font_obj.close()
+                    
+                    # Register font with proper embedding - subfontIndex=0 ensures subset embedding
+                    # This embeds only the characters used, making PDFs smaller
+                    hebrew_font = TTFont('Hebrew', font_path, subfontIndex=0)
+                    pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
                     print(f"✓ גופן עברי נרשם בהצלחה מ-{font_path}")
                 except Exception as e:
                     print(f"✗ רישום גופן מ-{font_path} נכשל: {e}")
+                    import traceback
+                    print(traceback.format_exc())
                     font_path = None  # Mark as failed so we try system fonts
 
             # Try Windows system fonts with Hebrew support (if Heebo not found or failed)
             if not font_loaded and os.name == 'nt':  # Windows
+                windows_fonts_dir = r'C:\Windows\Fonts'
+                # Try multiple possible font file names for each font family
                 windows_fonts = [
-                    r'C:\Windows\Fonts\arial.ttf',  # Arial (has Hebrew support)
-                    r'C:\Windows\Fonts\tahoma.ttf',  # Tahoma (has Hebrew support)
-                    r'C:\Windows\Fonts\arialuni.ttf',  # Arial Unicode MS (full Unicode support)
+                    ['arial.ttf', 'arial.ttc', 'Arial.ttf', 'Arial Regular.ttf'],
+                    ['tahoma.ttf', 'Tahoma.ttf', 'tahoma.ttc'],
+                    ['arialuni.ttf', 'Arial Unicode MS.ttf', 'ARIALUNI.TTF'],
+                    ['gadugi.ttf', 'Gadugi.ttf', 'GADUGI.TTF'],
+                    ['calibri.ttf', 'Calibri.ttf', 'calibri.ttc', 'CALIBRI.TTF'],
+                    ['segoeui.ttf', 'Segoe UI.ttf', 'segoeui.ttc'],
                 ]
                 print("🔍 מנסה גופני מערכת של Windows עם תמיכה בעברית...")
-                for win_font in windows_fonts:
-                    if os.path.exists(win_font):
-                        try:
-                            pdfmetrics.registerFont(TTFont('Hebrew', win_font))
-                            font_name = 'Hebrew'
-                            font_loaded = True
-                            print(f"✓ משתמש בהצלחה בגופן מערכת Windows: {win_font}")
-                            break
-                        except Exception as e3:
-                            print(f"✗ טעינת {win_font} נכשלה: {e3}")
-                            continue
+                for font_variants in windows_fonts:
+                    for font_file in font_variants:
+                        win_font_path = os.path.join(windows_fonts_dir, font_file)
+                        if os.path.exists(win_font_path):
+                            try:
+                                # Register with proper embedding - use subfontIndex=0 for subset embedding
+                                # This ensures the font is properly embedded in the PDF
+                                hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                pdfmetrics.registerFont(hebrew_font)
+                                font_name = 'Hebrew'
+                                font_loaded = True
+                                print(f"✓ משתמש בהצלחה בגופן מערכת Windows: {font_file}")
+                                break
+                            except Exception as e3:
+                                print(f"✗ טעינת {win_font_path} נכשלה: {e3}")
+                                continue
+                    if font_loaded:
+                        break
 
             # Try Linux system font as last resort (only if not Windows)
             if not font_loaded and os.name != 'nt':
-                try:
-                    pdfmetrics.registerFont(TTFont('Hebrew', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-                    font_name = 'Hebrew'
-                    font_loaded = True
-                    print("✓ משתמש בגופן DejaVu של המערכת כגיבוי")
-                except Exception as e2:
-                    print(f"✗ Failed to load system font: {e2}")
-                    font_loaded = False
+                linux_fonts = [
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+                    '/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf',
+                ]
+                for linux_font_path in linux_fonts:
+                    if os.path.exists(linux_font_path):
+                        try:
+                            hebrew_font = TTFont('Hebrew', linux_font_path, subfontIndex=0)
+                            pdfmetrics.registerFont(hebrew_font)
+                            font_name = 'Hebrew'
+                            font_loaded = True
+                            print(f"✓ משתמש בגופן מערכת Linux: {linux_font_path}")
+                            break
+                        except Exception as e2:
+                            print(f"✗ Failed to load {linux_font_path}: {e2}")
+                            continue
 
         except Exception as e:
             print(f"✗ אזהרה: גופן עברי לא נמצא ({e}), משתמש ב-Helvetica ברירת מחדל")
             font_loaded = False
 
         if not font_loaded:
-            print("אזהרה: גופן עברי לא נטען! טקסט לא יוצג כראוי.")
+            print("❌ שגיאה קריטית: גופן עברי לא נטען! טקסט עברי לא יוצג כראוי ויופיע כקוביות שחורות.")
+            print("   אנא ודא שאחד מהגופנים הבאים מותקן במערכת:")
+            print("   - Heebo-Regular.ttf (מומלץ)")
+            print("   - Arial, Tahoma, Arial Unicode MS, או Calibri (Windows)")
+            # Don't fail completely, but warn that output will be broken
+            # The font_name is still 'Helvetica' which won't work for Hebrew
 
         styles = getSampleStyleSheet()
         
@@ -3107,7 +3539,8 @@ class ReportService:
             bidi_available = True
         except ImportError:
             bidi_available = False
-            print("אזהרה: arabic-reshaper או python-bidi לא זמינים, משתמש בעיצוב טקסט פשוט")
+            print("⚠️ אזהרה: arabic-reshaper או python-bidi לא זמינים, משתמש בעיצוב טקסט פשוט")
+            print("   התקן עם: pip install arabic-reshaper python-bidi")
 
         def format_text(text):
             if not text: return ""
@@ -3124,11 +3557,18 @@ class ReportService:
                 except Exception as e:
                     # Only log first error to avoid spam
                     if not hasattr(format_text, '_logged_error'):
-                        print(f"אזהרה: שגיאה בעיבוד bidi: {e}, משתמש בטקסט כפי שהוא")
+                        print(f"⚠️ אזהרה: שגיאה בעיבוד bidi: {e}, משתמש בטקסט כפי שהוא")
                         format_text._logged_error = True
                     return text
+            elif font_loaded:
+                # Font loaded but bidi not available - still use the font, text might display backwards
+                # but at least it won't be black squares
+                return text
             else:
-                # Fallback: use text as-is
+                # No font loaded - Hebrew will show as black squares
+                if not hasattr(format_text, '_no_font_warned'):
+                    print("⚠️ אזהרה: גופן עברי לא נטען - טקסט עברי יופיע כקוביות שחורות!")
+                    format_text._no_font_warned = True
                 return text
 
         # Add Logo at the top
@@ -3203,20 +3643,23 @@ class ReportService:
             elements.append(Paragraph(format_text(f"🏦 {REPORT_LABELS['fund_status']}"), style_h2))
             elements.append(Spacer(1, 8))
             
+            # Reversed for Hebrew RTL: value on left, label on right
             fund_data = [
-                [format_text(f"💵 {REPORT_LABELS['current_balance']}"), f"{fund.current_balance:,.2f} ₪"],
-                [format_text(f"📅 {REPORT_LABELS['monthly_deposit']}"), f"{fund.monthly_amount:,.2f} ₪"]
+                [f"{fund.current_balance:,.2f} ₪", format_text(f"💵 {REPORT_LABELS['current_balance']}")],
+                [f"{fund.monthly_amount:,.2f} ₪", format_text(f"📅 {REPORT_LABELS['monthly_deposit']}")]
             ]
-            fund_table = Table(fund_data, colWidths=[220, 160])
+            fund_table = Table(fund_data, colWidths=[160, 220])
             fund_table.setStyle(TableStyle([
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('FONTSIZE', (0, 0), (-1, -1), 11),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-                ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#CCFBF1')),  # Teal-100
-                ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#CCFBF1')),
-                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor(COLOR_BG_LIGHT)),
-                ('TEXTCOLOR', (1, 0), (1, 0), colors.HexColor(COLOR_ACCENT_EMERALD)),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#CCFBF1')),  # Teal-100 for label
+                ('BACKGROUND', (1, 1), (1, 1), colors.HexColor('#CCFBF1')),
+                ('BACKGROUND', (0, 0), (0, 1), colors.HexColor(COLOR_BG_LIGHT)),
+                ('TEXTCOLOR', (1, 0), (1, 1), colors.HexColor(COLOR_ACCENT_EMERALD)),
+                # Align value (column 0) left, label (column 1) right
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 14),
@@ -3230,27 +3673,27 @@ class ReportService:
             elements.append(Paragraph(format_text(f"📋 {REPORT_LABELS['budget_vs_actual']}"), style_h2))
             elements.append(Spacer(1, 8))
             
-            # Headers with usage percent column
+            # Headers with usage percent column - reversed for Hebrew RTL: category on right, calculations on left
             budget_table_data = [[
-                format_text(REPORT_LABELS['category']), 
-                format_text(REPORT_LABELS['budget']),
-                format_text(REPORT_LABELS['used']), 
+                format_text("ניצול %"),
                 format_text(REPORT_LABELS['remaining']),
-                format_text("ניצול %")
+                format_text(REPORT_LABELS['used']), 
+                format_text(REPORT_LABELS['budget']),
+                format_text(REPORT_LABELS['category'])
             ]]
             
             for b in budgets:
                 cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                 usage_percent = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
                 budget_table_data.append([
-                    format_text(cat_name),
-                    f"{b['amount']:,.2f} ₪",
-                    f"{b['spent_amount']:,.2f} ₪",
+                    f"{usage_percent:.1f}%",
                     f"{b['remaining_amount']:,.2f} ₪",
-                    f"{usage_percent:.1f}%"
+                    f"{b['spent_amount']:,.2f} ₪",
+                    f"{b['amount']:,.2f} ₪",
+                    format_text(cat_name)
                 ])
 
-            budget_table = Table(budget_table_data, colWidths=[110, 95, 95, 95, 70])
+            budget_table = Table(budget_table_data, colWidths=[70, 95, 95, 95, 110])
             
             # Build dynamic style for conditional coloring
             budget_style = [
@@ -3259,7 +3702,9 @@ class ReportService:
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                # Align calculation columns (0-3) center, category column (4) right
+                ('ALIGN', (0, 0), (3, -1), 'CENTER'),
+                ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 10),
                 ('TOPPADDING', (0, 0), (-1, 0), 12),
@@ -3278,18 +3723,18 @@ class ReportService:
                 else:
                     budget_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor(COLOR_BG_ALT)))
                 
-                # Color the "used" column based on usage
+                # Color the "used" column (now column 2) based on usage
                 if usage_percent > 100:
                     budget_style.append(('TEXTCOLOR', (2, row), (2, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                     budget_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor('#FFE4E6')))  # Rose-100
                 elif usage_percent > 80:
                     budget_style.append(('TEXTCOLOR', (2, row), (2, row), colors.HexColor(COLOR_ACCENT_AMBER)))
                 
-                # Color the "remaining" column
+                # Color the "remaining" column (now column 1)
                 if remaining < 0:
-                    budget_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_ROSE)))
+                    budget_style.append(('TEXTCOLOR', (1, row), (1, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                 else:
-                    budget_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_EMERALD)))
+                    budget_style.append(('TEXTCOLOR', (1, row), (1, row), colors.HexColor(COLOR_ACCENT_EMERALD)))
             
             budget_table.setStyle(TableStyle(budget_style))
             elements.append(budget_table)
@@ -3300,13 +3745,13 @@ class ReportService:
             elements.append(Paragraph(format_text("📊 סיכום תקציבים"), style_h2))
             elements.append(Spacer(1, 15))
             
-            # טבלת סיכום תקציבים
+            # טבלת סיכום תקציבים - reversed for Hebrew RTL: category on right, calculations on left
             budget_summary_data = [[
-                format_text(REPORT_LABELS['category']), 
-                format_text(REPORT_LABELS['budget']),
-                format_text(REPORT_LABELS['used']), 
+                format_text("אחוז ניצול"),
                 format_text(REPORT_LABELS['remaining']),
-                format_text("אחוז ניצול")
+                format_text(REPORT_LABELS['used']), 
+                format_text(REPORT_LABELS['budget']),
+                format_text(REPORT_LABELS['category'])
             ]]
             
             total_budget = 0
@@ -3325,31 +3770,33 @@ class ReportService:
                 total_remaining += remaining_amount
                 
                 budget_summary_data.append([
-                    format_text(cat_name),
-                    f"{budget_amount:,.2f} ₪",
-                    f"{spent_amount:,.2f} ₪",
+                    f"{usage_percent:.1f}%",
                     f"{remaining_amount:,.2f} ₪",
-                    f"{usage_percent:.1f}%"
+                    f"{spent_amount:,.2f} ₪",
+                    f"{budget_amount:,.2f} ₪",
+                    format_text(cat_name)
                 ])
             
             # שורת סיכום
             total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
             budget_summary_data.append([
-                format_text("סה\"כ"),
-                f"{total_budget:,.2f} ₪",
-                f"{total_spent:,.2f} ₪",
+                f"{total_usage:.1f}%",
                 f"{total_remaining:,.2f} ₪",
-                f"{total_usage:.1f}%"
+                f"{total_spent:,.2f} ₪",
+                f"{total_budget:,.2f} ₪",
+                format_text("סה\"כ")
             ])
             
-            budget_summary_table = Table(budget_summary_data, colWidths=[110, 90, 90, 90, 70], style=[
+            budget_summary_table = Table(budget_summary_data, colWidths=[70, 90, 90, 90, 110], style=[
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#4C1D95')),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4C1D95')),  # Purple-900 header
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#EDE9FE')),  # Purple-100 for total row
                 ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F5F3FF')),  # Purple-50 for data rows
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                # Align calculation columns (0-3) center, category column (4) right
+                ('ALIGN', (0, 0), (3, -1), 'CENTER'),
+                ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('PADDING', (0, 0), (-1, -1), 8),
                 ('FONTSIZE', (0, -1), (-1, -1), 11),  # Larger font for total row
@@ -3362,18 +3809,19 @@ class ReportService:
             elements.append(Paragraph(format_text(f"💰 {REPORT_LABELS['financial_summary']}"), style_h2))
             elements.append(Spacer(1, 8))
             
+            # Reversed for Hebrew RTL: amount on left, details on right
             summary_data = [
-                [format_text(REPORT_LABELS['details']), format_text(REPORT_LABELS['amount'])],
-                [format_text(f"↗️ {REPORT_LABELS['total_income']}"), f"{summary['income']:,.2f} ₪"],
-                [format_text(f"↘️ {REPORT_LABELS['total_expenses']}"), f"{summary['expenses']:,.2f} ₪"],
-                [format_text(f"📈 {REPORT_LABELS['balance_profit']}"), f"{summary['profit']:,.2f} ₪"],
+                [format_text(REPORT_LABELS['amount']), format_text(REPORT_LABELS['details'])],
+                [f"{summary['income']:,.2f} ₪", format_text(f"↗️ {REPORT_LABELS['total_income']}")],
+                [f"{summary['expenses']:,.2f} ₪", format_text(f"↘️ {REPORT_LABELS['total_expenses']}")],
+                [f"{summary['profit']:,.2f} ₪", format_text(f"📈 {REPORT_LABELS['balance_profit']}")],
             ]
             
             # Dynamic styling based on profit/loss
             profit_color = COLOR_ACCENT_EMERALD if summary['profit'] >= 0 else COLOR_ACCENT_ROSE
             profit_bg = '#D1FAE5' if summary['profit'] >= 0 else '#FFE4E6'  # Emerald-100 or Rose-100
             
-            summary_table = Table(summary_data, colWidths=[220, 160])
+            summary_table = Table(summary_data, colWidths=[160, 220])
             summary_table.setStyle(TableStyle([
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('FONTSIZE', (0, 0), (-1, -1), 11),
@@ -3392,8 +3840,9 @@ class ReportService:
                 # Profit row - conditional
                 ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor(profit_bg)),
                 ('TEXTCOLOR', (1, 3), (1, 3), colors.HexColor(profit_color)),
-                # General styling
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                # General styling - align amount (col 0) left, details (col 1) right
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 12),
                 ('TOPPADDING', (0, 1), (-1, -1), 10),
@@ -3407,13 +3856,13 @@ class ReportService:
             elements.append(Paragraph(format_text(f"📅 דוח חודשי - הוצאות לפי קטגוריה וספק"), style_h2))
             elements.append(Spacer(1, 12))
             
-            # Prepare monthly breakdown table data
+            # Prepare monthly breakdown table data - reversed for Hebrew RTL: category/supplier on right, date/amount on left
             monthly_table_data = [
                 [
-                    format_text(REPORT_LABELS.get('date', 'חודש')),
-                    format_text(REPORT_LABELS['category']),
+                    format_text(REPORT_LABELS['amount']),
                     format_text(REPORT_LABELS['supplier']),
-                    format_text(REPORT_LABELS['amount'])
+                    format_text(REPORT_LABELS['category']),
+                    format_text(REPORT_LABELS.get('date', 'חודש'))
                 ]
             ]
             
@@ -3431,13 +3880,13 @@ class ReportService:
                 amount = row_data['amount']
                 
                 monthly_table_data.append([
-                    format_text(month_display),
-                    format_text(cat_name),
+                    f"{amount:,.2f} ₪",
                     format_text(supplier_name),
-                    f"{amount:,.2f} ₪"
+                    format_text(cat_name),
+                    format_text(month_display)
                 ])
             
-            monthly_table = Table(monthly_table_data, colWidths=[100, 150, 150, 120])
+            monthly_table = Table(monthly_table_data, colWidths=[120, 150, 150, 100])
             monthly_table.setStyle(TableStyle([
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
@@ -3451,7 +3900,9 @@ class ReportService:
                 ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
                 ('TOPPADDING', (0, 1), (-1, -1), 8),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                # Align amount (col 0) left, supplier/category/date (cols 1-3) right
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (3, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 6),
             ]))
@@ -3704,11 +4155,12 @@ class ReportService:
             elements.append(Paragraph(format_text("הוצאות לפי קטגוריה"), style_category))
             elements.append(Spacer(1, 6))
             
+            # Reversed for Hebrew RTL: category on right, calculations on left
             cat_expense_data = [[
-                format_text(REPORT_LABELS['category']),
-                format_text(REPORT_LABELS['expenses']),
+                format_text("נטו"),
                 format_text(REPORT_LABELS['income']),
-                format_text("נטו")
+                format_text(REPORT_LABELS['expenses']),
+                format_text(REPORT_LABELS['category'])
             ]]
             
             grand_total_income = 0
@@ -3723,22 +4175,22 @@ class ReportService:
                 grand_total_expense += cat_expense
                 
                 cat_expense_data.append([
-                    format_text(cat_name),
-                    f"{cat_expense:,.2f} ₪",
+                    f"{cat_net:,.2f} ₪",
                     f"{cat_income:,.2f} ₪",
-                    f"{cat_net:,.2f} ₪"
+                    f"{cat_expense:,.2f} ₪",
+                    format_text(cat_name)
                 ])
             
             # Grand total row
             grand_net = grand_total_income - grand_total_expense
             cat_expense_data.append([
-                format_text("סה״כ"),
-                f"{grand_total_expense:,.2f} ₪",
+                f"{grand_net:,.2f} ₪",
                 f"{grand_total_income:,.2f} ₪",
-                f"{grand_net:,.2f} ₪"
+                f"{grand_total_expense:,.2f} ₪",
+                format_text("סה״כ")
             ])
             
-            cat_expense_table = Table(cat_expense_data, colWidths=[150, 110, 110, 110])
+            cat_expense_table = Table(cat_expense_data, colWidths=[110, 110, 110, 150])
             
             cat_expense_style = [
                 ('FONT', (0, 0), (-1, -1), font_name),
@@ -3746,7 +4198,9 @@ class ReportService:
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                # Align calculation columns (0-2) center, category column (3) right
+                ('ALIGN', (0, 0), (2, -1), 'CENTER'),
+                ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 10),
                 ('TOPPADDING', (0, 0), (-1, 0), 12),
@@ -3919,47 +4373,50 @@ class ReportService:
                     png_signature = b'\x89PNG\r\n\x1a\n'
                     return data[:8] == png_signature
 
+                # Track which chart types we already have from frontend
+                frontend_chart_types = set()
+                
                 # Use provided images if available - but validate them first
-                use_frontend_images = False
                 if chart_images:
-                    valid_images = {}
                     for key, img_data in chart_images.items():
                         if is_valid_png(img_data):
                             hebrew_title = CHART_TITLES.get(key, key)
-                            valid_images[hebrew_title] = img_data
+                            charts_to_render[hebrew_title] = img_data
+                            frontend_chart_types.add(key)
                             print(f"INFO: Valid frontend chart image: {key} ({len(img_data)} bytes)")
                         else:
                             print(f"WARNING: Invalid frontend chart image: {key}, will regenerate")
-                    
-                    if valid_images:
-                        charts_to_render = valid_images
-                        use_frontend_images = True
-                        print(f"INFO: Using {len(valid_images)} frontend chart images")
                 
-                # Generate server-side if no valid frontend images
-                if not use_frontend_images:
-                    chart_types = options.chart_types or [
-                        "income_expense_pie",
-                        "expense_by_category_pie",
-                        "expense_by_category_bar",
-                        "trends_line",
-                        "expense_by_supplier_bar",
-                        "monthly_trends_line",
-                        "budget_vs_actual",
-                        "cumulative_expenses"
-                    ]
-                    for chart_type in chart_types:
-                        try:
-                            print(f"INFO: Creating chart: {chart_type}")
-                            chart_buffer = self._create_chart_image(chart_type, {}, summary, transactions, budgets)
-                            if chart_buffer:
-                                chart_buffer.seek(0)
-                                chart_bytes = chart_buffer.read()
-                                if chart_bytes and len(chart_bytes) > 100:  # Ensure we have actual image data
-                                    chart_name = CHART_TITLES.get(chart_type, chart_type)
-                                    charts_to_render[chart_name] = chart_bytes
-                        except Exception as e:
-                            print(f"אזהרה: שגיאה בהכנת גרף {chart_type}: {e}")
+                # Get requested chart types
+                chart_types = options.chart_types or [
+                    "income_expense_pie",
+                    "expense_by_category_pie",
+                    "expense_by_category_bar",
+                    "trends_line",
+                    "expense_by_supplier_bar",
+                    "monthly_trends_line",
+                    "budget_vs_actual",
+                    "cumulative_expenses"
+                ]
+                
+                # Generate server-side charts for types not provided by frontend
+                for chart_type in chart_types:
+                    # Skip if we already have this chart from frontend
+                    if chart_type in frontend_chart_types:
+                        print(f"INFO: Skipping {chart_type} - already have from frontend")
+                        continue
+                    
+                    try:
+                        print(f"INFO: Creating chart: {chart_type}")
+                        chart_buffer = self._create_chart_image(chart_type, {}, summary, transactions, budgets)
+                        if chart_buffer:
+                            chart_buffer.seek(0)
+                            chart_bytes = chart_buffer.read()
+                            if chart_bytes and len(chart_bytes) > 100:  # Ensure we have actual image data
+                                chart_name = CHART_TITLES.get(chart_type, chart_type)
+                                charts_to_render[chart_name] = chart_bytes
+                    except Exception as e:
+                        print(f"אזהרה: שגיאה בהכנת גרף {chart_type}: {e}")
 
                 if charts_to_render:
                     print(f"INFO: Rendering {len(charts_to_render)} charts to PDF")
@@ -3973,7 +4430,8 @@ class ReportService:
                             # בדיקת חתימת PNG
                             png_signature = b'\x89PNG\r\n\x1a\n'
                             if image_bytes[:8] != png_signature:
-                                print(f"אזהרה: התמונה {chart_name} אינה PNG תקינה, מנסה בכל זאת...")
+                                print(f"אזהרה: התמונה {chart_name} אינה PNG תקינה, מדלג...")
+                                continue
                             
                             print(f"INFO: Adding chart '{chart_name}' to PDF ({len(image_bytes)} bytes)")
                             
@@ -3981,7 +4439,9 @@ class ReportService:
                             img_buffer = BytesIO(image_bytes)
                             img_buffer.seek(0)
                             
-                            # יצירת אובייקט תמונה עם יחס גובה-רוחב נכון - גדול יותר ומקצועי
+                            # יצירת אובייקט תמונה עם יחס גובה-רוחב נכון
+                            # A4 width = 595pt, margins = 60pt, usable width = 535pt
+                            # Using 500pt width to have some padding
                             img = RLImage(img_buffer, width=500, height=375, kind='proportional')
                             img.hAlign = 'CENTER'
                             
@@ -4153,10 +4613,10 @@ class ReportService:
             summary_header.border = medium_border
             current_row += 1
 
-            # Summary table headers
+            # Summary table headers - reversed for Hebrew RTL: amount on left, details on right
             ws.row_dimensions[current_row].height = 28
-            ws[f'A{current_row}'] = REPORT_LABELS['details']
-            ws[f'B{current_row}'] = REPORT_LABELS['amount']
+            ws[f'A{current_row}'] = REPORT_LABELS['amount']
+            ws[f'B{current_row}'] = REPORT_LABELS['details']
             for col in ['A', 'B']:
                 cell = ws[f'{col}{current_row}']
                 cell.font = header_font
@@ -4167,49 +4627,52 @@ class ReportService:
 
             # Income row - with green highlight
             ws.row_dimensions[current_row].height = 25
-            ws[f'A{current_row}'] = f"↗️  {REPORT_LABELS['total_income']}"
-            ws[f'A{current_row}'].font = data_bold_font
+            ws[f'A{current_row}'] = f"{summary['income']:,.2f} ₪"
+            ws[f'A{current_row}'].font = money_positive_font
             ws[f'A{current_row}'].fill = fill_emerald_light
-            ws[f'B{current_row}'] = f"{summary['income']:,.2f} ₪"
-            ws[f'B{current_row}'].font = money_positive_font
+            ws[f'B{current_row}'] = f"↗️  {REPORT_LABELS['total_income']}"
+            ws[f'B{current_row}'].font = data_bold_font
             ws[f'B{current_row}'].fill = fill_emerald_light
-            for col in ['A', 'B']:
-                ws[f'{col}{current_row}'].border = thin_border
-                ws[f'{col}{current_row}'].alignment = center_align
+            ws[f'A{current_row}'].border = thin_border
+            ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+            ws[f'B{current_row}'].border = thin_border
+            ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 1
 
             # Expenses row - with red highlight
             ws.row_dimensions[current_row].height = 25
-            ws[f'A{current_row}'] = f"↘️  {REPORT_LABELS['total_expenses']}"
-            ws[f'A{current_row}'].font = data_bold_font
+            ws[f'A{current_row}'] = f"{summary['expenses']:,.2f} ₪"
+            ws[f'A{current_row}'].font = money_negative_font
             ws[f'A{current_row}'].fill = fill_rose_light
-            ws[f'B{current_row}'] = f"{summary['expenses']:,.2f} ₪"
-            ws[f'B{current_row}'].font = money_negative_font
+            ws[f'B{current_row}'] = f"↘️  {REPORT_LABELS['total_expenses']}"
+            ws[f'B{current_row}'].font = data_bold_font
             ws[f'B{current_row}'].fill = fill_rose_light
-            for col in ['A', 'B']:
-                ws[f'{col}{current_row}'].border = thin_border
-                ws[f'{col}{current_row}'].alignment = center_align
+            ws[f'A{current_row}'].border = thin_border
+            ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+            ws[f'B{current_row}'].border = thin_border
+            ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 1
 
             # Profit/Loss row - conditional coloring
             ws.row_dimensions[current_row].height = 28
-            ws[f'A{current_row}'] = f"📈  {REPORT_LABELS['balance_profit']}"
-            ws[f'A{current_row}'].font = data_bold_font
-            ws[f'B{current_row}'] = f"{summary['profit']:,.2f} ₪"
+            ws[f'A{current_row}'] = f"{summary['profit']:,.2f} ₪"
+            ws[f'B{current_row}'] = f"📈  {REPORT_LABELS['balance_profit']}"
+            ws[f'B{current_row}'].font = data_bold_font
             
             # Color based on profit/loss
             if summary['profit'] >= 0:
                 ws[f'A{current_row}'].fill = fill_teal_light
                 ws[f'B{current_row}'].fill = fill_teal_light
-                ws[f'B{current_row}'].font = money_positive_font
+                ws[f'A{current_row}'].font = money_positive_font
             else:
                 ws[f'A{current_row}'].fill = fill_rose_light
                 ws[f'B{current_row}'].fill = fill_rose_light
-                ws[f'B{current_row}'].font = money_negative_font
+                ws[f'A{current_row}'].font = money_negative_font
             
-            for col in ['A', 'B']:
-                ws[f'{col}{current_row}'].border = medium_border
-                ws[f'{col}{current_row}'].alignment = center_align
+            ws[f'A{current_row}'].border = medium_border
+            ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+            ws[f'B{current_row}'].border = medium_border
+            ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 2  # Spacer
 
         # 2. Fund - Professional Fund Status Card
@@ -4224,30 +4687,32 @@ class ReportService:
             fund_header.border = medium_border
             current_row += 1
 
-            # Current balance row
+            # Current balance row - reversed for Hebrew RTL: value on left, label on right
             ws.row_dimensions[current_row].height = 28
-            ws[f'A{current_row}'] = f"💵  {REPORT_LABELS['current_balance']}"
-            ws[f'A{current_row}'].font = data_bold_font
+            ws[f'A{current_row}'] = f"{fund.current_balance:,.2f} ₪"
+            ws[f'A{current_row}'].font = money_positive_font
             ws[f'A{current_row}'].fill = fill_teal_light
-            ws[f'B{current_row}'] = f"{fund.current_balance:,.2f} ₪"
-            ws[f'B{current_row}'].font = money_positive_font
+            ws[f'B{current_row}'] = f"💵  {REPORT_LABELS['current_balance']}"
+            ws[f'B{current_row}'].font = data_bold_font
             ws[f'B{current_row}'].fill = fill_teal_light
-            for col in ['A', 'B']:
-                ws[f'{col}{current_row}'].border = thin_border
-                ws[f'{col}{current_row}'].alignment = center_align
+            ws[f'A{current_row}'].border = thin_border
+            ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+            ws[f'B{current_row}'].border = thin_border
+            ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 1
 
             # Monthly deposit row
             ws.row_dimensions[current_row].height = 25
-            ws[f'A{current_row}'] = f"📅  {REPORT_LABELS['monthly_deposit']}"
-            ws[f'A{current_row}'].font = data_font
+            ws[f'A{current_row}'] = f"{fund.monthly_amount:,.2f} ₪"
+            ws[f'A{current_row}'].font = data_bold_font
             ws[f'A{current_row}'].fill = fill_light
-            ws[f'B{current_row}'] = f"{fund.monthly_amount:,.2f} ₪"
-            ws[f'B{current_row}'].font = data_bold_font
+            ws[f'B{current_row}'] = f"📅  {REPORT_LABELS['monthly_deposit']}"
+            ws[f'B{current_row}'].font = data_font
             ws[f'B{current_row}'].fill = fill_light
-            for col in ['A', 'B']:
-                ws[f'{col}{current_row}'].border = thin_border
-                ws[f'{col}{current_row}'].alignment = center_align
+            ws[f'A{current_row}'].border = thin_border
+            ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+            ws[f'B{current_row}'].border = thin_border
+            ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 2  # Spacer
 
         # 3. Budgets - Professional Budget Table
@@ -4262,13 +4727,13 @@ class ReportService:
             budget_header.border = medium_border
             current_row += 1
 
-            # Budget table headers
+            # Budget table headers - reversed for Hebrew RTL: category on right, calculations on left
             ws.row_dimensions[current_row].height = 28
             budget_headers = [
-                REPORT_LABELS['category'],
-                REPORT_LABELS['budget'],
+                REPORT_LABELS['remaining'],
                 REPORT_LABELS['used'],
-                REPORT_LABELS['remaining']
+                REPORT_LABELS['budget'],
+                REPORT_LABELS['category']
             ]
             for idx, header in enumerate(budget_headers):
                 col = get_column_letter(idx + 1)
@@ -4290,33 +4755,39 @@ class ReportService:
                 # Row fill - alternate colors
                 row_fill = fill_light if row_idx % 2 == 0 else fill_alt
                 
-                ws[f'A{current_row}'] = cat_name
-                ws[f'A{current_row}'].font = data_bold_font
+                # Column order: D=category, C=budget, B=used, A=remaining
+                ws[f'D{current_row}'] = cat_name
+                ws[f'D{current_row}'].font = data_bold_font
+                ws[f'D{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 
-                ws[f'B{current_row}'] = f"{b['amount']:,.2f} ₪"
-                ws[f'B{current_row}'].font = data_font
+                ws[f'C{current_row}'] = f"{b['amount']:,.2f} ₪"
+                ws[f'C{current_row}'].font = data_font
+                ws[f'C{current_row}'].alignment = center_align
                 
-                ws[f'C{current_row}'] = f"{b['spent_amount']:,.2f} ₪"
+                ws[f'B{current_row}'] = f"{b['spent_amount']:,.2f} ₪"
                 # Color based on usage
                 if usage_percent > 100:
-                    ws[f'C{current_row}'].font = money_negative_font
+                    ws[f'B{current_row}'].font = money_negative_font
                 elif usage_percent > 80:
-                    ws[f'C{current_row}'].font = Font(name='Arial', bold=True, size=10, color=ACCENT_AMBER)
+                    ws[f'B{current_row}'].font = Font(name='Arial', bold=True, size=10, color=ACCENT_AMBER)
                 else:
-                    ws[f'C{current_row}'].font = data_font
+                    ws[f'B{current_row}'].font = data_font
+                ws[f'B{current_row}'].alignment = center_align
                 
-                ws[f'D{current_row}'] = f"{remaining:,.2f} ₪"
+                ws[f'A{current_row}'] = f"{remaining:,.2f} ₪"
                 # Color remaining based on positive/negative
                 if remaining < 0:
-                    ws[f'D{current_row}'].font = money_negative_font
+                    ws[f'A{current_row}'].font = money_negative_font
                     row_fill = fill_rose_light
                 else:
-                    ws[f'D{current_row}'].font = money_positive_font
+                    ws[f'A{current_row}'].font = money_positive_font
+                ws[f'A{current_row}'].alignment = center_align
                 
                 for col in ['A', 'B', 'C', 'D']:
                     ws[f'{col}{current_row}'].fill = row_fill
                     ws[f'{col}{current_row}'].border = thin_border
-                    ws[f'{col}{current_row}'].alignment = center_align
+                # Override alignment: D (category) right, others center
+                ws[f'D{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 current_row += 1
 
             current_row += 1  # Spacer
@@ -4334,13 +4805,13 @@ class ReportService:
             monthly_header.border = medium_border
             current_row += 1
 
-            # Monthly breakdown table headers
+            # Monthly breakdown table headers - reversed for Hebrew RTL: category/supplier/date on right, amount on left
             ws.row_dimensions[current_row].height = 28
             monthly_headers = [
-                REPORT_LABELS['date'] if 'date' in REPORT_LABELS else 'חודש',
-                REPORT_LABELS['category'],
+                REPORT_LABELS['amount'],
                 REPORT_LABELS['supplier'],
-                REPORT_LABELS['amount']
+                REPORT_LABELS['category'],
+                REPORT_LABELS['date'] if 'date' in REPORT_LABELS else 'חודש'
             ]
             for idx, header in enumerate(monthly_headers):
                 col = get_column_letter(idx + 1)
@@ -4372,25 +4843,30 @@ class ReportService:
                 # Row fill - alternate colors
                 row_fill = fill_light if row_idx % 2 == 0 else fill_alt
                 
-                ws[f'A{current_row}'] = month_display
+                # Column order: A=amount, B=supplier, C=category, D=date
+                ws[f'A{current_row}'] = f"{amount:,.2f} ₪"
                 ws[f'A{current_row}'].font = data_font
                 ws[f'A{current_row}'].fill = row_fill
                 ws[f'A{current_row}'].border = thin_border
-                ws[f'A{current_row}'].alignment = center_align
+                ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
                 
-                ws[f'B{current_row}'] = cat_name
-                ws[f'B{current_row}'].font = data_bold_font
+                ws[f'B{current_row}'] = supplier_name
+                ws[f'B{current_row}'].font = data_font
                 ws[f'B{current_row}'].fill = row_fill
                 ws[f'B{current_row}'].border = thin_border
-                ws[f'B{current_row}'].alignment = center_align
+                ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 
-                ws[f'C{current_row}'] = supplier_name
-                ws[f'C{current_row}'].font = data_font
+                ws[f'C{current_row}'] = cat_name
+                ws[f'C{current_row}'].font = data_bold_font
                 ws[f'C{current_row}'].fill = row_fill
                 ws[f'C{current_row}'].border = thin_border
-                ws[f'C{current_row}'].alignment = center_align
+                ws[f'C{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 
-                ws[f'D{current_row}'] = f"{amount:,.2f} ₪"
+                ws[f'D{current_row}'] = month_display
+                ws[f'D{current_row}'].font = data_font
+                ws[f'D{current_row}'].fill = row_fill
+                ws[f'D{current_row}'].border = thin_border
+                ws[f'D{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 ws[f'D{current_row}'].font = money_negative_font
                 ws[f'D{current_row}'].fill = row_fill
                 ws[f'D{current_row}'].border = thin_border
@@ -4743,14 +5219,14 @@ class ReportService:
                 budget_summary_header.border = medium_border
                 current_row += 1
                 
-                # Budget headers
+                # Budget headers - reversed for Hebrew RTL: category on right, calculations on left
                 ws.row_dimensions[current_row].height = 28
                 budget_headers = [
-                    REPORT_LABELS['category'],
-                    REPORT_LABELS['budget'],
-                    REPORT_LABELS['used'],
+                    "ניצול %",
                     REPORT_LABELS['remaining'],
-                    "ניצול %"
+                    REPORT_LABELS['used'],
+                    REPORT_LABELS['budget'],
+                    REPORT_LABELS['category']
                 ]
                 for idx, header in enumerate(budget_headers):
                     col = get_column_letter(idx + 1)
@@ -4780,17 +5256,18 @@ class ReportService:
                     if usage_pct > 100:
                         row_fill = fill_rose_light
                     
-                    ws[f'A{current_row}'] = cat_name
-                    ws[f'A{current_row}'].font = data_bold_font
-                    ws[f'A{current_row}'].fill = row_fill
-                    ws[f'A{current_row}'].border = thin_border
-                    ws[f'A{current_row}'].alignment = center_align
+                    # Column order: E=category, D=budget, C=used, B=remaining, A=usage%
+                    ws[f'E{current_row}'] = cat_name
+                    ws[f'E{current_row}'].font = data_bold_font
+                    ws[f'E{current_row}'].fill = row_fill
+                    ws[f'E{current_row}'].border = thin_border
+                    ws[f'E{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                     
-                    ws[f'B{current_row}'] = f"{budget_amount:,.2f} ₪"
-                    ws[f'B{current_row}'].font = data_font
-                    ws[f'B{current_row}'].fill = row_fill
-                    ws[f'B{current_row}'].border = thin_border
-                    ws[f'B{current_row}'].alignment = center_align
+                    ws[f'D{current_row}'] = f"{budget_amount:,.2f} ₪"
+                    ws[f'D{current_row}'].font = data_font
+                    ws[f'D{current_row}'].fill = row_fill
+                    ws[f'D{current_row}'].border = thin_border
+                    ws[f'D{current_row}'].alignment = center_align
                     
                     ws[f'C{current_row}'] = f"{spent_amount:,.2f} ₪"
                     if usage_pct > 100:
@@ -4803,17 +5280,17 @@ class ReportService:
                     ws[f'C{current_row}'].border = thin_border
                     ws[f'C{current_row}'].alignment = center_align
                     
-                    ws[f'D{current_row}'] = f"{remaining:,.2f} ₪"
-                    ws[f'D{current_row}'].font = money_positive_font if remaining >= 0 else money_negative_font
-                    ws[f'D{current_row}'].fill = row_fill
-                    ws[f'D{current_row}'].border = thin_border
-                    ws[f'D{current_row}'].alignment = center_align
+                    ws[f'B{current_row}'] = f"{remaining:,.2f} ₪"
+                    ws[f'B{current_row}'].font = money_positive_font if remaining >= 0 else money_negative_font
+                    ws[f'B{current_row}'].fill = row_fill
+                    ws[f'B{current_row}'].border = thin_border
+                    ws[f'B{current_row}'].alignment = center_align
                     
-                    ws[f'E{current_row}'] = f"{usage_pct:.1f}%"
-                    ws[f'E{current_row}'].font = data_font
-                    ws[f'E{current_row}'].fill = row_fill
-                    ws[f'E{current_row}'].border = thin_border
-                    ws[f'E{current_row}'].alignment = center_align
+                    ws[f'A{current_row}'] = f"{usage_pct:.1f}%"
+                    ws[f'A{current_row}'].font = data_font
+                    ws[f'A{current_row}'].fill = row_fill
+                    ws[f'A{current_row}'].border = thin_border
+                    ws[f'A{current_row}'].alignment = center_align
                     
                     current_row += 1
                 
@@ -4822,17 +5299,18 @@ class ReportService:
                 total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
                 ws.row_dimensions[current_row].height = 28
                 
-                ws[f'A{current_row}'] = "סה״כ"
-                ws[f'A{current_row}'].font = data_bold_font
-                ws[f'A{current_row}'].fill = fill_teal_light
-                ws[f'A{current_row}'].border = medium_border
-                ws[f'A{current_row}'].alignment = center_align
+                # Total row - reversed: E=category, D=budget, C=used, B=remaining, A=usage%
+                ws[f'E{current_row}'] = "סה״כ"
+                ws[f'E{current_row}'].font = data_bold_font
+                ws[f'E{current_row}'].fill = fill_teal_light
+                ws[f'E{current_row}'].border = medium_border
+                ws[f'E{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
                 
-                ws[f'B{current_row}'] = f"{total_budget:,.2f} ₪"
-                ws[f'B{current_row}'].font = data_bold_font
-                ws[f'B{current_row}'].fill = fill_teal_light
-                ws[f'B{current_row}'].border = medium_border
-                ws[f'B{current_row}'].alignment = center_align
+                ws[f'D{current_row}'] = f"{total_budget:,.2f} ₪"
+                ws[f'D{current_row}'].font = data_bold_font
+                ws[f'D{current_row}'].fill = fill_teal_light
+                ws[f'D{current_row}'].border = medium_border
+                ws[f'D{current_row}'].alignment = center_align
                 
                 ws[f'C{current_row}'] = f"{total_spent:,.2f} ₪"
                 ws[f'C{current_row}'].font = data_bold_font
@@ -4840,16 +5318,17 @@ class ReportService:
                 ws[f'C{current_row}'].border = medium_border
                 ws[f'C{current_row}'].alignment = center_align
                 
-                ws[f'D{current_row}'] = f"{total_remaining:,.2f} ₪"
-                ws[f'D{current_row}'].font = money_positive_font if total_remaining >= 0 else money_negative_font
-                ws[f'D{current_row}'].fill = fill_teal_light
-                ws[f'D{current_row}'].border = medium_border
-                ws[f'D{current_row}'].alignment = center_align
+                ws[f'B{current_row}'] = f"{total_remaining:,.2f} ₪"
+                ws[f'B{current_row}'].font = money_positive_font if total_remaining >= 0 else money_negative_font
+                ws[f'B{current_row}'].fill = fill_teal_light
+                ws[f'B{current_row}'].border = medium_border
+                ws[f'B{current_row}'].alignment = center_align
                 
-                ws[f'E{current_row}'] = f"{total_usage:.1f}%"
-                ws[f'E{current_row}'].font = data_bold_font
-                ws[f'E{current_row}'].fill = fill_teal_light
-                ws[f'E{current_row}'].border = medium_border
+                ws[f'A{current_row}'] = f"{total_usage:.1f}%"
+                ws[f'A{current_row}'].font = data_bold_font
+                ws[f'A{current_row}'].fill = fill_teal_light
+                ws[f'A{current_row}'].border = medium_border
+                ws[f'A{current_row}'].alignment = center_align
                 ws[f'E{current_row}'].alignment = center_align
                 
                 current_row += 3
@@ -5021,10 +5500,11 @@ class ReportService:
                                         continue
                                     img_buffer = BytesIO(image_bytes)
                                     img = XLImage(img_buffer)
-                                    img.width = 480
-                                    img.height = 320
+                                    # הגדלה לאיכות טובה יותר ב-Excel
+                                    img.width = 600
+                                    img.height = 400
                                     ws.add_image(img, f'A{row}')
-                                    ws.row_dimensions[row].height = 240
+                                    ws.row_dimensions[row].height = 300
                                     row += 16
                                     charts_added += 1
                                 except Exception as e:
@@ -5232,7 +5712,7 @@ class ReportService:
                 'amount': tx["amount"],
                 'category': tx["category"] or "",
                 'description': tx["description"] or "",
-                'payment_method': tx.get("payment_method") or "",
+                'payment_method': translate_payment_method(tx.get("payment_method")),
                 'notes': tx["notes"] or "",
                 'file': REPORT_LABELS['yes'] if tx.get("file_path") else REPORT_LABELS['no']
             }
@@ -5245,17 +5725,23 @@ class ReportService:
             if i < len(col_letters):
                 ws_tx.column_dimensions[col_letters[i]].width = col_widths[col]
 
-        # 3. Categories Breakdown
+        # 3. Categories Breakdown - reversed for Hebrew RTL: category on right, amount on left
         ws_cat = wb.create_sheet(REPORT_LABELS['categories'][:30])
         ws_cat.sheet_view.rightToLeft = True
-        ws_cat.append([REPORT_LABELS['category'], REPORT_LABELS['amount']])
+        ws_cat.append([REPORT_LABELS['amount'], REPORT_LABELS['category']])
         for cell in ws_cat[1]:
             cell.font = header_font
             cell.fill = fill_green
             cell.alignment = Alignment(horizontal='center')
+        # Set category column (B) to right alignment
+        ws_cat['B1'].alignment = Alignment(horizontal='right')
 
         for cat in expense_categories:
-            ws_cat.append([cat["category"], cat["amount"]])
+            ws_cat.append([cat["amount"], cat["category"]])
+            # Set category column (B) to right alignment for data rows
+            last_row = ws_cat.max_row
+            ws_cat[f'B{last_row}'].alignment = Alignment(horizontal='right')
+            ws_cat[f'A{last_row}'].alignment = Alignment(horizontal='left')
 
         output = io.BytesIO()
         wb.save(output)

@@ -12,6 +12,7 @@ from backend.models.transaction import Transaction
 from backend.services.s3_service import S3Service
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.project_repository import ProjectRepository
+from backend.repositories.contract_period_repository import ContractPeriodRepository
 
 
 class TransactionService:
@@ -112,26 +113,32 @@ class TransactionService:
                 msg += f"- {tx.period_start_date} עד {tx.period_end_date} (סכום: {tx.amount})\n"
             raise ValueError(msg)
 
+    async def _get_first_contract_start(self, project_id: int) -> date | None:
+        """First contract start date for a project. Used to allow transactions in any contract, block only before first."""
+        period_repo = ContractPeriodRepository(self.db)
+        first = await period_repo.get_earliest_start_date(project_id)
+        if first is not None:
+            return first
+        project = await ProjectRepository(self.db).get_by_id(project_id)
+        if not project or not project.start_date:
+            return None
+        s = project.start_date
+        return s.date() if hasattr(s, 'date') else s
+
     async def create(self, **data) -> Transaction:
-        # Validate transaction date is not before project contract start date
+        # Validate transaction date is not before FIRST contract start date.
+        # Allow transactions in any contract (including old ones); block only before the first contract.
         project_id = data.get('project_id')
         tx_date = data.get('tx_date')
-        
-        if project_id and tx_date:
-            project_repo = ProjectRepository(self.db)
-            project = await project_repo.get_by_id(project_id)
-            if project and project.start_date:
-                # Convert project.start_date to date if it's datetime
-                project_start_date = project.start_date
-                if hasattr(project_start_date, 'date'):
-                    project_start_date = project_start_date.date()
-                
-                if tx_date < project_start_date:
-                    raise ValueError(
-                        f"לא ניתן ליצור עסקה לפני תאריך תחילת החוזה. "
-                        f"תאריך תחילת החוזה: {project_start_date.strftime('%d/%m/%Y')}, "
-                        f"תאריך העסקה: {tx_date.strftime('%d/%m/%Y')}"
-                    )
+        first_start: date | None = None
+        if project_id:
+            first_start = await self._get_first_contract_start(project_id)
+        if project_id and tx_date and first_start and tx_date < first_start:
+            raise ValueError(
+                f"לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. "
+                f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
+                f"תאריך העסקה: {tx_date.strftime('%d/%m/%Y')}"
+            )
         
         # Validate category if provided (unless it's a cash register transaction)
         from_fund = data.get('from_fund', False)
@@ -148,11 +155,24 @@ class TransactionService:
         
         data['category_id'] = resolved_category.id if resolved_category else None
         
-        # Check period overlap if dates provided
+        # Check period overlap if dates provided; also validate period not before first contract
         if data.get('period_start_date') and data.get('period_end_date'):
             if data['period_start_date'] > data['period_end_date']:
                 raise ValueError("תאריך התחלה חייב להיות לפני תאריך סיום")
-                
+            if first_start is None and project_id:
+                first_start = await self._get_first_contract_start(project_id)
+            if first_start:
+                ps, pe = data['period_start_date'], data['period_end_date']
+                if ps < first_start:
+                    raise ValueError(
+                        f"לא ניתן ליצור עסקה תאריכית עם תאריך התחלה לפני החוזה הראשון. "
+                        f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, תאריך התחלה: {ps.strftime('%d/%m/%Y')}"
+                    )
+                if pe < first_start:
+                    raise ValueError(
+                        f"לא ניתן ליצור עסקה תאריכית עם תאריך סיום לפני החוזה הראשון. "
+                        f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, תאריך סיום: {pe.strftime('%d/%m/%Y')}"
+                    )
             await self.check_period_overlap(
                 project_id=data['project_id'],
                 category_id=data['category_id'],

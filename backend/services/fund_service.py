@@ -24,11 +24,46 @@ class FundService:
         """Get fund for a project"""
         return await self.funds.get_by_project_id(project_id)
 
-    async def update_fund(self, fund: Fund, **data) -> Fund:
-        """Update fund"""
-        for k, v in data.items():
-            if v is not None:
-                setattr(fund, k, v)
+    async def update_fund(self, fund: Fund, update_scope: str = None, project_start_date: date = None, **data) -> Fund:
+        """Update fund with optional scope"""
+        old_monthly_amount = float(fund.monthly_amount)
+        new_monthly_amount = data.get('monthly_amount')
+        if new_monthly_amount is not None:
+            new_monthly_amount = float(new_monthly_amount)
+        
+        today = date.today()
+
+        # Apply manual updates from data first (except monthly_amount if scope is handled separately)
+        if 'current_balance' in data and data['current_balance'] is not None:
+            fund.current_balance = float(data['current_balance'])
+        
+        # Handle monthly_amount based on scope
+        if update_scope == 'from_start' and new_monthly_amount is not None and project_start_date:
+            # Calculate difference from start
+            old_total = calculate_monthly_income_amount(old_monthly_amount, project_start_date, today)
+            new_total = calculate_monthly_income_amount(new_monthly_amount, project_start_date, today)
+            diff = new_total - old_total
+            fund.current_balance = float(fund.current_balance) + diff
+            fund.monthly_amount = new_monthly_amount
+        
+        elif update_scope == 'from_this_month' and new_monthly_amount is not None:
+            # If this month was already added, adjust it
+            if fund.last_monthly_addition and fund.last_monthly_addition.year == today.year and fund.last_monthly_addition.month == today.month:
+                diff = new_monthly_amount - old_monthly_amount
+                fund.current_balance = float(fund.current_balance) + diff
+            fund.monthly_amount = new_monthly_amount
+            
+        elif update_scope == 'only_this_month' and new_monthly_amount is not None:
+            # Only adjust current balance by the difference for this month
+            diff = new_monthly_amount - old_monthly_amount
+            fund.current_balance = float(fund.current_balance) + diff
+            # Do NOT update monthly_amount permanently
+            
+        else:
+            # Default behavior for monthly_amount if no scope or unrecognized scope
+            if new_monthly_amount is not None:
+                fund.monthly_amount = new_monthly_amount
+
         return await self.funds.update(fund)
 
     async def add_monthly_amount(self, project_id: int) -> Fund | None:

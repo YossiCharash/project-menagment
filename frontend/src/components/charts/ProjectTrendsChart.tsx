@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { parseLocalDate } from '../../lib/utils'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Calendar, Filter, TrendingUp, PieChart as PieChartIcon, BarChart as BarChartIcon, Activity } from 'lucide-react'
+import { Calendar, Filter, TrendingUp, PieChart as PieChartIcon, BarChart as BarChartIcon, Activity, Camera, Download } from 'lucide-react'
+import html2canvas from 'html2canvas'
+import { ProjectAPI } from '../../lib/apiClient'
 
 interface ProjectTrendsChartProps {
   projectId: number
@@ -28,6 +30,12 @@ interface ProjectTrendsChartProps {
   globalStartDate?: string
   globalEndDate?: string
   hideFilterControls?: boolean
+  // Callbacks for reporting selection changes (for Reports page)
+  onViewModeChange?: (viewMode: 'categories' | 'profitability') => void
+  onChartTypeChange?: (chartType: 'pie' | 'bar' | 'line') => void
+  // Controlled props - when provided, component syncs to these values
+  controlledViewMode?: 'categories' | 'profitability'
+  controlledChartType?: 'pie' | 'bar' | 'line'
 }
 
 interface ChartDataPoint {
@@ -51,15 +59,19 @@ export default function ProjectTrendsChart({
   globalSelectedMonth,
   globalStartDate,
   globalEndDate,
-  hideFilterControls = false
+  hideFilterControls = false,
+  onViewModeChange,
+  onChartTypeChange,
+  controlledViewMode,
+  controlledChartType
 }: ProjectTrendsChartProps) {
-  const [viewMode, setViewMode] = useState<'profitability' | 'categories'>('categories')
+  const [viewMode, setViewMode] = useState<'profitability' | 'categories'>(controlledViewMode || 'categories')
   const [localFilterType, setLocalFilterType] = useState<FilterType>('month')
   const [localSelectedMonth, setLocalSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [localCustomStartDate, setLocalCustomStartDate] = useState('')
   const [localCustomEndDate, setLocalCustomEndDate] = useState('')
-  const [chartType, setChartType] = useState<ChartType>('line')
+  const [chartType, setChartType] = useState<ChartType>(controlledChartType || 'pie')
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [filteredExpenseCategories, setFilteredExpenseCategories] = useState<Array<{
     category: string
@@ -67,6 +79,21 @@ export default function ProjectTrendsChart({
     color: string
     transactionCount: number
   }>>([])
+  const [isCapturing, setIsCapturing] = useState(false)
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+
+  // Sync with controlled props when they change from outside
+  useEffect(() => {
+    if (controlledViewMode !== undefined) {
+      setViewMode(controlledViewMode)
+    }
+  }, [controlledViewMode])
+
+  useEffect(() => {
+    if (controlledChartType !== undefined) {
+      setChartType(controlledChartType)
+    }
+  }, [controlledChartType])
 
   // Map global filter types to internal filter types
   const mapGlobalFilterType = (gft: typeof globalFilterType): FilterType => {
@@ -103,13 +130,14 @@ export default function ProjectTrendsChart({
   const setCustomStartDate = useGlobalFilter ? () => {} : setLocalCustomStartDate
   const setCustomEndDate = useGlobalFilter ? () => {} : setLocalCustomEndDate
 
-  useEffect(() => {
-    if (viewMode === 'profitability') {
-      setChartType('line')
-    } else {
-      setChartType('pie')
-    }
-  }, [viewMode])
+  // Don't auto-change chart type when view mode changes - let user choose
+  // useEffect(() => {
+  //   if (viewMode === 'profitability') {
+  //     setChartType('line')
+  //   } else {
+  //     setChartType('pie')
+  //   }
+  // }, [viewMode])
 
   useEffect(() => {
     processData()
@@ -428,6 +456,33 @@ export default function ProjectTrendsChart({
     setFilteredExpenseCategories(categoriesArray)
   }
 
+  const handleCaptureImage = async () => {
+    if (!chartContainerRef.current) return
+    
+    setIsCapturing(true)
+    try {
+      // Small delay to ensure any hover states/tooltips are cleared
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      const canvas = await html2canvas(chartContainerRef.current, {
+        backgroundColor: document.documentElement.classList.contains('dark') ? '#1f2937' : '#ffffff',
+        scale: 2, // Higher quality
+        logging: false,
+        useCORS: true
+      })
+      
+      const link = document.createElement('a')
+      link.download = `chart-${projectName}-${new Date().toISOString().slice(0, 10)}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    } catch (error) {
+      console.error('Error capturing chart:', error)
+      alert('שגיאה ביצירת תמונת הגרף')
+    } finally {
+      setIsCapturing(false)
+    }
+  }
+
   const formatDateAxis = (dateStr: string) => {
     const date = new Date(dateStr)
     // Handle invalid dates
@@ -661,21 +716,38 @@ export default function ProjectTrendsChart({
   }
 
   return (
-    <div className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-      <div className="mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-2">
-          {viewMode === 'categories' ? `פילוח הוצאות - ${projectName}` : `מגמות פיננסיות - ${projectName}`}
-        </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-          {viewMode === 'categories' ? 'הוצאות לפי קטגוריות' : 'הכנסות והוצאות לאורך זמן'}
-        </p>
+    <div className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6" dir="rtl" ref={chartContainerRef}>
+      <div className="flex justify-between items-start mb-6">
+        <div className="flex-1 text-center">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            {viewMode === 'categories' ? `פילוח הוצאות - ${projectName}` : `מגמות פיננסיות - ${projectName}`}
+          </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            {viewMode === 'categories' ? 'הוצאות לפי קטגוריות' : 'הכנסות והוצאות לאורך זמן'}
+          </p>
+        </div>
+        
+        {/* Export Actions */}
+        <div className="flex gap-2 mr-[-40px]">
+          <button
+            onClick={handleCaptureImage}
+            disabled={isCapturing}
+            className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-green-600 transition-colors ${isCapturing ? 'opacity-50 cursor-wait' : ''}`}
+            title="הורד גרף כתמונה"
+          >
+            <Camera className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* View Mode Toggle */}
       <div className="flex justify-center mb-6">
         <div className="bg-gray-100 dark:bg-gray-700 p-1 rounded-lg flex items-center">
           <button
-            onClick={() => setViewMode('profitability')}
+            onClick={() => {
+              setViewMode('profitability')
+              onViewModeChange?.('profitability')
+            }}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               viewMode === 'profitability'
                 ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
@@ -686,7 +758,10 @@ export default function ProjectTrendsChart({
             מגמות רווחיות
           </button>
           <button
-            onClick={() => setViewMode('categories')}
+            onClick={() => {
+              setViewMode('categories')
+              onViewModeChange?.('categories')
+            }}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               viewMode === 'categories'
                 ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
@@ -772,34 +847,51 @@ export default function ProjectTrendsChart({
         </div>
       )}
 
-      {/* Chart Type Selection - Context Aware */}
-      <div className="mb-6 flex justify-center">
+      {/* Chart Type Selection - Always visible for all graph types */}
+      <div className="mb-4 flex justify-center">
         <div className="flex items-center gap-2">
-          {viewMode === 'categories' ? (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setChartType('pie')}
-                className={`p-2 rounded-lg transition-colors ${chartType === 'pie' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                title="גרף עוגה"
-              >
-                <PieChartIcon className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setChartType('bar')}
-                className={`p-2 rounded-lg transition-colors ${chartType === 'bar' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                title="גרף עמודות"
-              >
-                <BarChartIcon className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setChartType('line')}
-                className={`p-2 rounded-lg transition-colors ${chartType === 'line' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                title="גרף קו"
-              >
-                <Activity className="w-5 h-5" />
-              </button>
-            </div>
-          ) : null}
+          <div className="flex gap-2 bg-gray-100 dark:bg-gray-700/50 p-1 rounded-lg">
+            <button
+              onClick={() => {
+                if (viewMode !== 'categories') {
+                  setViewMode('categories')
+                  onViewModeChange?.('categories')
+                }
+                setChartType('pie')
+                onChartTypeChange?.('pie')
+              }}
+              className={`p-2 rounded-md transition-all ${
+                chartType === 'pie' && viewMode === 'categories'
+                  ? 'bg-blue-500 text-white dark:bg-blue-600 dark:text-white shadow-md' 
+                  : viewMode === 'profitability'
+                  ? 'text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600 opacity-60'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+              title={viewMode === 'profitability' ? 'גרף עוגה זמין רק בפילוח קטגוריות' : 'גרף עוגה'}
+            >
+              <PieChartIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => {
+                setChartType('bar')
+                onChartTypeChange?.('bar')
+              }}
+              className={`p-2 rounded-md transition-all ${chartType === 'bar' ? 'bg-blue-500 text-white dark:bg-blue-600 dark:text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+              title="גרף עמודות"
+            >
+              <BarChartIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => {
+                setChartType('line')
+                onChartTypeChange?.('line')
+              }}
+              className={`p-2 rounded-md transition-all ${chartType === 'line' ? 'bg-blue-500 text-white dark:bg-blue-600 dark:text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+              title="גרף קו"
+            >
+              <Activity className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
 

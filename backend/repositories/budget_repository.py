@@ -40,7 +40,8 @@ class BudgetRepository:
         self,
         project_id: int,
         category_id: int,
-        active_only: bool = True
+        active_only: bool = True,
+        contract_period_id: int | None = None
     ) -> Budget | None:
         # First get the category name from category_id
         from backend.models.category import Category
@@ -54,7 +55,8 @@ class BudgetRepository:
         stmt = select(Budget).where(
             and_(
                 Budget.project_id == project_id,
-                Budget.category == category_name  # Budget stores category as string (name)
+                Budget.category == category_name,  # Budget stores category as string (name)
+                Budget.contract_period_id == contract_period_id  # Filter by contract period
             )
         )
         if active_only:
@@ -62,9 +64,21 @@ class BudgetRepository:
         res = await self.db.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def get_active_budgets_for_project(self, project_id: int) -> list[Budget]:
-        """Get all active budgets for a project"""
-        return await self.list_by_project(project_id, active_only=True)
+    async def get_active_budgets_for_project(self, project_id: int, contract_period_id: int | None = None) -> list[Budget]:
+        """Get all active budgets for a project, optionally filtered by contract period"""
+        conditions = [
+            Budget.project_id == project_id,
+            Budget.is_active == True  # noqa: E712
+        ]
+        # Handle None properly for SQL - use is_(None) instead of == None
+        if contract_period_id is None:
+            conditions.append(Budget.contract_period_id.is_(None))
+        else:
+            conditions.append(Budget.contract_period_id == contract_period_id)
+        
+        stmt = select(Budget).where(and_(*conditions))
+        res = await self.db.execute(stmt.order_by(Budget.start_date.desc()))
+        return list(res.scalars().all())
 
     async def calculate_spending_for_budget(
         self, 
@@ -72,14 +86,34 @@ class BudgetRepository:
         as_of_date: date | None = None
     ) -> Tuple[float, float]:
         """Calculate spending breakdown for a budget's category within the budget period.
+        If budget is linked to a contract period, filter transactions by contract period dates.
         Returns (total_expenses, total_income).
         """
         if as_of_date is None:
             as_of_date = date.today()
         
-        # Determine the date range for the budget
-        start_date = budget.start_date
-        end_date = budget.end_date if budget.end_date else as_of_date
+        # If budget is linked to a contract period, use contract period dates for filtering
+        # Otherwise, use budget dates
+        if budget.contract_period_id:
+            from backend.models.contract_period import ContractPeriod
+            contract_period_result = await self.db.execute(
+                select(ContractPeriod).where(ContractPeriod.id == budget.contract_period_id)
+            )
+            contract_period = contract_period_result.scalar_one_or_none()
+            if contract_period:
+                # Use contract period dates (end_date is EXCLUSIVE, so use end_date - 1 day as the last day)
+                from datetime import timedelta
+                start_date = contract_period.start_date
+                # end_date is EXCLUSIVE in contract periods, so the last day is end_date - 1
+                end_date = contract_period.end_date - timedelta(days=1) if contract_period.end_date else as_of_date
+            else:
+                # Contract period not found, fall back to budget dates
+                start_date = budget.start_date
+                end_date = budget.end_date if budget.end_date else as_of_date
+        else:
+            # No contract period, use budget dates
+            start_date = budget.start_date
+            end_date = budget.end_date if budget.end_date else as_of_date
         
         # Get category_ids from category name (Budget stores category as string name)
         # Handle case where multiple categories might have the same name (due to removed unique constraint)

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from datetime import date
 import os
 import re
 from uuid import uuid4
@@ -7,6 +8,7 @@ from backend.core.deps import DBSessionDep, require_roles, get_current_user, req
 from backend.core.config import settings
 from backend.repositories.transaction_repository import TransactionRepository
 from backend.repositories.project_repository import ProjectRepository
+from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.repositories.supplier_repository import SupplierRepository
 from backend.repositories.supplier_document_repository import SupplierDocumentRepository
 from backend.repositories.category_repository import CategoryRepository
@@ -61,6 +63,62 @@ async def list_transactions(project_id: int, db: DBSessionDep, user=Depends(get_
     return result
 
 
+@router.get("/check-duplicate")
+async def check_duplicate_transaction(
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+    project_id: int = Query(..., description="Project ID"),
+    tx_date: date = Query(..., description="Transaction date (YYYY-MM-DD)"),
+    amount: float = Query(..., description="Transaction amount"),
+    supplier_id: int | None = Query(None, description="Supplier ID (optional)"),
+    type: str = Query("Expense", description="Transaction type")
+):
+    """Check for duplicate transactions without creating one - for real-time validation"""
+    # Validate inputs
+    if not project_id or not tx_date or not amount:
+        return {"has_duplicate": False, "duplicates": []}
+    
+    # Only check for Expense transactions
+    if type != "Expense":
+        return {"has_duplicate": False, "duplicates": []}
+    
+    service = TransactionService(db)
+    duplicates = await service.check_duplicate_transaction(
+        project_id=project_id,
+        tx_date=tx_date,
+        amount=amount,
+        supplier_id=supplier_id,
+        type=type
+    )
+    
+    if not duplicates:
+        return {"has_duplicate": False, "duplicates": []}
+    
+    # Format duplicate details
+    from backend.repositories.supplier_repository import SupplierRepository
+    supplier_repo = SupplierRepository(db)
+    
+    duplicate_details = []
+    for dup in duplicates:
+        dup_info = {
+            "id": dup.id,
+            "tx_date": str(dup.tx_date),
+            "amount": float(dup.amount),
+            "supplier_id": dup.supplier_id,
+            "supplier_name": None
+        }
+        if dup.supplier_id:
+            supplier = await supplier_repo.get(dup.supplier_id)
+            if supplier:
+                dup_info["supplier_name"] = supplier.name
+        duplicate_details.append(dup_info)
+    
+    return {
+        "has_duplicate": True,
+        "duplicates": duplicate_details
+    }
+
+
 @router.post("/", response_model=TransactionOut)
 async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(get_current_user)):
     """Create transaction - accessible to all authenticated users"""
@@ -89,22 +147,23 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         # Supplier is required for Expense transactions (not for Income, fund transactions, or when category is "אחר")
         raise HTTPException(status_code=400, detail="Supplier is required for expense transactions")
 
-    # Validate transaction date is not before project contract start date
-    if project and project.start_date:
-        # Convert project.start_date to date if it's datetime
-        project_start_date = project.start_date
-        if hasattr(project_start_date, 'date'):
-            project_start_date = project_start_date.date()
-
-        if data.tx_date < project_start_date:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"לא ניתן ליצור עסקה לפני תאריך תחילת החוזה. "
-                    f"תאריך תחילת החוזה: {project_start_date.strftime('%d/%m/%Y')}, "
-                    f"תאריך העסקה: {data.tx_date.strftime('%d/%m/%Y')}"
-                )
+    # Validate transaction date is not before FIRST contract start (allow old contracts)
+    first_start = None
+    if project and data.project_id:
+        period_repo = ContractPeriodRepository(db)
+        first_start = await period_repo.get_earliest_start_date(data.project_id)
+        if first_start is None and project.start_date:
+            s = project.start_date
+            first_start = s.date() if hasattr(s, 'date') else s
+    if first_start and data.tx_date < first_start:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. "
+                f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
+                f"תאריך העסקה: {data.tx_date.strftime('%d/%m/%Y')}"
             )
+        )
 
     # Add user_id to transaction data
     transaction_data = data.model_dump()
@@ -445,19 +504,19 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
     project = await ProjectRepository(db).get_by_id(tx.project_id)
     project_name = project.name if project else f"פרויקט {tx.project_id}"
 
-    # Validate transaction date is not before project contract start date (if updating tx_date)
-    if data.tx_date is not None and project and project.start_date:
-        # Convert project.start_date to date if it's datetime
-        project_start_date = project.start_date
-        if hasattr(project_start_date, 'date'):
-            project_start_date = project_start_date.date()
-
-        if data.tx_date < project_start_date:
+    # Validate transaction date is not before FIRST contract start (if updating tx_date)
+    if data.tx_date is not None and project:
+        period_repo = ContractPeriodRepository(db)
+        first_start = await period_repo.get_earliest_start_date(tx.project_id)
+        if first_start is None and project.start_date:
+            s = project.start_date
+            first_start = s.date() if hasattr(s, 'date') else s
+        if first_start and data.tx_date < first_start:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"לא ניתן לעדכן עסקה לתאריך לפני תאריך תחילת החוזה. "
-                    f"תאריך תחילת החוזה: {project_start_date.strftime('%d/%m/%Y')}, "
+                    f"לא ניתן לעדכן עסקה לתאריך לפני תאריך תחילת החוזה הראשון. "
+                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
                     f"תאריך העסקה: {data.tx_date.strftime('%d/%m/%Y')}"
                 )
             )

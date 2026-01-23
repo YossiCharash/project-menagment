@@ -22,6 +22,7 @@ class BudgetCreateWithoutProject(BaseModel):
 
 class BudgetCreate(BudgetBase):
     project_id: int
+    contract_period_id: Optional[int] = None
 
 
 class BudgetUpdate(BaseModel):
@@ -36,6 +37,7 @@ class BudgetUpdate(BaseModel):
 class BudgetOut(BaseModel):
     id: int
     project_id: int
+    contract_period_id: Optional[int] = None
     category: str
     amount: float
     period_type: str

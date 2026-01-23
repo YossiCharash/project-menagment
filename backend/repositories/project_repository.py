@@ -18,6 +18,7 @@ class ProjectRepository:
         return project
 
     async def update(self, project: Project) -> Project:
+        self.db.add(project)
         await self.db.commit()
         await self.db.refresh(project)
         return project

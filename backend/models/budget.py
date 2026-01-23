@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, date
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Boolean
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import association_proxy
 
@@ -14,6 +14,10 @@ class Budget(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     project: Mapped["Project"] = relationship(back_populates="budgets")
+    
+    # Link to contract period - budgets are scoped to a specific contract period
+    contract_period_id: Mapped[int | None] = mapped_column(ForeignKey("contract_periods.id"), nullable=True, index=True)
+    contract_period: Mapped["ContractPeriod | None"] = relationship(back_populates="budgets")
     
     category: Mapped[str] = mapped_column(String(50), index=True)  # ExpenseCategory enum value
     amount: Mapped[float] = mapped_column(Numeric(14, 2))  # Total budget amount
