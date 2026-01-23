@@ -586,7 +586,7 @@ class ContractPeriodService:
                 'is_active': budget.is_active
             })
         
-        return 
+        return {
             'period_id': period.id if period else None,
             'project_id': project_id,
             'start_date': start_date.isoformat(),
