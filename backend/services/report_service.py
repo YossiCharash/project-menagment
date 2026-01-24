@@ -2295,9 +2295,9 @@ class ReportService:
         elements.append(Spacer(1, 10))
         data = [
             [format_text("פרט"), format_text(REPORT_LABELS['amount'])],
-            [format_text("סה״כ הכנסות"), f"{summary['total_income']:,.2f} ₪"],
-            [format_text("סה״כ הוצאות"), f"{summary['total_expenses']:,.2f} ₪"],
-            [format_text("סה״כ עסקאות"), f"{summary['transaction_count']}"],
+            [format_text("סה״כ הכנסות"), Paragraph(f"{summary['total_income']:,.2f} ₪", style_number)],
+            [format_text("סה״כ הוצאות"), Paragraph(f"{summary['total_expenses']:,.2f} ₪", style_number)],
+            [format_text("סה״כ עסקאות"), Paragraph(f"{summary['transaction_count']}", style_number)],
         ]
         t = Table(data, colWidths=[200, 150])
         t.setStyle(TableStyle([
@@ -3598,6 +3598,19 @@ class ReportService:
             textColor=colors.HexColor(COLOR_TEXT_DARK)
         )
         
+        # Number style - use Helvetica for numbers to ensure they always display
+        # Helvetica is a standard PDF font that always works
+        style_number = ParagraphStyle(
+            'NumberStyle',
+            parent=styles['Normal'],
+            fontName='Helvetica',  # Always use Helvetica for numbers
+            fontSize=10,
+            alignment=1,
+            leading=14,
+            spaceAfter=8,
+            textColor=colors.HexColor(COLOR_TEXT_DARK)
+        )
+        
         # Subtitle/date style
         style_subtitle = ParagraphStyle(
             'HebrewSubtitle', 
@@ -3743,8 +3756,8 @@ class ReportService:
             
             # Reversed for Hebrew RTL: value on left, label on right
             fund_data = [
-                [f"{fund.current_balance:,.2f} ₪", format_text(f"💵 {REPORT_LABELS['current_balance']}")],
-                [f"{fund.monthly_amount:,.2f} ₪", format_text(f"📅 {REPORT_LABELS['monthly_deposit']}")]
+                [Paragraph(f"{fund.current_balance:,.2f} ₪", style_number), format_text(f"💵 {REPORT_LABELS['current_balance']}")],
+                [Paragraph(f"{fund.monthly_amount:,.2f} ₪", style_number), format_text(f"📅 {REPORT_LABELS['monthly_deposit']}")]
             ]
             fund_table = Table(fund_data, colWidths=[160, 220])
             fund_table.setStyle(TableStyle([
@@ -3784,10 +3797,10 @@ class ReportService:
                 cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                 usage_percent = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
                 budget_table_data.append([
-                    f"{usage_percent:.1f}%",
-                    f"{b['remaining_amount']:,.2f} ₪",
-                    f"{b['spent_amount']:,.2f} ₪",
-                    f"{b['amount']:,.2f} ₪",
+                    Paragraph(f"{usage_percent:.1f}%", style_number),
+                    Paragraph(f"{b['remaining_amount']:,.2f} ₪", style_number),
+                    Paragraph(f"{b['spent_amount']:,.2f} ₪", style_number),
+                    Paragraph(f"{b['amount']:,.2f} ₪", style_number),
                     format_text(cat_name)
                 ])
 
@@ -3868,20 +3881,20 @@ class ReportService:
                 total_remaining += remaining_amount
                 
                 budget_summary_data.append([
-                    f"{usage_percent:.1f}%",
-                    f"{remaining_amount:,.2f} ₪",
-                    f"{spent_amount:,.2f} ₪",
-                    f"{budget_amount:,.2f} ₪",
+                    Paragraph(f"{usage_percent:.1f}%", style_number),
+                    Paragraph(f"{remaining_amount:,.2f} ₪", style_number),
+                    Paragraph(f"{spent_amount:,.2f} ₪", style_number),
+                    Paragraph(f"{budget_amount:,.2f} ₪", style_number),
                     format_text(cat_name)
                 ])
             
             # שורת סיכום
             total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
             budget_summary_data.append([
-                f"{total_usage:.1f}%",
-                f"{total_remaining:,.2f} ₪",
-                f"{total_spent:,.2f} ₪",
-                f"{total_budget:,.2f} ₪",
+                Paragraph(f"{total_usage:.1f}%", style_number),
+                Paragraph(f"{total_remaining:,.2f} ₪", style_number),
+                Paragraph(f"{total_spent:,.2f} ₪", style_number),
+                Paragraph(f"{total_budget:,.2f} ₪", style_number),
                 format_text("סה\"כ")
             ])
             
@@ -3910,9 +3923,9 @@ class ReportService:
             # Reversed for Hebrew RTL: amount on left, details on right
             summary_data = [
                 [format_text(REPORT_LABELS['amount']), format_text(REPORT_LABELS['details'])],
-                [f"{summary['income']:,.2f} ₪", format_text(f"↗️ {REPORT_LABELS['total_income']}")],
-                [f"{summary['expenses']:,.2f} ₪", format_text(f"↘️ {REPORT_LABELS['total_expenses']}")],
-                [f"{summary['profit']:,.2f} ₪", format_text(f"📈 {REPORT_LABELS['balance_profit']}")],
+                [Paragraph(f"{summary['income']:,.2f} ₪", style_number), format_text(f"↗️ {REPORT_LABELS['total_income']}")],
+                [Paragraph(f"{summary['expenses']:,.2f} ₪", style_number), format_text(f"↘️ {REPORT_LABELS['total_expenses']}")],
+                [Paragraph(f"{summary['profit']:,.2f} ₪", style_number), format_text(f"📈 {REPORT_LABELS['balance_profit']}")],
             ]
             
             # Dynamic styling based on profit/loss
@@ -3978,7 +3991,7 @@ class ReportService:
                 amount = row_data['amount']
                 
                 monthly_table_data.append([
-                    f"{amount:,.2f} ₪",
+                    Paragraph(f"{amount:,.2f} ₪", style_number),
                     format_text(supplier_name),
                     format_text(cat_name),
                     format_text(month_display)
@@ -4163,12 +4176,19 @@ class ReportService:
                     col_to_value = {
                         'date': format_date_hebrew(tx_date),
                         'type': format_text(tx_type),
-                        'amount': f"{tx_amount:,.2f} ₪",
+                        'amount': Paragraph(f"{tx_amount:,.2f} ₪", style_number),
                         'supplier': format_text(supplier_name),
                         'description': format_text(tx_desc)
                     }
                     
-                    tx_data.append([Paragraph(col_to_value[col], style_table_cell) for col in columns])
+                    # Use style_number for amount column, style_table_cell for others
+                    row_data = []
+                    for col in columns:
+                        if col == 'amount':
+                            row_data.append(col_to_value[col])  # Already a Paragraph with style_number
+                        else:
+                            row_data.append(Paragraph(col_to_value[col], style_table_cell))
+                    tx_data.append(row_data)
                 
                 # Build table style with alternating rows
                 tx_style = [
@@ -4203,7 +4223,7 @@ class ReportService:
                 
                 cat_summary_data = [[
                     format_text(f"סה״כ {cat_name}:"),
-                    f"{cat_net:,.2f} ₪"
+                    Paragraph(f"{cat_net:,.2f} ₪", style_number)
                 ]]
                 cat_summary_table = Table(cat_summary_data, colWidths=[300, 160])
                 cat_summary_table.setStyle(TableStyle([
@@ -4273,18 +4293,18 @@ class ReportService:
                 grand_total_expense += cat_expense
                 
                 cat_expense_data.append([
-                    f"{cat_net:,.2f} ₪",
-                    f"{cat_income:,.2f} ₪",
-                    f"{cat_expense:,.2f} ₪",
+                    Paragraph(f"{cat_net:,.2f} ₪", style_number),
+                    Paragraph(f"{cat_income:,.2f} ₪", style_number),
+                    Paragraph(f"{cat_expense:,.2f} ₪", style_number),
                     format_text(cat_name)
                 ])
             
             # Grand total row
             grand_net = grand_total_income - grand_total_expense
             cat_expense_data.append([
-                f"{grand_net:,.2f} ₪",
-                f"{grand_total_income:,.2f} ₪",
-                f"{grand_total_expense:,.2f} ₪",
+                Paragraph(f"{grand_net:,.2f} ₪", style_number),
+                Paragraph(f"{grand_total_income:,.2f} ₪", style_number),
+                Paragraph(f"{grand_total_expense:,.2f} ₪", style_number),
                 format_text("סה״כ")
             ])
             
@@ -4347,10 +4367,10 @@ class ReportService:
                     
                     budget_summary_data.append([
                         format_text(cat_name),
-                        f"{budget_amount:,.2f} ₪",
-                        f"{spent_amount:,.2f} ₪",
-                        f"{remaining:,.2f} ₪",
-                        f"{usage_pct:.1f}%"
+                        Paragraph(f"{budget_amount:,.2f} ₪", style_number),
+                        Paragraph(f"{spent_amount:,.2f} ₪", style_number),
+                        Paragraph(f"{remaining:,.2f} ₪", style_number),
+                        Paragraph(f"{usage_pct:.1f}%", style_number)
                     ])
                 
                 # Total row
@@ -4358,10 +4378,10 @@ class ReportService:
                 total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
                 budget_summary_data.append([
                     format_text("סה״כ"),
-                    f"{total_budget:,.2f} ₪",
-                    f"{total_spent:,.2f} ₪",
-                    f"{total_remaining:,.2f} ₪",
-                    f"{total_usage:.1f}%"
+                    Paragraph(f"{total_budget:,.2f} ₪", style_number),
+                    Paragraph(f"{total_spent:,.2f} ₪", style_number),
+                    Paragraph(f"{total_remaining:,.2f} ₪", style_number),
+                    Paragraph(f"{total_usage:.1f}%", style_number)
                 ])
                 
                 budget_summary_table = Table(budget_summary_data, colWidths=[110, 95, 95, 95, 70])
@@ -4408,9 +4428,9 @@ class ReportService:
             
             final_summary_data = [
                 [format_text("פרט"), format_text(REPORT_LABELS['amount'])],
-                [format_text(f"↗️ {REPORT_LABELS['total_income']}"), f"{grand_total_income:,.2f} ₪"],
-                [format_text(f"↘️ {REPORT_LABELS['total_expenses']}"), f"{grand_total_expense:,.2f} ₪"],
-                [format_text(f"📈 {REPORT_LABELS['balance_profit']}"), f"{grand_net:,.2f} ₪"],
+                [format_text(f"↗️ {REPORT_LABELS['total_income']}"), Paragraph(f"{grand_total_income:,.2f} ₪", style_number)],
+                [format_text(f"↘️ {REPORT_LABELS['total_expenses']}"), Paragraph(f"{grand_total_expense:,.2f} ₪", style_number)],
+                [format_text(f"📈 {REPORT_LABELS['balance_profit']}"), Paragraph(f"{grand_net:,.2f} ₪", style_number)],
             ]
             
             profit_color = COLOR_ACCENT_EMERALD if grand_net >= 0 else COLOR_ACCENT_ROSE
