@@ -1769,8 +1769,6 @@ async def get_project_fund(
     total_additions_from_transactions = float(total_additions_from_transactions_result.scalar_one())
     
     # Calculate initial balance and total monthly additions
-    # Initial balance is 0 (fund starts with 0)
-    initial_balance = 0.0
     monthly_amount = float(fund.monthly_amount)
     
     # Get project to access start_date
@@ -1802,8 +1800,16 @@ async def get_project_fund(
     # Total additions = monthly additions + income transactions to fund
     total_additions = total_monthly_additions + total_additions_from_transactions
     
-    # Initial total = initial_balance + total_additions (monthly + income transactions)
-    initial_total = initial_balance + total_additions
+    # Calculate initial balance by working backwards from current balance
+    # Formula: current_balance = initial_balance + total_additions - total_deductions
+    # Therefore: initial_balance = current_balance - total_additions + total_deductions
+    current_balance = float(fund.current_balance)
+    initial_balance = current_balance - total_additions + total_deductions
+    
+    # Initial total = total amount that entered the fund from the beginning
+    # This is simply: current_balance + total_deductions
+    # Because: initial_total = initial_balance + total_additions = (current_balance - total_additions + total_deductions) + total_additions = current_balance + total_deductions
+    initial_total = current_balance + total_deductions
     
     # Load user repository for created_by_user
     from backend.repositories.user_repository import UserRepository

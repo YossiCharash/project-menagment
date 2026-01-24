@@ -188,110 +188,124 @@ class RecurringTransactionService:
         
         return await self.recurring_repo.deactivate(template)
 
+    async def _try_create_transaction_for_template_date(
+        self,
+        template: RecurringTransactionTemplate,
+        target_date: date,
+        *,
+        check_first_contract: bool = False,
+    ) -> Optional[Transaction]:
+        """
+        Check exists/deleted/end/category and optionally first_contract; create one transaction if needed.
+        Does not commit; caller must commit. Returns the new transaction or None.
+
+        check_first_contract: If True, skip creating when target_date is before the project's
+        first contract start (original behavior only for "day > last_day" last-day-of-month case).
+        """
+        from sqlalchemy import text
+
+        template_start = template.start_date
+        if hasattr(template_start, "date"):
+            template_start = template_start.date()
+        if template_start and target_date < template_start:
+            return None
+
+        try:
+            check_query = text("""
+                SELECT id FROM transactions
+                WHERE recurring_template_id = :template_id AND tx_date = :target_date
+                LIMIT 1
+            """)
+            check_result = await self.db.execute(
+                check_query, {"template_id": template.id, "target_date": target_date}
+            )
+            if check_result.fetchone():
+                return None
+        except Exception:
+            pass
+
+        try:
+            from backend.repositories.deleted_recurring_instance_repository import (
+                DeletedRecurringInstanceRepository,
+            )
+            deleted_repo = DeletedRecurringInstanceRepository(self.db)
+            if await deleted_repo.is_deleted(template.id, target_date):
+                return None
+        except Exception:
+            pass
+
+        end_type_str = (
+            template.end_type.value if hasattr(template.end_type, "value") else str(template.end_type)
+        )
+        if end_type_str == "On Date" and template.end_date:
+            ed = template.end_date
+            if hasattr(ed, "date"):
+                ed = ed.date()
+            if target_date > ed:
+                return None
+
+        if not template.category_id:
+            return None
+
+        if check_first_contract:
+            period_repo = ContractPeriodRepository(self.db)
+            first_start = await period_repo.get_earliest_start_date(template.project_id)
+            if first_start is None:
+                project_repo = ProjectRepository(self.db)
+                project = await project_repo.get_by_id(template.project_id)
+                if project and project.start_date:
+                    s = project.start_date
+                    first_start = s.date() if hasattr(s, "date") else s
+            if first_start and target_date < first_start:
+                return None
+
+        transaction_data = {
+            "project_id": template.project_id,
+            "recurring_template_id": template.id,
+            "tx_date": target_date,
+            "type": template.type,
+            "amount": template.amount,
+            "description": template.description,
+            "category_id": template.category_id,
+            "notes": template.notes,
+            "supplier_id": template.supplier_id,
+            "payment_method": template.payment_method,
+            "created_by_user_id": template.created_by_user_id,
+            "is_generated": True,
+        }
+        try:
+            tx = Transaction(**transaction_data)
+            self.db.add(tx)
+            return tx
+        except Exception:
+            fallback = {
+                k: v
+                for k, v in transaction_data.items()
+                if k not in ("recurring_template_id", "is_generated", "payment_method", "created_by_user_id")
+            }
+            tx = Transaction(**fallback)
+            if hasattr(tx, "recurring_template_id"):
+                tx.recurring_template_id = transaction_data.get("recurring_template_id")
+            if hasattr(tx, "is_generated"):
+                tx.is_generated = True
+            if hasattr(tx, "payment_method"):
+                tx.payment_method = transaction_data.get("payment_method")
+            if hasattr(tx, "created_by_user_id"):
+                tx.created_by_user_id = transaction_data.get("created_by_user_id")
+            self.db.add(tx)
+            return tx
+
     async def generate_transactions_for_date(self, target_date: date) -> List[Transaction]:
         """Generate transactions for a specific date based on active templates"""
         templates = await self.recurring_repo.get_templates_to_generate(target_date)
         generated_transactions = []
-
         for template in templates:
             try:
-                # Check if transaction already exists for this template and date
-                # Always use raw SQL to check for existing transactions to avoid AttributeError
-                existing_transaction = None
-                from sqlalchemy import text
-                try:
-                    check_query = text("""
-                        SELECT id FROM transactions 
-                        WHERE recurring_template_id = :template_id 
-                        AND tx_date = :target_date
-                        LIMIT 1
-                    """)
-                    check_result = await self.db.execute(check_query, {
-                        "template_id": template.id,
-                        "target_date": target_date
-                    })
-                    existing_row = check_result.fetchone()
-                    if existing_row:
-                        # Get full transaction object using id only
-                        tx_query = select(Transaction).where(Transaction.id == existing_row[0])
-                        tx_res = await self.db.execute(tx_query)
-                        existing_transaction = tx_res.scalar_one_or_none()
-                except Exception:
-                    # If raw SQL fails, the column might not exist in DB - skip the check
-                    existing_transaction = None
-
-                if existing_transaction:
-                    continue  # Skip if already generated
-                
-                # Check if this instance was manually deleted
-                try:
-                    from backend.repositories.deleted_recurring_instance_repository import DeletedRecurringInstanceRepository
-                    deleted_repo = DeletedRecurringInstanceRepository(self.db)
-                    if await deleted_repo.is_deleted(template.id, target_date):
-                        continue  # Skip if manually deleted
-                except Exception:
-                    # If table doesn't exist yet, continue without checking
-                    # This allows the system to work even if migration hasn't been run
-                    pass
-
-                # Check end conditions
-                end_type_str = template.end_type.value if hasattr(template.end_type, 'value') else str(template.end_type)
-                should_create = True
-                
-                if end_type_str == "On Date" and template.end_date and target_date > template.end_date:
-                    should_create = False
-                
-                if not should_create:
-                    continue
-                
-                # Check if template has a category - mandatory for generation
-                if not template.category_id:
-                     print(f"Skipping recurring transaction generation for template {template.id}: Missing category")
-                     continue
-
-                # Create new transaction
-                transaction_data = {
-                    "project_id": template.project_id,
-                    "recurring_template_id": template.id,
-                    "tx_date": target_date,
-                    "type": template.type,
-                    "amount": template.amount,
-                    "description": template.description,
-                    "category_id": template.category_id,
-                    "notes": template.notes,
-                    "supplier_id": template.supplier_id,
-                    "payment_method": template.payment_method,
-                    "created_by_user_id": template.created_by_user_id,
-                    "is_generated": True
-                }
-
-                try:
-                    # Try to create transaction - handle missing columns gracefully
-                    transaction = Transaction(**transaction_data)
-                    self.db.add(transaction)
-                    generated_transactions.append(transaction)
-                except Exception:
-                    # Try without recurring fields if they cause issues
-                    try:
-                        transaction_data_fallback = {k: v for k, v in transaction_data.items() 
-                                                   if k not in ['recurring_template_id', 'is_generated', 'payment_method', 'created_by_user_id']}
-                        transaction = Transaction(**transaction_data_fallback)
-                        # Manually set fields if they exist
-                        if hasattr(transaction, 'recurring_template_id'):
-                            transaction.recurring_template_id = transaction_data.get('recurring_template_id')
-                        if hasattr(transaction, 'is_generated'):
-                            transaction.is_generated = transaction_data.get('is_generated', False)
-                        if hasattr(transaction, 'payment_method'):
-                            transaction.payment_method = transaction_data.get('payment_method')
-                        if hasattr(transaction, 'created_by_user_id'):
-                            transaction.created_by_user_id = transaction_data.get('created_by_user_id')
-                        self.db.add(transaction)
-                        generated_transactions.append(transaction)
-                    except Exception:
-                        raise
+                tx = await self._try_create_transaction_for_template_date(template, target_date)
+                if tx:
+                    generated_transactions.append(tx)
             except Exception:
                 raise
-
         if generated_transactions:
             await self.db.commit()
             for tx in generated_transactions:
@@ -324,105 +338,16 @@ class RecurringTransactionService:
             day_transactions = await self.generate_transactions_for_date(target_date)
             generated_transactions.extend(day_transactions)
         
-        # Handle templates with day_of_month > last_day (e.g., day 31 in months with 30 days)
-        # These should generate on the last day of the month
+        # Handle templates with day_of_month > last_day (e.g., day 31 in February)
+        last_day_date = date(year, month, last_day)
         for template in all_templates:
             if template.day_of_month > last_day:
-                # Generate on last day of month
-                target_date = date(year, month, last_day)
-                # Check if transaction already exists - use raw SQL to avoid AttributeError
-                existing = None
-                from sqlalchemy import text
-                try:
-                    check_query = text("""
-                        SELECT id FROM transactions 
-                        WHERE recurring_template_id = :template_id 
-                        AND tx_date = :target_date
-                        LIMIT 1
-                    """)
-                    check_result = await self.db.execute(check_query, {
-                        "template_id": template.id,
-                        "target_date": target_date
-                    })
-                    existing_row = check_result.fetchone()
-                    if existing_row:
-                        tx_query = select(Transaction).where(Transaction.id == existing_row[0])
-                        tx_res = await self.db.execute(tx_query)
-                        existing = tx_res.scalar_one_or_none()
-                except Exception:
-                    # If raw SQL fails, the column might not exist in DB - skip the check
-                    existing = None
-                
-                if not existing and template.start_date <= target_date:
-                    # Check if this instance was manually deleted
-                    try:
-                        from backend.repositories.deleted_recurring_instance_repository import DeletedRecurringInstanceRepository
-                        deleted_repo = DeletedRecurringInstanceRepository(self.db)
-                        if await deleted_repo.is_deleted(template.id, target_date):
-                            continue  # Skip if manually deleted
-                    except Exception:
-                        # If table doesn't exist yet, continue without checking
-                        # This allows the system to work even if migration hasn't been run
-                        pass
-                    
-                    # Check end conditions
-                    should_create = True
-                    # Get end_type as string for comparison
-                    end_type_str = template.end_type.value if hasattr(template.end_type, 'value') else str(template.end_type)
-                    if end_type_str == "On Date" and template.end_date and target_date > template.end_date:
-                        should_create = False
-                    
-                    if should_create:
-                        # Skip only if before FIRST contract start (allow generated tx in old contracts)
-                        period_repo = ContractPeriodRepository(self.db)
-                        first_start = await period_repo.get_earliest_start_date(template.project_id)
-                        if first_start is None:
-                            project_repo = ProjectRepository(self.db)
-                            project = await project_repo.get_by_id(template.project_id)
-                            if project and project.start_date:
-                                s = project.start_date
-                                first_start = s.date() if hasattr(s, 'date') else s
-                        if first_start and target_date < first_start:
-                            continue
-                        
-                        transaction_data = {
-                            "project_id": template.project_id,
-                            "recurring_template_id": template.id,
-                            "tx_date": target_date,
-                            "type": template.type,
-                            "amount": template.amount,
-                            "description": template.description,
-                            "category_id": template.category_id,
-                            "notes": template.notes,
-                            "supplier_id": template.supplier_id,
-                            "payment_method": template.payment_method,
-                            "created_by_user_id": template.created_by_user_id,
-                            "is_generated": True
-                        }
-                        try:
-                            transaction = Transaction(**transaction_data)
-                            self.db.add(transaction)
-                            generated_transactions.append(transaction)
-                        except Exception:
-                            # Try without recurring fields
-                            try:
-                                transaction_data_fallback = {k: v for k, v in transaction_data.items() 
-                                                           if k not in ['recurring_template_id', 'is_generated', 'payment_method', 'created_by_user_id']}
-                                transaction = Transaction(**transaction_data_fallback)
-                                if hasattr(transaction, 'recurring_template_id'):
-                                    transaction.recurring_template_id = transaction_data.get('recurring_template_id')
-                                if hasattr(transaction, 'is_generated'):
-                                    transaction.is_generated = True
-                                if hasattr(transaction, 'payment_method'):
-                                    transaction.payment_method = transaction_data.get('payment_method')
-                                if hasattr(transaction, 'created_by_user_id'):
-                                    transaction.created_by_user_id = transaction_data.get('created_by_user_id')
-                                self.db.add(transaction)
-                                generated_transactions.append(transaction)
-                            except Exception:
-                                # Don't raise - continue with next template
-                                continue
-        
+                tx = await self._try_create_transaction_for_template_date(
+                    template, last_day_date, check_first_contract=True
+                )
+                if tx:
+                    generated_transactions.append(tx)
+
         if generated_transactions:
             await self.db.commit()
             for tx in generated_transactions:
@@ -430,78 +355,92 @@ class RecurringTransactionService:
         
         return generated_transactions
 
+    async def _generate_transactions_for_month_for_project(
+        self, project_id: int, year: int, month: int
+    ) -> List[Transaction]:
+        """
+        Generate recurring transactions for a single project and month only.
+        Uses project-scoped template fetching; single commit per month.
+        """
+        templates = await self.recurring_repo.list_by_project(project_id)
+        active_templates = [t for t in templates if t.is_active]
+        if not active_templates:
+            return []
+
+        if month == 12:
+            next_month = date(year + 1, 1, 1)
+        else:
+            next_month = date(year, month + 1, 1)
+        last_day = (next_month - timedelta(days=1)).day
+        generated = []
+
+        for day in range(1, last_day + 1):
+            target_date = date(year, month, day)
+            day_templates = await self.recurring_repo.get_templates_to_generate(
+                target_date, project_id=project_id
+            )
+            for t in day_templates:
+                tx = await self._try_create_transaction_for_template_date(t, target_date)
+                if tx:
+                    generated.append(tx)
+
+        last_day_date = date(year, month, last_day)
+        for t in active_templates:
+            if t.day_of_month > last_day:
+                tx = await self._try_create_transaction_for_template_date(
+                    t, last_day_date, check_first_contract=True
+                )
+                if tx:
+                    generated.append(tx)
+
+        if generated:
+            await self.db.commit()
+            for tx in generated:
+                await self.db.refresh(tx)
+        return generated
+
     async def ensure_project_transactions_generated(self, project_id: int) -> int:
         """
         Ensure all recurring transactions for a project are generated up to current month.
         Only generates missing transactions (skips if already exist).
+        Processes each relevant month once (not per template) and only for this project.
         Returns the total number of transactions generated.
         """
-        from datetime import date
-        from backend.repositories.recurring_transaction_repository import RecurringTransactionRepository
-        
-        recurring_repo = RecurringTransactionRepository(self.db)
-        templates = await recurring_repo.list_by_project(project_id)
-        
-        # Filter only active templates
+        templates = await self.recurring_repo.list_by_project(project_id)
         active_templates = [t for t in templates if t.is_active]
-        
         if not active_templates:
             return 0
-        
+
         today = date.today()
-        total_generated = 0
-        
-        # For each active template, generate transactions from start_date to current month
-        for template in active_templates:
-            # Determine the date range for this template
-            template_start = template.start_date
-            if hasattr(template_start, 'date'):
-                template_start = template_start.date()
-            
-            # Determine end date (template end_date or today, whichever is earlier)
-            if template.end_date:
-                template_end = template.end_date
-                if hasattr(template_end, 'date'):
-                    template_end = template_end.date()
-                # Use the earlier of template_end or today
-                end_date = min(template_end, today)
-            else:
-                end_date = today
-            
-            # Generate for each month from template start to end
-            current_date = template_start
-            processed_months = set()  # Track processed months to avoid duplicates
-            
-            while current_date <= end_date:
-                year = current_date.year
-                month = current_date.month
-                month_key = (year, month)
-                
-                # Skip if we already processed this month
-                if month_key in processed_months:
-                    if month == 12:
-                        current_date = date(year + 1, 1, 1)
-                    else:
-                        current_date = date(year, month + 1, 1)
-                    continue
-                
-                processed_months.add(month_key)
-                
-                # Generate transactions for this month using the existing method
-                # This method already checks if transactions exist and only generates missing ones
-                month_transactions = await self.generate_transactions_for_month(year, month)
-                
-                # Count only transactions for this project
-                project_month_transactions = [tx for tx in month_transactions if tx.project_id == project_id]
-                total_generated += len(project_month_transactions)
-                
-                # Move to next month
-                if month == 12:
-                    current_date = date(year + 1, 1, 1)
+        months_to_process: set[tuple[int, int]] = set()
+
+        for t in active_templates:
+            start = t.start_date
+            if not start:
+                continue
+            if hasattr(start, "date"):
+                start = start.date()
+            end = today
+            if t.end_date:
+                ed = t.end_date
+                if hasattr(ed, "date"):
+                    ed = ed.date()
+                end = min(ed, today)
+            if start > end:
+                continue
+            d = start
+            while d <= end:
+                months_to_process.add((d.year, d.month))
+                if d.month == 12:
+                    d = date(d.year + 1, 1, 1)
                 else:
-                    current_date = date(year, month + 1, 1)
-        
-        return total_generated
+                    d = date(d.year, d.month + 1, 1)
+
+        total = 0
+        for (y, m) in sorted(months_to_process):
+            txs = await self._generate_transactions_for_month_for_project(project_id, y, m)
+            total += len(txs)
+        return total
 
     async def get_template_transactions(self, template_id: int) -> List[Transaction]:
         """Get all transactions generated from a specific template"""

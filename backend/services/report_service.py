@@ -2130,35 +2130,47 @@ class ReportService:
 
         # Register Hebrew Font (same logic as _generate_pdf)
         font_name = 'Helvetica'
+        font_loaded = False
         try:
             services_dir = os.path.dirname(__file__)
             backend_dir = os.path.dirname(services_dir)
             project_root = os.path.dirname(backend_dir)
 
+            # Paths to check for the font (in order of preference)
+            # Note: On Render/Docker, the working directory is /app and backend is at /app/backend
             possible_paths = [
-                os.path.join(backend_dir, 'static', 'fonts', 'Heebo-Regular.ttf'),
-                os.path.join(project_root, 'backend', 'static', 'fonts', 'Heebo-Regular.ttf'),
-                '/app/backend/static/fonts/Heebo-Regular.ttf',
-                'backend/static/fonts/Heebo-Regular.ttf',
+                '/app/backend/static/fonts/Heebo-Regular.ttf',  # Docker/Render absolute path (most common)
+                os.path.join(backend_dir, 'static', 'fonts', 'Heebo-Regular.ttf'),  # Relative from services/
+                os.path.join(project_root, 'backend', 'static', 'fonts', 'Heebo-Regular.ttf'),  # From project root
+                os.path.abspath(os.path.join(backend_dir, 'static', 'fonts', 'Heebo-Regular.ttf')),  # Absolute from backend_dir
+                'backend/static/fonts/Heebo-Regular.ttf',  # Run from root (string path)
             ]
 
             font_path = None
+            print(f"🔍 [Supplier PDF] Looking for Hebrew font in {len(possible_paths)} possible locations...")
+            
             for path in possible_paths:
-                if os.path.exists(path):
-                    font_path = os.path.abspath(path)
+                abs_path = os.path.abspath(path) if not os.path.isabs(path) else path
+                if os.path.exists(abs_path):
+                    font_path = abs_path
+                    print(f"✓ [Supplier PDF] Found font at: {font_path}")
                     break
+                else:
+                    print(f"✗ [Supplier PDF] לא נמצא: {abs_path}")
 
-            font_loaded = False
             if font_path and os.path.exists(font_path):
                 try:
-                    # Register with proper embedding
-                    hebrew_font = TTFont('Hebrew', font_path, subfontIndex=0)
+                    # Register font - don't use subfontIndex for TTF files (only for TTC)
+                    # This ensures full font embedding which is critical for Hebrew characters
+                    hebrew_font = TTFont('Hebrew', font_path)
                     pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
-                    print(f"✓ גופן עברי נרשם בהצלחה לדוח ספק: {font_path}")
+                    print(f"✓ [Supplier PDF] גופן עברי נרשם בהצלחה מ-{font_path}")
                 except Exception as e:
-                    print(f"✗ רישום גופן לדוח ספק נכשל: {e}")
+                    print(f"✗ [Supplier PDF] רישום גופן נכשל: {e}")
+                    import traceback
+                    print(traceback.format_exc())
                     font_path = None
             
             # Try Windows system fonts if Heebo not found
@@ -2169,22 +2181,61 @@ class ReportService:
                     ['tahoma.ttf', 'Tahoma.ttf'],
                     ['arialuni.ttf', 'Arial Unicode MS.ttf'],
                 ]
+                print("🔍 [Supplier PDF] מנסה גופני מערכת של Windows עם תמיכה בעברית...")
                 for font_variants in windows_fonts:
                     for font_file in font_variants:
                         win_font_path = os.path.join(windows_fonts_dir, font_file)
                         if os.path.exists(win_font_path):
                             try:
-                                hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                # For TTC files, we might need subfontIndex, but try without first
+                                hebrew_font = TTFont('Hebrew', win_font_path)
                                 pdfmetrics.registerFont(hebrew_font)
                                 font_name = 'Hebrew'
                                 font_loaded = True
+                                print(f"✓ [Supplier PDF] משתמש בהצלחה בגופן מערכת Windows: {font_file}")
                                 break
-                            except Exception:
-                                continue
+                            except Exception as e:
+                                # If that fails, try with subfontIndex for TTC files
+                                try:
+                                    hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                    pdfmetrics.registerFont(hebrew_font)
+                                    font_name = 'Hebrew'
+                                    font_loaded = True
+                                    print(f"✓ [Supplier PDF] משתמש בהצלחה בגופן מערכת Windows (עם subfontIndex): {font_file}")
+                                    break
+                                except Exception:
+                                    continue
                     if font_loaded:
                         break
+            
+            # Try Linux system font as last resort (only if not Windows)
+            if not font_loaded and os.name != 'nt':
+                linux_fonts = [
+                    '/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf',  # Best Hebrew support
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+                ]
+                print("🔍 [Supplier PDF] מנסה גופני מערכת Linux עם תמיכה בעברית...")
+                for linux_font_path in linux_fonts:
+                    if os.path.exists(linux_font_path):
+                        try:
+                            hebrew_font = TTFont('Hebrew', linux_font_path)
+                            pdfmetrics.registerFont(hebrew_font)
+                            font_name = 'Hebrew'
+                            font_loaded = True
+                            print(f"✓ [Supplier PDF] משתמש בגופן מערכת Linux: {linux_font_path}")
+                            break
+                        except Exception as e2:
+                            print(f"✗ [Supplier PDF] Failed to load {linux_font_path}: {e2}")
+                            continue
+                            
         except Exception as e:
-            print(f"✗ שגיאה בטעינת גופן לדוח ספק: {e}")
+            print(f"✗ [Supplier PDF] שגיאה בטעינת גופן: {e}")
+            import traceback
+            print(traceback.format_exc())
+        
+        if not font_loaded:
+            print("❌ [Supplier PDF] שגיאה קריטית: גופן עברי לא נטען! טקסט עברי לא יוצג כראוי ויופיע כקוביות שחורות.")
 
         styles = getSampleStyleSheet()
         style_normal = ParagraphStyle('HebrewNormal', parent=styles['Normal'], fontName=font_name, fontSize=10,
@@ -3264,10 +3315,12 @@ class ReportService:
             project_root = os.path.dirname(backend_dir)
 
             # Paths to check for the font (in order of preference)
+            # Note: On Render/Docker, the working directory is /app and backend is at /app/backend
             possible_paths = [
+                '/app/backend/static/fonts/Heebo-Regular.ttf',  # Docker/Render absolute path (most common)
                 os.path.join(backend_dir, 'static', 'fonts', 'Heebo-Regular.ttf'),  # Relative from services/
                 os.path.join(project_root, 'backend', 'static', 'fonts', 'Heebo-Regular.ttf'),  # From project root
-                '/app/backend/static/fonts/Heebo-Regular.ttf',  # Docker absolute path
+                os.path.abspath(os.path.join(backend_dir, 'static', 'fonts', 'Heebo-Regular.ttf')),  # Absolute from backend_dir
                 'backend/static/fonts/Heebo-Regular.ttf',  # Run from root (string path)
             ]
 
@@ -3276,29 +3329,30 @@ class ReportService:
             print(f"   Services dir: {services_dir}")
             print(f"   Backend dir: {backend_dir}")
             print(f"   Project root: {project_root}")
+            print(f"   Current working dir: {os.getcwd()}")
 
             for path in possible_paths:
-                if os.path.exists(path):
-                    font_path = os.path.abspath(path)  # Use absolute path
+                abs_path = os.path.abspath(path) if not os.path.isabs(path) else path
+                if os.path.exists(abs_path):
+                    font_path = abs_path
                     print(f"✓ Found font at: {font_path}")
                     break
                 else:
-                    print(f"✗ לא נמצא: {path}")
+                    print(f"✗ לא נמצא: {abs_path} if exists: {os.path.exists(abs_path)}")
+
+            # Validate font file if found
+            if font_path and os.path.exists(font_path):
+                try:
+                    # Quick validation - try to open as TTFont
+                    test_font = TTFont('TestValidation', font_path)
+                    test_font.close()
+                    print(f"✓ קובץ גופן קיים תקין: {font_path}")
+                except Exception as e:
+                    print(f"אזהרה: קובץ גופן קיים נראה פגום ({e}), מנסה להוריד מחדש")
+                    font_path = None  # Mark as not found so we try to download
 
             # If font not found or corrupted, try to download it (Self-healing)
-            if not font_path or (font_path and os.path.exists(font_path)):
-                # Check if existing font is valid by trying to read it
-                if font_path and os.path.exists(font_path):
-                    try:
-                        # Quick validation - try to open as TTFont
-                        test_font = TTFont(font_path)
-                        test_font.close()
-                        print(f"✓ קובץ גופן קיים תקין")
-                    except Exception:
-                        print(f"אזהרה: קובץ גופן קיים נראה פגום, מנסה להוריד מחדש")
-                        font_path = None  # Mark as not found so we try to download
-
-                if not font_path:
+            if not font_path:
                     try:
                         import urllib.request
                         print("גופן לא נמצא או פגום. מנסה להוריד Heebo-Regular.ttf...")
@@ -3306,6 +3360,8 @@ class ReportService:
                         # Determine where to save
                         if os.path.exists('/app/backend/static'):
                             target_dir = '/app/backend/static/fonts'
+                        elif os.path.exists('/app/static'):
+                            target_dir = '/app/static/fonts'
                         else:
                             # Dev environment or fallback
                             target_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'fonts')
@@ -3313,10 +3369,10 @@ class ReportService:
                         os.makedirs(target_dir, exist_ok=True)
                         target_path = os.path.join(target_dir, 'Heebo-Regular.ttf')
 
-                        # Try multiple URLs
+                        # Try multiple URLs - use the official GitHub repository
                         urls = [
-                            "https://github.com/google/fonts/raw/main/ofl/heebo/static/Heebo-Regular.ttf",
-                            "https://raw.githubusercontent.com/google/fonts/main/ofl/heebo/static/Heebo-Regular.ttf",
+                            "https://github.com/OdedEzer/heebo/raw/master/fonts/ttf/Heebo-Regular.ttf",
+                            "https://raw.githubusercontent.com/OdedEzer/heebo/master/fonts/ttf/Heebo-Regular.ttf",
                         ]
 
                         downloaded = False
@@ -3345,19 +3401,15 @@ class ReportService:
             font_loaded = False
             if font_path and os.path.exists(font_path):
                 try:
-                    # Test if font can be loaded and supports Hebrew
-                    test_font_obj = TTFont('TestHebrew', font_path, subfontIndex=0)
-                    # Check if font has Hebrew character support by checking Unicode ranges
-                    # This is a basic check - if font loads, it should work
-                    test_font_obj.close()
-                    
-                    # Register font with proper embedding - subfontIndex=0 ensures subset embedding
-                    # This embeds only the characters used, making PDFs smaller
-                    hebrew_font = TTFont('Hebrew', font_path, subfontIndex=0)
+                    # Register font - don't use subfontIndex for TTF files (only for TTC)
+                    # This ensures full font embedding which is critical for Hebrew characters
+                    # For TTF files, subfontIndex should be omitted or set to None
+                    hebrew_font = TTFont('Hebrew', font_path)
                     pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
                     print(f"✓ גופן עברי נרשם בהצלחה מ-{font_path}")
+                    print(f"   גודל קובץ: {os.path.getsize(font_path)} bytes")
                 except Exception as e:
                     print(f"✗ רישום גופן מ-{font_path} נכשל: {e}")
                     import traceback
@@ -3382,31 +3434,44 @@ class ReportService:
                         win_font_path = os.path.join(windows_fonts_dir, font_file)
                         if os.path.exists(win_font_path):
                             try:
-                                # Register with proper embedding - use subfontIndex=0 for subset embedding
-                                # This ensures the font is properly embedded in the PDF
-                                hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                # For TTF files, don't use subfontIndex (only for TTC files)
+                                # Try without subfontIndex first
+                                hebrew_font = TTFont('Hebrew', win_font_path)
                                 pdfmetrics.registerFont(hebrew_font)
                                 font_name = 'Hebrew'
                                 font_loaded = True
                                 print(f"✓ משתמש בהצלחה בגופן מערכת Windows: {font_file}")
                                 break
                             except Exception as e3:
-                                print(f"✗ טעינת {win_font_path} נכשלה: {e3}")
-                                continue
+                                # If that fails, try with subfontIndex for TTC files
+                                try:
+                                    hebrew_font = TTFont('Hebrew', win_font_path, subfontIndex=0)
+                                    pdfmetrics.registerFont(hebrew_font)
+                                    font_name = 'Hebrew'
+                                    font_loaded = True
+                                    print(f"✓ משתמש בהצלחה בגופן מערכת Windows (עם subfontIndex): {font_file}")
+                                    break
+                                except Exception as e4:
+                                    print(f"✗ טעינת {win_font_path} נכשלה: {e3}, {e4}")
+                                    continue
                     if font_loaded:
                         break
 
             # Try Linux system font as last resort (only if not Windows)
             if not font_loaded and os.name != 'nt':
                 linux_fonts = [
+                    '/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf',  # Best Hebrew support
                     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
                     '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-                    '/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf',
+                    '/usr/share/fonts/TTF/DejaVuSans.ttf',  # Alternative path
+                    '/usr/share/fonts/opentype/noto/NotoSansHebrew-Regular.otf',  # OTF version
                 ]
+                print("🔍 מנסה גופני מערכת Linux עם תמיכה בעברית...")
                 for linux_font_path in linux_fonts:
                     if os.path.exists(linux_font_path):
                         try:
-                            hebrew_font = TTFont('Hebrew', linux_font_path, subfontIndex=0)
+                            # Don't use subfontIndex for TTF/OTF files
+                            hebrew_font = TTFont('Hebrew', linux_font_path)
                             pdfmetrics.registerFont(hebrew_font)
                             font_name = 'Hebrew'
                             font_loaded = True

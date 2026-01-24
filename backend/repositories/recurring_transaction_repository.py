@@ -70,40 +70,33 @@ class RecurringTransactionRepository:
         await self.db.refresh(template)
         return template
 
-    async def get_templates_to_generate(self, target_date: date) -> List[RecurringTransactionTemplate]:
-        """Get templates that should generate transactions for a given date"""
+    async def get_templates_to_generate(
+        self, target_date: date, project_id: Optional[int] = None
+    ) -> List[RecurringTransactionTemplate]:
+        """Get templates that should generate transactions for a given date.
+        If project_id is set, only return templates for that project."""
         from backend.models.recurring_transaction import RecurringEndType
-        
-        # Debug: First check all active templates
-        all_active = await self.db.execute(
-            select(RecurringTransactionTemplate).where(RecurringTransactionTemplate.is_active == True)
-        )
-        all_templates = list(all_active.scalars().all())
-        
-        for t in all_templates:
-            # Get end_type as string for comparison
-            end_type_str = t.end_type.value if hasattr(t.end_type, 'value') else str(t.end_type)
-        
-        # Use Enum values for comparison - SQLAlchemy will handle the conversion
-        res = await self.db.execute(
-            select(RecurringTransactionTemplate).where(
+
+        conditions = [
+            RecurringTransactionTemplate.is_active == True,
+            RecurringTransactionTemplate.day_of_month == target_date.day,
+            RecurringTransactionTemplate.start_date <= target_date,
+            or_(
+                RecurringTransactionTemplate.end_type == RecurringEndType.NO_END,
                 and_(
-                    RecurringTransactionTemplate.is_active == True,
-                    RecurringTransactionTemplate.day_of_month == target_date.day,
-                    RecurringTransactionTemplate.start_date <= target_date,
-                    or_(
-                        RecurringTransactionTemplate.end_type == RecurringEndType.NO_END,
-                        and_(
-                            RecurringTransactionTemplate.end_type == RecurringEndType.ON_DATE,
-                            RecurringTransactionTemplate.end_date >= target_date,
-                        ),
-                        and_(
-                            RecurringTransactionTemplate.end_type == RecurringEndType.AFTER_OCCURRENCES,
-                            True,  # Placeholder - occurrence count check handled at service level
-                        ),
-                    ),
-                )
-            )
+                    RecurringTransactionTemplate.end_type == RecurringEndType.ON_DATE,
+                    RecurringTransactionTemplate.end_date >= target_date,
+                ),
+                and_(
+                    RecurringTransactionTemplate.end_type == RecurringEndType.AFTER_OCCURRENCES,
+                    True,  # Placeholder - occurrence count check handled at service level
+                ),
+            ),
+        ]
+        if project_id is not None:
+            conditions.append(RecurringTransactionTemplate.project_id == project_id)
+
+        res = await self.db.execute(
+            select(RecurringTransactionTemplate).where(and_(*conditions))
         )
-        matching_templates = list(res.scalars().all())
-        return matching_templates
+        return list(res.scalars().all())
