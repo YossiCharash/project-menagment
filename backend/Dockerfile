@@ -4,13 +4,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies and Hebrew fonts
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
     postgresql-client \
     curl \
+    fonts-noto-core \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

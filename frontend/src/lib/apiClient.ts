@@ -35,6 +35,7 @@ export class ProjectAPI {
       current_balance: number
       monthly_amount: number
       total_deductions: number
+      initial_total?: number
       transactions: Transaction[]
     } | null
     current_period: {

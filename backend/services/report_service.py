@@ -2160,13 +2160,14 @@ class ReportService:
 
             if font_path and os.path.exists(font_path):
                 try:
-                    # Register font - don't use subfontIndex for TTF files (only for TTC)
-                    # This ensures full font embedding which is critical for Hebrew characters
+                    # Register font - for TTF files, don't use subfontIndex
+                    # subfontIndex is only for TTC (TrueType Collection) files
                     hebrew_font = TTFont('Hebrew', font_path)
                     pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
                     print(f"✓ [Supplier PDF] גופן עברי נרשם בהצלחה מ-{font_path}")
+                    print(f"   [Supplier PDF] גודל קובץ: {os.path.getsize(font_path)} bytes")
                 except Exception as e:
                     print(f"✗ [Supplier PDF] רישום גופן נכשל: {e}")
                     import traceback
@@ -2257,15 +2258,31 @@ class ReportService:
 
         def format_text(text):
             if not text: return ""
-            if not isinstance(text, str): text = str(text)
+            # Ensure text is Unicode string
+            if not isinstance(text, str): 
+                text = str(text)
+            # Ensure UTF-8 encoding for Hebrew characters
+            if isinstance(text, bytes):
+                text = text.decode('utf-8', errors='ignore')
+            
             if font_loaded and bidi_available:
                 try:
                     reshaped_text = arabic_reshaper.reshape(text)
                     bidi_text = get_display(reshaped_text)
                     return bidi_text
-                except Exception:
+                except Exception as e:
+                    if not hasattr(format_text, '_logged_error'):
+                        print(f"⚠️ [Supplier PDF] שגיאה בעיבוד bidi: {e}")
+                        format_text._logged_error = True
                     return text
-            return text
+            elif font_loaded:
+                # Font loaded but bidi not available - still use the font
+                return text
+            else:
+                if not hasattr(format_text, '_no_font_warned'):
+                    print("⚠️ [Supplier PDF] גופן עברי לא נטען - טקסט עברי יופיע כקוביות שחורות!")
+                    format_text._no_font_warned = True
+                return text
 
         elements.append(Paragraph(format_text(f"דוח ספק: {supplier.name}"), style_title))
         elements.append(
@@ -3401,15 +3418,26 @@ class ReportService:
             font_loaded = False
             if font_path and os.path.exists(font_path):
                 try:
-                    # Register font - don't use subfontIndex for TTF files (only for TTC)
-                    # This ensures full font embedding which is critical for Hebrew characters
-                    # For TTF files, subfontIndex should be omitted or set to None
+                    # Register font - for TTF files, don't use subfontIndex
+                    # subfontIndex is only for TTC (TrueType Collection) files
+                    # For TTF, we register directly to ensure full character set is available
                     hebrew_font = TTFont('Hebrew', font_path)
                     pdfmetrics.registerFont(hebrew_font)
                     font_name = 'Hebrew'
                     font_loaded = True
                     print(f"✓ גופן עברי נרשם בהצלחה מ-{font_path}")
                     print(f"   גודל קובץ: {os.path.getsize(font_path)} bytes")
+                    # Log font info for debugging
+                    try:
+                        # Check if font file is readable and valid
+                        with open(font_path, 'rb') as f:
+                            header = f.read(4)
+                            if header[:4] == b'\x00\x01\x00\x00' or header[:4] == b'OTTO':
+                                print(f"   ✓ קובץ גופן תקין (TTF/OTF)")
+                            else:
+                                print(f"   ⚠️ אזהרה: קובץ גופן לא מזוהה, header: {header.hex()}")
+                    except Exception as check_e:
+                        print(f"   ⚠️ לא ניתן לבדוק את קובץ הגופן: {check_e}")
                 except Exception as e:
                     print(f"✗ רישום גופן מ-{font_path} נכשל: {e}")
                     import traceback
@@ -3609,7 +3637,12 @@ class ReportService:
 
         def format_text(text):
             if not text: return ""
-            if not isinstance(text, str): text = str(text)
+            # Ensure text is Unicode string
+            if not isinstance(text, str): 
+                text = str(text)
+            # Ensure UTF-8 encoding for Hebrew characters
+            if isinstance(text, bytes):
+                text = text.decode('utf-8', errors='ignore')
 
             # If font is loaded and bidi is available, use proper RTL shaping
             if font_loaded and bidi_available:

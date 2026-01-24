@@ -569,12 +569,18 @@ async def get_project_full(
             fund_transactions = [tx for tx in transactions_list if tx.get('from_fund', False)]
             total_deductions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Expense')
             
+            # Calculate initial_total: total amount that entered the fund from the beginning
+            # Formula: initial_total = current_balance + total_deductions
+            current_balance = float(fund.current_balance)
+            initial_total = current_balance + total_deductions
+            
             fund_data = {
                 "id": fund.id,
                 "project_id": fund.project_id,
-                "current_balance": float(fund.current_balance),
+                "current_balance": current_balance,
                 "monthly_amount": float(fund.monthly_amount),
                 "total_deductions": total_deductions,
+                "initial_total": initial_total,  # Total amount that entered the fund
                 "transactions": fund_transactions
             }
     
@@ -2713,7 +2719,6 @@ async def export_contract_period_csv(
             )
         except ImportError as import_err:
             # Fallback to CSV if openpyxl is not available
-            print(f"⚠️ openpyxl לא זמין, עובר ל-CSV: {import_err}")
             output = io.StringIO()
             writer = csv.writer(output)
             

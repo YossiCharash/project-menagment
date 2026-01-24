@@ -635,7 +635,7 @@ export default function ProjectDetail() {
           monthly_amount: fullData.fund.monthly_amount,
           last_monthly_addition: null, // Will be fetched if needed
           initial_balance: 0,
-          initial_total: 0,
+          initial_total: fullData.fund.initial_total || 0, // Use initial_total from API if available
           total_additions: 0,
           total_deductions: fullData.fund.total_deductions,
           transactions: fullData.fund.transactions.map(tx => ({
