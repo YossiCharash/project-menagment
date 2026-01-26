@@ -19,6 +19,7 @@ from backend.models.contract_period import ContractPeriod
 from backend.models.archived_contract import ArchivedContract
 from backend.models.deleted_recurring_instance import DeletedRecurringInstance
 from backend.models.project_document import ProjectDocument
+from backend.models.unforeseen_transaction import UnforeseenTransaction, UnforeseenTransactionExpense, UnforeseenTransactionStatus
 
 __all__ = [
     "User",
@@ -41,5 +42,8 @@ __all__ = [
     "Category",
     "ContractPeriod",
     "ArchivedContract",
-    "DeletedRecurringInstance"
+    "DeletedRecurringInstance",
+    "UnforeseenTransaction",
+    "UnforeseenTransactionExpense",
+    "UnforeseenTransactionStatus"
 ]

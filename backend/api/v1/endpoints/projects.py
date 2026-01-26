@@ -364,6 +364,7 @@ async def get_project_full(
     from backend.models.transaction import Transaction
     from backend.models.budget import Budget
     from backend.models.fund import Fund
+    from backend.models.unforeseen_transaction import UnforeseenTransaction
     from backend.services.budget_service import BudgetService
     from backend.services.report_service import ReportService
     from backend.repositories.contract_period_repository import ContractPeriodRepository
@@ -493,7 +494,15 @@ async def get_project_full(
     # Process transactions
     transactions_list = []
     expense_by_category = {}
-    
+    res = await db.execute(
+        select(UnforeseenTransaction.resulting_transaction_id).where(
+            and_(
+                UnforeseenTransaction.project_id == project_id,
+                UnforeseenTransaction.resulting_transaction_id.isnot(None)
+            )
+        )
+    )
+    unforeseen_resulting_ids = {r[0] for r in res.all() if r[0] is not None}
     if not isinstance(tx_result, Exception):
         transactions = list(tx_result.scalars().all())
         for tx in transactions:
@@ -516,7 +525,8 @@ async def get_project_full(
                 "recurring_template_id": getattr(tx, 'recurring_template_id', None),
                 "period_start_date": tx.period_start_date.isoformat() if getattr(tx, 'period_start_date', None) else None,
                 "period_end_date": tx.period_end_date.isoformat() if getattr(tx, 'period_end_date', None) else None,
-                "created_by_user_id": getattr(tx, 'created_by_user_id', None)
+                "created_by_user_id": getattr(tx, 'created_by_user_id', None),
+                "is_unforeseen": tx.id in unforeseen_resulting_ids
             }
             transactions_list.append(tx_dict)
             
@@ -568,11 +578,40 @@ async def get_project_full(
             # Get fund transactions (already in transactions_list with from_fund=True)
             fund_transactions = [tx for tx in transactions_list if tx.get('from_fund', False)]
             total_deductions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Expense')
+            total_additions_from_transactions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Income')
+            
+            # Calculate monthly additions if monthly_amount > 0
+            total_monthly_additions = 0.0
+            if fund.monthly_amount > 0:
+                today = date.today()
+                project = await ProjectRepository(db).get_by_id(project_id)
+                if project and project.start_date:
+                    calculation_start_date = project.start_date
+                else:
+                    calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else today
+                total_monthly_additions = calculate_monthly_income_amount(
+                    float(fund.monthly_amount),
+                    calculation_start_date,
+                    today
+                )
             
             # Calculate initial_total: total amount that entered the fund from the beginning
-            # Formula: initial_total = current_balance + total_deductions
-            current_balance = float(fund.current_balance)
-            initial_total = current_balance + total_deductions
+            # Formula: initial_total = initial_balance + total_additions
+            # We work backwards: initial_total = current_balance + total_deductions - total_additions
+            stored_current_balance = float(fund.current_balance)
+            calculated_initial = stored_current_balance + total_deductions - total_monthly_additions - total_additions_from_transactions
+            # initial_total should represent actual money that entered, not debt
+            # If negative, it means the fund started with a negative balance (debt), so no money actually entered
+            initial_total = max(0, calculated_initial)
+            
+            # Recalculate current_balance from transactions to ensure it's correct
+            # Formula: current_balance = initial_total + total_additions - total_deductions
+            # But if initial_total is 0 (no money entered), then current_balance = total_additions - total_deductions
+            total_additions = total_monthly_additions + total_additions_from_transactions
+            recalculated_current_balance = initial_total + total_additions - total_deductions
+            
+            # Use the recalculated balance to ensure consistency
+            current_balance = recalculated_current_balance
             
             fund_data = {
                 "id": fund.id,

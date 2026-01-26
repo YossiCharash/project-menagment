@@ -40,5 +40,6 @@ class Project(Base):
     budgets: Mapped[list["Budget"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     fund: Mapped["Fund | None"] = relationship(back_populates="project", cascade="all, delete-orphan", uselist=False)
     contract_periods: Mapped[list["ContractPeriod"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    unforeseen_transactions: Mapped[list["UnforeseenTransaction"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

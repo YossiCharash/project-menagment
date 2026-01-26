@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Upload, File } from 'lucide-react'
-import { TransactionCreate, ProjectWithFinance } from '../types/api'
-import { TransactionAPI, ProjectAPI, CategoryAPI, Category } from '../lib/apiClient'
+import { TransactionCreate, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
+import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI } from '../lib/apiClient'
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
@@ -31,6 +31,11 @@ interface TransactionRow {
   dateError: string | null
   duplicateError: string | null
   checkingDuplicate: boolean
+  // Unforeseen transaction fields
+  isUnforeseen?: boolean
+  incomeAmount?: number | ''
+  expenses?: Array<{ amount: number | ''; description: string }>
+  contractPeriodId?: number | ''
 }
 
 const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
@@ -50,6 +55,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editingField, setEditingField] = useState<'description' | 'notes' | null>(null)
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState('')
+  const [isUnforeseenMode, setIsUnforeseenMode] = useState(false)
+  const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
   const [rows, setRows] = useState<TransactionRow[]>([
     {
       id: '1',
@@ -68,7 +75,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       files: [],
       dateError: null,
       duplicateError: null,
-      checkingDuplicate: false
+      checkingDuplicate: false,
+      isUnforeseen: false,
+      incomeAmount: '',
+      expenses: [{ amount: '', description: '' }],
+      contractPeriodId: ''
     }
   ])
 
@@ -117,6 +128,34 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
   }
 
+  const loadContractPeriods = async (projectId: number) => {
+    if (contractPeriodsMap[projectId]) {
+      return // Already loaded
+    }
+    try {
+      const periodsData = await ProjectAPI.getContractPeriods(projectId)
+      const periods: Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }> = []
+      if (periodsData.periods_by_year) {
+        periodsData.periods_by_year.forEach((yearData: any) => {
+          yearData.periods.forEach((period: any) => {
+            periods.push({
+              period_id: period.period_id,
+              year_label: period.year_label,
+              start_date: period.start_date,
+              end_date: period.end_date
+            })
+          })
+        })
+      }
+      setContractPeriodsMap(prev => ({
+        ...prev,
+        [projectId]: periods
+      }))
+    } catch (err) {
+      console.error('Error loading contract periods:', err)
+    }
+  }
+
   const handleProjectChange = (rowId: string, projectId: number | '') => {
     setRows(prevRows => {
       const newRows = prevRows.map(row => {
@@ -132,19 +171,26 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             loadSubprojects(projectId as number)
           }
           
+          // Load contract periods if in unforeseen mode
+          if (row.isUnforeseen && projectId) {
+            loadContractPeriods(projectId as number)
+          }
+          
           // Validate date after project change
           setTimeout(() => validateRowDate(updatedRow), 0)
           
-          // Check for duplicates after project change
-          setTimeout(() => {
-            setRows(currentRows => {
-              const currentRow = currentRows.find(r => r.id === rowId)
-              if (currentRow) {
-                checkDuplicateTransaction(currentRow)
-              }
-              return currentRows
-            })
-          }, 300)
+          // Check for duplicates after project change (only for regular transactions)
+          if (!row.isUnforeseen) {
+            setTimeout(() => {
+              setRows(currentRows => {
+                const currentRow = currentRows.find(r => r.id === rowId)
+                if (currentRow) {
+                  checkDuplicateTransaction(currentRow)
+                }
+                return currentRows
+              })
+            }, 300)
+          }
           
           return updatedRow
         }
@@ -172,9 +218,46 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       files: [],
       dateError: null,
       duplicateError: null,
-      checkingDuplicate: false
+      checkingDuplicate: false,
+      isUnforeseen: isUnforeseenMode,
+      incomeAmount: '',
+      expenses: [{ amount: '', description: '' }],
+      contractPeriodId: ''
     }
     setRows([...rows, newRow])
+  }
+
+  const handleAddExpense = (rowId: string) => {
+    setRows(prevRows =>
+      prevRows.map(row =>
+        row.id === rowId
+          ? { ...row, expenses: [...(row.expenses || []), { amount: '', description: '' }] }
+          : row
+      )
+    )
+  }
+
+  const handleRemoveExpense = (rowId: string, expenseIndex: number) => {
+    setRows(prevRows =>
+      prevRows.map(row =>
+        row.id === rowId
+          ? { ...row, expenses: (row.expenses || []).filter((_, i) => i !== expenseIndex) }
+          : row
+      )
+    )
+  }
+
+  const handleExpenseChange = (rowId: string, expenseIndex: number, field: 'amount' | 'description', value: string | number) => {
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.expenses) {
+          const newExpenses = [...row.expenses]
+          newExpenses[expenseIndex] = { ...newExpenses[expenseIndex], [field]: value }
+          return { ...row, expenses: newExpenses }
+        }
+        return row
+      })
+    )
   }
 
   const removeRow = (rowId: string) => {
@@ -433,28 +516,41 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
       if (row.projectId) {
         const project = getSelectedProject(row)
-        if (project?.is_parent_project && !row.subprojectId) {
+        if (project?.is_parent_project && !row.subprojectId && !row.isUnforeseen) {
           errors.push(`שורה ${index + 1}: יש לבחור תת-פרויקט`)
         }
       }
-      if (!row.amount || Number(row.amount) <= 0) {
-        errors.push(`שורה ${index + 1}: יש להזין סכום תקין`)
+      
+      if (row.isUnforeseen) {
+        // Validate unforeseen transaction fields
+        if (!row.incomeAmount || Number(row.incomeAmount) < 0) {
+          errors.push(`שורה ${index + 1}: יש להזין סכום הכנסה תקין`)
+        }
+        if (!row.expenses || row.expenses.length === 0 || row.expenses.every(exp => !exp.amount || Number(exp.amount) <= 0)) {
+          errors.push(`שורה ${index + 1}: יש להזין לפחות הוצאה אחת`)
+        }
+      } else {
+        // Validate regular transaction fields
+        if (!row.amount || Number(row.amount) <= 0) {
+          errors.push(`שורה ${index + 1}: יש להזין סכום תקין`)
+        }
+        if (row.type === 'Expense' && !row.fromFund && !row.supplierId) {
+          // Check if category is "אחר" (Other) - if so, supplier is not required
+          const category = row.categoryId ? availableCategories.find(c => c.id === row.categoryId) : null
+          if (!category || category.name !== 'אחר') {
+            errors.push(`שורה ${index + 1}: יש לבחור ספק לעסקת הוצאה`)
+          }
+        }
       }
+      
       if (!row.txDate) {
         errors.push(`שורה ${index + 1}: יש להזין תאריך`)
       }
       if (row.dateError) {
         errors.push(`שורה ${index + 1}: ${row.dateError}`)
       }
-      if (row.duplicateError) {
+      if (row.duplicateError && !row.isUnforeseen) {
         errors.push(`שורה ${index + 1}: ${row.duplicateError}`)
-      }
-      if (row.type === 'Expense' && !row.fromFund && !row.supplierId) {
-        // Check if category is "אחר" (Other) - if so, supplier is not required
-        const category = row.categoryId ? availableCategories.find(c => c.id === row.categoryId) : null
-        if (!category || category.name !== 'אחר') {
-          errors.push(`שורה ${index + 1}: יש לבחור ספק לעסקת הוצאה`)
-        }
       }
     })
 
@@ -476,6 +572,38 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       try {
+        if (row.isUnforeseen) {
+          // Create unforeseen transaction
+          const projectId = row.projectId as number
+          const expenseData: UnforeseenTransactionExpenseCreate[] = (row.expenses || [])
+            .filter(exp => exp.amount && Number(exp.amount) > 0)
+            .map(exp => ({
+              amount: Number(exp.amount),
+              description: exp.description || undefined
+            }))
+
+          if (expenseData.length === 0) {
+            results.failed++
+            results.errors.push(`שורה ${i + 1}: יש להזין לפחות הוצאה אחת`)
+            continue
+          }
+
+          const unforeseenData: UnforeseenTransactionCreate = {
+            project_id: projectId,
+            contract_period_id: row.contractPeriodId ? Number(row.contractPeriodId) : undefined,
+            income_amount: Number(row.incomeAmount || 0),
+            description: row.description || undefined,
+            notes: row.notes || undefined,
+            transaction_date: row.txDate,
+            expenses: expenseData
+          }
+
+          const unforeseenTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(unforeseenData)
+          results.success++
+          continue
+        }
+
+        // Create regular transaction
         // Subprojects are actually projects with relation_project set
         // So we use the subproject's ID directly as project_id
         const projectId = row.subprojectId || row.projectId as number
@@ -666,14 +794,23 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
     } else {
       // All succeeded - calculate totals
-      const incomeRows = rows.filter(r => r.type === 'Income')
-      const expenseRows = rows.filter(r => r.type === 'Expense')
+      const regularRows = rows.filter(r => !r.isUnforeseen)
+      const unforeseenRows = rows.filter(r => r.isUnforeseen)
+      const incomeRows = regularRows.filter(r => r.type === 'Income')
+      const expenseRows = regularRows.filter(r => r.type === 'Expense')
       const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
       const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
       
-      const successMessage = totalFiles > 0 
-        ? `נוצרו ${results.success} עסקאות בהצלחה!\n\nסיכום:\n• ${incomeRows.length} עסקאות הכנסה: ${totalIncome.toLocaleString('he-IL')} ₪\n• ${expenseRows.length} עסקאות הוצאה: ${totalExpense.toLocaleString('he-IL')} ₪\n• הועלו ${totalFiles} מסמכים`
-        : `נוצרו ${results.success} עסקאות בהצלחה!\n\nסיכום:\n• ${incomeRows.length} עסקאות הכנסה: ${totalIncome.toLocaleString('he-IL')} ₪\n• ${expenseRows.length} עסקאות הוצאה: ${totalExpense.toLocaleString('he-IL')} ₪`
+      let successMessage = `נוצרו ${results.success} עסקאות בהצלחה!\n\nסיכום:\n`
+      if (regularRows.length > 0) {
+        successMessage += `• ${incomeRows.length} עסקאות הכנסה: ${totalIncome.toLocaleString('he-IL')} ₪\n• ${expenseRows.length} עסקאות הוצאה: ${totalExpense.toLocaleString('he-IL')} ₪\n`
+      }
+      if (unforeseenRows.length > 0) {
+        successMessage += `• ${unforeseenRows.length} עסקאות לא צפויות\n`
+      }
+      if (totalFiles > 0) {
+        successMessage += `• הועלו ${totalFiles} מסמכים`
+      }
       
       // Show success message briefly before closing
       setError(null)
@@ -705,7 +842,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         files: [],
         dateError: null,
         duplicateError: null,
-        checkingDuplicate: false
+        checkingDuplicate: false,
+        isUnforeseen: isUnforeseenMode,
+        incomeAmount: '',
+        expenses: [{ amount: '', description: '' }],
+        contractPeriodId: ''
       }
     ])
     setError(null)
@@ -756,10 +897,41 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 bg-gradient-to-r from-orange-500 to-red-600 dark:from-orange-600 dark:to-red-700 rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <span>עסקה קבוצתית</span>
-            <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
-          </h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <span>עסקה קבוצתית</span>
+              <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
+            </h2>
+            <label className="flex items-center gap-2 cursor-pointer bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors">
+              <input
+                type="checkbox"
+                checked={isUnforeseenMode}
+                onChange={(e) => {
+                  setIsUnforeseenMode(e.target.checked)
+                  // Update all rows to match the mode
+                  setRows(prevRows =>
+                    prevRows.map(row => ({
+                      ...row,
+                      isUnforeseen: e.target.checked,
+                      incomeAmount: e.target.checked ? (row.incomeAmount || '') : '',
+                      expenses: e.target.checked ? (row.expenses || [{ amount: '', description: '' }]) : undefined,
+                      contractPeriodId: e.target.checked ? (row.contractPeriodId || '') : ''
+                    }))
+                  )
+                  // Load contract periods for selected projects
+                  if (e.target.checked) {
+                    rows.forEach(row => {
+                      if (row.projectId) {
+                        loadContractPeriods(row.projectId as number)
+                      }
+                    })
+                  }
+                }}
+                className="w-4 h-4 rounded border-white/50 text-orange-600 focus:ring-2 focus:ring-white/50 cursor-pointer"
+              />
+              <span className="text-white font-medium">עסקאות לא צפויות</span>
+            </label>
+          </div>
           <button
             onClick={handleClose}
             className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
@@ -782,10 +954,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
           {/* Summary Card */}
           {(() => {
-            const incomeRows = rows.filter(r => r.type === 'Income')
-            const expenseRows = rows.filter(r => r.type === 'Expense')
-            const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
-            const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+            const regularRows = rows.filter(r => !r.isUnforeseen)
+            const unforeseenRows = rows.filter(r => r.isUnforeseen)
+            const incomeRows = regularRows.filter(r => r.type === 'Income')
+            const expenseRows = regularRows.filter(r => r.type === 'Expense')
+            const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) + 
+                               unforeseenRows.reduce((sum, r) => sum + (Number(r.incomeAmount) || 0), 0)
+            const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
+                                unforeseenRows.reduce((sum, r) => {
+                                  const expenses = r.expenses || []
+                                  return sum + expenses.reduce((expSum, exp) => expSum + (Number(exp.amount) || 0), 0)
+                                }, 0)
             const netAmount = totalIncome - totalExpense
             
             return (
@@ -798,7 +977,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                       {totalIncome.toLocaleString('he-IL')} ₪
                     </div>
                     <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-                      {incomeRows.length} עסקאות
+                      {incomeRows.length} עסקאות {unforeseenRows.length > 0 && `+ ${unforeseenRows.length} לא צפויות`}
                     </div>
                   </div>
                   <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-lg p-3">
@@ -807,7 +986,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                       {totalExpense.toLocaleString('he-IL')} ₪
                     </div>
                     <div className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      {expenseRows.length} עסקאות
+                      {expenseRows.length} עסקאות {unforeseenRows.length > 0 && `+ ${unforeseenRows.length} לא צפויות`}
                     </div>
                   </div>
                   <div className={`border-2 rounded-lg p-3 ${
@@ -846,43 +1025,73 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      פרויקט *
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      תת-פרויקט
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      סוג *
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      תאריך *
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      סכום *
-                    </th>
-                  </tr>
-                  <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      תיאור
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      קטגוריה
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      ספק
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      אמצעי תשלום
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      הערות
-                    </th>
-                    <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                      פעולות
-                    </th>
-                  </tr>
+                  {isUnforeseenMode ? (
+                    <>
+                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          פרויקט *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תקופת חוזה
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תאריך *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          סכום הכנסה *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תיאור
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          הערות
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          פעולות
+                        </th>
+                      </tr>
+                    </>
+                  ) : (
+                    <>
+                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          פרויקט *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תת-פרויקט
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          סוג *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תאריך *
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          סכום *
+                        </th>
+                      </tr>
+                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          תיאור
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          קטגוריה
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          ספק
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          אמצעי תשלום
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          הערות
+                        </th>
+                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          פעולות
+                        </th>
+                      </tr>
+                    </>
+                  )}
                 </thead>
                 <tbody>
                   {rows.map((row, index) => {
@@ -891,11 +1100,189 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     const subprojects = isParentProject && row.projectId
                       ? getSubprojectsForProject(row.projectId as number)
                       : []
+                    const contractPeriods = row.projectId ? (contractPeriodsMap[row.projectId as number] || []) : []
 
                     const rowBgClass = index % 2 === 0 
                       ? 'bg-white dark:bg-gray-800' 
                       : 'bg-gray-50/50 dark:bg-gray-800/50'
 
+                    if (row.isUnforeseen) {
+                      // Render unforeseen transaction row
+                      const totalExpenses = (row.expenses || []).reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
+                      const profitLoss = (Number(row.incomeAmount) || 0) - totalExpenses
+                      
+                      return (
+                        <React.Fragment key={row.id}>
+                          <tr className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}>
+                            <td className="px-4 py-4">
+                              <select
+                                value={row.projectId}
+                                onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                                required
+                              >
+                                <option value="">בחר פרויקט</option>
+                                {projects.map((project) => (
+                                  <option key={project.id} value={project.id}>
+                                    {project.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-4">
+                              <select
+                                value={row.contractPeriodId}
+                                onChange={(e) => updateRow(row.id, 'contractPeriodId', e.target.value ? Number(e.target.value) : '')}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                              >
+                                <option value="">כל התקופות</option>
+                                {contractPeriods.map((period) => (
+                                  <option key={period.period_id} value={period.period_id}>
+                                    {period.year_label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="space-y-1">
+                                <input
+                                  type="date"
+                                  value={row.txDate}
+                                  onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
+                                  className={`w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow ${
+                                    row.dateError
+                                      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                                  }`}
+                                  required
+                                />
+                                {row.dateError && (
+                                  <p className="text-xs text-red-600 dark:text-red-400">{row.dateError}</p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={row.incomeAmount}
+                                onChange={(e) => updateRow(row.id, 'incomeAmount', e.target.value ? Number(e.target.value) : '')}
+                                className="w-full px-4 py-3 text-base bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg text-green-700 dark:text-green-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm hover:shadow font-bold text-lg"
+                                placeholder="0.00"
+                                required
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <input
+                                type="text"
+                                readOnly
+                                onClick={() => openTextEditor(row.id, 'description', row.description)}
+                                value={row.description}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                                placeholder="תיאור העסקה"
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <input
+                                type="text"
+                                readOnly
+                                onClick={() => openTextEditor(row.id, 'notes', row.notes)}
+                                value={row.notes}
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                                placeholder="הערות"
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  {rows.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => removeRow(row.id)}
+                                      className="p-1.5 text-red-500 hover:text-white hover:bg-red-500 rounded-lg transition-all flex-shrink-0"
+                                      title="מחק שורה"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Expenses row */}
+                          <tr className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 border-b-4 border-gray-400 dark:border-gray-500`}>
+                            <td colSpan={7} className="px-4 py-4">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">הוצאות:</label>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddExpense(row.id)}
+                                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    הוסף הוצאה
+                                  </button>
+                                </div>
+                                <div className="space-y-2">
+                                  {(row.expenses || []).map((expense, expIndex) => (
+                                    <div key={expIndex} className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="סכום"
+                                        value={expense.amount}
+                                        onChange={(e) => handleExpenseChange(row.id, expIndex, 'amount', e.target.value ? Number(e.target.value) : '')}
+                                        className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                      />
+                                      <input
+                                        type="text"
+                                        placeholder="תיאור"
+                                        value={expense.description}
+                                        onChange={(e) => handleExpenseChange(row.id, expIndex, 'description', e.target.value)}
+                                        className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                      />
+                                      {(row.expenses || []).length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveExpense(row.id, expIndex)}
+                                          className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">סה"כ הוצאות:</span>
+                                    <span className="font-semibold text-red-600 dark:text-red-400">
+                                      ₪{totalExpenses.toLocaleString('he-IL')}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">רווח/הפסד:</span>
+                                    <span className={`font-semibold ${profitLoss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                      ₪{profitLoss.toLocaleString('he-IL')}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                          {index < rows.length - 1 && (
+                            <tr>
+                              <td colSpan={7} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      )
+                    }
+
+                    // Regular transaction row (existing code)
                     return (
                       <React.Fragment key={row.id}>
                         {/* שורה ראשונה */}

@@ -23,6 +23,7 @@ import Reports from './pages/Reports'
 import Suppliers from './pages/Suppliers'
 import SupplierDocuments from './pages/SupplierDocuments'
 import Settings from './pages/Settings'
+import UnforeseenTransactions from './pages/UnforeseenTransactions'
 import { logout, fetchMe } from './store/slices/authSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -102,7 +103,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
         <Sidebar 
@@ -119,11 +120,11 @@ function AppContent() {
 
       {/* Main Content */}
       <div className={cn(
-        "flex-1 flex flex-col min-w-0 transition-all duration-300",
+        "flex-1 flex flex-col min-h-0 min-w-0 transition-all duration-300 overflow-hidden",
         sidebarCollapsed ? "lg:mr-[80px]" : "lg:mr-[280px]"
       )}>
         {/* Top Navigation */}
-        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 lg:px-6 sticky top-0 z-20">
+        <header className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 lg:px-6 z-20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -154,7 +155,7 @@ function AppContent() {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -166,6 +167,7 @@ function AppContent() {
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
               <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
+              <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><UnforeseenTransactions /></RequireAuth>} />
               <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail /></RequireAuth>} />
               <Route path="/projects/:parentId/subprojects" element={<RequireAuth><Subprojects /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />

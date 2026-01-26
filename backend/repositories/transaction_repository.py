@@ -25,7 +25,7 @@ class TransactionRepository:
         return tx
 
     async def delete(self, tx: Transaction) -> bool:
-        self.db.delete(tx)  # marks object for deletion (synchronous method)
+        await self.db.delete(tx)  # marks object for deletion
         await self.db.commit()  # commits the deletion
         return True
 

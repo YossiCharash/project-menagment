@@ -58,6 +58,7 @@ export interface Transaction {
   notes?: string | null
   is_exceptional: boolean
   is_generated?: boolean
+  is_unforeseen?: boolean
   recurring_template_id?: number | null
   file_path?: string | null
   supplier_id?: number | null
@@ -247,4 +248,69 @@ export interface RecurringTransactionTemplateUpdate {
   end_date?: string | null
   max_occurrences?: number | null
   is_active?: boolean
+}
+
+// Unforeseen Transaction types
+export interface UnforeseenTransactionExpense {
+  id: number
+  unforeseen_transaction_id: number
+  amount: number
+  description?: string | null
+  document_id?: number | null
+  document?: {
+    id: number
+    file_path: string
+    description?: string | null
+    uploaded_at?: string | null
+  } | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UnforeseenTransactionExpenseCreate {
+  amount: number
+  description?: string | null
+}
+
+export interface UnforeseenTransaction {
+  id: number
+  project_id: number
+  contract_period_id?: number | null
+  income_amount: number
+  total_expenses: number
+  profit_loss: number
+  status: 'draft' | 'waiting_for_approval' | 'executed'
+  description?: string | null
+  notes?: string | null
+  transaction_date: string
+  expenses: UnforeseenTransactionExpense[]
+  created_by_user_id?: number | null
+  created_by_user?: {
+    id: number
+    email: string
+    full_name?: string | null
+  } | null
+  created_at: string
+  updated_at: string
+  resulting_transaction_id?: number | null
+}
+
+export interface UnforeseenTransactionCreate {
+  project_id: number
+  contract_period_id?: number | null
+  income_amount: number
+  description?: string | null
+  notes?: string | null
+  transaction_date: string
+  expenses: UnforeseenTransactionExpenseCreate[]
+}
+
+export interface UnforeseenTransactionUpdate {
+  contract_period_id?: number | null
+  income_amount?: number
+  description?: string | null
+  notes?: string | null
+  transaction_date?: string
+  status?: 'draft' | 'waiting_for_approval' | 'executed'
+  expenses?: UnforeseenTransactionExpenseCreate[]
 }

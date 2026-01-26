@@ -22,7 +22,9 @@ from backend.models import (  # noqa: F401
     EmailVerification,
     RecurringTransactionTemplate,
     MemberInvite,
-    Budget
+    Budget,
+    UnforeseenTransaction,
+    UnforeseenTransactionExpense
 )
 
 

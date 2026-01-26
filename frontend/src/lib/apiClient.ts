@@ -1,5 +1,5 @@
 import api from '../lib/api'
-import { Project, ProjectCreate, Transaction, TransactionCreate, ProjectWithFinance, DashboardSnapshot, ExpenseCategory, RecurringTransactionTemplate, RecurringTransactionTemplateCreate, RecurringTransactionTemplateUpdate, BudgetWithSpending } from '../types/api'
+import { Project, ProjectCreate, Transaction, TransactionCreate, ProjectWithFinance, DashboardSnapshot, ExpenseCategory, RecurringTransactionTemplate, RecurringTransactionTemplateCreate, RecurringTransactionTemplateUpdate, BudgetWithSpending, UnforeseenTransaction, UnforeseenTransactionCreate, UnforeseenTransactionUpdate } from '../types/api'
 
 // Enhanced API client with proper TypeScript types
 export class ProjectAPI {
@@ -24,7 +24,7 @@ export class ProjectAPI {
   // OPTIMIZED: Get complete project data in a single API call
   // Replaces 5+ separate API calls with ONE for faster page load
   // Optional periodId parameter: When provided, returns data filtered to that specific contract period
-  static async getProjectFull(projectId: number, periodId?: number): Promise<{
+  static async getProjectFull(projectId: number, periodId?: number, cacheBust?: boolean): Promise<{
     project: Project & { has_fund?: boolean; monthly_fund_amount?: number | null }
     transactions: Transaction[]
     budgets: BudgetWithSpending[]
@@ -77,7 +77,11 @@ export class ProjectAPI {
       }>
     } | null
   }> {
-    const params = periodId ? { period_id: periodId } : {}
+    const params: any = periodId ? { period_id: periodId } : {}
+    // Add cache busting parameter if requested
+    if (cacheBust) {
+      params._t = Date.now()
+    }
     const { data } = await api.get(`/projects/${projectId}/full`, { params })
     return data
   }
@@ -767,6 +771,93 @@ export class SupplierAPI {
   // Get transaction count for a supplier
   static async getSupplierTransactionCount(supplierId: number): Promise<{ supplier_id: number; transaction_count: number }> {
     const { data } = await api.get<{ supplier_id: number; transaction_count: number }>(`/suppliers/${supplierId}/transaction-count`)
+    return data
+  }
+}
+
+export class UnforeseenTransactionAPI {
+  // Get all unforeseen transactions for a project
+  static async getUnforeseenTransactions(
+    projectId: number,
+    contractPeriodId?: number,
+    includeExecuted: boolean = true,
+    cacheBust: boolean = false
+  ): Promise<UnforeseenTransaction[]> {
+    const params: any = { project_id: projectId, include_executed: includeExecuted }
+    if (contractPeriodId) {
+      params.contract_period_id = contractPeriodId
+    }
+    if (cacheBust) {
+      params._t = Date.now()
+    }
+    const { data } = await api.get<UnforeseenTransaction[]>('/unforeseen-transactions', { params })
+    return data
+  }
+
+  // Get unforeseen transactions by contract period
+  static async getUnforeseenTransactionsByContractPeriod(contractPeriodId: number): Promise<UnforeseenTransaction[]> {
+    const { data } = await api.get<UnforeseenTransaction[]>(`/unforeseen-transactions/contract-period/${contractPeriodId}`)
+    return data
+  }
+
+  // Get a single unforeseen transaction
+  static async getUnforeseenTransaction(txId: number): Promise<UnforeseenTransaction> {
+    const { data } = await api.get<UnforeseenTransaction>(`/unforeseen-transactions/${txId}`)
+    return data
+  }
+
+  // Create a new unforeseen transaction
+  static async createUnforeseenTransaction(tx: UnforeseenTransactionCreate): Promise<UnforeseenTransaction> {
+    const { data } = await api.post<UnforeseenTransaction>('/unforeseen-transactions', tx)
+    return data
+  }
+
+  // Update an unforeseen transaction
+  static async updateUnforeseenTransaction(txId: number, updates: UnforeseenTransactionUpdate): Promise<UnforeseenTransaction> {
+    const { data } = await api.put<UnforeseenTransaction>(`/unforeseen-transactions/${txId}`, updates)
+    return data
+  }
+
+  // Delete an unforeseen transaction
+  static async deleteUnforeseenTransaction(txId: number): Promise<void> {
+    await api.delete(`/unforeseen-transactions/${txId}`)
+  }
+
+  // Execute an unforeseen transaction
+  static async executeUnforeseenTransaction(txId: number): Promise<{
+    message: string
+    transaction: UnforeseenTransaction
+    resulting_transaction?: {
+      id: number
+      amount: number
+      type: string
+      description: string
+    }
+  }> {
+    const { data } = await api.post(`/unforeseen-transactions/${txId}/execute`)
+    return data
+  }
+
+  // Upload document for an expense
+  static async uploadExpenseDocument(
+    txId: number,
+    expenseId: number,
+    file: File,
+    description?: string
+  ): Promise<{
+    id: number
+    file_path: string
+    description?: string | null
+    uploaded_at?: string | null
+  }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (description) {
+      formData.append('description', description)
+    }
+    const { data } = await api.post(`/unforeseen-transactions/${txId}/expenses/${expenseId}/document`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
     return data
   }
 }

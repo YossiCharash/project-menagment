@@ -58,7 +58,7 @@ class RecurringTransactionRepository:
 
     async def delete(self, template: RecurringTransactionTemplate) -> bool:
         """Delete a recurring transaction template"""
-        self.db.delete(template)
+        await self.db.delete(template)
         await self.db.commit()
         return True
 
