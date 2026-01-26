@@ -577,14 +577,26 @@ async def get_project_full(
         
         # Filter to this period's budgets (contract_period_id match)
         # If effective_period_id is set, show budgets for that specific period
+        # If no budgets found for that period, fallback to budgets with NULL contract_period_id (old budgets)
         # If effective_period_id is None, show budgets with NULL contract_period_id (old budgets without period assignment)
-        # OR show all budgets as a fallback (to handle edge cases)
         if effective_period_id is not None:
-            budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
-            print(f"✓ [GET PROJECT FULL] Filtered to {len(budgets)} budgets for period_id={effective_period_id}")
+            # First try to get budgets for the specific period
+            period_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
+            if period_budgets:
+                budgets = period_budgets
+                print(f"✓ [GET PROJECT FULL] Filtered to {len(budgets)} budgets for period_id={effective_period_id}")
+            else:
+                # No budgets for this period, fallback to NULL budgets (old budgets without period assignment)
+                null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
+                if null_budgets:
+                    budgets = null_budgets
+                    print(f"⚠️ [GET PROJECT FULL] No budgets for period_id={effective_period_id}, using {len(budgets)} budgets with NULL contract_period_id as fallback")
+                else:
+                    # If no null budgets either, keep all budgets as last resort
+                    print(f"⚠️ [GET PROJECT FULL] No budgets for period_id={effective_period_id} and no NULL budgets, showing all {len(budgets)} budgets as fallback")
         else:
             # When viewing current period but no period_id found:
-            # First try budgets with NULL contract_period_id (old budgets)
+            # Show budgets with NULL contract_period_id (old budgets)
             # If none found, show all budgets as fallback
             null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
             if null_budgets:
