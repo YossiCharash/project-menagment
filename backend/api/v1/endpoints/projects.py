@@ -540,13 +540,60 @@ async def get_project_full(
     if not isinstance(budgets_result, Exception):
         budgets = list(budgets_result.scalars().all())
         budget_service = BudgetService(db)
+        
         # Determine which period's budgets to show
         effective_period_id = period_id
-        if effective_period_id is None and current_period and isinstance(current_period, dict):
-            effective_period_id = current_period.get("period_id")
+        if effective_period_id is None:
+            # When viewing current period, try to get the current period's ID
+            if current_period and isinstance(current_period, dict):
+                effective_period_id = current_period.get("period_id")
+            elif current_period and hasattr(current_period, 'get'):
+                # Handle case where current_period might be a different dict-like object
+                effective_period_id = current_period.get("period_id") if callable(getattr(current_period, 'get', None)) else None
+            elif current_period and hasattr(current_period, 'id'):
+                # Handle case where current_period is an object with id attribute
+                effective_period_id = current_period.id
+            
+            # Fallback: if we still don't have a period_id, try to get it directly from the database
+            if effective_period_id is None and project and project.start_date:
+                try:
+                    period_repo = ContractPeriodRepository(db)
+                    all_periods = await period_repo.get_by_project(project_id)
+                    for period in all_periods:
+                        if period.start_date == project.start_date:
+                            effective_period_id = period.id
+                            print(f"✓ [GET PROJECT FULL] Found current period ID {effective_period_id} from DB for project {project_id}")
+                            break
+                except Exception as e:
+                    print(f"⚠️ [GET PROJECT FULL] Error getting period from DB: {e}")
+        
+        # Debug logging
+        total_budgets_before_filter = len(budgets)
+        budgets_by_period = {}
+        for b in budgets:
+            period_id_val = getattr(b, "contract_period_id", None)
+            budgets_by_period[period_id_val] = budgets_by_period.get(period_id_val, 0) + 1
+        print(f"📊 [GET PROJECT FULL] Project {project_id}: {total_budgets_before_filter} total budgets, effective_period_id={effective_period_id}, budgets by period: {budgets_by_period}")
+        
         # Filter to this period's budgets (contract_period_id match)
+        # If effective_period_id is set, show budgets for that specific period
+        # If effective_period_id is None, show budgets with NULL contract_period_id (old budgets without period assignment)
+        # OR show all budgets as a fallback (to handle edge cases)
         if effective_period_id is not None:
             budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
+            print(f"✓ [GET PROJECT FULL] Filtered to {len(budgets)} budgets for period_id={effective_period_id}")
+        else:
+            # When viewing current period but no period_id found:
+            # First try budgets with NULL contract_period_id (old budgets)
+            # If none found, show all budgets as fallback
+            null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
+            if null_budgets:
+                budgets = null_budgets
+                print(f"✓ [GET PROJECT FULL] Using {len(budgets)} budgets with NULL contract_period_id (no period_id found)")
+            else:
+                # If no null budgets, keep all budgets (they might all be assigned to periods)
+                # This ensures budgets are visible even if period detection fails
+                print(f"⚠️ [GET PROJECT FULL] No NULL budgets found, showing all {len(budgets)} budgets as fallback")
         for budget in budgets:
             # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
