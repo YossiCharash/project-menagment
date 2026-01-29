@@ -113,20 +113,19 @@ export function useProjectDetailData(
     }
   }
 
-  // Load unforeseen transactions
+  // Load unforeseen transactions – טוען את כל העסקאות הלא צפויות של הפרויקט (בלי סינון לפי תקופה)
+  // כך הרשימה תמיד מלאה גם כשצופים בתקופת חוזה ספציפית
   const loadUnforeseenTransactions = async () => {
     if (!id || isNaN(Number(id))) return
 
     try {
       state.setUnforeseenTransactionsLoading(true)
       
-      // Get effective period ID for filtering
-      const effectivePeriodId = viewingPeriodId ?? state.selectedPeriod?.period_id ?? state.currentContractPeriod?.period_id ?? undefined
-      
       const transactions = await UnforeseenTransactionAPI.getUnforeseenTransactions(
         Number(id),
-        effectivePeriodId,
-        true // include executed
+        undefined, // בלי סינון לפי תקופה – להצגת כל העסקאות הלא צפויות של הפרויקט
+        true,      // include executed
+        true       // cacheBust – לקבלת נתונים עדכניים אחרי יצירה/עדכון/מחיקה
       )
       
       state.setUnforeseenTransactions(transactions as UnforeseenTransaction[])

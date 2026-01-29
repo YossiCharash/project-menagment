@@ -1,13 +1,4 @@
-#!/usr/bin/env python3
-"""
-Management command for recurring transactions.
-Usage:
-    python -m backend.management.recurring_transactions --help
-    python -m backend.management.recurring_transactions --today
-    python -m backend.management.recurring_transactions --month 2024-01
-    python -m backend.management.recurring_transactions --backlog
-    python -m backend.management.recurring_transactions --upcoming 30
-"""
+
 
 import asyncio
 import argparse

@@ -806,6 +806,12 @@ export class UnforeseenTransactionAPI {
     return data
   }
 
+  // Get unforeseen transaction by the ID of its resulting transaction (for list view)
+  static async getUnforeseenTransactionByResultingTransactionId(resultingTransactionId: number): Promise<UnforeseenTransaction> {
+    const { data } = await api.get<UnforeseenTransaction>(`/unforeseen-transactions/by-resulting-transaction/${resultingTransactionId}`)
+    return data
+  }
+
   // Create a new unforeseen transaction
   static async createUnforeseenTransaction(tx: UnforeseenTransactionCreate): Promise<UnforeseenTransaction> {
     const { data } = await api.post<UnforeseenTransaction>('/unforeseen-transactions', tx)
@@ -856,6 +862,29 @@ export class UnforeseenTransactionAPI {
       formData.append('description', description)
     }
     const { data } = await api.post(`/unforeseen-transactions/${txId}/expenses/${expenseId}/document`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    return data
+  }
+
+  // Upload document for an income
+  static async uploadIncomeDocument(
+    txId: number,
+    incomeId: number,
+    file: File,
+    description?: string
+  ): Promise<{
+    id: number
+    file_path: string
+    description?: string | null
+    uploaded_at?: string | null
+  }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (description) {
+      formData.append('description', description)
+    }
+    const { data } = await api.post(`/unforeseen-transactions/${txId}/incomes/${incomeId}/document`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     return data

@@ -25,10 +25,11 @@ class UnforeseenTransactionService:
         self.project_repo = ProjectRepository(db)
         self.contract_period_repo = ContractPeriodRepository(db)
 
-    def calculate_profit_loss(self, income: float, expenses: List[Dict[str, Any]]) -> float:
-        """Calculate profit/loss: income - sum of all expenses"""
+    def calculate_profit_loss(self, incomes: List[Dict[str, Any]], expenses: List[Dict[str, Any]]) -> float:
+        """Calculate profit/loss: sum of all incomes - sum of all expenses"""
+        total_incomes = sum(inc.get("amount", 0) if isinstance(inc, dict) else getattr(inc, "amount", 0) for inc in incomes)
         total_expenses = sum(exp.get("amount", 0) if isinstance(exp, dict) else getattr(exp, "amount", 0) for exp in expenses)
-        return income - total_expenses
+        return total_incomes - total_expenses
 
     async def create(self, data: UnforeseenTransactionCreate, user_id: Optional[int] = None) -> UnforeseenTransaction:
         """Create a new unforeseen transaction"""
@@ -45,11 +46,18 @@ class UnforeseenTransactionService:
             if period.project_id != data.project_id:
                 raise ValueError("תקופת החוזה לא שייכת לפרויקט זה")
         
-        return await self.repo.create(data, user_id)
+        created = await self.repo.create(data, user_id)
+        # Re-fetch with eager-loaded relationships so _format_transaction can access
+        # expenses/incomes/documents without triggering async-invalid lazy load
+        return await self.repo.get_by_id(created.id) or created
 
     async def get_by_id(self, tx_id: int) -> Optional[UnforeseenTransaction]:
         """Get an unforeseen transaction by ID"""
         return await self.repo.get_by_id(tx_id)
+
+    async def get_by_resulting_transaction_id(self, resulting_transaction_id: int) -> Optional[UnforeseenTransaction]:
+        """Get an unforeseen transaction by the ID of its resulting transaction"""
+        return await self.repo.get_by_resulting_transaction_id(resulting_transaction_id)
 
     async def list_by_project(
         self,
@@ -81,8 +89,14 @@ class UnforeseenTransactionService:
     async def _format_transaction(self, tx: UnforeseenTransaction) -> Dict[str, Any]:
         """Format an unforeseen transaction for API response"""
         # Calculate totals using Decimal for precision
+        total_incomes = sum(Decimal(str(inc.amount)) for inc in tx.incomes) if tx.incomes else Decimal('0')
         total_expenses = sum(Decimal(str(exp.amount)) for exp in tx.expenses) if tx.expenses else Decimal('0')
-        profit_loss = Decimal(str(tx.income_amount)) - total_expenses
+        
+        # If no incomes in list but income_amount exists, use income_amount (legacy support)
+        if total_incomes == 0 and tx.income_amount > 0:
+            total_incomes = Decimal(str(tx.income_amount))
+            
+        profit_loss = total_incomes - total_expenses
         
         # Format expenses - convert Numeric to float with proper precision
         expenses_data = []
@@ -95,21 +109,48 @@ class UnforeseenTransactionService:
                 "unforeseen_transaction_id": exp.unforeseen_transaction_id,
                 "amount": amount_value,
                 "description": exp.description,
-                "document_id": exp.document_id,
                 "created_at": exp.created_at.isoformat() if exp.created_at else None,
                 "updated_at": exp.updated_at.isoformat() if exp.updated_at else None
             }
             
-            # Include document info if available
-            if exp.document:
-                expense_dict["document"] = {
-                    "id": exp.document.id,
-                    "file_path": exp.document.file_path,
-                    "description": exp.document.description,
-                    "uploaded_at": exp.document.uploaded_at.isoformat() if exp.document.uploaded_at else None
-                }
+            # Include documents info if available
+            expense_dict["documents"] = []
+            if exp.documents:
+                for doc in exp.documents:
+                    expense_dict["documents"].append({
+                        "id": doc.id,
+                        "file_path": doc.file_path,
+                        "description": doc.description,
+                        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+                    })
             
             expenses_data.append(expense_dict)
+
+        # Format incomes
+        incomes_data = []
+        for inc in tx.incomes:
+            amount_decimal = Decimal(str(inc.amount))
+            amount_value = float(amount_decimal)
+            income_dict = {
+                "id": inc.id,
+                "unforeseen_transaction_id": inc.unforeseen_transaction_id,
+                "amount": amount_value,
+                "description": inc.description,
+                "created_at": inc.created_at.isoformat() if inc.created_at else None,
+                "updated_at": inc.updated_at.isoformat() if inc.updated_at else None
+            }
+            
+            income_dict["documents"] = []
+            if inc.documents:
+                for doc in inc.documents:
+                    income_dict["documents"].append({
+                        "id": doc.id,
+                        "file_path": doc.file_path,
+                        "description": doc.description,
+                        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+                    })
+            
+            incomes_data.append(income_dict)
         
         # Format user info
         user_data = None
@@ -128,7 +169,8 @@ class UnforeseenTransactionService:
             "id": tx.id,
             "project_id": tx.project_id,
             "contract_period_id": tx.contract_period_id,
-            "income_amount": income_value,
+            "income_amount": income_value, # legacy
+            "total_incomes": float(total_incomes),
             "total_expenses": float(total_expenses),
             "profit_loss": float(profit_loss),
             "status": tx.status.value if hasattr(tx.status, "value") else str(tx.status),
@@ -136,6 +178,7 @@ class UnforeseenTransactionService:
             "notes": tx.notes,
             "transaction_date": tx.transaction_date.isoformat() if tx.transaction_date else None,
             "expenses": expenses_data,
+            "incomes": incomes_data,
             "created_by_user_id": tx.created_by_user_id,
             "created_by_user": user_data,
             "created_at": tx.created_at.isoformat() if tx.created_at else None,
@@ -169,8 +212,12 @@ class UnforeseenTransactionService:
         # If transaction was executed and has a resulting transaction, update it
         if was_executed and updated_tx.status == UnforeseenTransactionStatus.EXECUTED and updated_tx.resulting_transaction_id:
             # Recalculate profit/loss with updated values
+            total_incomes = sum(Decimal(str(inc.amount)) for inc in updated_tx.incomes) if updated_tx.incomes else Decimal('0')
+            if total_incomes == 0 and updated_tx.income_amount > 0:
+                total_incomes = Decimal(str(updated_tx.income_amount))
+                
             total_expenses = sum(Decimal(str(exp.amount)) for exp in updated_tx.expenses) if updated_tx.expenses else Decimal('0')
-            profit_loss = float(updated_tx.income_amount) - float(total_expenses)
+            profit_loss = float(total_incomes) - float(total_expenses)
             
             # Get the resulting transaction
             resulting_tx = await self.transaction_repo.get_by_id(updated_tx.resulting_transaction_id)
@@ -234,8 +281,12 @@ class UnforeseenTransactionService:
             raise ValueError("עסקה זו כבר בוצעה")
         
         # Calculate profit/loss
+        total_incomes = sum(Decimal(str(inc.amount)) for inc in tx.incomes) if tx.incomes else Decimal('0')
+        if total_incomes == 0 and tx.income_amount > 0:
+            total_incomes = Decimal(str(tx.income_amount))
+            
         total_expenses = sum(Decimal(str(exp.amount)) for exp in tx.expenses) if tx.expenses else Decimal('0')
-        profit_loss = float(tx.income_amount) - float(total_expenses)
+        profit_loss = float(total_incomes) - float(total_expenses)
         
         # Only create transaction if there's a balance (profit or loss)
         if profit_loss != 0:

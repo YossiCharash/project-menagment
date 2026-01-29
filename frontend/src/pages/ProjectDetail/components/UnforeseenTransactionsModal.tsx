@@ -12,16 +12,14 @@ interface UnforeseenTransaction {
     status: 'draft' | 'waiting_for_approval' | 'executed'
     profit_loss: number
     income_amount: number
+    total_incomes?: number
     total_expenses: number
     notes?: string | null
     expenses: Array<{
         id: number
         amount: number
         description?: string | null
-        document_id?: number | null
-        document?: {
-            file_path: string
-        } | null
+        documents?: Array<{ id: number; file_path: string }>
     }>
 }
 
@@ -34,6 +32,7 @@ interface UnforeseenTransactionsModalProps {
     onExecuteTransaction: (txId: number) => Promise<void>
     onDeleteTransaction: (txId: number) => Promise<void>
     onEditTransaction: (tx: UnforeseenTransaction) => void
+    onViewDetails?: (tx: UnforeseenTransaction) => void
     onCreateNew: () => void
     onUpdateStatus?: (txId: number, status: 'draft' | 'waiting_for_approval' | 'executed') => Promise<void>
 }
@@ -47,6 +46,7 @@ export default function UnforeseenTransactionsModal({
     onExecuteTransaction,
     onDeleteTransaction,
     onEditTransaction,
+    onViewDetails,
     onCreateNew,
     onUpdateStatus
 }: UnforeseenTransactionsModalProps) {
@@ -91,36 +91,36 @@ export default function UnforeseenTransactionsModal({
                 initial={{opacity: 0, scale: 0.95}}
                 animate={{opacity: 1, scale: 1}}
                 exit={{opacity: 0, scale: 0.95}}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-xl w-full max-h-[85vh] overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-                    <div>
-                        <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {/* Header – קומפקטי */}
+                <div className="flex items-center justify-between gap-3 p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
                             עסקאות לא צפויות
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                             {filteredTransactions.length} עסקאות
-                        </p>
+                        </span>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+                        className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors shrink-0"
                     >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                   d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
                 </div>
 
-                {/* Filter Buttons */}
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                    <div className="flex flex-wrap gap-2">
+                {/* Filter Buttons – ריווח קטן */}
+                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                    <div className="flex flex-wrap gap-1.5">
                         <button
                             onClick={() => onFilterChange('all')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                                 unforeseenTransactionsFilter === 'all'
                                     ? 'bg-purple-600 text-white'
                                     : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -130,7 +130,7 @@ export default function UnforeseenTransactionsModal({
                         </button>
                         <button
                             onClick={() => onFilterChange('draft')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                                 unforeseenTransactionsFilter === 'draft'
                                     ? 'bg-gray-600 text-white'
                                     : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -140,7 +140,7 @@ export default function UnforeseenTransactionsModal({
                         </button>
                         <button
                             onClick={() => onFilterChange('waiting_for_approval')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                                 unforeseenTransactionsFilter === 'waiting_for_approval'
                                     ? 'bg-yellow-600 text-white'
                                     : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -150,7 +150,7 @@ export default function UnforeseenTransactionsModal({
                         </button>
                         <button
                             onClick={() => onFilterChange('executed')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                                 unforeseenTransactionsFilter === 'executed'
                                     ? 'bg-green-600 text-white'
                                     : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -161,12 +161,12 @@ export default function UnforeseenTransactionsModal({
                     </div>
                 </div>
 
-                {/* Content - Scrollable */}
-                <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]" style={{ overscrollBehavior: 'contain' }}>
+                {/* Content - Scrollable, ריווח קטן */}
+                <div className="p-4 overflow-y-auto max-h-[calc(85vh-140px)]" style={{ overscrollBehavior: 'contain' }}>
                     {filteredTransactions.length === 0 ? (
-                        <div className="text-center py-16">
+                        <div className="text-center py-8">
                             <svg
-                                className="w-24 h-24 text-gray-300 dark:text-gray-600 mx-auto mb-4"
+                                className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-3"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -178,106 +178,96 @@ export default function UnforeseenTransactionsModal({
                                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                 />
                             </svg>
-                            <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                            <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                 אין עסקאות לא צפויות
                             </h3>
-                            <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
+                            <p className="text-gray-500 dark:text-gray-400 text-xs mb-3">
                                 עדיין לא נוצרו עסקאות לא צפויות
                             </p>
                             <button
                                 onClick={onCreateNew}
-                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                             >
                                 צור עסקה חדשה
                             </button>
                         </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             {filteredTransactions.map((tx) => (
                                 <div key={tx.id}
-                                     className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:border-blue-400 dark:hover:border-blue-500 transition-all cursor-pointer group"
+                                     className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:border-blue-400 dark:hover:border-blue-500 transition-all cursor-pointer group"
                                      onClick={(e) => {
-                                         // Don't open details if clicking on buttons, inputs, or links
                                          const target = e.target as HTMLElement
-                                         if (target.closest('button') || 
-                                             target.closest('input') || 
-                                             target.closest('label') ||
-                                             target.closest('a')) {
-                                             return
-                                         }
+                                         if (target.closest('button') || target.closest('input') || target.closest('label') || target.closest('a')) return
                                          setSelectedTransaction(tx)
                                      }}>
-                                    <div className="flex items-center justify-between mb-3" onClick={(e) => {
+                                    {/* שורה אחת: תיאור + סטטוס + תאריך | הכנסה/הוצאות | רווח/הפסד | אייקון */}
+                                    <div className="flex items-center justify-between gap-3 flex-wrap" onClick={(e) => {
                                         const target = e.target as HTMLElement
-                                        if (!target.closest('button') && !target.closest('input') && !target.closest('label')) {
-                                            setSelectedTransaction(tx)
-                                        }
+                                        if (!target.closest('button') && !target.closest('input') && !target.closest('label')) setSelectedTransaction(tx)
                                     }}>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex flex-col">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                                        {tx.description || `עסקה #${tx.id}`}
-                                                    </span>
-                                                    <span className={`px-2 py-1 rounded-full text-xs ${
-                                                        tx.status === 'executed'
-                                                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-                                                            : tx.status === 'waiting_for_approval'
-                                                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
-                                                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                                                    }`}>
-                                                        {tx.status === 'draft' && 'טיוטה'}
-                                                        {tx.status === 'waiting_for_approval' && 'מחכה לאישור'}
-                                                        {tx.status === 'executed' && 'בוצע'}
-                                                    </span>
-                                                </div>
-                                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                    {formatDate(tx.transaction_date)}
-                                                </span>
-                                            </div>
+                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                                {tx.description || `עסקה #${tx.id}`}
+                                            </span>
+                                            <span className={`px-1.5 py-0.5 rounded text-xs shrink-0 ${
+                                                tx.status === 'executed'
+                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                                                    : tx.status === 'waiting_for_approval'
+                                                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
+                                                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                            }`}>
+                                                {tx.status === 'draft' && 'טיוטה'}
+                                                {tx.status === 'waiting_for_approval' && 'מחכה לאישור'}
+                                                {tx.status === 'executed' && 'בוצע'}
+                                            </span>
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                                                {formatDate(tx.transaction_date)}
+                                            </span>
                                         </div>
-                                        <div className="flex items-center gap-4">
-                                            <span className={`text-lg font-bold ${
-                                                tx.profit_loss >= 0
-                                                    ? 'text-green-600 dark:text-green-400'
-                                                    : 'text-red-600 dark:text-red-400'
+                                        <div className="flex items-center gap-3 shrink-0">
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                                <span className="text-green-600 dark:text-green-400 font-medium">{(tx.total_incomes ?? tx.income_amount ?? 0).toLocaleString('he-IL')} ₪</span>
+                                                <span className="mx-1">·</span>
+                                                <span className="text-red-600 dark:text-red-400 font-medium">{tx.total_expenses.toLocaleString('he-IL')} ₪</span>
+                                            </span>
+                                            <span className={`text-sm font-bold whitespace-nowrap ${
+                                                tx.profit_loss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                                             }`}>
                                                 {tx.profit_loss >= 0 ? '+' : ''}{tx.profit_loss.toLocaleString('he-IL')} ₪
                                             </span>
-                                            <Eye className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4 mb-3">
-                                        <div>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">הכנסה: </span>
-                                            <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                                                {tx.income_amount.toLocaleString('he-IL')} ₪
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">הוצאות: </span>
-                                            <span className="text-sm font-medium text-red-600 dark:text-red-400">
-                                                {tx.total_expenses.toLocaleString('he-IL')} ₪
-                                            </span>
+                                            <Eye className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors shrink-0" />
                                         </div>
                                     </div>
 
                                     {tx.notes && (
-                                        <div className="mb-2">
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">הערות: </span>
-                                            <span className="text-sm text-gray-700 dark:text-gray-300">{tx.notes}</span>
-                                        </div>
+                                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate" title={tx.notes}>
+                                            {tx.notes}
+                                        </p>
                                     )}
 
-                                    <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                                        {/* כפתור צפה בפרטים (כולל מסמכים) – טיוטה/מחכה/בוצע */}
+                                        {onViewDetails && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    onViewDetails(tx)
+                                                }}
+                                                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 font-medium"
+                                                title="צפה בפרטי העסקה והמסמכים"
+                                            >
+                                                <FileText className="w-4 h-4 shrink-0" />
+                                                צפה במסמכים
+                                            </button>
+                                        )}
                                         {/* כפתור עריכה - תמיד מופיע */}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 onEditTransaction(tx)
                                             }}
-                                            className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
+                                            className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
                                         >
                                             צפה/ערוך
                                         </button>
@@ -300,7 +290,7 @@ export default function UnforeseenTransactionsModal({
                                                                 }
                                                             })
                                                         }}
-                                                        className="px-3 py-1.5 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                                                        className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-medium"
                                                     >
                                                         תעביר לממתין לאישור
                                                     </button>
@@ -310,7 +300,7 @@ export default function UnforeseenTransactionsModal({
                                                         e.stopPropagation()
                                                         setExecuteConfirmState({ isOpen: true, transactionId: tx.id })
                                                     }}
-                                                    className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                                    className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                                                 >
                                                     בצע
                                                 </button>
@@ -328,7 +318,7 @@ export default function UnforeseenTransactionsModal({
                                                             }
                                                         })
                                                     }}
-                                                    className="px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                                    className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
                                                 >
                                                     מחק
                                                 </button>
@@ -343,7 +333,7 @@ export default function UnforeseenTransactionsModal({
                                                         e.stopPropagation()
                                                         setExecuteConfirmState({ isOpen: true, transactionId: tx.id })
                                                     }}
-                                                    className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                                    className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                                                 >
                                                     בצע
                                                 </button>
@@ -361,7 +351,7 @@ export default function UnforeseenTransactionsModal({
                                                             }
                                                         })
                                                     }}
-                                                    className="px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                                    className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
                                                 >
                                                     מחק
                                                 </button>
@@ -384,7 +374,7 @@ export default function UnforeseenTransactionsModal({
                                                         }
                                                     })
                                                 }}
-                                                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
                                             >
                                                 מחק
                                             </button>
@@ -463,7 +453,7 @@ export default function UnforeseenTransactionsModal({
                                     <div>
                                         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">הכנסה</p>
                                         <p className="text-xl font-bold text-green-600 dark:text-green-400">
-                                            ₪{selectedTransaction.income_amount.toLocaleString('he-IL')}
+                                            ₪{(selectedTransaction.total_incomes ?? selectedTransaction.income_amount ?? 0).toLocaleString('he-IL')}
                                         </p>
                                     </div>
                                     <div>
@@ -520,16 +510,21 @@ export default function UnforeseenTransactionsModal({
                                                             </p>
                                                         )}
                                                     </div>
-                                                    {exp.document && (
-                                                        <a
-                                                            href={exp.document.file_path}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="ml-4 p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        >
-                                                            <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                                                        </a>
+                                                    {exp.documents && exp.documents.length > 0 && (
+                                                        <div className="flex gap-2">
+                                                            {exp.documents.map((doc, docIdx) => (
+                                                                <a
+                                                                    key={doc.id ?? docIdx}
+                                                                    href={doc.file_path}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                                                                </a>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                 </div>
                                             ))}

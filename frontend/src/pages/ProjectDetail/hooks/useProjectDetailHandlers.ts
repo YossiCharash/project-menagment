@@ -99,17 +99,18 @@ export function useProjectDetailHandlers(
 
   // Unforeseen transaction handlers
   const resetUnforeseenForm = () => {
-    state.setUnforeseenIncomeAmount(0)
+    state.setUnforeseenIncomes([{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }])
     state.setUnforeseenDescription('')
     state.setUnforeseenNotes('')
     state.setUnforeseenTransactionDate(new Date().toISOString().split('T')[0])
-    state.setUnforeseenExpenses([{ amount: 0, description: '', documentFile: null, expenseId: null, documentId: null }])
+    state.setUnforeseenExpenses([{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }])
     state.setEditingUnforeseenTransaction(null)
     state.setUploadingDocumentForExpense(null)
+    state.setUploadingDocumentForIncome(null)
   }
 
   const handleAddUnforeseenExpense = () => {
-    state.setUnforeseenExpenses([...state.unforeseenExpenses, { amount: 0, description: '', documentFile: null, expenseId: null, documentId: null }])
+    state.setUnforeseenExpenses([...state.unforeseenExpenses, { amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }])
   }
 
   const handleRemoveUnforeseenExpense = (index: number) => {
@@ -122,15 +123,43 @@ export function useProjectDetailHandlers(
     state.setUnforeseenExpenses(newExpenses)
   }
 
-  const handleUnforeseenExpenseDocumentChange = (index: number, file: File | null) => {
+  const handleAddUnforeseenIncome = () => {
+    state.setUnforeseenIncomes([...state.unforeseenIncomes, { amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }])
+  }
+
+  const handleRemoveUnforeseenIncome = (index: number) => {
+    state.setUnforeseenIncomes(state.unforeseenIncomes.filter((_: any, i: number) => i !== index))
+  }
+
+  const handleUnforeseenIncomeChange = (index: number, field: 'amount' | 'description', value: string | number) => {
+    const newIncomes = [...state.unforeseenIncomes]
+    newIncomes[index] = { ...newIncomes[index], [field]: value }
+    state.setUnforeseenIncomes(newIncomes)
+  }
+
+  const handleUnforeseenExpenseDocumentChange = (index: number, files: FileList | null) => {
+    if (!files) return
     const newExpenses = [...state.unforeseenExpenses]
-    newExpenses[index] = { ...newExpenses[index], documentFile: file }
+    newExpenses[index] = { 
+      ...newExpenses[index], 
+      documentFiles: [...newExpenses[index].documentFiles, ...Array.from(files)] 
+    }
+    state.setUnforeseenExpenses(newExpenses)
+  }
+
+  const handleRemoveUnforeseenExpenseDocument = (expenseIndex: number, fileIndex: number) => {
+    const newExpenses = [...state.unforeseenExpenses]
+    newExpenses[expenseIndex] = { 
+      ...newExpenses[expenseIndex], 
+      documentFiles: newExpenses[expenseIndex].documentFiles.filter((_: any, i: number) => i !== fileIndex) 
+    }
     state.setUnforeseenExpenses(newExpenses)
   }
 
   const calculateUnforeseenProfitLoss = () => {
     const totalExpenses = state.unforeseenExpenses.reduce((sum: number, exp: any) => sum + (parseFloat(String(exp.amount)) || 0), 0)
-    const profitLoss = (parseFloat(String(state.unforeseenIncomeAmount)) || 0) - totalExpenses
+    const totalIncomes = state.unforeseenIncomes.reduce((sum: number, inc: any) => sum + (parseFloat(String(inc.amount)) || 0), 0)
+    const profitLoss = totalIncomes - totalExpenses
     return Math.round(profitLoss * 100) / 100
   }
 
@@ -144,24 +173,32 @@ export function useProjectDetailHandlers(
     state.setUnforeseenSubmitting(true)
     try {
       const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+      const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => inc.amount > 0)
       
       const expenseData = expensesWithFiles.map((exp: any) => ({
         amount: roundTo2(parseFloat(String(exp.amount)) || 0),
         description: exp.description || undefined
       }))
 
+      const incomeData = incomesWithFiles.map((inc: any) => ({
+        amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+        description: inc.description || undefined
+      }))
+
       const data = {
         project_id: parseInt(id),
         contract_period_id: viewingPeriodId || undefined,
-        income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
         description: state.unforeseenDescription || undefined,
         notes: state.unforeseenNotes || undefined,
         transaction_date: state.unforeseenTransactionDate,
-        expenses: expenseData
+        expenses: expenseData,
+        incomes: incomeData
       }
 
       const createdTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(data)
-      
+      const createdExpenses = createdTx?.expenses ?? []
+      const createdIncomes = createdTx?.incomes ?? []
+
       if (status !== 'draft') {
         if (status === 'waiting_for_approval') {
           await UnforeseenTransactionAPI.updateUnforeseenTransaction(createdTx.id, { status: 'waiting_for_approval' })
@@ -170,28 +207,83 @@ export function useProjectDetailHandlers(
 
       for (let i = 0; i < expensesWithFiles.length; i++) {
         const exp = expensesWithFiles[i]
-        if (exp.documentFile) {
-          if (i < createdTx.expenses.length) {
-            const createdExpense = createdTx.expenses[i]
-            try {
-              state.setUploadingDocumentForExpense(createdExpense.id)
-              await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, exp.documentFile)
-            } catch (err: any) {
-              console.error('Failed to upload document for expense:', err)
-              alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
-            } finally {
-              state.setUploadingDocumentForExpense(null)
+        if (exp.documentFiles && exp.documentFiles.length > 0) {
+          if (i < createdExpenses.length) {
+            const createdExpense = createdExpenses[i]
+            for (const file of exp.documentFiles) {
+              try {
+                state.setUploadingDocumentForExpense(createdExpense.id)
+                await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for expense:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForExpense(null)
+              }
             }
           }
         }
       }
 
-      state.setShowCreateUnforeseenTransactionModal(false)
-      resetUnforeseenForm()
-      // Reload the entire page to refresh everything (like F5)
-      window.location.reload()
+      for (let i = 0; i < incomesWithFiles.length; i++) {
+        const inc = incomesWithFiles[i]
+        if (inc.documentFiles && inc.documentFiles.length > 0) {
+          if (i < createdIncomes.length) {
+            const createdIncome = createdIncomes[i]
+            for (const file of inc.documentFiles) {
+              try {
+                state.setUploadingDocumentForIncome(createdIncome.id)
+                await UnforeseenTransactionAPI.uploadIncomeDocument(createdTx.id, createdIncome.id, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for income:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForIncome(null)
+              }
+            }
+          }
+        }
+      }
+
+      // רענון אחרי העלאה – טוענים את העסקה עם המסמכים ומציגים בעריכה בלי לסגור את המודל
+      const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(createdTx.id)
+      state.setEditingUnforeseenTransaction(fresh)
+      state.setUnforeseenDescription(fresh.description || '')
+      state.setUnforeseenNotes(fresh.notes || '')
+      state.setUnforeseenTransactionDate(fresh.transaction_date)
+      state.setUnforeseenExpenses(
+        fresh.expenses && fresh.expenses.length > 0
+          ? fresh.expenses.map((exp: any) => ({
+              amount: exp.amount,
+              description: exp.description || '',
+              documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+              expenseId: exp.id,
+              documentFiles: []
+            }))
+          : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+      )
+      state.setUnforeseenIncomes(
+        fresh.incomes && fresh.incomes.length > 0
+          ? fresh.incomes.map((inc: any) => ({
+              amount: inc.amount,
+              description: inc.description || '',
+              incomeId: inc.id,
+              documentFiles: [],
+              documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+            }))
+          : (fresh as any).income_amount > 0
+            ? [{ amount: (fresh as any).income_amount, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+            : [{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+      )
+      await dataLoaders.loadUnforeseenTransactions()
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'שגיאה ביצירת העסקה')
+      const detail = err.response?.data?.detail
+      const message = Array.isArray(detail)
+        ? detail.map((e: any) => e?.msg ?? e).join(', ')
+        : typeof detail === 'string'
+          ? detail
+          : 'שגיאה ביצירת העסקה'
+      alert(message)
     } finally {
       state.setUnforeseenSubmitting(false)
     }
@@ -203,20 +295,26 @@ export function useProjectDetailHandlers(
     state.setUnforeseenSubmitting(true)
     try {
       const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+      const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => inc.amount > 0)
       
       const expenseData = expensesWithFiles.map((exp: any) => ({
         amount: roundTo2(parseFloat(String(exp.amount)) || 0),
         description: exp.description || undefined
       }))
 
+      const incomeData = incomesWithFiles.map((inc: any) => ({
+        amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+        description: inc.description || undefined
+      }))
+
       const data = {
         project_id: parseInt(id),
         contract_period_id: viewingPeriodId || undefined,
-        income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
         description: state.unforeseenDescription || undefined,
         notes: state.unforeseenNotes || undefined,
         transaction_date: state.unforeseenTransactionDate,
-        expenses: expenseData
+        expenses: expenseData,
+        incomes: incomeData
       }
 
       const createdTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(data)
@@ -224,17 +322,38 @@ export function useProjectDetailHandlers(
       // Upload documents first
       for (let i = 0; i < expensesWithFiles.length; i++) {
         const exp = expensesWithFiles[i]
-        if (exp.documentFile) {
+        if (exp.documentFiles && exp.documentFiles.length > 0) {
           if (i < createdTx.expenses.length) {
             const createdExpense = createdTx.expenses[i]
-            try {
-              state.setUploadingDocumentForExpense(createdExpense.id)
-              await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, exp.documentFile)
-            } catch (err: any) {
-              console.error('Failed to upload document for expense:', err)
-              alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
-            } finally {
-              state.setUploadingDocumentForExpense(null)
+            for (const file of exp.documentFiles) {
+              try {
+                state.setUploadingDocumentForExpense(createdExpense.id)
+                await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for expense:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForExpense(null)
+              }
+            }
+          }
+        }
+      }
+      for (let i = 0; i < incomesWithFiles.length; i++) {
+        const inc = incomesWithFiles[i]
+        if (inc.documentFiles && inc.documentFiles.length > 0) {
+          if (i < (createdTx.incomes?.length ?? 0)) {
+            const createdIncome = createdTx.incomes![i]
+            for (const file of inc.documentFiles) {
+              try {
+                state.setUploadingDocumentForIncome(createdIncome.id)
+                await UnforeseenTransactionAPI.uploadIncomeDocument(createdTx.id, createdIncome.id, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for income:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForIncome(null)
+              }
             }
           }
         }
@@ -260,18 +379,24 @@ export function useProjectDetailHandlers(
     state.setUnforeseenSubmitting(true)
     try {
       const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+      const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => inc.amount > 0)
       
       const expenseData = expensesWithFiles.map((exp: any) => ({
         amount: roundTo2(parseFloat(String(exp.amount)) || 0),
         description: exp.description || undefined
       }))
 
+      const incomeData = incomesWithFiles.map((inc: any) => ({
+        amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+        description: inc.description || undefined
+      }))
+
       const updateData: any = {
-        income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
         description: state.unforeseenDescription || undefined,
         notes: state.unforeseenNotes || undefined,
         transaction_date: state.unforeseenTransactionDate,
-        expenses: expenseData
+        expenses: expenseData,
+        incomes: incomeData
       }
 
       if (status) {
@@ -283,7 +408,7 @@ export function useProjectDetailHandlers(
 
       for (let i = 0; i < expensesWithFiles.length; i++) {
         const exp = expensesWithFiles[i]
-        if (exp.documentFile) {
+        if (exp.documentFiles && exp.documentFiles.length > 0) {
           let expenseIdToUse: number | null = null
           if (exp.expenseId) {
             const matchingExpense = updatedTx.expenses.find((e: any) => e.id === exp.expenseId)
@@ -295,23 +420,80 @@ export function useProjectDetailHandlers(
           }
           
           if (expenseIdToUse) {
-            try {
-              state.setUploadingDocumentForExpense(expenseIdToUse)
-              await UnforeseenTransactionAPI.uploadExpenseDocument(state.editingUnforeseenTransaction.id, expenseIdToUse, exp.documentFile)
-            } catch (err: any) {
-              console.error('Failed to upload document for expense:', err)
-              alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
-            } finally {
-              state.setUploadingDocumentForExpense(null)
+            for (const file of exp.documentFiles) {
+              try {
+                state.setUploadingDocumentForExpense(expenseIdToUse)
+                await UnforeseenTransactionAPI.uploadExpenseDocument(state.editingUnforeseenTransaction.id, expenseIdToUse, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for expense:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForExpense(null)
+              }
             }
           }
         }
       }
 
-      state.setShowCreateUnforeseenTransactionModal(false)
-      resetUnforeseenForm()
-      // Reload the entire page to refresh everything (like F5)
-      window.location.reload()
+      for (let i = 0; i < incomesWithFiles.length; i++) {
+        const inc = incomesWithFiles[i]
+        if (inc.documentFiles && inc.documentFiles.length > 0) {
+          let incomeIdToUse: number | null = null
+          if (inc.incomeId) {
+            const matchingIncome = updatedTx.incomes?.find((incoming: any) => incoming.id === inc.incomeId)
+            if (matchingIncome) {
+              incomeIdToUse = matchingIncome.id
+            }
+          } else if (updatedTx.incomes && i < updatedTx.incomes.length) {
+            incomeIdToUse = updatedTx.incomes[i].id
+          }
+          if (incomeIdToUse) {
+            for (const file of inc.documentFiles) {
+              try {
+                state.setUploadingDocumentForIncome(incomeIdToUse)
+                await UnforeseenTransactionAPI.uploadIncomeDocument(state.editingUnforeseenTransaction.id, incomeIdToUse, file)
+              } catch (err: any) {
+                console.error(`Failed to upload document ${file.name} for income:`, err)
+                alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+              } finally {
+                state.setUploadingDocumentForIncome(null)
+              }
+            }
+          }
+        }
+      }
+
+      // רענון אחרי העלאה – טוענים שוב את העסקה עם המסמכים ומעדכנים את המסך בלי לסגור את המודל
+      const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(state.editingUnforeseenTransaction.id)
+      state.setEditingUnforeseenTransaction(fresh)
+      state.setUnforeseenDescription(fresh.description || '')
+      state.setUnforeseenNotes(fresh.notes || '')
+      state.setUnforeseenTransactionDate(fresh.transaction_date)
+      state.setUnforeseenExpenses(
+        fresh.expenses && fresh.expenses.length > 0
+          ? fresh.expenses.map((exp: any) => ({
+              amount: exp.amount,
+              description: exp.description || '',
+              documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+              expenseId: exp.id,
+              documentFiles: []
+            }))
+          : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+      )
+      state.setUnforeseenIncomes(
+        fresh.incomes && fresh.incomes.length > 0
+          ? fresh.incomes.map((inc: any) => ({
+              amount: inc.amount,
+              description: inc.description || '',
+              incomeId: inc.id,
+              documentFiles: [],
+              documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+            }))
+          : (fresh as any).income_amount > 0
+            ? [{ amount: (fresh as any).income_amount, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+            : [{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+      )
+      await dataLoaders.loadUnforeseenTransactions()
     } catch (err: any) {
       alert(err.response?.data?.detail || 'שגיאה בעדכון העסקה')
     } finally {
@@ -744,7 +926,11 @@ export function useProjectDetailHandlers(
     handleAddUnforeseenExpense,
     handleRemoveUnforeseenExpense,
     handleUnforeseenExpenseChange,
+    handleAddUnforeseenIncome,
+    handleRemoveUnforeseenIncome,
+    handleUnforeseenIncomeChange,
     handleUnforeseenExpenseDocumentChange,
+    handleRemoveUnforeseenExpenseDocument,
     handleCreateUnforeseenTransaction,
     handleCreateAndExecuteUnforeseenTransaction,
     handleUpdateUnforeseenTransaction,

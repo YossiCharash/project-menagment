@@ -161,16 +161,18 @@ export function useProjectDetailState() {
   const [showUnforeseenTransactionsModal, setShowUnforeseenTransactionsModal] = useState(false)
   const [showCreateUnforeseenTransactionModal, setShowCreateUnforeseenTransactionModal] = useState(false)
   const [unforeseenTransactionsFilter, setUnforeseenTransactionsFilter] = useState<'all' | 'draft' | 'waiting_for_approval' | 'executed'>('all')
-  const [unforeseenIncomeAmount, setUnforeseenIncomeAmount] = useState<number>(0)
+  const [unforeseenIncomes, setUnforeseenIncomes] = useState<Array<{ amount: number; description: string; documentFiles: File[]; documentIds: number[]; incomeId: number | null }>>([{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }])
   const [unforeseenDescription, setUnforeseenDescription] = useState<string>('')
   const [unforeseenNotes, setUnforeseenNotes] = useState<string>('')
   const [unforeseenTransactionDate, setUnforeseenTransactionDate] = useState<string>(new Date().toISOString().split('T')[0])
-  const [unforeseenExpenses, setUnforeseenExpenses] = useState<Array<{ amount: number; description: string; documentFile?: File | null; documentId?: number | null; expenseId?: number | null }>>([{ amount: 0, description: '', documentFile: null, expenseId: null, documentId: null }])
+  const [unforeseenExpenses, setUnforeseenExpenses] = useState<Array<{ amount: number; description: string; documentFiles: File[]; documentIds: number[]; expenseId: number | null }>>([{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }])
   const [unforeseenSubmitting, setUnforeseenSubmitting] = useState(false)
   const [editingUnforeseenTransaction, setEditingUnforeseenTransaction] = useState<UnforeseenTransaction | null>(null)
   const [uploadingDocumentForExpense, setUploadingDocumentForExpense] = useState<number | null>(null)
+  const [uploadingDocumentForIncome, setUploadingDocumentForIncome] = useState<number | null>(null)
   const [showUnforeseenTransactionDetailsModal, setShowUnforeseenTransactionDetailsModal] = useState(false)
   const [selectedUnforeseenTransactionForDetails, setSelectedUnforeseenTransactionForDetails] = useState<UnforeseenTransaction | null>(null)
+  const [unforeseenDetailsReadOnly, setUnforeseenDetailsReadOnly] = useState(false)
 
   // Contract periods state
   const [contractPeriods, setContractPeriods] = useState<{
@@ -374,7 +376,7 @@ export function useProjectDetailState() {
     showUnforeseenTransactionsModal, setShowUnforeseenTransactionsModal,
     showCreateUnforeseenTransactionModal, setShowCreateUnforeseenTransactionModal,
     unforeseenTransactionsFilter, setUnforeseenTransactionsFilter,
-    unforeseenIncomeAmount, setUnforeseenIncomeAmount,
+    unforeseenIncomes, setUnforeseenIncomes,
     unforeseenDescription, setUnforeseenDescription,
     unforeseenNotes, setUnforeseenNotes,
     unforeseenTransactionDate, setUnforeseenTransactionDate,
@@ -382,8 +384,10 @@ export function useProjectDetailState() {
     unforeseenSubmitting, setUnforeseenSubmitting,
     editingUnforeseenTransaction, setEditingUnforeseenTransaction,
     uploadingDocumentForExpense, setUploadingDocumentForExpense,
+    uploadingDocumentForIncome, setUploadingDocumentForIncome,
     showUnforeseenTransactionDetailsModal, setShowUnforeseenTransactionDetailsModal,
     selectedUnforeseenTransactionForDetails, setSelectedUnforeseenTransactionForDetails,
+    unforeseenDetailsReadOnly, setUnforeseenDetailsReadOnly,
 
     // Contract periods state
     contractPeriods, setContractPeriods,

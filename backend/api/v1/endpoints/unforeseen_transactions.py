@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.config import settings
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.services.unforeseen_transaction_service import UnforeseenTransactionService
 from backend.services.s3_service import S3Service
 from backend.repositories.supplier_document_repository import SupplierDocumentRepository
+from backend.models.supplier_document import SupplierDocument
 from backend.schemas.unforeseen_transaction import (
     UnforeseenTransactionCreate,
     UnforeseenTransactionUpdate,
@@ -53,6 +55,20 @@ async def list_unforeseen_transactions_by_contract_period(
     """List all unforeseen transactions for a contract period"""
     service = UnforeseenTransactionService(db)
     return await service.list_by_contract_period(contract_period_id)
+
+
+@router.get("/by-resulting-transaction/{resulting_transaction_id}", response_model=dict)
+async def get_unforeseen_transaction_by_resulting(
+    resulting_transaction_id: int,
+    db: DBSessionDep,
+    user = Depends(get_current_user)
+):
+    """Get an unforeseen transaction by the ID of its resulting (created) transaction"""
+    service = UnforeseenTransactionService(db)
+    tx = await service.get_by_resulting_transaction_id(resulting_transaction_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
+    return await service._format_transaction(tx)
 
 
 @router.get("/{tx_id}", response_model=dict)
@@ -162,6 +178,11 @@ async def upload_expense_document(
     if not expense or expense.unforeseen_transaction_id != tx_id:
         raise HTTPException(status_code=404, detail="הוצאה לא נמצאה")
     
+    if not settings.AWS_S3_BUCKET:
+        raise HTTPException(
+            status_code=503,
+            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר. הגדר AWS_S3_BUCKET ב-.env להעלאת מסמכים."
+        )
     # Upload to S3
     await file.seek(0)
     s3 = S3Service()
@@ -175,15 +196,69 @@ async def upload_expense_document(
     
     # Create supplier document
     doc_repo = SupplierDocumentRepository(db)
-    doc = await doc_repo.create({
-        "file_path": file_url,
-        "description": description,
-        "transaction_id": None  # Not linked to a regular transaction
-    })
+    doc = SupplierDocument(
+        file_path=file_url,
+        description=description,
+        transaction_id=None,
+        unforeseen_transaction_expense_id=expense_id,
+    )
+    doc = await doc_repo.create(doc)
     
-    # Link document to expense
-    expense.document_id = doc.id
-    await service.repo.update_expense(expense, {})
+    return {
+        "id": doc.id,
+        "file_path": doc.file_path,
+        "description": doc.description,
+        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+    }
+
+
+@router.post("/{tx_id}/incomes/{income_id}/document")
+async def upload_income_document(
+    tx_id: int,
+    income_id: int,
+    file: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    db: DBSessionDep = None,
+    user = Depends(get_current_user)
+):
+    """Upload a document for an income"""
+    import asyncio
+    
+    # Verify transaction and income exist
+    service = UnforeseenTransactionService(db)
+    tx = await service.get_by_id(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
+    
+    income = await service.repo.get_income_by_id(income_id)
+    if not income or income.unforeseen_transaction_id != tx_id:
+        raise HTTPException(status_code=404, detail="הכנסה לא נמצאה")
+    
+    if not settings.AWS_S3_BUCKET:
+        raise HTTPException(
+            status_code=503,
+            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר. הגדר AWS_S3_BUCKET ב-.env להעלאת מסמכים."
+        )
+    # Upload to S3
+    await file.seek(0)
+    s3 = S3Service()
+    file_url = await asyncio.to_thread(
+        s3.upload_file,
+        prefix="unforeseen-transactions",
+        file_obj=file.file,
+        filename=file.filename or "income-document",
+        content_type=file.content_type,
+    )
+    
+    # Create supplier document
+    doc_repo = SupplierDocumentRepository(db)
+    doc = SupplierDocument(
+        file_path=file_url,
+        description=description,
+        transaction_id=None,
+        unforeseen_transaction_income_id=income_id,
+    )
+    doc = await doc_repo.create(doc)
     
     return {
         "id": doc.id,

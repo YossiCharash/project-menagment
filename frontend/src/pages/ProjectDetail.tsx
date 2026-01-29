@@ -24,6 +24,7 @@ import ProjectHeader from './ProjectDetail/components/ProjectHeader'
 import TransactionsList from './ProjectDetail/components/TransactionsList'
 import TransactionDetailsModal from './ProjectDetail/components/TransactionDetailsModal'
 import BudgetsAndCharts from './ProjectDetail/components/BudgetsAndCharts'
+import FundAndUnforeseenPanel from './ProjectDetail/components/FundAndUnforeseenPanel'
 import FundModals from './ProjectDetail/components/FundModals'
 import DocumentsModals from './ProjectDetail/components/DocumentsModals'
 import LoadingOverlay from './ProjectDetail/components/LoadingOverlay'
@@ -310,27 +311,28 @@ export default function ProjectDetail() {
 
 
     const resetUnforeseenForm = () => {
-        state.setUnforeseenIncomeAmount(0)
+        state.setUnforeseenIncomes([{amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: []}])
         state.setUnforeseenDescription('')
         state.setUnforeseenNotes('')
         state.setUnforeseenTransactionDate(new Date().toISOString().split('T')[0])
-        state.setUnforeseenExpenses([{amount: 0, description: '', documentFile: null, expenseId: null, documentId: null}])
+        state.setUnforeseenExpenses([{amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: []}])
         state.setEditingUnforeseenTransaction(null)
         state.setUploadingDocumentForExpense(null)
+        state.setUploadingDocumentForIncome(null)
     }
 
     const handleAddUnforeseenExpense = () => {
         state.setUnforeseenExpenses([...state.unforeseenExpenses, {
             amount: 0,
             description: '',
-            documentFile: null,
+            documentFiles: [],
             expenseId: null,
-            documentId: null
+            documentIds: []
         }])
     }
 
     const handleRemoveUnforeseenExpense = (index: number) => {
-        state.setUnforeseenExpenses(state.unforeseenExpenses.filter((_, i) => i !== index))
+        state.setUnforeseenExpenses(state.unforeseenExpenses.filter((_: any, i: number) => i !== index))
     }
 
     const handleUnforeseenExpenseChange = (index: number, field: 'amount' | 'description', value: string | number) => {
@@ -339,15 +341,48 @@ export default function ProjectDetail() {
         state.setUnforeseenExpenses(newExpenses)
     }
 
-    const handleUnforeseenExpenseDocumentChange = (index: number, file: File | null) => {
+    const handleUnforeseenExpenseDocumentChange = (index: number, files: FileList | null) => {
+        if (!files) return
         const newExpenses = [...state.unforeseenExpenses]
-        newExpenses[index] = {...newExpenses[index], documentFile: file}
+        newExpenses[index] = {
+            ...newExpenses[index], 
+            documentFiles: [...newExpenses[index].documentFiles, ...Array.from(files)]
+        }
         state.setUnforeseenExpenses(newExpenses)
+    }
+
+    const handleRemoveUnforeseenExpenseDocument = (expenseIndex: number, fileIndex: number) => {
+        const newExpenses = [...state.unforeseenExpenses]
+        newExpenses[expenseIndex] = {
+            ...newExpenses[expenseIndex],
+            documentFiles: newExpenses[expenseIndex].documentFiles.filter((_: any, i: number) => i !== fileIndex)
+        }
+        state.setUnforeseenExpenses(newExpenses)
+    }
+
+    const handleUnforeseenIncomeDocumentChange = (index: number, files: FileList | null) => {
+        if (!files) return
+        const newIncomes = [...state.unforeseenIncomes]
+        newIncomes[index] = {
+            ...newIncomes[index],
+            documentFiles: [...newIncomes[index].documentFiles, ...Array.from(files)]
+        }
+        state.setUnforeseenIncomes(newIncomes)
+    }
+
+    const handleRemoveUnforeseenIncomeDocument = (incomeIndex: number, fileIndex: number) => {
+        const newIncomes = [...state.unforeseenIncomes]
+        newIncomes[incomeIndex] = {
+            ...newIncomes[incomeIndex],
+            documentFiles: newIncomes[incomeIndex].documentFiles.filter((_: any, i: number) => i !== fileIndex)
+        }
+        state.setUnforeseenIncomes(newIncomes)
     }
 
     const calculateUnforeseenProfitLoss = () => {
         const totalExpenses = state.unforeseenExpenses.reduce((sum: number, exp: any) => sum + (parseFloat(String(exp.amount)) || 0), 0)
-        const profitLoss = (parseFloat(String(state.unforeseenIncomeAmount)) || 0) - totalExpenses
+        const totalIncomes = state.unforeseenIncomes.reduce((sum: number, inc: any) => sum + (parseFloat(String(inc.amount)) || 0), 0)
+        const profitLoss = totalIncomes - totalExpenses
         return Math.round(profitLoss * 100) / 100
     }
 
@@ -362,25 +397,34 @@ export default function ProjectDetail() {
         if (!id) return
         state.setUnforeseenSubmitting(true)
         try {
-            // Store expense files before creating (we'll need them after)
+            // Store expense/income files before creating (we'll need them after)
             const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+            const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => (parseFloat(String(inc.amount)) || 0) > 0)
 
             const expenseData = expensesWithFiles.map((exp: any) => ({
                 amount: roundTo2(parseFloat(String(exp.amount)) || 0),
                 description: exp.description || undefined
             }))
+            const incomeData = incomesWithFiles.map((inc: any) => ({
+                amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+                description: inc.description || undefined
+            }))
 
+            const totalIncome = state.unforeseenIncomes.reduce((sum: number, inc: any) => sum + (parseFloat(String(inc.amount)) || 0), 0)
             const data = {
                 project_id: parseInt(id),
                 contract_period_id: viewingPeriodId || undefined,
-                income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
+                income_amount: roundTo2(totalIncome),
                 description: state.unforeseenDescription || undefined,
                 notes: state.unforeseenNotes || undefined,
                 transaction_date: state.unforeseenTransactionDate,
-                expenses: expenseData
+                expenses: expenseData,
+                incomes: incomeData
             }
 
             const createdTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(data)
+            const createdExpenses = createdTx?.expenses ?? []
+            const createdIncomes = createdTx?.incomes ?? []
 
             // Update status if not draft
             if (status !== 'draft') {
@@ -389,19 +433,18 @@ export default function ProjectDetail() {
                 }
             }
 
-            // Upload documents for expenses - match by order and amount
+            // Upload documents for expenses - match by order
             for (let i = 0; i < expensesWithFiles.length; i++) {
                 const exp = expensesWithFiles[i]
-                if (exp.documentFile) {
-                    // Match expense by index (they should be in the same order)
-                    if (i < createdTx.expenses.length) {
-                        const createdExpense = createdTx.expenses[i]
+                if (exp.documentFiles && exp.documentFiles.length > 0 && i < createdExpenses.length) {
+                    const createdExpense = createdExpenses[i]
+                    for (const file of exp.documentFiles) {
                         try {
                             state.setUploadingDocumentForExpense(createdExpense.id)
-                            await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, exp.documentFile)
+                            await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, file)
                         } catch (err: any) {
-                            console.error('Failed to upload document for expense:', err)
-                            alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                            console.error(`Failed to upload document ${file.name} for expense:`, err)
+                            alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
                         } finally {
                             state.setUploadingDocumentForExpense(null)
                         }
@@ -409,9 +452,30 @@ export default function ProjectDetail() {
                 }
             }
 
+            // Upload documents for incomes - match by order
+            for (let i = 0; i < incomesWithFiles.length; i++) {
+                const inc = incomesWithFiles[i]
+                if (inc.documentFiles && inc.documentFiles.length > 0 && i < createdIncomes.length) {
+                    const createdIncome = createdIncomes[i]
+                    for (const file of inc.documentFiles) {
+                        try {
+                            state.setUploadingDocumentForIncome(createdIncome.id)
+                            await UnforeseenTransactionAPI.uploadIncomeDocument(createdTx.id, createdIncome.id, file)
+                        } catch (err: any) {
+                            console.error(`Failed to upload document ${file.name} for income:`, err)
+                            alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                        } finally {
+                            state.setUploadingDocumentForIncome(null)
+                        }
+                    }
+                }
+            }
+
             state.setShowCreateUnforeseenTransactionModal(false)
             resetUnforeseenForm()
+            // קודם רענון רשימת העסקאות הלא צפויות כדי שהרשימה תופיע מיד
             await dataLoaders.loadUnforeseenTransactions()
+            await dataLoaders.loadAllProjectData(viewingPeriodId)
         } catch (err: any) {
             alert(err.response?.data?.detail || 'שגיאה ביצירת העסקה')
         } finally {
@@ -423,40 +487,46 @@ export default function ProjectDetail() {
         if (!id) return
         state.setUnforeseenSubmitting(true)
         try {
-            // Store expense files before creating (we'll need them after)
             const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+            const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => (parseFloat(String(inc.amount)) || 0) > 0)
 
             const expenseData = expensesWithFiles.map((exp: any) => ({
                 amount: roundTo2(parseFloat(String(exp.amount)) || 0),
                 description: exp.description || undefined
             }))
+            const incomeData = incomesWithFiles.map((inc: any) => ({
+                amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+                description: inc.description || undefined
+            }))
 
+            const totalIncome = state.unforeseenIncomes.reduce((sum: number, inc: any) => sum + (parseFloat(String(inc.amount)) || 0), 0)
             const data = {
                 project_id: parseInt(id),
                 contract_period_id: viewingPeriodId || undefined,
-                income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
+                income_amount: roundTo2(totalIncome),
                 description: state.unforeseenDescription || undefined,
                 notes: state.unforeseenNotes || undefined,
                 transaction_date: state.unforeseenTransactionDate,
-                expenses: expenseData
+                expenses: expenseData,
+                incomes: incomeData
             }
 
-            // Create the transaction
             const createdTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(data)
+            const createdExpenses = createdTx?.expenses ?? []
+            const createdIncomes = createdTx?.incomes ?? []
 
-            // Upload documents for expenses - match by order and amount
+            // Upload documents for expenses
             for (let i = 0; i < expensesWithFiles.length; i++) {
                 const exp = expensesWithFiles[i]
-                if (exp.documentFile) {
-                    // Match expense by index (they should be in the same order)
-                    if (i < createdTx.expenses.length) {
-                        const createdExpense = createdTx.expenses[i]
+                if (exp.documentFiles && exp.documentFiles.length > 0 && i < createdExpenses.length) {
+                    const createdExpense = createdExpenses[i]
+                    for (const file of exp.documentFiles) {
                         try {
                             state.setUploadingDocumentForExpense(createdExpense.id)
-                            await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, exp.documentFile)
+                            await UnforeseenTransactionAPI.uploadExpenseDocument(createdTx.id, createdExpense.id, file)
                         } catch (err: any) {
-                            console.error('Failed to upload document for expense:', err)
-                            alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                            console.error(`Failed to upload document ${file.name} for expense:`, err)
+                            alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
                         } finally {
                             state.setUploadingDocumentForExpense(null)
                         }
@@ -464,13 +534,31 @@ export default function ProjectDetail() {
                 }
             }
 
-            // Execute the transaction immediately
+            // Upload documents for incomes
+            for (let i = 0; i < incomesWithFiles.length; i++) {
+                const inc = incomesWithFiles[i]
+                if (inc.documentFiles && inc.documentFiles.length > 0 && i < createdIncomes.length) {
+                    const createdIncome = createdIncomes[i]
+                    for (const file of inc.documentFiles) {
+                        try {
+                            state.setUploadingDocumentForIncome(createdIncome.id)
+                            await UnforeseenTransactionAPI.uploadIncomeDocument(createdTx.id, createdIncome.id, file)
+                        } catch (err: any) {
+                            console.error(`Failed to upload document ${file.name} for income:`, err)
+                            alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                        } finally {
+                            state.setUploadingDocumentForIncome(null)
+                        }
+                    }
+                }
+            }
+
             await UnforeseenTransactionAPI.executeUnforeseenTransaction(createdTx.id)
 
             state.setShowCreateUnforeseenTransactionModal(false)
             resetUnforeseenForm()
             await dataLoaders.loadUnforeseenTransactions()
-            await dataLoaders.loadTransactionsOnly()
+            await dataLoaders.loadAllProjectData(viewingPeriodId)
         } catch (err: any) {
             alert(err.response?.data?.detail || 'שגיאה ביצירת וביצוע העסקה')
         } finally {
@@ -482,20 +570,26 @@ export default function ProjectDetail() {
         if (!state.editingUnforeseenTransaction) return
         state.setUnforeseenSubmitting(true)
         try {
-            // Store expense files before updating
             const expensesWithFiles = state.unforeseenExpenses.filter((exp: any) => exp.amount > 0)
+            const incomesWithFiles = state.unforeseenIncomes.filter((inc: any) => (parseFloat(String(inc.amount)) || 0) > 0)
 
             const expenseData = expensesWithFiles.map((exp: any) => ({
                 amount: roundTo2(parseFloat(String(exp.amount)) || 0),
                 description: exp.description || undefined
             }))
+            const incomeData = incomesWithFiles.map((inc: any) => ({
+                amount: roundTo2(parseFloat(String(inc.amount)) || 0),
+                description: inc.description || undefined
+            }))
 
+            const totalIncome = state.unforeseenIncomes.reduce((sum: number, inc: any) => sum + (parseFloat(String(inc.amount)) || 0), 0)
             const updateData: any = {
-                income_amount: parseFloat(String(state.unforeseenIncomeAmount)) || 0,
+                income_amount: roundTo2(totalIncome),
                 description: state.unforeseenDescription || undefined,
                 notes: state.unforeseenNotes || undefined,
                 transaction_date: state.unforeseenTransactionDate,
-                expenses: expenseData
+                expenses: expenseData,
+                incomes: incomeData
             }
 
             if (status) {
@@ -504,50 +598,63 @@ export default function ProjectDetail() {
 
             await UnforeseenTransactionAPI.updateUnforeseenTransaction(state.editingUnforeseenTransaction?.id || 0, updateData)
 
-            // Get updated transaction to get expense IDs
             const updatedTx = await UnforeseenTransactionAPI.getUnforeseenTransaction(state.editingUnforeseenTransaction?.id || 0)
+            const txId = state.editingUnforeseenTransaction?.id || 0
+            const updatedExpenses = updatedTx?.expenses ?? []
+            const updatedIncomes = updatedTx?.incomes ?? []
 
-            // Upload documents for expenses that have new files
+            // רענון מלא של העמוד (F5) אחרי עדכון מוצלח
+            state.setShowCreateUnforeseenTransactionModal(false)
+            state.setEditingUnforeseenTransaction(null)
+            resetUnforeseenForm()
+
+            // העלאת מסמכים לפני הרענון – כישלון בהעלאה לא מונע רענון
             for (let i = 0; i < expensesWithFiles.length; i++) {
                 const exp = expensesWithFiles[i]
-                if (exp.documentFile) {
-                    // If expense has expenseId, use it; otherwise match by index
+                if (exp.documentFiles && exp.documentFiles.length > 0) {
                     let expenseIdToUse: number | null = null
                     if (exp.expenseId) {
-                        // Find the expense by original ID
-                        const matchingExpense = updatedTx.expenses.find(e => e.id === exp.expenseId)
-                        if (matchingExpense) {
-                            expenseIdToUse = matchingExpense.id
-                        }
-                    } else if (i < updatedTx.expenses.length) {
-                        // New expense, match by index
-                        expenseIdToUse = updatedTx.expenses[i].id
+                        const matchingExpense = updatedExpenses.find((e: any) => e.id === exp.expenseId)
+                        if (matchingExpense) expenseIdToUse = matchingExpense.id
+                    } else if (i < updatedExpenses.length) {
+                        expenseIdToUse = updatedExpenses[i].id
                     }
-
                     if (expenseIdToUse) {
-                        try {
-                            state.setUploadingDocumentForExpense(expenseIdToUse)
-                            await UnforeseenTransactionAPI.uploadExpenseDocument(state.editingUnforeseenTransaction?.id || 0, expenseIdToUse, exp.documentFile)
-                        } catch (err: any) {
-                            console.error('Failed to upload document for expense:', err)
-                            alert(`שגיאה בהעלאת מסמך להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
-                        } finally {
-                            state.setUploadingDocumentForExpense(null)
+                        for (const file of exp.documentFiles) {
+                            try {
+                                state.setUploadingDocumentForExpense(expenseIdToUse)
+                                await UnforeseenTransactionAPI.uploadExpenseDocument(txId, expenseIdToUse, file)
+                            } catch (err: any) {
+                                console.error(`Failed to upload document ${file.name} for expense:`, err)
+                                alert(`שגיאה בהעלאת מסמך ${file.name} להוצאה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                            } finally {
+                                state.setUploadingDocumentForExpense(null)
+                            }
                         }
                     }
                 }
             }
 
-            state.setShowCreateUnforeseenTransactionModal(false)
-            resetUnforeseenForm()
+            for (let i = 0; i < incomesWithFiles.length; i++) {
+                const inc = incomesWithFiles[i]
+                if (inc.documentFiles && inc.documentFiles.length > 0 && i < updatedIncomes.length) {
+                    const incomeIdToUse = updatedIncomes[i].id
+                    for (const file of inc.documentFiles) {
+                            try {
+                                state.setUploadingDocumentForIncome(incomeIdToUse)
+                                await UnforeseenTransactionAPI.uploadIncomeDocument(txId, incomeIdToUse, file)
+                            } catch (err: any) {
+                                console.error(`Failed to upload document ${file.name} for income:`, err)
+                                alert(`שגיאה בהעלאת מסמך ${file.name} להכנסה ${i + 1}: ${err.response?.data?.detail || 'שגיאה לא ידועה'}`)
+                            } finally {
+                                state.setUploadingDocumentForIncome(null)
+                            }
+                        }
+                }
+            }
 
-            // רענון מלא של העמוד וטעינת הנתונים המעודכנים
             await dataLoaders.loadUnforeseenTransactions()
-            await dataLoaders.loadTransactionsOnly() // רענון רשימת העסקאות
             await dataLoaders.loadAllProjectData(viewingPeriodId)
-
-            // פתיחה מחדש של מודל הרשימה כדי להציג את העסקה המעודכנת
-            state.setShowUnforeseenTransactionsModal(true)
         } catch (err: any) {
             alert(err.response?.data?.detail || 'שגיאה בעדכון העסקה')
         } finally {
@@ -996,16 +1103,19 @@ export default function ProjectDetail() {
             />
 
 
-            {/* Financial Summary */}
-            <FinancialSummary income={income} expense={expense}/>
+            {/* Main content - consistent width */}
+            <div className="w-full max-w-7xl mx-auto space-y-6">
+            {/* KPIs - Compact row */}
+            <FinancialSummary
+                income={income}
+                expense={expense}
+                fundBalance={state.fundData?.current_balance}
+            />
 
-            {/* Fund and Transactions Section */}
-            <div
-                className="max-w-6xl mx-auto w-full space-y-6 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
-                {/* Fund Section */}
-                {/* Trends Section (Moved from bottom) */}
-                <div
-                    className="lg:col-span-1 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 overflow-hidden">
+            {/* Main dashboard: Chart + Fund & Unforeseen side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-6">
+                {/* Left: Trends chart (wider) */}
+                <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-5 overflow-hidden min-h-[260px]">
                     <ProjectTrendsChart
                         projectId={parseInt(id || '0')}
                         projectName={state.projectName}
@@ -1020,9 +1130,51 @@ export default function ProjectDetail() {
                         hideFilterControls={true}
                     />
                 </div>
+                {/* Right: Fund + Unforeseen */}
+                <div className="lg:col-span-2 flex flex-col min-h-[260px]">
+                    <FundAndUnforeseenPanel
+                        fundData={state.fundData}
+                        fundLoading={state.fundLoading}
+                        unforeseenTransactions={state.unforeseenTransactions}
+                        unforeseenTransactionsLoading={state.unforeseenTransactionsLoading}
+                        onShowFundTransactionsModal={() => state.setShowFundTransactionsModal(true)}
+                        onShowEditFundModal={() => {
+                            if (state.fundData) {
+                                state.setMonthlyFundAmount(state.fundData.monthly_amount)
+                                state.setCurrentBalance(state.fundData.current_balance)
+                                state.setShowEditFundModal(true)
+                            }
+                        }}
+                        onShowUnforeseenTransactionsModal={() => state.setShowUnforeseenTransactionsModal(true)}
+                        onShowCreateUnforeseenTransactionModal={() => state.setShowCreateUnforeseenTransactionModal(true)}
+                        onResetUnforeseenForm={resetUnforeseenForm}
+                        onViewUnforeseenTransaction={async (tx) => {
+                            state.setUnforeseenDetailsReadOnly(false)
+                            try {
+                                const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(tx.id)
+                                state.setSelectedUnforeseenTransactionForDetails(fresh as any)
+                            } catch (_) {
+                                state.setSelectedUnforeseenTransactionForDetails(tx as any)
+                            }
+                            state.setShowUnforeseenTransactionDetailsModal(true)
+                        }}
+                    />
+                </div>
+            </div>
 
-                {/* Transactions List */}
-                <TransactionsList
+            {/* Budgets + Transactions - side by side; when no room, list drops to next row and keeps size */}
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_minmax(20rem,28rem)] gap-6 items-start">
+                <div className="min-w-0">
+                    <BudgetsAndCharts
+                        chartsLoading={state.chartsLoading}
+                        projectBudgets={state.projectBudgets}
+                        budgetDeleteLoading={state.budgetDeleteLoading}
+                        onDeleteBudget={handleDeleteBudget}
+                        onEditBudget={handleStartEditBudget}
+                    />
+                </div>
+                <div className="w-full min-w-0 max-w-[28rem] mx-auto xl:max-w-none xl:mx-0">
+                    <TransactionsList
                     txs={state.txs}
                     loading={state.loading}
                     transactionTypeFilter={state.transactionTypeFilter}
@@ -1042,9 +1194,20 @@ export default function ProjectDetail() {
                     onSetFilterDated={state.setFilterDated}
                     onSetCategoryFilter={state.setCategoryFilter}
                     onSetDateFilterMode={setDateFilterMode}
-                    onShowTransactionDetails={(tx: Transaction) => {
-                        state.setSelectedTransactionForDetails(tx)
-                        state.setShowTransactionDetailsModal(true)
+                    onShowTransactionDetails={async (tx: Transaction) => {
+                        if ((tx as any).is_unforeseen) {
+                            try {
+                                const fresh = await UnforeseenTransactionAPI.getUnforeseenTransactionByResultingTransactionId(tx.id)
+                                state.setSelectedUnforeseenTransactionForDetails(fresh as any)
+                                state.setUnforeseenDetailsReadOnly(true)
+                                state.setShowUnforeseenTransactionDetailsModal(true)
+                            } catch (_) {
+                                alert('לא נמצאה עסקה לא צפויה מקושרת')
+                            }
+                        } else {
+                            state.setSelectedTransactionForDetails(tx)
+                            state.setShowTransactionDetailsModal(true)
+                        }
                     }}
                     onShowDocumentsModal={async (tx: Transaction) => {
                         state.setSelectedTransactionForDocuments(tx)
@@ -1062,6 +1225,8 @@ export default function ProjectDetail() {
                     onEditTransaction={handleEditAnyTransaction}
                     onDeleteTransaction={handleDeleteTransaction}
                 />
+                </div>
+            </div>
 
                 {/* Transaction Details Modal */}
                 <TransactionDetailsModal
@@ -1146,36 +1311,7 @@ export default function ProjectDetail() {
                     onDeleteTransaction={handleDeleteTransaction}
                 />
             </div>
-
-            {/* Budget Cards and Charts */}
-            <BudgetsAndCharts
-                chartsLoading={state.chartsLoading}
-                projectBudgets={state.projectBudgets}
-                budgetDeleteLoading={state.budgetDeleteLoading}
-                fundData={state.fundData}
-                fundLoading={state.fundLoading}
-                unforeseenTransactions={state.unforeseenTransactions}
-                unforeseenTransactionsLoading={state.unforeseenTransactionsLoading}
-                onDeleteBudget={handleDeleteBudget}
-                onEditBudget={handleStartEditBudget}
-                onShowFundTransactionsModal={() => state.setShowFundTransactionsModal(true)}
-                onShowEditFundModal={() => {
-                    if (state.fundData) {
-                        state.setMonthlyFundAmount(state.fundData.monthly_amount)
-                        state.setCurrentBalance(state.fundData.current_balance)
-                        state.setShowEditFundModal(true)
-                    }
-                }}
-                onShowUnforeseenTransactionsModal={() => state.setShowUnforeseenTransactionsModal(true)}
-                onShowCreateUnforeseenTransactionModal={() => state.setShowCreateUnforeseenTransactionModal(true)}
-                onResetUnforeseenForm={resetUnforeseenForm}
-                onViewUnforeseenTransaction={(tx) => {
-                    // @ts-ignore - Type mismatch between local interface and API type
-                    state.setSelectedUnforeseenTransactionForDetails(tx as any)
-                    state.setShowUnforeseenTransactionDetailsModal(true)
-                }}
-            />
-
+            {/* End main content wrapper */}
 
             {/* Legacy Transactions Block (disabled) */}
             {false && (
@@ -1950,36 +2086,94 @@ export default function ProjectDetail() {
                         alert(err.response?.data?.detail || 'שגיאה במחיקת העסקה')
                     }
                 }}
-                onEditTransaction={(tx) => {
+                onViewDetails={async (tx) => {
+                    state.setUnforeseenDetailsReadOnly(false)
+                    try {
+                        const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(tx.id)
+                        state.setSelectedUnforeseenTransactionForDetails(fresh as any)
+                    } catch (_) {
+                        state.setSelectedUnforeseenTransactionForDetails(tx as any)
+                    }
                     state.setShowUnforeseenTransactionsModal(false)
-                    // @ts-ignore - Type mismatch between local interface and API type
-                    state.setEditingUnforeseenTransaction(tx as any)
-                    state.setUnforeseenIncomeAmount(tx.income_amount)
-                    state.setUnforeseenDescription(tx.description || '')
-                    state.setUnforeseenNotes(tx.notes || '')
-                    state.setUnforeseenTransactionDate(tx.transaction_date)
-                    state.setUnforeseenExpenses(
-                        tx.expenses.length > 0
-                            ? tx.expenses.map((exp: any) => ({
-                                amount: exp.amount,
-                                description: exp.description || '',
-                                documentId: exp.document_id || null,
-                                expenseId: exp.id,
-                                documentFile: null
-                            }))
-                            : [{amount: 0, description: '', documentFile: null, expenseId: null, documentId: null}]
-                    )
-                    state.setShowCreateUnforeseenTransactionModal(true)
+                    state.setShowUnforeseenTransactionDetailsModal(true)
+                }}
+                onEditTransaction={async (tx) => {
+                    state.setShowUnforeseenTransactionsModal(false)
+                    try {
+                        const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(tx.id)
+                        // @ts-ignore - Type mismatch between local interface and API type
+                        state.setEditingUnforeseenTransaction(fresh as any)
+                        state.setUnforeseenDescription(fresh.description || '')
+                        state.setUnforeseenNotes(fresh.notes || '')
+                        state.setUnforeseenTransactionDate(fresh.transaction_date)
+                        state.setUnforeseenIncomes(
+                            fresh.incomes && fresh.incomes.length > 0
+                                ? fresh.incomes.map((inc: any) => ({
+                                    amount: inc.amount,
+                                    description: inc.description || '',
+                                    incomeId: inc.id,
+                                    documentFiles: [],
+                                    documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+                                }))
+                                : (fresh as any).income_amount > 0
+                                    ? [{ amount: (fresh as any).income_amount, description: (fresh as any).description || 'הכנסה', documentFiles: [], incomeId: null, documentIds: [] }]
+                                    : [{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+                        )
+                        state.setUnforeseenExpenses(
+                            fresh.expenses && fresh.expenses.length > 0
+                                ? fresh.expenses.map((exp: any) => ({
+                                    amount: exp.amount,
+                                    description: exp.description || '',
+                                    documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+                                    expenseId: exp.id,
+                                    documentFiles: []
+                                }))
+                                : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+                        )
+                        state.setShowCreateUnforeseenTransactionModal(true)
+                    } catch (_) {
+                        const txAny = tx as any
+                        state.setEditingUnforeseenTransaction(txAny)
+                        state.setUnforeseenDescription(tx.description || '')
+                        state.setUnforeseenNotes(tx.notes || '')
+                        state.setUnforeseenTransactionDate(tx.transaction_date)
+                        state.setUnforeseenIncomes(
+                            txAny.incomes && txAny.incomes.length > 0
+                                ? txAny.incomes.map((inc: any) => ({
+                                    amount: inc.amount,
+                                    description: inc.description || '',
+                                    incomeId: inc.id,
+                                    documentFiles: [],
+                                    documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+                                }))
+                                : txAny.income_amount > 0
+                                    ? [{ amount: txAny.income_amount, description: txAny.description || 'הכנסה', documentFiles: [], incomeId: null, documentIds: [] }]
+                                    : [{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+                        )
+                        state.setUnforeseenExpenses(
+                            txAny.expenses && txAny.expenses.length > 0
+                                ? txAny.expenses.map((exp: any) => ({
+                                    amount: exp.amount,
+                                    description: exp.description || '',
+                                    documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+                                    expenseId: exp.id,
+                                    documentFiles: []
+                                }))
+                                : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+                        )
+                        state.setShowCreateUnforeseenTransactionModal(true)
+                    }
                 }}
                 onCreateNew={() => {
                     state.setShowUnforeseenTransactionsModal(false)
-                    resetUnforeseenForm()
+                    try { resetUnforeseenForm() } catch (_) { /* ensure create modal opens */ }
                     state.setShowCreateUnforeseenTransactionModal(true)
                 }}
                 onUpdateStatus={async (txId, status) => {
                     try {
                         await UnforeseenTransactionAPI.updateUnforeseenTransaction(txId, { status })
                         await dataLoaders.loadUnforeseenTransactions()
+                        await dataLoaders.loadAllProjectData(viewingPeriodId)
                     } catch (err: any) {
                         alert(err.response?.data?.detail || 'שגיאה בעדכון הסטטוס')
                     }
@@ -1990,18 +2184,23 @@ export default function ProjectDetail() {
             <CreateUnforeseenTransactionModal
                 isOpen={state.showCreateUnforeseenTransactionModal}
                 editingUnforeseenTransaction={state.editingUnforeseenTransaction as any}
-                unforeseenIncomeAmount={state.unforeseenIncomeAmount}
+                unforeseenIncomes={state.unforeseenIncomes as any}
                 unforeseenDescription={state.unforeseenDescription}
                 unforeseenNotes={state.unforeseenNotes}
                 unforeseenTransactionDate={state.unforeseenTransactionDate}
                 unforeseenExpenses={state.unforeseenExpenses as any}
                 unforeseenSubmitting={state.unforeseenSubmitting}
                 uploadingDocumentForExpense={state.uploadingDocumentForExpense}
+                uploadingDocumentForIncome={state.uploadingDocumentForIncome}
                 onClose={() => {
                     state.setShowCreateUnforeseenTransactionModal(false)
                     resetUnforeseenForm()
                 }}
-                onIncomeAmountChange={state.setUnforeseenIncomeAmount}
+                onAddIncome={handlers.handleAddUnforeseenIncome}
+                onRemoveIncome={handlers.handleRemoveUnforeseenIncome}
+                onIncomeChange={handlers.handleUnforeseenIncomeChange}
+                onIncomeDocumentChange={handleUnforeseenIncomeDocumentChange}
+                onRemoveIncomeDocument={handleRemoveUnforeseenIncomeDocument}
                 onDescriptionChange={state.setUnforeseenDescription}
                 onNotesChange={state.setUnforeseenNotes}
                 onTransactionDateChange={state.setUnforeseenTransactionDate}
@@ -2009,6 +2208,7 @@ export default function ProjectDetail() {
                 onRemoveExpense={handleRemoveUnforeseenExpense}
                 onExpenseChange={handleUnforeseenExpenseChange}
                 onExpenseDocumentChange={handleUnforeseenExpenseDocumentChange}
+                onRemoveExpenseDocument={handleRemoveUnforeseenExpenseDocument}
                 onSaveAsDraft={() => state.editingUnforeseenTransaction ? handleUpdateUnforeseenTransaction('draft') : handleCreateUnforeseenTransaction('draft')}
                 onSaveAsWaitingForApproval={() => state.editingUnforeseenTransaction ? handleUpdateUnforeseenTransaction('waiting_for_approval') : handleCreateUnforeseenTransaction('waiting_for_approval')}
                 onSaveAndExecute={handleCreateAndExecuteUnforeseenTransaction}
@@ -2023,7 +2223,6 @@ export default function ProjectDetail() {
                         state.setShowCreateUnforeseenTransactionModal(false)
                         resetUnforeseenForm()
                         await dataLoaders.loadUnforeseenTransactions()
-                        // Reload all project data to refresh the entire page
                         await dataLoaders.loadAllProjectData(viewingPeriodId)
                     } catch (err: any) {
                         alert(err.response?.data?.detail || 'שגיאה במחיקת העסקה')
@@ -2038,7 +2237,6 @@ export default function ProjectDetail() {
                         state.setShowCreateUnforeseenTransactionModal(false)
                         resetUnforeseenForm()
                         await dataLoaders.loadUnforeseenTransactions()
-                        // Reload all project data to refresh the entire page
                         await dataLoaders.loadAllProjectData(viewingPeriodId)
                     } catch (err: any) {
                         alert(err.response?.data?.detail || 'שגיאה בביצוע העסקה')
@@ -2073,36 +2271,82 @@ export default function ProjectDetail() {
             <UnforeseenTransactionDetailsModal
                 isOpen={state.showUnforeseenTransactionDetailsModal}
                 transaction={state.selectedUnforeseenTransactionForDetails}
+                readOnly={state.unforeseenDetailsReadOnly}
                 onClose={() => {
                     state.setShowUnforeseenTransactionDetailsModal(false)
                     state.setSelectedUnforeseenTransactionForDetails(null)
+                    state.setUnforeseenDetailsReadOnly(false)
                 }}
-                onEdit={(tx) => {
+                onEdit={async (tx) => {
                     state.setShowUnforeseenTransactionDetailsModal(false)
-                    // @ts-ignore - Type mismatch between local interface and API type
-                    state.setEditingUnforeseenTransaction(tx as any)
-                    state.setUnforeseenIncomeAmount(tx.income_amount)
-                    state.setUnforeseenDescription(tx.description || '')
-                    state.setUnforeseenNotes(tx.notes || '')
-                    state.setUnforeseenTransactionDate(tx.transaction_date)
-                    state.setUnforeseenExpenses(
-                        tx.expenses && tx.expenses.length > 0
-                            ? tx.expenses.map((exp: any) => ({
-                                amount: exp.amount,
-                                description: exp.description || '',
-                                documentId: exp.document_id || null,
-                                expenseId: exp.id,
-                                documentFile: null
-                            }))
-                            : [{amount: 0, description: '', documentFile: null, expenseId: null, documentId: null}]
-                    )
-                    state.setShowCreateUnforeseenTransactionModal(true)
+                    try {
+                        const fresh = await UnforeseenTransactionAPI.getUnforeseenTransaction(tx.id)
+                        // @ts-ignore - Type mismatch between local interface and API type
+                        state.setEditingUnforeseenTransaction(fresh as any)
+                        state.setUnforeseenDescription(fresh.description || '')
+                        state.setUnforeseenNotes(fresh.notes || '')
+                        state.setUnforeseenTransactionDate(fresh.transaction_date)
+                        state.setUnforeseenIncomes(
+                            fresh.incomes && fresh.incomes.length > 0
+                                ? fresh.incomes.map((inc: any) => ({
+                                    amount: inc.amount,
+                                    description: inc.description || '',
+                                    incomeId: inc.id,
+                                    documentFiles: [],
+                                    documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+                                }))
+                                : (fresh as any).income_amount > 0
+                                    ? [{ amount: (fresh as any).income_amount, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+                                    : [{ amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+                        )
+                        state.setUnforeseenExpenses(
+                            fresh.expenses && fresh.expenses.length > 0
+                                ? fresh.expenses.map((exp: any) => ({
+                                    amount: exp.amount,
+                                    description: exp.description || '',
+                                    documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+                                    expenseId: exp.id,
+                                    documentFiles: []
+                                }))
+                                : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+                        )
+                        state.setShowCreateUnforeseenTransactionModal(true)
+                    } catch (e) {
+                        // @ts-ignore
+                        state.setEditingUnforeseenTransaction(tx as any)
+                        state.setUnforeseenIncomes(
+                            tx.incomes && tx.incomes.length > 0
+                                ? tx.incomes.map((inc: any) => ({
+                                    amount: inc.amount,
+                                    description: inc.description || '',
+                                    incomeId: inc.id,
+                                    documentFiles: [],
+                                    documentIds: inc.documents ? inc.documents.map((d: any) => d.id) : []
+                                }))
+                                : [{ amount: tx.income_amount ?? 0, description: '', documentFiles: [], incomeId: null, documentIds: [] }]
+                        )
+                        state.setUnforeseenDescription(tx.description || '')
+                        state.setUnforeseenNotes(tx.notes || '')
+                        state.setUnforeseenTransactionDate(tx.transaction_date)
+                        state.setUnforeseenExpenses(
+                            tx.expenses && tx.expenses.length > 0
+                                ? tx.expenses.map((exp: any) => ({
+                                    amount: exp.amount,
+                                    description: exp.description || '',
+                                    documentIds: exp.documents ? exp.documents.map((d: any) => d.id) : [],
+                                    expenseId: exp.id,
+                                    documentFiles: []
+                                }))
+                                : [{ amount: 0, description: '', documentFiles: [], expenseId: null, documentIds: [] }]
+                        )
+                        state.setShowCreateUnforeseenTransactionModal(true)
+                    }
                 }}
                 onDelete={async (txId) => {
                     try {
                         await UnforeseenTransactionAPI.deleteUnforeseenTransaction(txId)
                         await dataLoaders.loadUnforeseenTransactions()
-                        await dataLoaders.loadTransactionsOnly() // רענון רשימת העסקאות
+                        await dataLoaders.loadAllProjectData(viewingPeriodId)
                     } catch (err: any) {
                         alert(err.response?.data?.detail || 'שגיאה במחיקת העסקה')
                     }

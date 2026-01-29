@@ -256,13 +256,27 @@ export interface UnforeseenTransactionExpense {
   unforeseen_transaction_id: number
   amount: number
   description?: string | null
-  document_id?: number | null
-  document?: {
+  documents?: Array<{
     id: number
     file_path: string
     description?: string | null
     uploaded_at?: string | null
-  } | null
+  }>
+  created_at: string
+  updated_at: string
+}
+
+export interface UnforeseenTransactionIncome {
+  id: number
+  unforeseen_transaction_id: number
+  amount: number
+  description?: string | null
+  documents?: Array<{
+    id: number
+    file_path: string
+    description?: string | null
+    uploaded_at?: string | null
+  }>
   created_at: string
   updated_at: string
 }
@@ -272,11 +286,17 @@ export interface UnforeseenTransactionExpenseCreate {
   description?: string | null
 }
 
+export interface UnforeseenTransactionIncomeCreate {
+  amount: number
+  description?: string | null
+}
+
 export interface UnforeseenTransaction {
   id: number
   project_id: number
   contract_period_id?: number | null
   income_amount: number
+  total_incomes?: number
   total_expenses: number
   profit_loss: number
   status: 'draft' | 'waiting_for_approval' | 'executed'
@@ -284,6 +304,7 @@ export interface UnforeseenTransaction {
   notes?: string | null
   transaction_date: string
   expenses: UnforeseenTransactionExpense[]
+  incomes?: UnforeseenTransactionIncome[]
   created_by_user_id?: number | null
   created_by_user?: {
     id: number
@@ -298,11 +319,12 @@ export interface UnforeseenTransaction {
 export interface UnforeseenTransactionCreate {
   project_id: number
   contract_period_id?: number | null
-  income_amount: number
+  income_amount?: number
   description?: string | null
   notes?: string | null
   transaction_date: string
   expenses: UnforeseenTransactionExpenseCreate[]
+  incomes?: UnforeseenTransactionIncomeCreate[]
 }
 
 export interface UnforeseenTransactionUpdate {
@@ -313,4 +335,5 @@ export interface UnforeseenTransactionUpdate {
   transaction_date?: string
   status?: 'draft' | 'waiting_for_approval' | 'executed'
   expenses?: UnforeseenTransactionExpenseCreate[]
+  incomes?: UnforeseenTransactionIncomeCreate[]
 }

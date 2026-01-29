@@ -31,10 +31,14 @@ interface TransactionRow {
   dateError: string | null
   duplicateError: string | null
   checkingDuplicate: boolean
+  // Dated transaction (עסקה תאריכית): from date – to date
+  period_start_date: string
+  period_end_date: string
+  periodError: string | null
   // Unforeseen transaction fields
   isUnforeseen?: boolean
-  incomeAmount?: number | ''
-  expenses?: Array<{ amount: number | ''; description: string }>
+  incomes?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
+  expenses?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
   contractPeriodId?: number | ''
 }
 
@@ -55,7 +59,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editingField, setEditingField] = useState<'description' | 'notes' | null>(null)
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState('')
-  const [isUnforeseenMode, setIsUnforeseenMode] = useState(false)
   const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
   const [rows, setRows] = useState<TransactionRow[]>([
     {
@@ -76,9 +79,12 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       dateError: null,
       duplicateError: null,
       checkingDuplicate: false,
+      period_start_date: '',
+      period_end_date: '',
+      periodError: null,
       isUnforeseen: false,
-      incomeAmount: '',
-      expenses: [{ amount: '', description: '' }],
+      incomes: [{ amount: '', description: '', documentFiles: [] }],
+      expenses: [{ amount: '', description: '', documentFiles: [] }],
       contractPeriodId: ''
     }
   ])
@@ -219,19 +225,57 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       dateError: null,
       duplicateError: null,
       checkingDuplicate: false,
-      isUnforeseen: isUnforeseenMode,
-      incomeAmount: '',
-      expenses: [{ amount: '', description: '' }],
+      period_start_date: '',
+      period_end_date: '',
+      periodError: null,
+      isUnforeseen: false,
+      incomes: [{ amount: '', description: '', documentFiles: [] }],
+      expenses: [{ amount: '', description: '', documentFiles: [] }],
       contractPeriodId: ''
     }
     setRows([...rows, newRow])
+  }
+
+  const setRowUnforeseen = (rowId: string, isUnforeseen: boolean) => {
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id !== rowId) return row
+        if (isUnforeseen) {
+          if (row.projectId) loadContractPeriods(row.projectId as number)
+          return {
+            ...row,
+            isUnforeseen: true,
+            incomes: row.incomes?.length ? row.incomes : [{ amount: '', description: '', documentFiles: [] }],
+            expenses: row.expenses?.length ? row.expenses : [{ amount: '', description: '', documentFiles: [] }],
+            contractPeriodId: row.contractPeriodId || ''
+          }
+        }
+        return {
+          ...row,
+          isUnforeseen: false,
+          incomes: undefined,
+          expenses: undefined,
+          contractPeriodId: ''
+        }
+      })
+    )
   }
 
   const handleAddExpense = (rowId: string) => {
     setRows(prevRows =>
       prevRows.map(row =>
         row.id === rowId
-          ? { ...row, expenses: [...(row.expenses || []), { amount: '', description: '' }] }
+          ? { ...row, expenses: [...(row.expenses || []), { amount: '', description: '', documentFiles: [] }] }
+          : row
+      )
+    )
+  }
+
+  const handleAddIncome = (rowId: string) => {
+    setRows(prevRows =>
+      prevRows.map(row =>
+        row.id === rowId
+          ? { ...row, incomes: [...(row.incomes || []), { amount: '', description: '', documentFiles: [] }] }
           : row
       )
     )
@@ -247,6 +291,16 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     )
   }
 
+  const handleRemoveIncome = (rowId: string, incomeIndex: number) => {
+    setRows(prevRows =>
+      prevRows.map(row =>
+        row.id === rowId
+          ? { ...row, incomes: (row.incomes || []).filter((_, i) => i !== incomeIndex) }
+          : row
+      )
+    )
+  }
+
   const handleExpenseChange = (rowId: string, expenseIndex: number, field: 'amount' | 'description', value: string | number) => {
     setRows(prevRows =>
       prevRows.map(row => {
@@ -254,6 +308,81 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           const newExpenses = [...row.expenses]
           newExpenses[expenseIndex] = { ...newExpenses[expenseIndex], [field]: value }
           return { ...row, expenses: newExpenses }
+        }
+        return row
+      })
+    )
+  }
+
+  const handleIncomeChange = (rowId: string, incomeIndex: number, field: 'amount' | 'description', value: string | number) => {
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.incomes) {
+          const newIncomes = [...row.incomes]
+          newIncomes[incomeIndex] = { ...newIncomes[incomeIndex], [field]: value }
+          return { ...row, incomes: newIncomes }
+        }
+        return row
+      })
+    )
+  }
+
+  const handleExpenseFileUpload = (rowId: string, expenseIndex: number, files: FileList | null) => {
+    if (!files) return
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.expenses) {
+          const newExpenses = [...row.expenses]
+          newExpenses[expenseIndex] = {
+            ...newExpenses[expenseIndex],
+            documentFiles: [...(newExpenses[expenseIndex].documentFiles || []), ...Array.from(files)]
+          }
+          return { ...row, expenses: newExpenses }
+        }
+        return row
+      })
+    )
+  }
+
+  const handleIncomeFileUpload = (rowId: string, incomeIndex: number, files: FileList | null) => {
+    if (!files) return
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.incomes) {
+          const newIncomes = [...row.incomes]
+          newIncomes[incomeIndex] = {
+            ...newIncomes[incomeIndex],
+            documentFiles: [...(newIncomes[incomeIndex].documentFiles || []), ...Array.from(files)]
+          }
+          return { ...row, incomes: newIncomes }
+        }
+        return row
+      })
+    )
+  }
+
+  const handleRemoveExpenseFile = (rowId: string, expenseIndex: number, fileIndex: number) => {
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.expenses) {
+          const newExpenses = [...row.expenses]
+          const docFiles = newExpenses[expenseIndex].documentFiles || []
+          newExpenses[expenseIndex] = { ...newExpenses[expenseIndex], documentFiles: docFiles.filter((_, i) => i !== fileIndex) }
+          return { ...row, expenses: newExpenses }
+        }
+        return row
+      })
+    )
+  }
+
+  const handleRemoveIncomeFile = (rowId: string, incomeIndex: number, fileIndex: number) => {
+    setRows(prevRows =>
+      prevRows.map(row => {
+        if (row.id === rowId && row.incomes) {
+          const newIncomes = [...row.incomes]
+          const docFiles = newIncomes[incomeIndex].documentFiles || []
+          newIncomes[incomeIndex] = { ...newIncomes[incomeIndex], documentFiles: docFiles.filter((_, i) => i !== fileIndex) }
+          return { ...row, incomes: newIncomes }
         }
         return row
       })
@@ -297,11 +426,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           if (field === 'txDate' || field === 'projectId' || field === 'subprojectId') {
             validateRowDate(updatedRow)
           }
+          // Validate period (מתאריך–עד תאריך) when period dates change
+          if (field === 'period_start_date' || field === 'period_end_date') {
+            validateRowPeriod(updatedRow)
+          }
           
-          // Check for duplicates when relevant fields change
-          // Use setTimeout to allow state to update first
-          if (field === 'projectId' || field === 'subprojectId' || field === 'txDate' || 
-              field === 'amount' || field === 'supplierId' || field === 'type' || field === 'fromFund') {
+          // Check for duplicates when relevant fields change (skip for period/dated transactions)
+          const isPeriodTx = !!(updatedRow.period_start_date && updatedRow.period_end_date)
+          if (!isPeriodTx && (field === 'projectId' || field === 'subprojectId' || field === 'txDate' || 
+              field === 'amount' || field === 'supplierId' || field === 'type' || field === 'fromFund')) {
             setTimeout(() => {
               setRows(currentRows => {
                 const currentRow = currentRows.find(r => r.id === rowId)
@@ -372,7 +505,75 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
   }
 
+  const validateRowPeriod = (row: TransactionRow) => {
+    const hasStart = !!(row.period_start_date && row.period_start_date.trim())
+    const hasEnd = !!(row.period_end_date && row.period_end_date.trim())
+    if (!hasStart && !hasEnd) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, periodError: null } : r
+        )
+      )
+      return
+    }
+    if (hasStart && !hasEnd) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, periodError: 'יש למלא גם תאריך סיום (עד תאריך)' } : r
+        )
+      )
+      return
+    }
+    if (!hasStart && hasEnd) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, periodError: 'יש למלא גם תאריך התחלה (מתאריך)' } : r
+        )
+      )
+      return
+    }
+    const start = new Date(row.period_start_date!.trim())
+    const end = new Date(row.period_end_date!.trim())
+    if (end < start) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, periodError: 'תאריך סיום חייב להיות אחרי תאריך התחלה' } : r
+        )
+      )
+      return
+    }
+    const project = getSelectedProject(row)
+    const subproject = row.subprojectId ? getSelectedSubproject(row) : null
+    const selectedProject = subproject || project
+    const thresholdDate = selectedProject?.first_contract_start_date || selectedProject?.start_date
+    if (thresholdDate) {
+      const contractStart = new Date(thresholdDate.toString().split('T')[0])
+      if (start < contractStart) {
+        setRows(prevRows =>
+          prevRows.map(r =>
+            r.id === row.id ? { ...r, periodError: `תאריך התחלה לא יכול להיות לפני תחילת החוזה (${contractStart.toLocaleDateString('he-IL')})` } : r
+          )
+        )
+        return
+      }
+    }
+    setRows(prevRows =>
+      prevRows.map(r =>
+        r.id === row.id ? { ...r, periodError: null } : r
+      )
+    )
+  }
+
   const checkDuplicateTransaction = async (row: TransactionRow) => {
+    // Skip duplicate check for period/dated transactions (backend does overlap check)
+    if (row.period_start_date && row.period_end_date) {
+      setRows(prevRows =>
+        prevRows.map(r =>
+          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
+        )
+      )
+      return
+    }
     // Only check for Expense transactions that are not from fund
     if (row.type !== 'Expense' || row.fromFund) {
       setRows(prevRows =>
@@ -522,12 +723,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
       
       if (row.isUnforeseen) {
-        // Validate unforeseen transaction fields
-        if (!row.incomeAmount || Number(row.incomeAmount) < 0) {
-          errors.push(`שורה ${index + 1}: יש להזין סכום הכנסה תקין`)
-        }
-        if (!row.expenses || row.expenses.length === 0 || row.expenses.every(exp => !exp.amount || Number(exp.amount) <= 0)) {
-          errors.push(`שורה ${index + 1}: יש להזין לפחות הוצאה אחת`)
+        const totalIncomes = (row.incomes || []).reduce((sum, inc) => sum + (Number(inc.amount) || 0), 0)
+        const hasExpenses = row.expenses && row.expenses.length > 0 && !row.expenses.every(exp => !exp.amount || Number(exp.amount) <= 0)
+        const hasIncomes = totalIncomes > 0
+        if (!hasIncomes && !hasExpenses) {
+          errors.push(`שורה ${index + 1}: יש להזין לפחות הכנסה אחת או הוצאה אחת`)
         }
       } else {
         // Validate regular transaction fields
@@ -543,8 +743,18 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         }
       }
       
-      if (!row.txDate) {
-        errors.push(`שורה ${index + 1}: יש להזין תאריך`)
+      const isPeriodTx = !!(row.period_start_date && row.period_end_date)
+      if (isPeriodTx) {
+        if (!row.period_start_date?.trim() || !row.period_end_date?.trim()) {
+          errors.push(`שורה ${index + 1}: בעסקה תאריכית יש למלא מתאריך ועד תאריך`)
+        }
+        if (row.periodError) {
+          errors.push(`שורה ${index + 1}: ${row.periodError}`)
+        }
+      } else {
+        if (!row.txDate) {
+          errors.push(`שורה ${index + 1}: יש להזין תאריך`)
+        }
       }
       if (row.dateError) {
         errors.push(`שורה ${index + 1}: ${row.dateError}`)
@@ -573,32 +783,85 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       const row = rows[i]
       try {
         if (row.isUnforeseen) {
-          // Create unforeseen transaction
-          const projectId = row.projectId as number
+          const projectId = (row.subprojectId || row.projectId) as number
           const expenseData: UnforeseenTransactionExpenseCreate[] = (row.expenses || [])
             .filter(exp => exp.amount && Number(exp.amount) > 0)
             .map(exp => ({
               amount: Number(exp.amount),
               description: exp.description || undefined
             }))
+          const incomeData = (row.incomes || [])
+            .filter(inc => inc.amount && Number(inc.amount) > 0)
+            .map(inc => ({
+              amount: Number(inc.amount),
+              description: inc.description || undefined
+            }))
 
-          if (expenseData.length === 0) {
+          if (expenseData.length === 0 && incomeData.length === 0) {
             results.failed++
-            results.errors.push(`שורה ${i + 1}: יש להזין לפחות הוצאה אחת`)
+            results.errors.push(`שורה ${i + 1}: יש להזין לפחות הכנסה אחת או הוצאה אחת`)
             continue
           }
 
+          const totalIncomesSum = incomeData.reduce((s, i) => s + i.amount, 0)
           const unforeseenData: UnforeseenTransactionCreate = {
             project_id: projectId,
             contract_period_id: row.contractPeriodId ? Number(row.contractPeriodId) : undefined,
-            income_amount: Number(row.incomeAmount || 0),
+            income_amount: totalIncomesSum,
             description: row.description || undefined,
             notes: row.notes || undefined,
             transaction_date: row.txDate,
-            expenses: expenseData
+            expenses: expenseData,
+            incomes: incomeData.length > 0 ? incomeData : undefined
           }
 
           const unforeseenTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(unforeseenData)
+          await new Promise(r => setTimeout(r, 100))
+
+          if (unforeseenTx.incomes && row.incomes) {
+            const createdIncomes = unforeseenTx.incomes
+            const filteredIncomes = (row.incomes || []).filter(inc => inc.amount && Number(inc.amount) > 0)
+            for (let incIdx = 0; incIdx < filteredIncomes.length; incIdx++) {
+              const incRow = filteredIncomes[incIdx]
+              const createdInc = createdIncomes[incIdx]
+              if (incRow.documentFiles?.length && createdInc?.id) {
+                for (const file of incRow.documentFiles) {
+                  try {
+                    if (file.size > 50 * 1024 * 1024) {
+                      results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${file.name} גדול מדי`)
+                      continue
+                    }
+                    await UnforeseenTransactionAPI.uploadIncomeDocument(unforeseenTx.id, createdInc.id, file)
+                  } catch (err: any) {
+                    results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                  }
+                }
+              }
+            }
+          }
+
+          if (unforeseenTx.expenses && row.expenses) {
+            const createdExpenses = unforeseenTx.expenses
+            const filteredExpenses = (row.expenses || []).filter(exp => exp.amount && Number(exp.amount) > 0)
+            for (let expIdx = 0; expIdx < filteredExpenses.length; expIdx++) {
+              const expRow = filteredExpenses[expIdx]
+              const createdExp = createdExpenses[expIdx]
+              if (expRow.documentFiles?.length && createdExp?.id) {
+                for (const file of expRow.documentFiles) {
+                  try {
+                    if (file.size > 50 * 1024 * 1024) {
+                      results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${file.name} גדול מדי`)
+                      continue
+                    }
+                    await UnforeseenTransactionAPI.uploadExpenseDocument(unforeseenTx.id, createdExp.id, file)
+                  } catch (err: any) {
+                    results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                  }
+                }
+              }
+            }
+          }
+
           results.success++
           continue
         }
@@ -607,9 +870,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         // Subprojects are actually projects with relation_project set
         // So we use the subproject's ID directly as project_id
         const projectId = row.subprojectId || row.projectId as number
+        const isPeriodTx = !!(row.period_start_date && row.period_end_date)
+        const tx_date = isPeriodTx ? row.period_start_date! : row.txDate
         const transactionData: TransactionCreate = {
           project_id: projectId,
-          tx_date: row.txDate,
+          tx_date,
           type: row.type,
           amount: Number(row.amount),
           description: row.description || undefined,
@@ -619,6 +884,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           notes: row.notes || undefined,
           is_exceptional: row.isExceptional,
           from_fund: row.fromFund
+        }
+        if (isPeriodTx) {
+          transactionData.period_start_date = row.period_start_date!
+          transactionData.period_end_date = row.period_end_date!
         }
 
         const transaction = await TransactionAPI.createTransaction(transactionData)
@@ -775,7 +1044,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
 
     // Count file uploads
-    const totalFiles = rows.reduce((sum, row) => sum + row.files.length, 0)
+    const totalFiles = rows.reduce((sum, row) => {
+      let n = row.files.length
+      if (row.isUnforeseen) {
+        if (row.expenses) n += row.expenses.reduce((s, e) => s + (e.documentFiles?.length || 0), 0)
+        if (row.incomes) n += row.incomes.reduce((s, i) => s + (i.documentFiles?.length || 0), 0)
+      }
+      return sum + n
+    }, 0)
     const fileUploadErrors = results.errors.filter(err => err.includes('מסמכים') || err.includes('קובץ'))
     
     if (results.failed > 0 || fileUploadErrors.length > 0) {
@@ -843,9 +1119,12 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         dateError: null,
         duplicateError: null,
         checkingDuplicate: false,
-        isUnforeseen: isUnforeseenMode,
-        incomeAmount: '',
-        expenses: [{ amount: '', description: '' }],
+        period_start_date: '',
+        period_end_date: '',
+        periodError: null,
+        isUnforeseen: false,
+        incomes: [{ amount: '', description: '', documentFiles: [] }],
+        expenses: [{ amount: '', description: '', documentFiles: [] }],
         contractPeriodId: ''
       }
     ])
@@ -902,35 +1181,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <span>עסקה קבוצתית</span>
               <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
             </h2>
-            <label className="flex items-center gap-2 cursor-pointer bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors">
-              <input
-                type="checkbox"
-                checked={isUnforeseenMode}
-                onChange={(e) => {
-                  setIsUnforeseenMode(e.target.checked)
-                  // Update all rows to match the mode
-                  setRows(prevRows =>
-                    prevRows.map(row => ({
-                      ...row,
-                      isUnforeseen: e.target.checked,
-                      incomeAmount: e.target.checked ? (row.incomeAmount || '') : '',
-                      expenses: e.target.checked ? (row.expenses || [{ amount: '', description: '' }]) : undefined,
-                      contractPeriodId: e.target.checked ? (row.contractPeriodId || '') : ''
-                    }))
-                  )
-                  // Load contract periods for selected projects
-                  if (e.target.checked) {
-                    rows.forEach(row => {
-                      if (row.projectId) {
-                        loadContractPeriods(row.projectId as number)
-                      }
-                    })
-                  }
-                }}
-                className="w-4 h-4 rounded border-white/50 text-orange-600 focus:ring-2 focus:ring-white/50 cursor-pointer"
-              />
-              <span className="text-white font-medium">עסקאות לא צפויות</span>
-            </label>
           </div>
           <button
             onClick={handleClose}
@@ -952,146 +1202,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             </motion.div>
           )}
 
-          {/* Summary Card */}
-          {(() => {
-            const regularRows = rows.filter(r => !r.isUnforeseen)
-            const unforeseenRows = rows.filter(r => r.isUnforeseen)
-            const incomeRows = regularRows.filter(r => r.type === 'Income')
-            const expenseRows = regularRows.filter(r => r.type === 'Expense')
-            const totalIncome = incomeRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) + 
-                               unforeseenRows.reduce((sum, r) => sum + (Number(r.incomeAmount) || 0), 0)
-            const totalExpense = expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) +
-                                unforeseenRows.reduce((sum, r) => {
-                                  const expenses = r.expenses || []
-                                  return sum + expenses.reduce((expSum, exp) => expSum + (Number(exp.amount) || 0), 0)
-                                }, 0)
-            const netAmount = totalIncome - totalExpense
-            
-            return (
-              <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 shadow-md">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">סיכום עסקאות</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg p-3">
-                    <div className="text-sm text-green-700 dark:text-green-300 font-medium mb-1">הכנסות</div>
-                    <div className="text-2xl font-bold text-green-800 dark:text-green-200">
-                      {totalIncome.toLocaleString('he-IL')} ₪
-                    </div>
-                    <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-                      {incomeRows.length} עסקאות {unforeseenRows.length > 0 && `+ ${unforeseenRows.length} לא צפויות`}
-                    </div>
-                  </div>
-                  <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-lg p-3">
-                    <div className="text-sm text-red-700 dark:text-red-300 font-medium mb-1">הוצאות</div>
-                    <div className="text-2xl font-bold text-red-800 dark:text-red-200">
-                      {totalExpense.toLocaleString('he-IL')} ₪
-                    </div>
-                    <div className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      {expenseRows.length} עסקאות {unforeseenRows.length > 0 && `+ ${unforeseenRows.length} לא צפויות`}
-                    </div>
-                  </div>
-                  <div className={`border-2 rounded-lg p-3 ${
-                    netAmount >= 0 
-                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700' 
-                      : 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700'
-                  }`}>
-                    <div className={`text-sm font-medium mb-1 ${
-                      netAmount >= 0 
-                        ? 'text-blue-700 dark:text-blue-300' 
-                        : 'text-orange-700 dark:text-orange-300'
-                    }`}>
-                      יתרה
-                    </div>
-                    <div className={`text-2xl font-bold ${
-                      netAmount >= 0 
-                        ? 'text-blue-800 dark:text-blue-200' 
-                        : 'text-orange-800 dark:text-orange-200'
-                    }`}>
-                      {netAmount.toLocaleString('he-IL')} ₪
-                    </div>
-                    <div className={`text-xs mt-1 ${
-                      netAmount >= 0 
-                        ? 'text-blue-600 dark:text-blue-400' 
-                        : 'text-orange-600 dark:text-orange-400'
-                    }`}>
-                      {netAmount >= 0 ? 'רווח' : 'הפסד'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse min-w-[960px]">
                 <thead>
-                  {isUnforeseenMode ? (
-                    <>
-                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          פרויקט *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תקופת חוזה
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תאריך *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          סכום הכנסה *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תיאור
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          הערות
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          פעולות
-                        </th>
-                      </tr>
-                    </>
-                  ) : (
-                    <>
-                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          פרויקט *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תת-פרויקט
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          סוג *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תאריך *
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          סכום *
-                        </th>
-                      </tr>
-                      <tr className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800">
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          תיאור
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          קטגוריה
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          ספק
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          אמצעי תשלום
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          הערות
-                        </th>
-                        <th className="border-b border-gray-300 dark:border-gray-600 px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                          פעולות
-                        </th>
-                      </tr>
-                    </>
-                  )}
+                  <tr className="bg-gray-100 dark:bg-gray-700/70 text-right text-xs font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
+                    <th className="px-4 py-2.5 min-w-[110px]">סוג עסקה</th>
+                    <th className="px-4 py-2.5 min-w-[120px]">פרויקט</th>
+                    <th className="px-4 py-2.5 min-w-[110px]">תת-פרויקט</th>
+                    <th className="px-4 py-2.5 min-w-[120px]">תקופה / סוג</th>
+                    <th className="px-4 py-2.5 min-w-[115px]">תאריך</th>
+                    <th className="px-4 py-2.5 min-w-[95px]">סכום</th>
+                    <th className="px-4 py-2.5 min-w-[110px]">תיאור</th>
+                    <th className="px-4 py-2.5 min-w-[95px]">הערות</th>
+                    <th className="px-2 py-2.5 w-[90px] max-w-[90px] shrink-0">פעולות</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {rows.map((row, index) => {
@@ -1107,193 +1232,124 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                       : 'bg-gray-50/50 dark:bg-gray-800/50'
 
                     if (row.isUnforeseen) {
-                      // Render unforeseen transaction row
-                      const totalExpenses = (row.expenses || []).reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
-                      const profitLoss = (Number(row.incomeAmount) || 0) - totalExpenses
-                      
+                      const contractPeriods = row.projectId ? (contractPeriodsMap[row.projectId as number] || []) : []
+                      const subprojects = isParentProject && row.projectId ? getSubprojectsForProject(row.projectId as number) : []
+
                       return (
                         <React.Fragment key={row.id}>
                           <tr className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}>
-                            <td className="px-4 py-4">
-                              <select
-                                value={row.projectId}
-                                onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
-                                required
-                              >
-                                <option value="">בחר פרויקט</option>
-                                {projects.map((project) => (
-                                  <option key={project.id} value={project.id}>
-                                    {project.name}
-                                  </option>
-                                ))}
+                            <td className="px-4 py-2 align-middle">
+                              <select value={row.isUnforeseen ? 'unforeseen' : 'regular'} onChange={(e) => setRowUnforeseen(row.id, e.target.value === 'unforeseen')} className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium h-[38px]">
+                                <option value="regular">רגילה</option>
+                                <option value="unforeseen">לא צפויה</option>
                               </select>
                             </td>
-                            <td className="px-4 py-4">
-                              <select
-                                value={row.contractPeriodId}
-                                onChange={(e) => updateRow(row.id, 'contractPeriodId', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
-                              >
+                            <td className="px-4 py-2 align-middle"><select value={row.projectId} onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" required><option value="">בחר פרויקט</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
+                            <td className="px-4 py-2 align-middle">
+                              {isParentProject ? (
+                                <select value={row.subprojectId} onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" required><option value="">בחר תת-פרויקט</option>{subprojects.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select>
+                              ) : <span className="text-xs text-gray-400 leading-[38px] block">-</span>}
+                            </td>
+                            <td className="px-4 py-2 align-middle">
+                              <select value={row.contractPeriodId} onChange={(e) => updateRow(row.id, 'contractPeriodId', e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7.5rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]">
                                 <option value="">כל התקופות</option>
-                                {contractPeriods.map((period) => (
-                                  <option key={period.period_id} value={period.period_id}>
-                                    {period.year_label}
-                                  </option>
-                                ))}
+                                {contractPeriods.map((period) => <option key={period.period_id} value={period.period_id}>{period.year_label}</option>)}
                               </select>
                             </td>
-                            <td className="px-4 py-4">
-                              <div className="space-y-1">
-                                <input
-                                  type="date"
-                                  value={row.txDate}
-                                  onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
-                                  className={`w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow ${
-                                    row.dateError
-                                      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
-                                  }`}
-                                  required
-                                />
-                                {row.dateError && (
-                                  <p className="text-xs text-red-600 dark:text-red-400">{row.dateError}</p>
-                                )}
-                              </div>
+                            <td className="px-4 py-2 align-middle">
+                              <input type="date" value={row.txDate} onChange={(e) => updateRow(row.id, 'txDate', e.target.value)} className={`w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 h-[38px] ${row.dateError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`} required />
+                              {row.dateError && <p className="text-[10px] text-red-600 mt-0.5">{row.dateError}</p>}
                             </td>
-                            <td className="px-4 py-4">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={row.incomeAmount}
-                                onChange={(e) => updateRow(row.id, 'incomeAmount', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-4 py-3 text-base bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg text-green-700 dark:text-green-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm hover:shadow font-bold text-lg"
-                                placeholder="0.00"
-                                required
-                              />
-                            </td>
-                            <td className="px-4 py-4">
-                              <input
-                                type="text"
-                                readOnly
-                                onClick={() => openTextEditor(row.id, 'description', row.description)}
-                                value={row.description}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
-                                placeholder="תיאור העסקה"
-                              />
-                            </td>
-                            <td className="px-4 py-4">
-                              <input
-                                type="text"
-                                readOnly
-                                onClick={() => openTextEditor(row.id, 'notes', row.notes)}
-                                value={row.notes}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
-                                placeholder="הערות"
-                              />
-                            </td>
-                            <td className="px-4 py-4">
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                  {rows.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => removeRow(row.id)}
-                                      className="p-1.5 text-red-500 hover:text-white hover:bg-red-500 rounded-lg transition-all flex-shrink-0"
-                                      title="מחק שורה"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
+                            <td className="px-4 py-2 align-middle text-center text-gray-400 dark:text-gray-500 text-sm">—</td>
+                            <td className="px-4 py-2 align-middle"><input type="text" readOnly onClick={() => openTextEditor(row.id, 'description', row.description)} value={row.description} className="w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" placeholder="תיאור" /></td>
+                            <td className="px-4 py-2 align-middle"><input type="text" readOnly onClick={() => openTextEditor(row.id, 'notes', row.notes)} value={row.notes} className="w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" placeholder="הערות" /></td>
+                            <td className="px-2 py-2 align-middle w-[90px] max-w-[90px]">
+                              {rows.length > 1 && <button type="button" onClick={() => removeRow(row.id)} className="p-1 text-red-500 hover:bg-red-500 hover:text-white rounded" title="מחק שורה"><Trash2 className="w-4 h-4" /></button>}
                             </td>
                           </tr>
-                          {/* Expenses row */}
-                          <tr className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 border-b-4 border-gray-400 dark:border-gray-500`}>
-                            <td colSpan={7} className="px-4 py-4">
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">הוצאות:</label>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddExpense(row.id)}
-                                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                    הוסף הוצאה
-                                  </button>
-                                </div>
-                                <div className="space-y-2">
-                                  {(row.expenses || []).map((expense, expIndex) => (
-                                    <div key={expIndex} className="flex items-center gap-2">
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        placeholder="סכום"
-                                        value={expense.amount}
-                                        onChange={(e) => handleExpenseChange(row.id, expIndex, 'amount', e.target.value ? Number(e.target.value) : '')}
-                                        className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                                      />
-                                      <input
-                                        type="text"
-                                        placeholder="תיאור"
-                                        value={expense.description}
-                                        onChange={(e) => handleExpenseChange(row.id, expIndex, 'description', e.target.value)}
-                                        className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                                      />
-                                      {(row.expenses || []).length > 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveExpense(row.id, expIndex)}
-                                          className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg"
-                                        >
-                                          <X className="w-4 h-4" />
-                                        </button>
-                                      )}
+                          <tr className={`${rowBgClass} border-b-4 border-gray-400 dark:border-gray-500`}>
+                            <td colSpan={9} className="px-4 py-3">
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="space-y-2 p-3 rounded-lg bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-green-700 dark:text-green-400">הכנסות</span>
+                                    <button type="button" onClick={() => handleAddIncome(row.id)} className="flex items-center gap-1 px-2 py-1 text-[10px] bg-green-600 text-white rounded hover:bg-green-700"><Plus className="w-3 h-3" /> הוסף הכנסה</button>
+                                  </div>
+                                  {(row.incomes || []).map((income, incIdx) => (
+                                    <div key={incIdx} className="flex items-center gap-2 flex-wrap">
+                                      <input type="number" step="0.01" min="0" placeholder="סכום" value={income.amount} onChange={(e) => handleIncomeChange(row.id, incIdx, 'amount', e.target.value ? Number(e.target.value) : '')} className="w-20 px-2 py-1.5 text-xs border border-green-200 dark:border-green-800 rounded bg-white dark:bg-gray-700 font-semibold" />
+                                      <input type="text" placeholder="תיאור" value={income.description} onChange={(e) => handleIncomeChange(row.id, incIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-green-200 dark:border-green-800 rounded bg-white dark:bg-gray-700" />
+                                      <label className="cursor-pointer">
+                                        <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleIncomeFileUpload(row.id, incIdx, e.target.files)} id={`inc-f-${row.id}-${incIdx}`} />
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(income.documentFiles?.length || 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 border-green-300 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`} onClick={() => document.getElementById(`inc-f-${row.id}-${incIdx}`)?.click()}>
+                                          <Upload className="w-3.5 h-3.5" />{(income.documentFiles?.length || 0) > 0 ? income.documentFiles!.length : ''}
+                                        </span>
+                                      </label>
+                                      {(income.documentFiles || []).map((f, fi) => (
+                                        <span key={fi} className="flex items-center gap-1 text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border truncate max-w-[80px]">
+                                          <span className="truncate">{f.name}</span>
+                                          <button type="button" onClick={() => handleRemoveIncomeFile(row.id, incIdx, fi)} className="text-red-500"><X className="w-3 h-3" /></button>
+                                        </span>
+                                      ))}
+                                      {(row.incomes || []).length > 1 && <button type="button" onClick={() => handleRemoveIncome(row.id, incIdx)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><Trash2 className="w-3.5 h-3.5" /></button>}
                                     </div>
                                   ))}
                                 </div>
-                                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">סה"כ הוצאות:</span>
-                                    <span className="font-semibold text-red-600 dark:text-red-400">
-                                      ₪{totalExpenses.toLocaleString('he-IL')}
-                                    </span>
+                                <div className="space-y-2 p-3 rounded-lg bg-red-50/50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-red-700 dark:text-red-400">הוצאות</span>
+                                    <button type="button" onClick={() => handleAddExpense(row.id)} className="flex items-center gap-1 px-2 py-1 text-[10px] bg-red-600 text-white rounded hover:bg-red-700"><Plus className="w-3 h-3" /> הוסף הוצאה</button>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">רווח/הפסד:</span>
-                                    <span className={`font-semibold ${profitLoss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                      ₪{profitLoss.toLocaleString('he-IL')}
-                                    </span>
-                                  </div>
+                                  {(row.expenses || []).map((expense, expIdx) => (
+                                    <div key={expIdx} className="flex items-center gap-2 flex-wrap">
+                                      <input type="number" step="0.01" min="0" placeholder="סכום" value={expense.amount} onChange={(e) => handleExpenseChange(row.id, expIdx, 'amount', e.target.value ? Number(e.target.value) : '')} className="w-20 px-2 py-1.5 text-xs border border-red-200 dark:border-red-800 rounded bg-white dark:bg-gray-700 font-semibold" />
+                                      <input type="text" placeholder="תיאור" value={expense.description} onChange={(e) => handleExpenseChange(row.id, expIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-red-200 dark:border-red-800 rounded bg-white dark:bg-gray-700" />
+                                      <label className="cursor-pointer">
+                                        <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleExpenseFileUpload(row.id, expIdx, e.target.files)} id={`exp-f-${row.id}-${expIdx}`} />
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(expense.documentFiles?.length || 0) > 0 ? 'bg-red-100 dark:bg-red-900/30 border-red-300 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`} onClick={() => document.getElementById(`exp-f-${row.id}-${expIdx}`)?.click()}>
+                                          <Upload className="w-3.5 h-3.5" />{(expense.documentFiles?.length || 0) > 0 ? expense.documentFiles!.length : ''}
+                                        </span>
+                                      </label>
+                                      {(expense.documentFiles || []).map((f, fi) => (
+                                        <span key={fi} className="flex items-center gap-1 text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border truncate max-w-[80px]">
+                                          <span className="truncate">{f.name}</span>
+                                          <button type="button" onClick={() => handleRemoveExpenseFile(row.id, expIdx, fi)} className="text-red-500"><X className="w-3 h-3" /></button>
+                                        </span>
+                                      ))}
+                                      {(row.expenses || []).length > 1 && <button type="button" onClick={() => handleRemoveExpense(row.id, expIdx)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><Trash2 className="w-3.5 h-3.5" /></button>}
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             </td>
                           </tr>
                           {index < rows.length - 1 && (
                             <tr>
-                              <td colSpan={7} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                              <td colSpan={9} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
                             </tr>
                           )}
                         </React.Fragment>
                       )
                     }
 
-                    // Regular transaction row (existing code)
+                    // Regular transaction row – עיצוב משופר
                     return (
                       <React.Fragment key={row.id}>
-                        {/* שורה ראשונה */}
+                        {/* שורה ראשונה – פרטים עיקריים */}
                         <tr 
-                          className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}
+                          className={`transition-colors ${rowBgClass} hover:bg-blue-50/50 dark:hover:bg-gray-700/50 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}
                         >
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
+                            <select value={row.isUnforeseen ? 'unforeseen' : 'regular'} onChange={(e) => setRowUnforeseen(row.id, e.target.value === 'unforeseen')} className="w-full min-w-0 px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium h-[40px] shadow-sm">
+                              <option value="regular">רגילה</option>
+                              <option value="unforeseen">לא צפויה</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
                             <select
                               value={row.projectId}
                               onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-[40px] shadow-sm"
                               required
                             >
                               <option value="">בחר פרויקט</option>
@@ -1304,12 +1360,12 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                               ))}
                             </select>
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             {isParentProject ? (
                               <select
                                 value={row.subprojectId}
                                 onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-[40px] shadow-sm"
                                 required
                               >
                                 <option value="">בחר תת-פרויקט</option>
@@ -1320,10 +1376,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                 ))}
                               </select>
                             ) : (
-                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
+                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center h-[40px]">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             <select
                               value={row.type}
                               onChange={(e) => {
@@ -1333,10 +1389,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                   updateRow(row.id, 'supplierId', '')
                                 }
                               }}
-                              className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow font-medium ${
+                              className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] font-semibold shadow-sm ${
                                 row.type === 'Income' 
-                                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300' 
-                                  : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
+                                  ? 'bg-green-50 dark:bg-green-900/25 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200' 
+                                  : 'bg-red-50 dark:bg-red-900/25 border-red-400 dark:border-red-600 text-red-800 dark:text-red-200'
                               }`}
                               required
                             >
@@ -1344,78 +1400,94 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                               <option value="Expense">הוצאה</option>
                             </select>
                           </td>
-                          <td className="px-4 py-4">
-                            <div className="space-y-1">
-                              <input
-                                type="date"
-                                value={row.txDate}
-                                onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
-                                className={`w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow ${
-                                  row.dateError
-                                    ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                    : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
-                                }`}
-                                required
-                              />
-                              {row.dateError && (
-                                <p className="text-xs text-red-600 dark:text-red-400">{row.dateError}</p>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="space-y-1">
-                              <div className="relative">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={row.amount}
-                                  onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
-                                  className={`w-full px-4 py-3 text-base bg-white dark:bg-gray-700 border-2 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all shadow-sm hover:shadow font-bold text-lg ${
-                                    row.duplicateError
-                                      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
-                                  }`}
-                                  placeholder="0.00"
-                                  required
-                                />
-                                {row.checkingDuplicate && (
-                                  <div className="absolute left-2 top-1/2 transform -translate-y-1/2">
-                                    <motion.div
-                                      animate={{ rotate: 360 }}
-                                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                      className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"
+                          <td className="px-4 py-3 align-middle">
+                            <div className="min-w-[140px] space-y-1">
+                              {(row.period_start_date && row.period_end_date) ? (
+                                <>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <input
+                                      type="date"
+                                      value={row.period_start_date}
+                                      onChange={(e) => updateRow(row.id, 'period_start_date', e.target.value)}
+                                      className={`w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 h-[40px] shadow-sm ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
+                                    />
+                                    <input
+                                      type="date"
+                                      value={row.period_end_date}
+                                      onChange={(e) => updateRow(row.id, 'period_end_date', e.target.value)}
+                                      className={`w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 h-[40px] shadow-sm ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
                                     />
                                   </div>
-                                )}
-                              </div>
-                              {row.duplicateError && (
-                                <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg">
-                                  <pre className="text-xs text-red-800 dark:text-red-200 whitespace-pre-wrap font-medium">{row.duplicateError}</pre>
+                                  <button type="button" onClick={() => { updateRow(row.id, 'period_start_date', ''); updateRow(row.id, 'period_end_date', '') }} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap">מעבר לתאריך בודד</button>
+                                </>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="date"
+                                    value={row.txDate}
+                                    onChange={(e) => updateRow(row.id, 'txDate', e.target.value)}
+                                    className={`flex-1 min-w-0 px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 h-[40px] shadow-sm ${
+                                      row.dateError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                                    }`}
+                                    required
+                                  />
+                                  <button type="button" title="עסקה תאריכית (מתאריך–עד תאריך)" onClick={() => { const d = row.txDate || new Date().toISOString().split('T')[0]; updateRow(row.id, 'period_start_date', d); updateRow(row.id, 'period_end_date', d) }} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap flex-shrink-0">מתאריך–עד תאריך</button>
+                                </div>
+                              )}
+                              {row.dateError && <p className="text-[10px] text-red-600 dark:text-red-400">{row.dateError}</p>}
+                              {row.periodError && <p className="text-[10px] text-red-600 dark:text-red-400">{row.periodError}</p>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={row.amount}
+                                onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
+                                className={`w-full px-3 py-2.5 text-sm bg-gray-50 dark:bg-gray-700/80 border-2 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-bold h-[40px] shadow-sm ${
+                                  row.duplicateError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600'
+                                } ${row.amount ? (row.type === 'Income' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300') : ''}`}
+                                placeholder="0.00"
+                                required
+                              />
+                              {row.checkingDuplicate && (
+                                <div className="absolute left-2 top-1/2 -translate-y-1/2">
+                                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
                                 </div>
                               )}
                             </div>
+                            {row.duplicateError && (
+                              <div className="p-2 mt-1.5 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg text-[11px]">
+                                <pre className="text-red-800 dark:text-red-200 whitespace-pre-wrap font-medium">{row.duplicateError}</pre>
+                              </div>
+                            )}
                           </td>
+                          <td className="px-4 py-3 align-middle" colSpan={3}></td>
                         </tr>
-                        {/* שורה שנייה */}
+                        {/* שורה שנייה – פרטים נוספים */}
                         <tr 
-                          className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 border-b-4 border-gray-400 dark:border-gray-500`}
+                          className={`transition-colors ${rowBgClass} hover:bg-blue-50/50 dark:hover:bg-gray-700/50 border-t border-gray-200 dark:border-gray-600 border-b-4 border-gray-400 dark:border-gray-500`}
                         >
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
+                            <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">פרטים</span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
                             <input
                               type="text"
                               readOnly
                               onClick={() => openTextEditor(row.id, 'description', row.description)}
                               value={row.description}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] cursor-pointer shadow-sm"
                               placeholder="תיאור העסקה"
                             />
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             <select
                               value={row.categoryId}
                               onChange={(e) => updateRow(row.id, 'categoryId', e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                              className="w-full min-w-[7.5rem] px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm"
                             >
                               <option value="">בחר קטגוריה</option>
                               {availableCategories.map((category) => (
@@ -1425,35 +1497,30 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                               ))}
                             </select>
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             {row.type === 'Expense' && !row.fromFund ? (
                               <select
                                 value={row.supplierId}
                                 onChange={(e) => updateRow(row.id, 'supplierId', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full min-w-[8.5rem] px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled={!row.categoryId}
                               >
                                 <option value="">
                                   {row.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}
                                 </option>
                                 {(() => {
-                                  // Filter suppliers by selected category name
                                   const selectedCategory = availableCategories.find(c => c.id === row.categoryId)
                                   if (!selectedCategory) {
                                     return <option value="" disabled>בחר קודם קטגוריה</option>
                                   }
-                                  
                                   const categoryName = selectedCategory.name
                                   const filteredSuppliers = suppliers.filter(s => {
                                     if (!s.is_active) return false
-                                    // Match by category name (suppliers have category as string)
                                     return s.category === categoryName
                                   })
-                                  
                                   if (filteredSuppliers.length === 0) {
                                     return <option value="" disabled>אין ספקים בקטגוריה זו</option>
                                   }
-                                  
                                   return filteredSuppliers.map((supplier) => (
                                     <option key={supplier.id} value={supplier.id}>
                                       {supplier.name}
@@ -1462,14 +1529,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                 })()}
                               </select>
                             ) : (
-                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center h-10">-</span>
+                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center h-[40px]">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             <select
                               value={row.paymentMethod}
                               onChange={(e) => updateRow(row.id, 'paymentMethod', e.target.value)}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow"
+                              className="w-full min-w-[9rem] px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm"
                             >
                               <option value="">בחר אמצעי תשלום</option>
                               <option value="הוראת קבע">הוראת קבע</option>
@@ -1480,18 +1547,20 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                               <option value="גבייה מרוכזת סוף שנה">גבייה מרוכזת סוף שנה</option>
                             </select>
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3 align-middle">
                             <input
                               type="text"
                               readOnly
                               onClick={() => openTextEditor(row.id, 'notes', row.notes)}
                               value={row.notes}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow cursor-pointer"
+                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] cursor-pointer shadow-sm"
                               placeholder="הערות"
                             />
                           </td>
-                          <td className="px-4 py-4">
-                            <div className="space-y-2">
+                          <td className="px-4 py-3 align-middle"></td>
+                          <td className="px-4 py-3 align-middle"></td>
+                          <td className="px-2 py-3 align-middle w-[90px] max-w-[90px]">
+                            <div className="flex items-center gap-2 flex-wrap min-h-[40px] justify-end">
                               <div className="flex items-center gap-3 flex-wrap">
                                 {row.type === 'Expense' && hasFundForRow(row) && (
                                   <label className="flex items-center gap-2 text-sm cursor-pointer group whitespace-nowrap">
@@ -1576,7 +1645,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                         {/* רווח בין עסקאות */}
                         {index < rows.length - 1 && (
                           <tr>
-                            <td colSpan={6} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                            <td colSpan={9} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
                           </tr>
                         )}
                       </React.Fragment>
@@ -1586,7 +1655,30 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               </table>
             </div>
 
-            <div className="flex justify-between items-center pt-4">
+            {/* סיכום כספי גלובלי – שורה אחת קומפקטית */}
+            {(() => {
+              let totalIncome = 0
+              let totalExpense = 0
+              rows.forEach(row => {
+                if (row.isUnforeseen) {
+                  totalIncome += (row.incomes || []).reduce((s, i) => s + (Number(i.amount) || 0), 0)
+                  totalExpense += (row.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                } else {
+                  if (row.type === 'Income') totalIncome += Number(row.amount) || 0
+                  else totalExpense += Number(row.amount) || 0
+                }
+              })
+              const balance = totalIncome - totalExpense
+              return (
+                <div className="mt-2 flex items-center justify-end gap-4 py-2 px-3 rounded-lg bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">סה"כ הכנסות: <strong className="text-green-600 dark:text-green-400">₪{totalIncome.toLocaleString('he-IL')}</strong></span>
+                  <span className="text-gray-600 dark:text-gray-400">סה"כ הוצאות: <strong className="text-red-600 dark:text-red-400">₪{totalExpense.toLocaleString('he-IL')}</strong></span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">יתרה: <strong className={balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>₪{balance.toLocaleString('he-IL')}</strong></span>
+                </div>
+              )
+            })()}
+
+            <div className="flex justify-between items-center pt-2">
               <motion.button
                 type="button"
                 onClick={addRow}

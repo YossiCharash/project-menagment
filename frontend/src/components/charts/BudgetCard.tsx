@@ -45,12 +45,12 @@ const BudgetCard: React.FC<BudgetCardProps> = ({ budget, onDelete, deleting, onE
   }, [budget.amount, budget.expected_spent_percentage])
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border-2 ${isOverBudget ? 'border-red-500' : isSpendingTooFast ? 'border-orange-500' : isWarning ? 'border-yellow-400' : 'border-gray-200 dark:border-gray-700'} p-6`}>
-      {/* Header */}
-      <div className="mb-4">
-        <h4 className="text-lg font-bold text-gray-900 dark:text-white break-words mb-2">{budget.category}</h4>
-        <div className="flex items-center justify-end gap-2 mb-2">
-          <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${isOverBudget ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : isSpendingTooFast ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' : isWarning ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}>
+    <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border-2 ${isOverBudget ? 'border-red-500' : isSpendingTooFast ? 'border-orange-500' : isWarning ? 'border-yellow-400' : 'border-gray-200 dark:border-gray-700'} p-4`}>
+      {/* Header - compact */}
+      <div className="mb-3">
+        <h4 className="text-base font-bold text-gray-900 dark:text-white break-words mb-1.5">{budget.category}</h4>
+        <div className="flex items-center justify-end gap-1.5 mb-1">
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${isOverBudget ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : isSpendingTooFast ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' : isWarning ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}>
             {statusText}
           </span>
           {onEdit && (
@@ -79,130 +79,124 @@ const BudgetCard: React.FC<BudgetCardProps> = ({ budget, onDelete, deleting, onE
             </button>
           )}
         </div>
-        <div className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
+        <div className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
           {budget.period_type === 'Annual' ? 'תקציב שנתי' : 'תקציב חודשי'}
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">התקדמות</span>
+      {/* Progress Bar - tighter */}
+      <div className="mb-3">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">התקדמות</span>
           <span className={`text-sm font-bold whitespace-nowrap ${progressPercent > 100 ? 'text-red-600' : progressPercent > 80 ? 'text-orange-600' : 'text-green-600'}`}>
             {progressPercent.toFixed(1)}%
           </span>
         </div>
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
           <div
             className={`h-full transition-all duration-300 ${isOverBudget ? 'bg-red-500' : isSpendingTooFast ? 'bg-orange-500' : isWarning ? 'bg-yellow-400' : 'bg-green-500'}`}
             style={{ width: `${Math.min(progressPercent, 100)}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           <span className="whitespace-nowrap">0 ₪</span>
           <span className="whitespace-nowrap">{Number(budget.amount ?? 0).toLocaleString()} ₪</span>
         </div>
       </div>
 
-      {/* Comparison Details */}
-      <div className="mt-4 grid grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-        <div className="text-center bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 font-medium leading-tight break-words">צפוי לפי זמן</div>
-          <div className="font-bold text-gray-900 dark:text-white text-lg whitespace-nowrap">
+      {/* Comparison Details - readable labels */}
+      <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="text-center bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5 font-medium">צפוי לפי זמן</div>
+          <div className="font-bold text-gray-900 dark:text-white text-base whitespace-nowrap">
             {Number(expectedAmount ?? 0).toLocaleString()} ₪
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 whitespace-nowrap">
+          <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
             {Number(budget.expected_spent_percentage ?? 0).toFixed(1)}%
           </div>
         </div>
-        <div className="text-center bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 font-medium leading-tight break-words">הוצאה נטו</div>
-          <div className="font-bold text-gray-900 dark:text-white text-lg whitespace-nowrap">
+        <div className="text-center bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5 font-medium">הוצאה נטו</div>
+          <div className="font-bold text-gray-900 dark:text-white text-base whitespace-nowrap">
             {Number(netSpent ?? 0).toLocaleString()} ₪
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 whitespace-nowrap">
+          <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
             {progressPercent.toFixed(1)}%
           </div>
         </div>
       </div>
-      
-      {/* Difference indicator */}
-      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-center gap-2 flex-wrap">
-          <span className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">הפרש:</span>
-          <span className="text-lg font-bold text-gray-900 dark:text-white whitespace-nowrap">
-            {netSpent > expectedAmount ? '+' : ''}{Number(netSpent - expectedAmount).toLocaleString()} ₪
-          </span>
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
-            ({progressPercent > (budget.expected_spent_percentage ?? 0) ? '+' : ''}{(progressPercent - (budget.expected_spent_percentage ?? 0)).toFixed(1)}%)
-          </span>
-        </div>
+
+      {/* Difference - one line */}
+      <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-600 dark:text-gray-400">הפרש:</span>
+        <span className="text-base font-bold text-gray-900 dark:text-white whitespace-nowrap">
+          {netSpent > expectedAmount ? '+' : ''}{Number(netSpent - expectedAmount).toLocaleString()} ₪
+        </span>
+        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+          ({progressPercent > (budget.expected_spent_percentage ?? 0) ? '+' : ''}{(progressPercent - (budget.expected_spent_percentage ?? 0)).toFixed(1)}%)
+        </span>
       </div>
 
-      {/* Summary Numbers */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      {/* Summary Numbers - compact grid */}
+      <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
         <div className="text-center">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 leading-tight break-words">תקציב בסיסי</div>
-          <div className="text-lg font-bold text-gray-900 dark:text-white whitespace-nowrap">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">תקציב בסיסי</div>
+          <div className="text-base font-bold text-gray-900 dark:text-white whitespace-nowrap">
             {Number(baseBudget ?? 0).toLocaleString()} ₪
           </div>
         </div>
         <div className="text-center">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 leading-tight break-words">סה"כ הוצאות</div>
-          <div className={`text-lg font-bold whitespace-nowrap ${isOverBudget ? 'text-red-600' : 'text-blue-600'}`}>
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">סה"כ הוצאות</div>
+          <div className={`text-base font-bold whitespace-nowrap ${isOverBudget ? 'text-red-600' : 'text-blue-600'}`}>
             {Number(expenseAmount ?? 0).toLocaleString()} ₪
           </div>
         </div>
         <div className="text-center">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 leading-tight break-words">סה"כ הכנסות</div>
-          <div className="text-lg font-bold text-green-600 whitespace-nowrap">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">סה"כ הכנסות</div>
+          <div className="text-base font-bold text-green-600 whitespace-nowrap">
             {Number(incomeAmount ?? 0).toLocaleString()} ₪
           </div>
         </div>
         <div className="text-center">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 leading-tight break-words">תקציב נוכחי</div>
-          <div className="text-lg font-bold text-gray-900 dark:text-white whitespace-nowrap">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">תקציב נוכחי</div>
+          <div className="text-base font-bold text-gray-900 dark:text-white whitespace-nowrap">
             {Number(effectiveBudget ?? 0).toLocaleString()} ₪
           </div>
         </div>
         <div className="text-center col-span-2">
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 leading-tight break-words">נותר</div>
-          <div className={`text-lg font-bold whitespace-nowrap ${remainingAmount < 0 ? 'text-red-600' : 'text-green-600'}`}>
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">נותר</div>
+          <div className={`text-base font-bold whitespace-nowrap ${remainingAmount < 0 ? 'text-red-600' : 'text-green-600'}`}>
             {Number(remainingAmount ?? 0).toLocaleString()} ₪
           </div>
         </div>
       </div>
 
-      {/* Time-based warning */}
+      {/* Time-based warning - compact */}
       {budget.is_spending_too_fast && budget.expected_spent_percentage > 0 && !budget.is_over_budget && (
-        <div className="mt-4 p-4 bg-orange-50 dark:bg-orange-900/20 border-2 border-orange-300 dark:border-orange-800 rounded-lg">
-          <div className="flex items-start gap-3">
-            <span className="text-orange-600 dark:text-orange-400 text-2xl">⚠️</span>
-            <div className="flex-1">
-              <div className="text-base font-bold text-orange-800 dark:text-orange-200 mb-2">
-                הוצאה מהירה מהצפוי
-              </div>
-              <div className="text-sm text-orange-700 dark:text-orange-300">
-                הוצאת <span className="font-semibold">{budget.spent_percentage.toFixed(1)}%</span> מהתקציב, אך צפוי רק <span className="font-semibold">{budget.expected_spent_percentage.toFixed(1)}%</span> לפי זמן שחלף
+        <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-800 rounded-lg">
+          <div className="flex items-start gap-2">
+            <span className="text-orange-600 dark:text-orange-400 text-lg">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-orange-800 dark:text-orange-200 mb-0.5">הוצאה מהירה מהצפוי</div>
+              <div className="text-xs text-orange-700 dark:text-orange-300">
+                הוצאת <span className="font-semibold">{budget.spent_percentage.toFixed(1)}%</span> מהתקציב, צפוי {budget.expected_spent_percentage.toFixed(1)}% לפי זמן
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Over budget warning */}
+      {/* Over budget warning - compact */}
       {budget.is_over_budget && (
-        <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-800 rounded-lg">
-          <div className="flex items-start gap-3">
-            <span className="text-red-600 dark:text-red-400 text-2xl">🚨</span>
-            <div className="flex-1">
-              <div className="text-base font-bold text-red-800 dark:text-red-200 mb-2">
-                חריגה מעל התקציב!
-              </div>
-              <div className="text-sm text-red-700 dark:text-red-300">
+        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg">
+          <div className="flex items-start gap-2">
+            <span className="text-red-600 dark:text-red-400 text-lg">🚨</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-red-800 dark:text-red-200 mb-0.5">חריגה מעל התקציב!</div>
+              <div className="text-xs text-red-700 dark:text-red-300">
                 הוצאת <span className="font-semibold">{Number(budget.spent_amount ?? 0).toLocaleString()} ₪</span> מתוך <span className="font-semibold">{Number(budget.amount ?? 0).toLocaleString()} ₪</span>
                 {budget.expected_spent_percentage > 0 && (
-                  <span> - צפוי היה רק <span className="font-semibold">{budget.expected_spent_percentage.toFixed(1)}%</span> לפי זמן</span>
+                  <span> (צפוי {budget.expected_spent_percentage.toFixed(1)}%)</span>
                 )}
               </div>
             </div>

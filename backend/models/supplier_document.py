@@ -16,6 +16,20 @@ class SupplierDocument(Base):
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"), nullable=True, index=True)
     transaction: Mapped["Transaction | None"] = relationship("Transaction", back_populates="documents", lazy="selectin")
 
+    unforeseen_transaction_expense_id: Mapped[int | None] = mapped_column(
+        ForeignKey("unforeseen_transaction_expenses.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    unforeseen_transaction_expense: Mapped["UnforeseenTransactionExpense | None"] = relationship(
+        "UnforeseenTransactionExpense", back_populates="documents", foreign_keys=[unforeseen_transaction_expense_id]
+    )
+
+    unforeseen_transaction_income_id: Mapped[int | None] = mapped_column(
+        ForeignKey("unforeseen_transaction_incomes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    unforeseen_transaction_income: Mapped["UnforeseenTransactionIncome | None"] = relationship(
+        "UnforeseenTransactionIncome", back_populates="documents", foreign_keys=[unforeseen_transaction_income_id]
+    )
+
     file_path: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text, default=None)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

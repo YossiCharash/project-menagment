@@ -42,7 +42,13 @@ class UnforeseenTransaction(Base):
         cascade="all, delete-orphan",
         lazy="selectin"
     )
-    
+    # Relationship to incomes
+    incomes: Mapped[list["UnforeseenTransactionIncome"]] = relationship(
+        back_populates="unforeseen_transaction",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
     # User who created this
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by_user: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id], lazy="selectin")
@@ -66,11 +72,39 @@ class UnforeseenTransactionExpense(Base):
     # Expense details
     amount: Mapped[float] = mapped_column(Numeric(14, 2))
     description: Mapped[str | None] = mapped_column(Text, default=None)
-    
-    # Document for this expense
-    document_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_documents.id"), nullable=True, index=True)
-    document: Mapped["SupplierDocument | None"] = relationship("SupplierDocument", foreign_keys=[document_id])
-    
+
+    # Documents for this expense (multiple; link is on supplier_documents.unforeseen_transaction_expense_id)
+    documents: Mapped[list["SupplierDocument"]] = relationship(
+        "SupplierDocument",
+        back_populates="unforeseen_transaction_expense",
+        foreign_keys="SupplierDocument.unforeseen_transaction_expense_id",
+        lazy="selectin",
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UnforeseenTransactionIncome(Base):
+    __tablename__ = "unforeseen_transaction_incomes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    unforeseen_transaction_id: Mapped[int] = mapped_column(ForeignKey("unforeseen_transactions.id", ondelete="CASCADE"), index=True)
+    unforeseen_transaction: Mapped["UnforeseenTransaction"] = relationship(back_populates="incomes")
+
+    # Income details
+    amount: Mapped[float] = mapped_column(Numeric(14, 2))
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Documents for this income (link is on supplier_documents.unforeseen_transaction_income_id)
+    documents: Mapped[list["SupplierDocument"]] = relationship(
+        "SupplierDocument",
+        back_populates="unforeseen_transaction_income",
+        foreign_keys="SupplierDocument.unforeseen_transaction_income_id",
+        lazy="selectin",
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

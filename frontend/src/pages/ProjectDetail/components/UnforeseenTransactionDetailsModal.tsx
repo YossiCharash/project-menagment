@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { FileText, X, Edit, Trash2 } from 'lucide-react'
 import { UnforeseenTransactionAPI } from '../../../lib/apiClient'
 import ConfirmationModal from '../../../components/ConfirmationModal'
+import DocumentViewerModal from '../../../components/DocumentViewerModal'
 import ToastNotification, { useToast } from '../../../components/ToastNotification'
 
 interface UnforeseenTransactionDetailsModalProps {
@@ -14,6 +15,8 @@ interface UnforeseenTransactionDetailsModalProps {
     onEdit: (tx: UnforeseenTransaction) => void
     onDelete: (txId: number) => Promise<void>
     onStatusChange?: (executeResult?: any, unforeseenTx?: any) => Promise<void>
+    /** מצב צפייה בלבד (מהרשימת העסקאות) – ללא כפתורי עריכה/מחיקה/שינוי סטטוס */
+    readOnly?: boolean
 }
 
 export default function UnforeseenTransactionDetailsModal({
@@ -22,12 +25,14 @@ export default function UnforeseenTransactionDetailsModal({
     onClose,
     onEdit,
     onDelete,
-    onStatusChange
+    onStatusChange,
+    readOnly = false
 }: UnforeseenTransactionDetailsModalProps) {
     const [updatingStatus, setUpdatingStatus] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [showStatusConfirm, setShowStatusConfirm] = useState(false)
     const [showExecuteConfirm, setShowExecuteConfirm] = useState(false)
+    const [selectedDocForView, setSelectedDocForView] = useState<{ file_path: string; description?: string | null } | null>(null)
     const { toast, showToast, hideToast } = useToast()
 
     if (!isOpen || !transaction) return null
@@ -114,69 +119,58 @@ export default function UnforeseenTransactionDetailsModal({
                 initial={{opacity: 0, scale: 0.95}}
                 animate={{opacity: 1, scale: 1}}
                 exit={{opacity: 0, scale: 0.95}}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-                    <div className="flex-1">
-                        <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {/* Header – קומפקטי: כותרת + סטטוס + תאריך + סגירה */}
+                <div className="flex items-center justify-between gap-3 p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
                             פרטי עסקה לא צפויה
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            {transaction.description || `עסקה #${transaction.id}`}
-                        </p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${
+                                transaction.status === 'executed'
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                                    : transaction.status === 'waiting_for_approval'
+                                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
+                                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                                {getStatusLabel(transaction.status)}
+                            </span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {formatDate(transaction.transaction_date)}
+                            </span>
+                        </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+                        className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors shrink-0"
                     >
-                        <X className="w-6 h-6" />
+                        <X className="w-5 h-5" />
                     </button>
                 </div>
 
-                {/* Content - Scrollable */}
-                <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
-                    <div className="space-y-6">
-                        {/* Status and Date */}
-                        <div className="flex items-center gap-4">
+                {/* Content – גלילה, ריווח קטן */}
+                <div className="p-4 overflow-y-auto max-h-[calc(85vh-140px)]">
+                    <div className="space-y-4">
+                        {/* סיכום כספי – שורה אחת קומפקטית */}
+                        <div className="grid grid-cols-3 gap-2 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                             <div>
-                                <span className="text-sm text-gray-500 dark:text-gray-400">סטטוס:</span>
-                                <span className={`ml-2 px-3 py-1 rounded-full text-sm ${
-                                    transaction.status === 'executed'
-                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-                                        : transaction.status === 'waiting_for_approval'
-                                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
-                                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                                }`}>
-                                    {getStatusLabel(transaction.status)}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-sm text-gray-500 dark:text-gray-400">תאריך:</span>
-                                <span className="ml-2 text-sm font-medium text-gray-900 dark:text-white">
-                                    {formatDate(transaction.transaction_date)}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Financial Summary */}
-                        <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
-                            <div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">הכנסה</p>
-                                <p className="text-xl font-bold text-green-600 dark:text-green-400">
-                                    ₪{transaction.income_amount.toLocaleString('he-IL')}
+                                <p className="text-xs text-gray-500 dark:text-gray-400">הכנסה</p>
+                                <p className="text-base font-bold text-green-600 dark:text-green-400">
+                                    ₪{(transaction.total_incomes ?? transaction.income_amount ?? 0).toLocaleString('he-IL')}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">הוצאות</p>
-                                <p className="text-xl font-bold text-red-600 dark:text-red-400">
+                                <p className="text-xs text-gray-500 dark:text-gray-400">הוצאות</p>
+                                <p className="text-base font-bold text-red-600 dark:text-red-400">
                                     ₪{transaction.total_expenses.toLocaleString('he-IL')}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">רווח/הפסד</p>
-                                <p className={`text-xl font-bold ${
+                                <p className="text-xs text-gray-500 dark:text-gray-400">רווח/הפסד</p>
+                                <p className={`text-base font-bold ${
                                     transaction.profit_loss >= 0
                                         ? 'text-green-600 dark:text-green-400'
                                         : 'text-red-600 dark:text-red-400'
@@ -186,69 +180,214 @@ export default function UnforeseenTransactionDetailsModal({
                             </div>
                         </div>
 
-                        {/* Description */}
-                        {transaction.description && (
-                            <div>
-                                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">תיאור:</h4>
-                                <p className="text-gray-900 dark:text-white">{transaction.description}</p>
+                        {/* מסמכי העסקה – חלוקה להכנסות והוצאות */}
+                        <div className="space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                <FileText className="w-4 h-4" />
+                                מסמכי העסקה
+                            </h4>
+                            {/* מסמכי הוצאות */}
+                            <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-900/20 overflow-hidden">
+                                <div className="px-3 py-2 bg-red-100 dark:bg-red-900/40 border-b border-red-200 dark:border-red-800">
+                                    <span className="text-sm font-medium text-red-800 dark:text-red-300">מסמכי הוצאות</span>
+                                </div>
+                                <div className="p-3 space-y-2">
+                                    {transaction.expenses && transaction.expenses.length > 0 &&
+                                        transaction.expenses.map((exp) => {
+                                            const docs = exp.documents ?? []
+                                            if (docs.length === 0) return null
+                                            return (
+                                                <div key={exp.id} className="space-y-1.5">
+                                                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                                                        הוצאה ₪{exp.amount.toLocaleString('he-IL')}
+                                                        {exp.description ? ` · ${exp.description}` : ''}
+                                                    </span>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {docs.map((doc: { id: number; file_path: string; description?: string | null }, docIdx: number) => (
+                                                            <button
+                                                                key={doc.id}
+                                                                type="button"
+                                                                onClick={() => setSelectedDocForView(doc)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 text-xs font-medium transition-colors"
+                                                                title={doc.description || `מסמך ${docIdx + 1}`}
+                                                            >
+                                                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                <span>{doc.description || `מסמך ${docIdx + 1}`}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })
+                                    }
+                                    {(!transaction.expenses?.length || transaction.expenses.every((e) => !(e.documents?.length))) && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">אין מסמכי הוצאות</p>
+                                    )}
+                                </div>
+                            </div>
+                            {/* מסמכי הכנסות */}
+                            <div className="rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50/50 dark:bg-green-900/20 overflow-hidden">
+                                <div className="px-3 py-2 bg-green-100 dark:bg-green-900/40 border-b border-green-200 dark:border-green-800">
+                                    <span className="text-sm font-medium text-green-800 dark:text-green-300">מסמכי הכנסות</span>
+                                </div>
+                                <div className="p-3 space-y-2">
+                                    {transaction.incomes && transaction.incomes.length > 0 &&
+                                        transaction.incomes.map((inc) => {
+                                            const docs = inc.documents ?? []
+                                            if (docs.length === 0) return null
+                                            return (
+                                                <div key={inc.id} className="space-y-1.5">
+                                                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                                                        הכנסה ₪{inc.amount.toLocaleString('he-IL')}
+                                                        {inc.description ? ` · ${inc.description}` : ''}
+                                                    </span>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {docs.map((doc: { id: number; file_path: string; description?: string | null }, docIdx: number) => (
+                                                            <button
+                                                                key={doc.id}
+                                                                type="button"
+                                                                onClick={() => setSelectedDocForView(doc)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-white dark:bg-gray-800 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/30 text-xs font-medium transition-colors"
+                                                                title={doc.description || `מסמך ${docIdx + 1}`}
+                                                            >
+                                                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                <span>{doc.description || `מסמך ${docIdx + 1}`}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })
+                                    }
+                                    {(!transaction.incomes?.length || transaction.incomes.every((i) => !(i.documents?.length))) && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">אין מסמכי הכנסות</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* תיאור + הערות – בלוק אחד קומפקטי */}
+                        {(transaction.description || transaction.notes) && (
+                            <div className="space-y-2">
+                                {transaction.description && (
+                                    <div>
+                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">תיאור: </span>
+                                        <span className="text-sm text-gray-900 dark:text-white">{transaction.description}</span>
+                                    </div>
+                                )}
+                                {transaction.notes && (
+                                    <div>
+                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">הערות: </span>
+                                        <p className="text-sm text-gray-900 dark:text-white whitespace-pre-wrap mt-0.5">{transaction.notes}</p>
+                                    </div>
+                                )}
                             </div>
                         )}
 
-                        {/* Notes */}
-                        {transaction.notes && (
-                            <div>
-                                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">הערות:</h4>
-                                <p className="text-gray-900 dark:text-white whitespace-pre-wrap">{transaction.notes}</p>
-                            </div>
-                        )}
-
-                        {/* Expenses */}
+                        {/* הוצאות – קומפקטי */}
                         {transaction.expenses && transaction.expenses.length > 0 && (
                             <div>
-                                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">הוצאות:</h4>
+                                <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">הוצאות</h4>
                                 <div className="space-y-2">
-                                    {transaction.expenses.map((exp) => (
-                                        <div
-                                            key={exp.id}
-                                            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
-                                        >
-                                            <div className="flex-1">
-                                                <p className="font-medium text-gray-900 dark:text-white">
-                                                    ₪{exp.amount.toLocaleString('he-IL')}
-                                                </p>
-                                                {exp.description && (
-                                                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                                        {exp.description}
-                                                    </p>
-                                                )}
+                                    {transaction.expenses.map((exp) => {
+                                        const docs = exp.documents ?? []
+                                        return (
+                                            <div
+                                                key={exp.id}
+                                                className="flex items-center justify-between gap-2 py-2 px-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200/80 dark:border-gray-600/80"
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                                        ₪{exp.amount.toLocaleString('he-IL')}
+                                                    </span>
+                                                    {exp.description && (
+                                                        <span className="text-xs text-gray-600 dark:text-gray-400 mr-1"> · {exp.description}</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    {docs.length > 0 ? (
+                                                        docs.map((doc: { id: number; file_path: string; description?: string | null }, docIdx: number) => (
+                                                            <button
+                                                                key={doc.id}
+                                                                type="button"
+                                                                onClick={() => setSelectedDocForView(doc)}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-xs font-medium transition-colors"
+                                                                title={`צפה במסמך ${docIdx + 1}`}
+                                                            >
+                                                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                <span>מסמך {docIdx + 1}</span>
+                                                            </button>
+                                                        ))
+                                                    ) : (
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">אין מסמכים</span>
+                                                    )}
+                                                </div>
                                             </div>
-                                            {exp.document && (
-                                                <a
-                                                    href={exp.document.file_path}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="ml-4 p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-                                                >
-                                                    <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                                                </a>
-                                            )}
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* הכנסות – קומפקטי */}
+                        {transaction.incomes && transaction.incomes.length > 0 && (
+                            <div>
+                                <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">הכנסות</h4>
+                                <div className="space-y-2">
+                                    {transaction.incomes.map((inc) => {
+                                        const docs = inc.documents ?? []
+                                        return (
+                                            <div
+                                                key={inc.id}
+                                                className="flex items-center justify-between gap-2 py-2 px-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200/80 dark:border-gray-600/80"
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                                        ₪{inc.amount.toLocaleString('he-IL')}
+                                                    </span>
+                                                    {inc.description && (
+                                                        <span className="text-xs text-gray-600 dark:text-gray-400 mr-1"> · {inc.description}</span>
+                                                    )}
+                                                </div>
+                                                <div className="shrink-0">
+                                                    {docs.length > 0 ? (
+                                                        <div className="flex items-center gap-1">
+                                                            {docs.map((doc: { id: number; file_path: string; description?: string | null }, docIdx: number) => (
+                                                                <button
+                                                                    key={doc.id}
+                                                                    type="button"
+                                                                    onClick={() => setSelectedDocForView(doc)}
+                                                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-medium transition-colors"
+                                                                    title={`צפה במסמך ${docIdx + 1}`}
+                                                                >
+                                                                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                                    <span>מסמך {docIdx + 1}</span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">אין מסמכים</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         )}
 
                         {/* Actions */}
-                        <div className="flex items-center justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 flex-wrap">
+                        {!readOnly && (
+                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700 flex-wrap">
                             {/* Edit Button */}
                             <button
                                 onClick={() => {
                                     onClose()
                                     onEdit(transaction)
                                 }}
-                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                                className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1.5"
                             >
-                                <Edit className="w-4 h-4" />
+                                <Edit className="w-3.5 h-3.5" />
                                 צפה/ערוך
                             </button>
 
@@ -260,14 +399,14 @@ export default function UnforeseenTransactionDetailsModal({
                                             setShowStatusConfirm(true)
                                         }}
                                         disabled={updatingStatus}
-                                        className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                                        className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
                                     >
                                         תעביר לממתין לאישור
                                     </button>
                                     <button
                                         onClick={() => setShowExecuteConfirm(true)}
                                         disabled={updatingStatus}
-                                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                                        className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                                     >
                                         בצע
                                     </button>
@@ -279,7 +418,7 @@ export default function UnforeseenTransactionDetailsModal({
                                 <button
                                     onClick={() => setShowExecuteConfirm(true)}
                                     disabled={updatingStatus}
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                                    className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                                 >
                                     בצע
                                 </button>
@@ -288,12 +427,23 @@ export default function UnforeseenTransactionDetailsModal({
                             {/* Delete Button */}
                             <button
                                 onClick={handleDelete}
-                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                                className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1.5"
                             >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
                                 מחק
                             </button>
                         </div>
+                        )}
+                        {readOnly && (
+                        <div className="flex items-center justify-end pt-3 border-t border-gray-200 dark:border-gray-700">
+                            <button
+                                onClick={onClose}
+                                className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                            >
+                                סגור
+                            </button>
+                        </div>
+                        )}
                         </div>
                     </div>
                 </motion.div>
@@ -336,6 +486,12 @@ export default function UnforeseenTransactionDetailsModal({
                 confirmText="בצע"
                 cancelText="ביטול"
                 loading={updatingStatus}
+            />
+
+            <DocumentViewerModal
+                isOpen={!!selectedDocForView}
+                document={selectedDocForView}
+                onClose={() => setSelectedDocForView(null)}
             />
 
             {/* Toast Notification */}
