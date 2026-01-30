@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState } from './store'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -63,6 +63,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 
 function AppContent() {
   const navigate = useNavigate()
+  const location = useLocation()
   const dispatch = useDispatch()
   const token = useSelector((s: RootState) => s.auth.token)
   const me = useSelector((s: RootState) => s.auth.me)
@@ -157,6 +158,7 @@ function AppContent() {
         {/* Page Content */}
         <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
           <motion.div
+            key={location.pathname}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
@@ -166,9 +168,9 @@ function AppContent() {
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
-              <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
+              <Route path="/projects/:id" element={<RequireAuth><ProjectDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><UnforeseenTransactions /></RequireAuth>} />
-              <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail /></RequireAuth>} />
+              <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/projects/:parentId/subprojects" element={<RequireAuth><Subprojects /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />

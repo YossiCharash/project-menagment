@@ -48,11 +48,14 @@ interface ChartDataPoint {
 type FilterType = 'month' | 'year' | 'all' | 'custom'
 type ChartType = 'line' | 'bar' | 'pie'
 
+// Stable empty array so default prop doesn't create new reference every render (avoids useEffect loop)
+const EMPTY_EXPENSE_CATEGORIES: ProjectTrendsChartProps['expenseCategories'] = []
+
 export default function ProjectTrendsChart({ 
   projectId, 
   projectName, 
   transactions,
-  expenseCategories = [],
+  expenseCategories = EMPTY_EXPENSE_CATEGORIES,
   compact = false,
   projectIncome = 0,
   globalFilterType,
@@ -139,10 +142,13 @@ export default function ProjectTrendsChart({
   //   }
   // }, [viewMode])
 
+  // Depend on primitives only so parent re-renders with new array references don't cause infinite loop
+  const transactionsLength = transactions?.length ?? 0
+  const expenseCategoriesLength = expenseCategories?.length ?? 0
   useEffect(() => {
     processData()
     processExpenseCategories()
-  }, [filterType, selectedMonth, selectedYear, customStartDate, customEndDate, transactions, expenseCategories, projectIncome, globalFilterType, globalSelectedMonth, globalStartDate, globalEndDate])
+  }, [filterType, selectedMonth, selectedYear, customStartDate, customEndDate, projectIncome, globalFilterType, globalSelectedMonth, globalStartDate, globalEndDate, projectId, transactionsLength, expenseCategoriesLength])
 
   // Helper function to split period transactions by month
   const splitPeriodTransactionByMonth = (tx: any, filterStart: Date, filterEnd: Date) => {

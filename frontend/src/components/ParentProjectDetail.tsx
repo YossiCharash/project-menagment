@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
   ArrowLeft, 
@@ -352,23 +352,11 @@ const ConsolidatedFinancialSummary: React.FC<ConsolidatedFinancialSummaryProps> 
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {actualSubprojects.map((subproject) => {
-              const handleCardClick = (e: React.MouseEvent) => {
-                // Don't navigate if clicking on buttons or interactive elements
-                const target = e.target as HTMLElement
-                if (target.closest('button') || target.closest('a')) {
-                  return
-                }
-                if (onNavigateSubproject) {
-                  onNavigateSubproject(subproject.id)
-                }
-              }
-
-              return (
-              <div
+            {actualSubprojects.map((subproject) => (
+              <Link
                 key={subproject.id}
-                onClick={handleCardClick}
-                className="bg-gradient-to-br from-gray-50 to-white dark:from-gray-700 dark:to-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-5 hover:shadow-md transition-shadow cursor-pointer"
+                to={`/projects/${subproject.id}`}
+                className="block bg-gradient-to-br from-gray-50 to-white dark:from-gray-700 dark:to-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-5 hover:shadow-md transition-shadow cursor-pointer no-underline text-inherit"
               >
                 <div className="flex items-start justify-between mb-4">
                   <h5 className="font-semibold text-gray-900 dark:text-white text-lg flex-1">
@@ -377,7 +365,9 @@ const ConsolidatedFinancialSummary: React.FC<ConsolidatedFinancialSummaryProps> 
                   <div className="flex items-center gap-2">
                     {onAddTransaction && (
                       <button
+                        type="button"
                         onClick={(e) => {
+                          e.preventDefault()
                           e.stopPropagation()
                           onAddTransaction(subproject.id)
                         }}
@@ -390,7 +380,9 @@ const ConsolidatedFinancialSummary: React.FC<ConsolidatedFinancialSummaryProps> 
                     )}
                     {onEditSubproject && (
                       <button
+                        type="button"
                         onClick={(e) => {
+                          e.preventDefault()
                           e.stopPropagation()
                           onEditSubproject(subproject.id)
                         }}
@@ -445,9 +437,8 @@ const ConsolidatedFinancialSummary: React.FC<ConsolidatedFinancialSummaryProps> 
                     </div>
                   </div>
                 </div>
-              </div>
-              )
-            })}
+              </Link>
+            ))}
           </div>
         )}
       </div>

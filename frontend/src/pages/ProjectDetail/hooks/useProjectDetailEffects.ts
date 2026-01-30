@@ -155,6 +155,15 @@ export function useProjectDetailEffects(
     }
   }, [state.contractFileUrl])
 
+  // Reset project-specific state when id changes so we don't use stale parent state
+  // (e.g. when navigating from a parent project to a subproject, avoid redirecting to /parent)
+  useEffect(() => {
+    if (id) {
+      state.setIsParentProject(false)
+      state.setSubprojects([])
+    }
+  }, [id])
+
   // Load all project data on mount and when period changes
   useEffect(() => {
     if (id && !isNaN(Number(id))) {
@@ -167,7 +176,7 @@ export function useProjectDetailEffects(
     }
   }, [id, viewingPeriodId])
 
-  // Redirect to parent project route if this is a parent project
+  // Redirect to parent project route if this is a parent project (only after data is loaded for this id)
   useEffect(() => {
     if (state.isParentProject && id && !isNaN(Number(id)) && !state.loading) {
       // Use setTimeout to ensure the navigation happens after the component has rendered

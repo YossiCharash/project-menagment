@@ -1281,7 +1281,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                       <input type="text" placeholder="תיאור" value={income.description} onChange={(e) => handleIncomeChange(row.id, incIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-green-200 dark:border-green-800 rounded bg-white dark:bg-gray-700" />
                                       <label className="cursor-pointer">
                                         <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleIncomeFileUpload(row.id, incIdx, e.target.files)} id={`inc-f-${row.id}-${incIdx}`} />
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(income.documentFiles?.length || 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 border-green-300 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`} onClick={() => document.getElementById(`inc-f-${row.id}-${incIdx}`)?.click()}>
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(income.documentFiles?.length || 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 border-green-300 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`}>
                                           <Upload className="w-3.5 h-3.5" />{(income.documentFiles?.length || 0) > 0 ? income.documentFiles!.length : ''}
                                         </span>
                                       </label>
@@ -1306,7 +1306,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                       <input type="text" placeholder="תיאור" value={expense.description} onChange={(e) => handleExpenseChange(row.id, expIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-red-200 dark:border-red-800 rounded bg-white dark:bg-gray-700" />
                                       <label className="cursor-pointer">
                                         <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleExpenseFileUpload(row.id, expIdx, e.target.files)} id={`exp-f-${row.id}-${expIdx}`} />
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(expense.documentFiles?.length || 0) > 0 ? 'bg-red-100 dark:bg-red-900/30 border-red-300 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`} onClick={() => document.getElementById(`exp-f-${row.id}-${expIdx}`)?.click()}>
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(expense.documentFiles?.length || 0) > 0 ? 'bg-red-100 dark:bg-red-900/30 border-red-300 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`}>
                                           <Upload className="w-3.5 h-3.5" />{(expense.documentFiles?.length || 0) > 0 ? expense.documentFiles!.length : ''}
                                         </span>
                                       </label>
