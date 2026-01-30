@@ -2,14 +2,8 @@ import axios from 'axios'
 
 
 
-// API base URL: from runtime window.__ENV__ (e.g. Docker) or from build-time VITE_API_URL
-const baseURL =
-  (typeof window !== 'undefined' && (window as any).__ENV__?.VITE_API_URL) ||
-  import.meta.env.VITE_API_URL ||
-  ''
-
 const api = axios.create({
-  baseURL,
+  baseURL: "https://project-menager-1-1-0.onrender.com/api/v1/",
   timeout: 30000, // avoid ECONNABORTED on heavy endpoints during dev
   withCredentials: false,
 })
