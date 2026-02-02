@@ -105,8 +105,10 @@ export default function SystemFinancialPieChart({
     )
   }
 
-  // Filter out categories with zero or negative amounts
+  // Filter out categories with zero or negative amounts, sort by amount desc for bar chart
   const validChartData = chartData.filter(item => item.value > 0)
+  const sortedForBar = [...validChartData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+  const totalProfit = (totalIncome ?? 0) - (totalExpense ?? 0)
 
   if (!validChartData || validChartData.length === 0) {
     return (
@@ -154,14 +156,13 @@ export default function SystemFinancialPieChart({
     if (chartType === 'bar') {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={validChartData}>
+          <BarChart data={sortedForBar} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend />
-            <Bar dataKey="amount" fill="#8884d8">
-              {validChartData.map((entry, index) => (
+            <XAxis type="number" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
+            <Tooltip content={<CustomTooltip />} formatter={(value: number) => [value.toLocaleString('he-IL') + ' ₪', '']} />
+            <Bar dataKey="amount" name="סכום" radius={[0, 4, 4, 0]}>
+              {sortedForBar.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Bar>
@@ -173,10 +174,10 @@ export default function SystemFinancialPieChart({
     if (chartType === 'line') {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={validChartData}>
+          <LineChart data={sortedForBar}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
             <Line type="monotone" dataKey="amount" stroke="#8884d8" strokeWidth={2} />
@@ -190,10 +191,17 @@ export default function SystemFinancialPieChart({
 
   return (
     <div className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-      <div className="mb-6">
+      <div className="mb-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-1">
           הוצאות לפי קטגוריה
         </h3>
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-2">
+          <span>סה״כ הוצאות: <strong className="text-gray-900 dark:text-white">{(totalExpense ?? 0).toLocaleString('he-IL')} ₪</strong></span>
+          <span>הכנסות: <strong className="text-gray-900 dark:text-white">{(totalIncome ?? 0).toLocaleString('he-IL')} ₪</strong></span>
+          <span className={totalProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>
+            רווח: <strong>{totalProfit.toLocaleString('he-IL')} ₪</strong>
+          </span>
+        </div>
       </div>
 
       {/* Chart Type Selection */}

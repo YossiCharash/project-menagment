@@ -52,6 +52,7 @@ export default function ProjectDetail() {
     const [searchParams, setSearchParams] = useSearchParams()
     const periodIdParam = searchParams.get('period')
     const viewingPeriodId = periodIdParam ? parseInt(periodIdParam) : null
+    const focusParam = searchParams.get('focus')
     const dispatch = useAppDispatch()
     const {items: suppliers} = useAppSelector(s => s.suppliers)
     const me = useAppSelector(s => s.auth.me)
@@ -62,6 +63,17 @@ export default function ProjectDetail() {
     const dataLoaders = useProjectDetailData(id, viewingPeriodId, state, navigate)
     const handlers = useProjectDetailHandlers(id, viewingPeriodId, state, dataLoaders, navigate, dispatch)
     useProjectDetailEffects(id, viewingPeriodId, state, dataLoaders, dispatch, navigate, me)
+
+    // Scroll to fund or transactions when coming from dashboard "עבור לתיקון"
+    useEffect(() => {
+        if (!focusParam || !state.loading) return
+        const timer = setTimeout(() => {
+            const el = document.getElementById(focusParam === 'fund' ? 'project-fund' : 'project-transactions')
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            setSearchParams(prev => { const next = new URLSearchParams(prev); next.delete('focus'); return next }, { replace: true })
+        }, 400)
+        return () => clearTimeout(timer)
+    }, [focusParam, state.loading, setSearchParams])
 
     // Legacy aliases for backward compatibility
     const dateFilterMode = state.globalDateFilterMode === 'project' ? 'all_time' : state.globalDateFilterMode
@@ -1148,7 +1160,7 @@ export default function ProjectDetail() {
                     />
                 </div>
                 {/* Right: Fund + Unforeseen */}
-                <div className="lg:col-span-2 flex flex-col min-h-[260px]">
+                <div id="project-fund" className="lg:col-span-2 flex flex-col min-h-[260px]">
                     <FundAndUnforeseenPanel
                         fundData={state.fundData}
                         fundLoading={state.fundLoading}
@@ -1190,7 +1202,7 @@ export default function ProjectDetail() {
                         onEditBudget={handleStartEditBudget}
                     />
                 </div>
-                <div className="w-full min-w-0 max-w-[28rem] mx-auto xl:max-w-none xl:mx-0">
+                <div id="project-transactions" className="w-full min-w-0 max-w-[28rem] mx-auto xl:max-w-none xl:mx-0">
                     <TransactionsList
                     txs={state.txs}
                     loading={state.loading}

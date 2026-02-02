@@ -127,6 +127,12 @@ export interface ProjectWithFinance extends Project {
   expense_month_to_date: number
   profit_percent: number
   status_color: 'green' | 'yellow' | 'red'
+  /** Current fund balance (only when project has a fund). Used in alerts. */
+  fund_balance?: number | null
+  /** Count of transactions in period without proof document. Used in alerts. */
+  missing_proof_count?: number
+  /** Count of unpaid recurring expenses. Used in alerts. */
+  unpaid_recurring_count?: number
 }
 
 export interface ExpenseCategory {

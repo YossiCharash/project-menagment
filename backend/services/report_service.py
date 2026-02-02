@@ -1199,11 +1199,17 @@ class ReportService:
         except Exception:
             pass  # Ignore if there's no transaction to rollback
 
-        # Get all active projects
-        projects_query = select(Project).where(Project.is_active == True)
+        # Get only regular projects and subprojects (exclude parent-only projects)
+        projects_query = select(Project).where(
+            Project.is_active == True,
+            or_(
+                Project.relation_project.isnot(None),  # תת-פרויקטים
+                Project.is_parent_project == False,     # פרויקטים רגילים
+            ),
+        )
         projects_result = await self.db.execute(projects_query)
         projects = list(projects_result.scalars().all())
-        print(f"📋 Found {len(projects)} active projects")
+        print(f"📋 Found {len(projects)} active projects (regular + subprojects only)")
 
         if not projects:
             return {
@@ -1532,10 +1538,11 @@ class ReportService:
 
             # Negative fund balance check FROM MEMORY
             fund = funds_by_project.get(project_id)
+            fund_balance = float(fund.current_balance) if fund is not None else None
             if fund and float(fund.current_balance) < 0:
                 negative_fund_balance_projects.append(project_id)
 
-            # Build project data
+            # Build project data (include alert counts and fund_balance for actionable dashboard)
             start_date_str = proj_data["start_date"] if isinstance(proj_data["start_date"], str) else (proj_data["start_date"].isoformat() if proj_data["start_date"] else None)
             end_date_str = proj_data["end_date"] if isinstance(proj_data["end_date"], str) else (proj_data["end_date"].isoformat() if proj_data["end_date"] else None)
             created_at_str = proj_data["created_at"] if isinstance(proj_data["created_at"], str) else (proj_data["created_at"].isoformat() if proj_data["created_at"] else None)
@@ -1562,7 +1569,10 @@ class ReportService:
                 "expense_month_to_date": yearly_expense,
                 "profit_percent": round(profit_percent, 1),
                 "status_color": status_color,
-                "children": []
+                "children": [],
+                "fund_balance": round(fund_balance, 2) if fund_balance is not None else None,
+                "missing_proof_count": missing_proof_count,
+                "unpaid_recurring_count": unpaid_recurring_count,
             }
 
             projects_with_finance.append(project_data)

@@ -8,7 +8,14 @@ import { LoadingDashboard } from './ui/Loading'
 import { useNavigate } from 'react-router-dom'
 import { 
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  Percent,
+  BarChart3,
+  Pin,
+  ChevronDown
 } from 'lucide-react'
 import SystemFinancialPieChart from './charts/SystemFinancialPieChart'
 import { ProjectWithFinance } from '../types/api'
@@ -18,15 +25,37 @@ import { ProjectWithFinance } from '../types/api'
 interface AlertsStripProps {
   alerts: DashboardSnapshot['alerts']
   projects: ProjectWithFinance[]
+  onProjectClick?: (project: ProjectWithFinance) => void
+  /** Navigate to project and scroll to fund or transactions section */
+  onGoToFix?: (project: ProjectWithFinance, focus: 'fund' | 'transactions') => void
 }
 
-const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
+const PINNED_ALERTS_KEY = 'pinned_dashboard_alerts'
+
+const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects, onProjectClick, onGoToFix }) => {
   const [isExpanded, setIsExpanded] = React.useState(false)
   const [dismissedProjects, setDismissedProjects] = React.useState<Set<number>>(() => {
-    // Load dismissed projects from localStorage
     const stored = localStorage.getItem('dismissed_alert_projects')
     return stored ? new Set(JSON.parse(stored)) : new Set()
   })
+  const [pinnedAlerts, setPinnedAlerts] = React.useState<Set<string>>(() => {
+    const stored = localStorage.getItem(PINNED_ALERTS_KEY)
+    return stored ? new Set(JSON.parse(stored)) : new Set()
+  })
+
+  const getPinKey = (projectId: number, alertType: string, extra?: string) =>
+    extra ? `${alertType}_${projectId}_${extra}` : `${alertType}_${projectId}`
+  const isPinned = (key: string) => pinnedAlerts.has(key)
+  const togglePin = (e: React.MouseEvent, key: string) => {
+    e.stopPropagation()
+    const next = new Set(pinnedAlerts)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setPinnedAlerts(next)
+    localStorage.setItem(PINNED_ALERTS_KEY, JSON.stringify(Array.from(next)))
+  }
+  const sortPinnedFirst = <T,>(list: T[], getKey: (item: T) => string): T[] =>
+    [...list].sort((a, b) => (isPinned(getKey(b)) ? 1 : 0) - (isPinned(getKey(a)) ? 1 : 0))
 
   // Helper to flatten projects with children
   const getAllProjectsFlat = (projects: ProjectWithFinance[]): ProjectWithFinance[] => {
@@ -56,12 +85,6 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
     const isDismissed = dismissedProjects.has(p.id)
     return isInWarning && !isDismissed
   })
-  const missingProofProjects = allProjectsFlat.filter(p => 
-    alerts.missing_proof.includes(p.id) && !dismissedProjects.has(p.id)
-  )
-  const unpaidRecurringProjects = allProjectsFlat.filter(p => 
-    alerts.unpaid_recurring.includes(p.id) && !dismissedProjects.has(p.id)
-  )
   const negativeFundBalanceProjects = allProjectsFlat.filter(p => 
     (alerts.negative_fund_balance || []).includes(p.id) && !dismissedProjects.has(p.id)
   )
@@ -85,8 +108,6 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
 
   const totalAlerts = budgetOverrunProjects.length + 
                      budgetWarningProjects.length +
-                     missingProofProjects.length + 
-                     unpaidRecurringProjects.length + 
                      negativeFundBalanceProjects.length +
                      categoryBudgetAlerts.length +
                      unprofitableProjects.length
@@ -108,8 +129,6 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
   // Check if there are dismissed projects that should show alerts
   const allBudgetOverrunIds = alerts.budget_overrun || []
   const allBudgetWarningIds = alerts.budget_warning || []
-  const allMissingProofIds = alerts.missing_proof || []
-  const allUnpaidRecurringIds = alerts.unpaid_recurring || []
   const allNegativeFundBalanceIds = alerts.negative_fund_balance || []
   const allCategoryBudgetAlertIds = (alerts.category_budget_alerts || []).map(a => a.project_id)
   const allUnprofitableIds = allProjectsFlat.filter(p => p.status_color === 'red' && p.profit_percent < 0).map(p => p.id)
@@ -117,8 +136,6 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
   const totalDismissed = new Set([
     ...allBudgetOverrunIds.filter(id => dismissedProjects.has(id)),
     ...allBudgetWarningIds.filter(id => dismissedProjects.has(id)),
-    ...allMissingProofIds.filter(id => dismissedProjects.has(id)),
-    ...allUnpaidRecurringIds.filter(id => dismissedProjects.has(id)),
     ...allNegativeFundBalanceIds.filter(id => dismissedProjects.has(id)),
     ...allCategoryBudgetAlertIds.filter(id => dismissedProjects.has(id)),
     ...allUnprofitableIds.filter(id => dismissedProjects.has(id))
@@ -131,17 +148,22 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-3 mb-4">
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">⚠️</span>
-          <span className="font-semibold text-base text-gray-900 dark:text-white">
-            התראות ({totalAlerts})
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚠️</span>
+            <span className="font-semibold text-base text-gray-900 dark:text-white">
+              התראות ({totalAlerts})
+            </span>
+          </div>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            הצמד התראה ספציפית עם סיכה – ההתראות המצורפות יופיעו בראש כל קטגוריה
           </span>
+        </div>
           {totalDismissed > 0 && (
             <span className="text-xs text-gray-500 dark:text-gray-400">
               ({totalDismissed} הוסתרו)
             </span>
           )}
-        </div>
         <div className="flex items-center gap-2">
           {totalDismissed > 0 && (
             <button
@@ -164,7 +186,7 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
       {isExpanded && (
         <div className="mt-3 space-y-3 border-t border-gray-200 dark:border-gray-700 pt-3">
           {/* Section 1: Project-Level Alerts */}
-          {(budgetOverrunProjects.length > 0 || budgetWarningProjects.length > 0 || missingProofProjects.length > 0 || unpaidRecurringProjects.length > 0 || negativeFundBalanceProjects.length > 0) && (
+          {(budgetOverrunProjects.length > 0 || budgetWarningProjects.length > 0 || negativeFundBalanceProjects.length > 0) && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded p-3">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-lg">🏢</span>
@@ -179,24 +201,31 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                       <span className="font-medium text-xs text-blue-900 dark:text-blue-200">חריגת תקציב כללי</span>
                     </div>
                     <div className="space-y-2">
-                      {budgetOverrunProjects.map(project => (
-                        <div key={project.id} className="bg-blue-50 dark:bg-blue-900/30 rounded p-2 border border-blue-200 dark:border-blue-800 relative group">
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="font-medium text-sm text-blue-900 dark:text-blue-100">{project.name}</div>
-                            <button
-                              onClick={() => handleDismissProject(project.id)}
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
+                      {sortPinnedFirst(budgetOverrunProjects, p => getPinKey(p.id, 'budget_overrun')).map(project => {
+                        const yearlyBudget = (project.budget_annual || 0) > 0 ? (project.budget_annual || 0) : ((project.budget_monthly || 0) * 12)
+                        const pinKey = getPinKey(project.id, 'budget_overrun')
+                        return (
+                          <div
+                            key={project.id}
+                            role={onProjectClick ? 'button' : undefined}
+                            onClick={onProjectClick ? () => onProjectClick(project) : undefined}
+                            className={`bg-blue-50 dark:bg-blue-900/30 rounded p-2 border border-blue-200 dark:border-blue-800 relative group ${onProjectClick ? 'cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="font-medium text-sm text-blue-900 dark:text-blue-100">{project.name}</div>
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDismissProject(project.id) }} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 opacity-0 group-hover:opacity-100 transition-opacity" title="החריג פרויקט">✕</button>
+                              </div>
+                            </div>
+                            <div className="text-xs text-blue-700 dark:text-blue-300 space-y-0.5">
+                              <div>הוצא: <span className="font-semibold">{project.expense_month_to_date.toLocaleString('he-IL')} ₪</span></div>
+                              <div>תקציב: <span className="font-semibold">{yearlyBudget.toLocaleString('he-IL')} ₪</span></div>
+                              {onProjectClick && <div className="text-blue-600 dark:text-blue-400 mt-1">לפרטים ←</div>}
+                            </div>
                           </div>
-                          <div className="text-xs text-blue-700 dark:text-blue-300 space-y-0.5">
-                            <div>הוצא: <span className="font-semibold">{project.expense_month_to_date.toFixed(0)} ₪</span></div>
-                            <div>תקציב: <span className="font-semibold">{((project.budget_annual || 0) > 0 ? (project.budget_annual || 0) : ((project.budget_monthly || 0) * 12)).toFixed(0)} ₪</span></div>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -209,27 +238,29 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                       <span className="font-medium text-xs text-yellow-900 dark:text-yellow-200">מתקרב לתקציב</span>
                     </div>
                     <div className="space-y-2">
-                      {budgetWarningProjects.map(project => {
+                      {sortPinnedFirst(budgetWarningProjects, p => getPinKey(p.id, 'budget_warning')).map(project => {
                         const yearlyBudget = (project.budget_annual || 0) > 0 ? (project.budget_annual || 0) : ((project.budget_monthly || 0) * 12)
                         const budgetPercent = yearlyBudget > 0 ? (project.expense_month_to_date / yearlyBudget) * 100 : 0
+                        const pinKey = getPinKey(project.id, 'budget_warning')
                         return (
-                          <div key={project.id} className="bg-yellow-50 dark:bg-yellow-900/30 rounded p-2 border border-yellow-200 dark:border-yellow-800 relative group">
+                          <div
+                            key={project.id}
+                            role={onProjectClick ? 'button' : undefined}
+                            onClick={onProjectClick ? () => onProjectClick(project) : undefined}
+                            className={`bg-yellow-50 dark:bg-yellow-900/30 rounded p-2 border border-yellow-200 dark:border-yellow-800 relative group ${onProjectClick ? 'cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/50' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                          >
                             <div className="flex items-center justify-between mb-1">
                               <div className="font-medium text-sm text-yellow-900 dark:text-yellow-100">{project.name}</div>
-                              <button
-                                onClick={() => handleDismissProject(project.id)}
-                                className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 text-xs px-1.5 py-0.5 rounded hover:bg-yellow-100 dark:hover:bg-yellow-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="החריג פרויקט"
-                              >
-                                ✕
-                              </button>
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-yellow-600 dark:text-yellow-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDismissProject(project.id) }} className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 text-xs px-1.5 py-0.5 rounded hover:bg-yellow-100 dark:hover:bg-yellow-900/50 opacity-0 group-hover:opacity-100 transition-opacity" title="החריג פרויקט">✕</button>
+                              </div>
                             </div>
                             <div className="text-xs text-yellow-700 dark:text-yellow-300 space-y-0.5">
-                              <div>הוצא: <span className="font-semibold">{project.expense_month_to_date.toFixed(0)} ₪</span></div>
-                              <div>תקציב: <span className="font-semibold">{yearlyBudget.toFixed(0)} ₪</span></div>
-                              <div className="font-semibold text-yellow-800 dark:text-yellow-200 mt-1">
-                                {budgetPercent.toFixed(1)}% מהתקציב
-                              </div>
+                              <div>הוצא: <span className="font-semibold">{project.expense_month_to_date.toLocaleString('he-IL')} ₪</span></div>
+                              <div>תקציב: <span className="font-semibold">{yearlyBudget.toLocaleString('he-IL')} ₪</span></div>
+                              <div className="font-semibold text-yellow-800 dark:text-yellow-200 mt-1">{budgetPercent.toFixed(1)}% מהתקציב</div>
+                              {onProjectClick && <div className="text-yellow-600 dark:text-yellow-400 mt-1">לפרטים ←</div>}
                             </div>
                           </div>
                         )
@@ -238,80 +269,46 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                   </div>
                 )}
 
-                {/* Missing Proof */}
-                {missingProofProjects.length > 0 && (
-                  <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-blue-200 dark:border-blue-800 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm">📄</span>
-                      <span className="font-medium text-xs text-blue-900 dark:text-blue-200">חסרים אישורים</span>
-                    </div>
-                    <div className="space-y-2">
-                      {missingProofProjects.map(project => (
-                        <div key={project.id} className="bg-blue-50 dark:bg-blue-900/30 rounded p-2 border border-blue-200 dark:border-blue-800 relative group">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm text-blue-900 dark:text-blue-100">{project.name}</span>
-                            <button
-                              onClick={() => handleDismissProject(project.id)}
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Unpaid Recurring */}
-                {unpaidRecurringProjects.length > 0 && (
-                  <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-blue-200 dark:border-blue-800 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm">🔄</span>
-                      <span className="font-medium text-xs text-blue-900 dark:text-blue-200">הוצאות חוזרות לא שולמו</span>
-                    </div>
-                    <div className="space-y-2">
-                      {unpaidRecurringProjects.map(project => (
-                        <div key={project.id} className="bg-blue-50 dark:bg-blue-900/30 rounded p-2 border border-blue-200 dark:border-blue-800 relative group">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm text-blue-900 dark:text-blue-100">{project.name}</span>
-                            <button
-                              onClick={() => handleDismissProject(project.id)}
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Negative Fund Balance */}
+                {/* Negative Fund Balance – עם סכום יתרה וקישור לפרויקט */}
                 {negativeFundBalanceProjects.length > 0 && (
                   <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-red-200 dark:border-red-800 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-sm">💰</span>
                       <span className="font-medium text-xs text-red-900 dark:text-red-200">יתרה שלילית בקופה</span>
                     </div>
+                    <p className="text-xs text-red-700 dark:text-red-300 mb-2">יתרת הקופה שלילית – יש להפקיד או לעדכן תנועות</p>
                     <div className="space-y-2">
-                      {negativeFundBalanceProjects.map(project => (
-                        <div key={project.id} className="bg-red-50 dark:bg-red-900/30 rounded p-2 border border-red-200 dark:border-red-800 relative group">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm text-red-900 dark:text-red-100">{project.name}</span>
-                            <button
-                              onClick={() => handleDismissProject(project.id)}
-                              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 text-xs px-1.5 py-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
+                      {sortPinnedFirst(negativeFundBalanceProjects, p => getPinKey(p.id, 'negative_fund')).map(project => {
+                        const pinKey = getPinKey(project.id, 'negative_fund')
+                        return (
+                          <div
+                            key={project.id}
+                            role={onProjectClick ? 'button' : undefined}
+                            onClick={onProjectClick ? () => onProjectClick(project) : undefined}
+                            className={`bg-red-50 dark:bg-red-900/30 rounded p-2 border border-red-200 dark:border-red-800 relative group ${onProjectClick ? 'cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/50' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-sm text-red-900 dark:text-red-100">{project.name}</div>
+                                <div className="text-xs text-red-700 dark:text-red-300 mt-0.5 font-semibold">
+                                  יתרה: {(project.fund_balance ?? 0).toLocaleString('he-IL')} ₪
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                                {onProjectClick && <span className="text-xs text-red-600 dark:text-red-400">לפרטים ←</span>}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDismissProject(project.id) }}
+                                  className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 text-xs px-1.5 py-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="החריג פרויקט"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -326,32 +323,39 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                 <span className="text-lg">📉</span>
                 <span className="font-semibold text-sm text-purple-900 dark:text-purple-100">פרויקטים לא רווחיים</span>
               </div>
+              <p className="text-xs text-purple-700 dark:text-purple-300 mb-3">הכנסות נמוכות מהוצאות – כדאי לבדוק תמחור או הוצאות</p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {unprofitableProjects.map(project => (
-                  <div key={project.id} className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-purple-200 dark:border-purple-800 shadow-sm relative group">
+                {sortPinnedFirst(unprofitableProjects, p => getPinKey(p.id, 'unprofitable')).map(project => {
+                  const pinKey = getPinKey(project.id, 'unprofitable')
+                  return (
+                  <div
+                    key={project.id}
+                    role={onProjectClick ? 'button' : undefined}
+                    onClick={onProjectClick ? () => onProjectClick(project) : undefined}
+                    className={`bg-white dark:bg-gray-800 rounded-lg p-3 border border-purple-200 dark:border-purple-800 shadow-sm relative group ${onProjectClick ? 'cursor-pointer hover:bg-purple-50 dark:hover:bg-purple-900/30' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                  >
                     <div className="flex items-center justify-between mb-2">
                       <div className="font-medium text-sm text-purple-900 dark:text-purple-100">{project.name}</div>
-                      <button
-                        onClick={() => handleDismissProject(project.id)}
-                        className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200 text-xs px-1.5 py-0.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="החריג פרויקט"
-                      >
-                        ✕
-                      </button>
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                        <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-purple-600 dark:text-purple-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDismissProject(project.id) }} className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200 text-xs px-1.5 py-0.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 opacity-0 group-hover:opacity-100 transition-opacity" title="החריג פרויקט">✕</button>
+                      </div>
                     </div>
                     <div className="bg-purple-50 dark:bg-purple-900/30 rounded p-2 border border-purple-200 dark:border-purple-800">
                       <div className="text-xs text-purple-700 dark:text-purple-300 mb-1">
                         רווח: <span className="font-semibold">{project.profit_percent.toFixed(1)}%</span>
                       </div>
                       <div className="text-xs text-purple-700 dark:text-purple-300">
-                        הכנסות: {project.income_month_to_date.toFixed(0)} ₪
+                        הכנסות: {project.income_month_to_date.toLocaleString('he-IL')} ₪
                       </div>
                       <div className="text-xs text-purple-700 dark:text-purple-300">
-                        הוצאות: {project.expense_month_to_date.toFixed(0)} ₪
+                        הוצאות: {project.expense_month_to_date.toLocaleString('he-IL')} ₪
                       </div>
+                      {onProjectClick && <div className="text-purple-600 dark:text-purple-400 text-xs mt-1">לפרטים ←</div>}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -371,33 +375,37 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                       const overBudgetAlerts = projectAlerts.filter(a => a.is_over_budget)
                       if (overBudgetAlerts.length === 0) return null
                       const project = allProjectsFlat.find(p => p.id === parseInt(projectId))
-                      return overBudgetAlerts.map((alert, idx) => (
-                        <div key={`${projectId}-${idx}`} className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-red-200 dark:border-red-800 shadow-sm relative group">
+                      return overBudgetAlerts.map((alert, idx) => {
+                        const pinKey = getPinKey(alert.project_id, 'category', String(alert.budget_id))
+                        return (
+                        <div
+                          key={`${projectId}-${idx}`}
+                          role={onProjectClick && project ? 'button' : undefined}
+                          onClick={onProjectClick && project ? () => onProjectClick(project) : undefined}
+                          className={`bg-white dark:bg-gray-800 rounded-lg p-3 border border-red-200 dark:border-red-800 shadow-sm relative group ${onProjectClick && project ? 'cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                        >
                           <div className="flex items-center justify-between mb-2">
                             <span className="font-medium text-xs text-red-900 dark:text-red-100">📁 {project?.name || `פרויקט ${projectId}`}</span>
-                            <button
-                              onClick={() => handleDismissProject(parseInt(projectId))}
-                              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 text-xs px-1.5 py-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
+                            <div className="flex items-center gap-0.5 flex-shrink-0">
+                              <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); handleDismissProject(parseInt(projectId)) }} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 text-xs px-1.5 py-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/50 opacity-0 group-hover:opacity-100 transition-opacity" title="החריג פרויקט">✕</button>
+                            </div>
                           </div>
                           <div className="bg-red-50 dark:bg-red-900/30 rounded p-2 border border-red-200 dark:border-red-800">
                             <div className="flex items-center justify-between">
                               <div className="flex-1 min-w-0">
                                 <span className="font-medium text-xs text-red-900 dark:text-red-100 block mb-1">{alert.category}</span>
                                 <div className="text-xs text-red-700 dark:text-red-300">
-                                  {alert.spent_amount.toFixed(0)} ₪ / {alert.amount.toFixed(0)} ₪
+                                  {alert.spent_amount.toLocaleString('he-IL')} ₪ / {alert.amount.toLocaleString('he-IL')} ₪
                                 </div>
-                                <div className="text-xs font-semibold text-red-800 dark:text-red-200 mt-0.5">
-                                  {alert.spent_percentage.toFixed(1)}%
-                                </div>
+                                <div className="text-xs font-semibold text-red-800 dark:text-red-200 mt-0.5">{alert.spent_percentage.toFixed(1)}%</div>
+                                {onProjectClick && project && <div className="text-red-600 dark:text-red-400 text-xs mt-1">לפרטים ←</div>}
                               </div>
                             </div>
                           </div>
                         </div>
-                      ))
+                      )
+                      })
                     })}
                   </div>
                 </div>
@@ -415,17 +423,21 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                       const fastSpendingAlerts = projectAlerts.filter(a => a.is_spending_too_fast && !a.is_over_budget)
                       if (fastSpendingAlerts.length === 0) return null
                       const project = allProjectsFlat.find(p => p.id === parseInt(projectId))
-                      return fastSpendingAlerts.map((alert, idx) => (
-                        <div key={`${projectId}-${idx}`} className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-orange-200 dark:border-orange-800 shadow-sm relative group">
+                      return fastSpendingAlerts.map((alert, idx) => {
+                        const pinKey = getPinKey(alert.project_id, 'category', String(alert.budget_id))
+                        return (
+                        <div
+                          key={`${projectId}-${idx}`}
+                          role={onProjectClick && project ? 'button' : undefined}
+                          onClick={onProjectClick && project ? () => onProjectClick(project) : undefined}
+                          className={`bg-white dark:bg-gray-800 rounded-lg p-3 border border-orange-200 dark:border-orange-800 shadow-sm relative group ${onProjectClick && project ? 'cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20' : ''} ${isPinned(pinKey) ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                        >
                           <div className="flex items-center justify-between mb-2">
                             <span className="font-medium text-xs text-orange-900 dark:text-orange-100">📁 {project?.name || `פרויקט ${projectId}`}</span>
-                            <button
-                              onClick={() => handleDismissProject(parseInt(projectId))}
-                              className="text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-200 text-xs px-1.5 py-0.5 rounded hover:bg-orange-100 dark:hover:bg-orange-900/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="החריג פרויקט"
-                            >
-                              ✕
-                            </button>
+                            <div className="flex items-center gap-0.5 flex-shrink-0">
+                              <button onClick={(e) => togglePin(e, pinKey)} className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isPinned(pinKey) ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'text-orange-600 dark:text-orange-400 hover:text-amber-600'}`} title={isPinned(pinKey) ? 'הסר הצמדה' : 'הצמד התראה'}><Pin className={`w-3.5 h-3.5 ${isPinned(pinKey) ? 'fill-current' : ''}`} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); handleDismissProject(parseInt(projectId)) }} className="text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-200 text-xs px-1.5 py-0.5 rounded hover:bg-orange-100 dark:hover:bg-orange-900/50 opacity-0 group-hover:opacity-100 transition-opacity" title="החריג פרויקט">✕</button>
+                            </div>
                           </div>
                           <div className="bg-orange-50 dark:bg-orange-900/30 rounded p-2 border border-orange-200 dark:border-orange-800">
                             <div className="flex items-center justify-between">
@@ -434,14 +446,14 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects }) => {
                                 <div className="text-xs text-orange-700 dark:text-orange-300">
                                   הוצא: {alert.spent_percentage.toFixed(1)}% | צפוי: {alert.expected_spent_percentage.toFixed(1)}%
                                 </div>
-                                <div className="text-xs font-semibold text-orange-800 dark:text-orange-200 mt-0.5">
-                                  {alert.spent_amount.toFixed(0)} ₪
-                                </div>
+                                <div className="text-xs font-semibold text-orange-800 dark:text-orange-200 mt-0.5">{alert.spent_amount.toLocaleString('he-IL')} ₪</div>
+                                {onProjectClick && project && <div className="text-orange-600 dark:text-orange-400 text-xs mt-1">לפרטים ←</div>}
                               </div>
                             </div>
                           </div>
                         </div>
-                      ))
+                      )
+                      })
                     })}
                   </div>
                 </div>
@@ -489,6 +501,7 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
   const [selectedAlerts, setSelectedAlerts] = useState<Set<number>>(new Set())
   const [showRestoreDialog, setShowRestoreDialog] = useState(false)
   const [alertsLoading, setAlertsLoading] = useState(false)
+  const [projectsByStatusOpen, setProjectsByStatusOpen] = useState(false)
 
   useEffect(() => {
     // Do not block on user; load dashboard in parallel for speed
@@ -696,11 +709,318 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
 
   const allProjectsFlat = dashboardData ? getAllProjectsFlat(dashboardData.projects) : []
 
+  // --- Financial overview for PM (product-minded) ---
+  const summary = dashboardData?.summary ?? { total_income: 0, total_expense: 0, total_profit: 0 }
+  const profitMargin =
+    summary.total_income > 0
+      ? (summary.total_profit / summary.total_income) * 100
+      : summary.total_expense > 0
+        ? -100
+        : 0
+  const statusCounts = allProjectsFlat.reduce(
+    (acc, p) => {
+      acc[p.status_color] = (acc[p.status_color] ?? 0) + 1
+      return acc
+    },
+    {} as Record<string, number>
+  )
+  const projectsByStatusGreen = allProjectsFlat.filter((p) => p.status_color === 'green')
+  const projectsByStatusYellow = allProjectsFlat.filter((p) => p.status_color === 'yellow')
+  const projectsByStatusRed = allProjectsFlat.filter((p) => p.status_color === 'red')
+  const projectProfit = (p: ProjectWithFinance) => (p.income_month_to_date || 0) - (p.expense_month_to_date || 0)
+  const topProfitableProjects = [...allProjectsFlat]
+    .filter((p) => projectProfit(p) > 0)
+    .sort((a, b) => projectProfit(b) - projectProfit(a))
+    .slice(0, 5)
+  const topLossMakingProjects = [...allProjectsFlat]
+    .filter((p) => projectProfit(p) < 0)
+    .sort((a, b) => projectProfit(a) - projectProfit(b))
+    .slice(0, 5)
+
   return (
     <div className="space-y-8">
+      {/* Financial Overview – מצב כספי במבט אחד */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="space-y-4"
+      >
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+          מצב כספי במבט אחד
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
+              <TrendingUp className="w-4 h-4" />
+              <span>הכנסות</span>
+            </div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+              {summary.total_income.toLocaleString('he-IL')} ₪
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
+              <TrendingDown className="w-4 h-4" />
+              <span>הוצאות</span>
+            </div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+              {summary.total_expense.toLocaleString('he-IL')} ₪
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
+              <Wallet className="w-4 h-4" />
+              <span>רווח / הפסד</span>
+            </div>
+            <div
+              className={`text-2xl font-bold ${
+                summary.total_profit >= 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-red-600 dark:text-red-400'
+              }`}
+            >
+              {summary.total_profit >= 0 ? '' : '−'}
+              {Math.abs(summary.total_profit).toLocaleString('he-IL')} ₪
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
+              <Percent className="w-4 h-4" />
+              <span>אחוז רווחיות</span>
+            </div>
+            <div
+              className={`text-2xl font-bold ${
+                profitMargin >= 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-red-600 dark:text-red-400'
+              }`}
+            >
+              {profitMargin.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+
+        {/* Projects by status – פרויקטים לפי מצב (מצומצם, לחיצה לפתיחה כקומפוננטה צפה) */}
+        {allProjectsFlat.length > 0 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setProjectsByStatusOpen((v) => !v)}
+              className="w-full bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors text-right flex items-center justify-between gap-2"
+            >
+              <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300 text-sm font-medium flex-shrink-0">
+                <BarChart3 className="w-4 h-4" />
+                פרויקטים לפי מצב
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-4 min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-gray-600 dark:text-gray-400">במצב טוב</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{statusCounts['green'] ?? 0}</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  <span className="text-gray-600 dark:text-gray-400">שימו לב</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{statusCounts['yellow'] ?? 0}</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                  <span className="text-gray-600 dark:text-gray-400">דורש טיפול</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{statusCounts['red'] ?? 0}</span>
+                </span>
+              </div>
+              <ChevronDown className={`w-4 h-4 flex-shrink-0 text-gray-500 dark:text-gray-400 transition-transform ${projectsByStatusOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Floating panel – נפתח בלחיצה */}
+            {projectsByStatusOpen && (
+              <>
+                <div
+                  role="presentation"
+                  className="fixed inset-0 z-40 bg-black/20 dark:bg-black/40 backdrop-blur-md"
+                  onClick={() => setProjectsByStatusOpen(false)}
+                  aria-hidden="true"
+                />
+                <div
+                  className="fixed z-50 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden flex flex-col"
+                  style={{
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                    <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300 text-sm font-medium">
+                      <BarChart3 className="w-4 h-4" />
+                      פרויקטים לפי מצב
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setProjectsByStatusOpen(false)}
+                      className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1 rounded"
+                      aria-label="סגור"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 px-4 pb-3 flex-shrink-0">
+                    ירוק = רווחיות טובה · צהוב = רווחיות בינונית · אדום = הפסד או רווחיות שלילית. לחיצה על פרויקט – מעבר לפרטים.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-4 pb-4 overflow-y-auto flex-1 min-h-0">
+                    <div>
+                      <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 text-sm font-medium mb-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        במצב טוב – פירוט
+                      </div>
+                      <ul className="space-y-1 max-h-72 overflow-y-auto">
+                        {projectsByStatusGreen.map((p) => (
+                          <li key={p.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onProjectClick?.(p)
+                                setProjectsByStatusOpen(false)
+                              }}
+                              className="text-sm text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-emerald-100 hover:underline text-right w-full"
+                            >
+                              {p.name}
+                              <span className="text-emerald-600 dark:text-emerald-400 mr-1">←</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 text-sm font-medium mb-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        שימו לב – פירוט
+                      </div>
+                      <ul className="space-y-1 max-h-72 overflow-y-auto">
+                        {projectsByStatusYellow.map((p) => (
+                          <li key={p.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onProjectClick?.(p)
+                                setProjectsByStatusOpen(false)
+                              }}
+                              className="text-sm text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 hover:underline text-right w-full"
+                            >
+                              {p.name}
+                              <span className="text-amber-600 dark:text-amber-400 mr-1">←</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 text-red-700 dark:text-red-300 text-sm font-medium mb-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                        דורש טיפול – פירוט
+                      </div>
+                      <ul className="space-y-1 max-h-72 overflow-y-auto">
+                        {projectsByStatusRed.map((p) => (
+                          <li key={p.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onProjectClick?.(p)
+                                setProjectsByStatusOpen(false)
+                              }}
+                              className="text-sm text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100 hover:underline text-right w-full"
+                            >
+                              {p.name}
+                              <span className="text-red-600 dark:text-red-400 mr-1">←</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* פרויקטים ריווחיים והפסדיים ביותר */}
+        {(topProfitableProjects.length > 0 || topLossMakingProjects.length > 0) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {topProfitableProjects.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  פרויקטים הריווחיים ביותר
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">לפי רווח (הכנסות פחות הוצאות)</p>
+                <ul className="space-y-2">
+                  {topProfitableProjects.map((p) => {
+                    const profit = projectProfit(p)
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex justify-between items-center gap-2 text-sm py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onProjectClick?.(p)}
+                          className="text-gray-900 dark:text-white truncate text-right hover:underline min-w-0 flex-1"
+                        >
+                          {p.name}
+                        </button>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+                          {profit.toLocaleString('he-IL')} ₪
+                        </span>
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+                          {p.profit_percent.toFixed(0)}%
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+            {topLossMakingProjects.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  פרויקטים ההפסדיים ביותר
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">לפי הפסד (הוצאות גבוהות מהכנסות)</p>
+                <ul className="space-y-2">
+                  {topLossMakingProjects.map((p) => {
+                    const profit = projectProfit(p)
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex justify-between items-center gap-2 text-sm py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onProjectClick?.(p)}
+                          className="text-gray-900 dark:text-white truncate text-right hover:underline min-w-0 flex-1"
+                        >
+                          {p.name}
+                        </button>
+                        <span className="font-medium text-red-600 dark:text-red-400 flex-shrink-0">
+                          {profit.toLocaleString('he-IL')} ₪
+                        </span>
+                        <span className="text-xs text-red-600 dark:text-red-400 flex-shrink-0">
+                          {p.profit_percent.toFixed(0)}%
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
+
       {/* Budget and Project Alerts */}
       {dashboardData && (
-        <AlertsStrip alerts={dashboardData.alerts} projects={allProjectsFlat} />
+        <AlertsStrip alerts={dashboardData.alerts} projects={allProjectsFlat} onProjectClick={onProjectClick} onGoToFix={(project, focus) => navigate(`/projects/${project.id}?focus=${focus}`)} />
       )}
 
       {/* Date Filter Options for Dashboard */}
