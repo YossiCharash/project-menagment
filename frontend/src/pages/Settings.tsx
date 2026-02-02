@@ -44,6 +44,13 @@ export default function Settings() {
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null)
   const [categorySuppliers, setCategorySuppliers] = useState<Array<{ id: number; name: string; category: string | null; transaction_count: number }>>([])
   
+  // Quote structure state
+  const [showQuoteStructureForm, setShowQuoteStructureForm] = useState(false)
+  const [newQuoteStructureName, setNewQuoteStructureName] = useState('')
+  const [quoteStructureError, setQuoteStructureError] = useState<string | null>(null)
+  const [quoteStructureLoading, setQuoteStructureLoading] = useState(false)
+  const [quoteStructureItems, setQuoteStructureItems] = useState<QuoteStructureItem[]>([])
+
   const navigate = useNavigate()
 
   // Fetch user data if not loaded
