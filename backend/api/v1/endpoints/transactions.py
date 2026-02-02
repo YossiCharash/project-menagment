@@ -592,6 +592,10 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
                 detail="לא ניתן להסיר קטגוריה מעסקה רגילה. רק עסקאות קופה יכולות להיות ללא קטגוריה."
             )
 
+    # Normalize payment_method: API may send enum name (e.g. CENTRALIZED_YEAR_END); DB expects enum value (Hebrew)
+    if "payment_method" in update_data:
+        update_data["payment_method"] = normalize_payment_method_for_db(update_data.get("payment_method"))
+
     for k, v in update_data.items():
         setattr(tx, k, v)
 
