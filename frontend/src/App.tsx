@@ -20,6 +20,8 @@ import ProjectDetail from './pages/ProjectDetail'
 import Subprojects from './pages/Subprojects'
 import ParentProjectDetail from './components/ParentProjectDetail'
 import Reports from './pages/Reports'
+import PriceQuotes from './pages/PriceQuotes'
+import QuoteDetail from './pages/QuoteDetail'
 import Suppliers from './pages/Suppliers'
 import SupplierDocuments from './pages/SupplierDocuments'
 import Settings from './pages/Settings'
@@ -158,7 +160,6 @@ function AppContent() {
         {/* Page Content */}
         <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
           <motion.div
-            key={location.pathname}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
@@ -168,11 +169,13 @@ function AppContent() {
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
-              <Route path="/projects/:id" element={<RequireAuth><ProjectDetail key={location.pathname} /></RequireAuth>} />
+              <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
               <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><UnforeseenTransactions /></RequireAuth>} />
-              <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail key={location.pathname} /></RequireAuth>} />
+              <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail /></RequireAuth>} />
               <Route path="/projects/:parentId/subprojects" element={<RequireAuth><Subprojects /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
+              <Route path="/price-quotes" element={<RequireAuth><PriceQuotes /></RequireAuth>} />
+              <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />

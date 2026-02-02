@@ -8,11 +8,22 @@ from datetime import date
 
 from backend.core.config import settings
 from backend.repositories.transaction_repository import TransactionRepository
-from backend.models.transaction import Transaction
+from backend.models.transaction import Transaction, PaymentMethod
 from backend.services.s3_service import S3Service
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.contract_period_repository import ContractPeriodRepository
+
+
+def normalize_payment_method_for_db(value: str | None) -> str | None:
+    """Convert PaymentMethod enum name (e.g. CENTRALIZED_YEAR_END) to DB value (Hebrew).
+    PostgreSQL payment_method enum uses Hebrew values; API/frontend may send enum names."""
+    if value is None or value == "":
+        return value
+    try:
+        return PaymentMethod[value].value
+    except KeyError:
+        return value  # already a value (Hebrew) or unknown, leave as-is
 
 
 class TransactionService:
@@ -211,6 +222,10 @@ class TransactionService:
                     f"אם זה תשלום שונה, אנא שנה את התאריך או הסכום.\n"
                     f"אם זה אותו תשלום, אנא בדוק את הרשומות הקיימות."
                 )
+        
+        # Normalize payment_method: API may send enum name (e.g. CENTRALIZED_YEAR_END); DB expects enum value (Hebrew)
+        if "payment_method" in data:
+            data["payment_method"] = normalize_payment_method_for_db(data.get("payment_method"))
         
         # Create transaction
         tx = Transaction(**data)

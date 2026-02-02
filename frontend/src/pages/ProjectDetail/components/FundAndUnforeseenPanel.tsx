@@ -158,16 +158,31 @@ export default function FundAndUnforeseenPanel({
                 className="border border-gray-200 dark:border-gray-700 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
                 onClick={() => (onViewUnforeseenTransaction ? onViewUnforeseenTransaction(tx) : onShowUnforeseenTransactionsModal())}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-gray-900 dark:text-white truncate flex-1">
+                <div className="grid grid-cols-3 items-center gap-2">
+                  <span className="text-sm text-gray-900 dark:text-white truncate text-start">
                     {tx.description || `#${tx.id}`}
                   </span>
-                  <span className={`text-sm font-bold flex-shrink-0 ${tx.profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <span className="flex justify-center">
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-xs shrink-0 ${
+                        tx.status === 'executed'
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                          : tx.status === 'waiting_for_approval'
+                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
+                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {tx.status === 'draft' && 'טיוטה'}
+                      {tx.status === 'waiting_for_approval' && 'מחכה לאישור'}
+                      {tx.status === 'executed' && 'בוצע'}
+                    </span>
+                  </span>
+                  <span className={`text-sm font-bold shrink-0 text-end ${tx.profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {tx.profit_loss >= 0 ? '+' : ''}{tx.profit_loss.toLocaleString('he-IL')} ₪
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  הכנסה: {tx.income_amount.toLocaleString('he-IL')} ₪ | הוצאות: {tx.total_expenses.toLocaleString('he-IL')} ₪
+                  הכנסה: {(tx.total_incomes ?? tx.income_amount).toLocaleString('he-IL')} ₪ | הוצאות: {tx.total_expenses.toLocaleString('he-IL')} ₪
                 </div>
               </div>
             ))}

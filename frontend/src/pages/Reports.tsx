@@ -468,7 +468,7 @@ export default function Reports() {
               <option value="current_month">חודש נוכחי</option>
               <option value="selected_month">חודש ספציפי</option>
               <option value="date_range">טווח תאריכים</option>
-              <option value="all_time">כל הזמן</option>
+              <option value="all_time">מחוזה הראשון</option>
             </select>
 
             {dateFilterMode === 'selected_month' && (

@@ -27,6 +27,7 @@ export interface Project {
   image_url?: string | null
   contract_file_url?: string | null
   is_parent_project: boolean // True if this is a parent project that can have subprojects
+  show_in_quotes_tab?: boolean // Show in Price Quotes tab even without quotes (created from that tab)
   is_active: boolean
   manager_id?: number | null
   created_at: string
@@ -92,6 +93,7 @@ export interface ProjectCreate {
   image_url?: string | null
   contract_file_url?: string | null
   is_parent_project?: boolean // True if this is a parent project that can have subprojects
+  show_in_quotes_tab?: boolean // Show in Price Quotes tab even without quotes
   manager_id?: number | null
   recurring_transactions?: RecurringTransactionTemplateCreate[] | null
   budgets?: BudgetCreate[] | null

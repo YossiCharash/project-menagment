@@ -4,6 +4,9 @@ import { ProjectAPI, BudgetAPI, CategoryAPI, Category } from '../lib/apiClient'
 import { formatDateForInput } from '../lib/utils'
 import FundSetupModal from './FundSetupModal'
 
+/** 'full' = default; 'quoteParent' = רק שם+תיאור (פרויקט על); 'quoteSubproject' = רק שם+תיאור (תת-פרויקט) */
+export type CreateProjectModalMode = 'full' | 'quoteParent' | 'quoteSubproject'
+
 interface CreateProjectModalProps {
   isOpen: boolean
   onClose: () => void
@@ -11,6 +14,16 @@ interface CreateProjectModalProps {
   editingProject?: Project | null
   parentProjectId?: number
   projectType?: 'parent' | 'regular' // 'parent' = רק תאריכים, 'regular' = כל השדות
+  /** Pre-fill form when creating (e.g. from quote approval) */
+  initialFormData?: Partial<ProjectCreate> | null
+  /** Override modal title */
+  titleOverride?: string
+  /** When true, name field is read-only (e.g. when approving a quote → create project) */
+  nameReadOnly?: boolean
+  /** Minimal mode for Price Quotes: quoteParent (name+desc only) or quoteSubproject (name+description only) */
+  createMode?: CreateProjectModalMode
+  /** פתיחה ישירה של טופס תת-פרויקט ללא בחירת פרויקט אב מראש (בחירה מתוך הטופס) */
+  openWithoutParentSelection?: boolean
 }
 
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
@@ -19,7 +32,12 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   onSuccess,
   editingProject,
   parentProjectId,
-  projectType = 'regular' // Default to regular project
+  projectType = 'regular', // Default to regular project
+  initialFormData,
+  titleOverride,
+  nameReadOnly = false,
+  createMode = 'full',
+  openWithoutParentSelection = false,
 }) => {
   const [formData, setFormData] = useState<ProjectCreate>({
     name: '',
@@ -85,6 +103,9 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     : (!parentProjectId && selectedProjectType === 'parent')
   const isParentProjectCreation = !parentProjectId && !editingProject && selectedProjectType === 'parent'
   const isRegularProjectCreation = !parentProjectId && !editingProject && selectedProjectType === 'regular'
+  const isQuoteParentCreation = createMode === 'quoteParent' && !editingProject && !parentProjectId
+  const isQuoteSubprojectCreation = createMode === 'quoteSubproject' && !editingProject && (!!parentProjectId || openWithoutParentSelection)
+  const isMinimalQuoteMode = createMode === 'quoteParent' || createMode === 'quoteSubproject'
   
   // Reset project type when modal opens based on projectType prop
   useEffect(() => {
@@ -348,8 +369,25 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setHasPastPeriods(false)
       setContractPeriods([])
       setSelectedPeriodId(null)
+      if (initialFormData && Object.keys(initialFormData).length > 0) {
+        const monthly = initialFormData.budget_monthly ?? 0
+        const annual = initialFormData.budget_annual ?? monthly * 12
+        const today = new Date().toISOString().slice(0, 10)
+        setFormData(prev => ({
+          ...prev,
+          name: initialFormData.name ?? prev.name,
+          description: initialFormData.description ?? prev.description,
+          num_residents: initialFormData.num_residents ?? prev.num_residents,
+          budget_monthly: monthly,
+          budget_annual: annual,
+          address: initialFormData.address ?? prev.address,
+          city: initialFormData.city ?? prev.city,
+          start_date: initialFormData.start_date ?? today,
+          contract_duration_months: initialFormData.contract_duration_months ?? 12,
+        }))
+      }
     }
-  }, [editingProject])
+  }, [editingProject, initialFormData])
 
   // Load existing budgets for editing
   const loadExistingBudgets = async (projectId: number) => {
@@ -391,7 +429,12 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   useEffect(() => {
     const checkName = async () => {
       const name = formData.name.trim()
-      
+      if (nameReadOnly) {
+        setNameError(null)
+        setNameValid(true)
+        setIsCheckingName(false)
+        return
+      }
       // Reset validation if name is empty
       if (!name) {
         setNameError(null)
@@ -448,7 +491,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     // Debounce: wait 300ms after user stops typing (reduced for faster feedback)
     const timeoutId = setTimeout(checkName, 300)
     return () => clearTimeout(timeoutId)
-  }, [formData.name, editingProject])
+  }, [formData.name, editingProject, nameReadOnly])
 
   const loadProjects = async () => {
     try {
@@ -618,6 +661,28 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           setLoading(false)
           return
         }
+      } else if (isQuoteParentCreation) {
+        if (!formData.name || formData.name.trim() === '') {
+          setError('שם הפרויקט נדרש')
+          setLoading(false)
+          return
+        }
+        if (!nameReadOnly && nameValid === false) {
+          setError('לא ניתן לשמור: שם הפרויקט כבר קיים. אנא שנה את השם')
+          setLoading(false)
+          return
+        }
+      } else if (isQuoteSubprojectCreation) {
+        if (!formData.name || formData.name.trim() === '') {
+          setError('שם הפרויקט נדרש')
+          setLoading(false)
+          return
+        }
+        if (!nameReadOnly && nameValid === false) {
+          setError('לא ניתן לשמור: שם הפרויקט כבר קיים. אנא שנה את השם')
+          setLoading(false)
+          return
+        }
       } else if (!editingProject && isRegularProjectCreation) {
         // For regular projects: name, start_date and duration are required
         if (!formData.name || formData.name.trim() === '') {
@@ -659,6 +724,38 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           return
         }
         // For parent projects, dates are not required (they are hidden)
+      }
+
+      // Minimal create for Price Quotes: quoteParent (name+description) or quoteSubproject (name+description+income)
+      if (isQuoteParentCreation || isQuoteSubprojectCreation) {
+        const monthlyBudget = isQuoteSubprojectCreation ? (formData.budget_monthly ?? 0) : 0
+        if (isQuoteSubprojectCreation && monthlyBudget < 0) {
+          setError('הכנסות צפויות נדרשות וחייבות להיות 0 ומעלה')
+          setLoading(false)
+          return
+        }
+        const relationProject = isQuoteSubprojectCreation ? (parentProjectId ?? formData.relation_project) : undefined
+        const minimalData: ProjectCreate & { apply_from_period_id?: number } = {
+          name: formData.name.trim(),
+          description: (formData.description || undefined),
+          budget_monthly: monthlyBudget,
+          budget_annual: monthlyBudget * 12,
+          relation_project: relationProject,
+          is_parent_project: isQuoteParentCreation,
+          show_in_quotes_tab: true, // show in Price Quotes tab even without quotes
+        }
+        try {
+          const result = await ProjectAPI.createProject(minimalData)
+          onClose()
+          resetForm()
+          onSuccess(result)
+        } catch (err: any) {
+          console.error('Error creating project:', err)
+          setError(err.response?.data?.detail || err.message || 'שמירה נכשלה')
+        } finally {
+          setLoading(false)
+        }
+        return
       }
 
       // Filter and validate budgets - remove project_id if present (not needed for project creation)
@@ -928,7 +1025,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            {editingProject ? 'עריכת פרויקט' : (parentProjectId ? 'יצירת תת-פרויקט חדש' : 'יצירת פרויקט חדש')}
+            {titleOverride || (editingProject ? 'עריכת פרויקט' : (parentProjectId ? 'יצירת תת-פרויקט חדש' : 'יצירת פרויקט חדש'))}
           </h2>
           <button
             onClick={handleClose}
@@ -939,8 +1036,149 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Minimal mode: only name + description (quoteParent) or name + num_residents (quoteSubproject) */}
+          {isMinimalQuoteMode && (
+            <>
+              {isQuoteParentCreation && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    תיאור (אופציונלי)
+                  </label>
+                  <textarea
+                    value={formData.description || ''}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={3}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+              {isQuoteSubprojectCreation && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      שם הפרויקט *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="שם התת-פרויקט"
+                    />
+                  </div>
+                  {(parentProjectId || openWithoutParentSelection) && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        פרויקט אב (אופציונלי)
+                      </label>
+                      {parentProjectId && !openWithoutParentSelection ? (
+                        <div className="w-full border border-gray-200 dark:border-gray-600 rounded-md px-3 py-2 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                          {availableProjects.find(p => p.id === parentProjectId)?.name || `פרויקט #${parentProjectId}`}
+                        </div>
+                      ) : (
+                        <select
+                          value={formData.relation_project ?? ''}
+                          onChange={(e) => setFormData({ ...formData, relation_project: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">בחר פרויקט על...</option>
+                          {availableProjects.filter(p => p.is_parent_project === true).map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} {p.city ? `(${p.city})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      תיאור (אופציונלי)
+                    </label>
+                    <textarea
+                      value={formData.description || ''}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={3}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      הכנסות צפויות *
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="incomeInputType"
+                          checked={budgetInputType === 'monthly'}
+                          onChange={() => setBudgetInputType('monthly')}
+                          className="text-amber-600 dark:text-amber-400"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">חודשי</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="incomeInputType"
+                          checked={budgetInputType === 'yearly'}
+                          onChange={() => setBudgetInputType('yearly')}
+                          className="text-amber-600 dark:text-amber-400"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">שנתי</span>
+                      </label>
+                    </div>
+                    {budgetInputType === 'monthly' ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        required
+                        value={formData.budget_monthly ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? undefined : parseFloat(e.target.value) || 0
+                          setFormData({
+                            ...formData,
+                            budget_monthly: val ?? 0,
+                            budget_annual: Math.round((val ?? 0) * 12 * 100) / 100,
+                          })
+                        }}
+                        placeholder="0"
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        required
+                        value={formData.budget_annual ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? undefined : parseFloat(e.target.value) || 0
+                          setFormData({
+                            ...formData,
+                            budget_annual: val ?? 0,
+                            budget_monthly: Math.round((val ?? 0) / 12 * 100) / 100,
+                          })
+                        }}
+                        placeholder="0"
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    )}
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {budgetInputType === 'monthly'
+                        ? 'סכום חודשי צפוי (₪)'
+                        : 'סכום שנתי צפוי (₪)'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           {/* Show project type info when creating new project */}
-          {!parentProjectId && !editingProject && (
+          {!isMinimalQuoteMode && !parentProjectId && !editingProject && (
             <div className={`rounded-lg p-3 border ${
               selectedProjectType === 'parent' 
                 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' 
@@ -954,19 +1192,25 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             </div>
           )}
 
-          {/* Show name field for all project types (parent, regular, subproject, editing) */}
+          {/* Show name field for all project types - except quoteSubproject (has its own in minimal block) */}
+          {!isQuoteSubprojectCreation && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                שם הפרויקט {(parentProjectId || editingProject || isRegularProjectCreation || isParentProjectCreation) ? '*' : ''}
+                שם הפרויקט {(parentProjectId || editingProject || isRegularProjectCreation || isParentProjectCreation || isQuoteParentCreation) ? '*' : ''}
+                {nameReadOnly && <span className="text-xs text-gray-500 mr-2">(לא ניתן לעריכה)</span>}
               </label>
               <div className="relative">
                 <input
                   type="text"
-                  required={!!(parentProjectId || editingProject || isRegularProjectCreation || isParentProjectCreation)}
+                  required={!!(parentProjectId || editingProject || isRegularProjectCreation || isParentProjectCreation || isQuoteParentCreation)}
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => !nameReadOnly && setFormData({ ...formData, name: e.target.value })}
+                  readOnly={nameReadOnly}
+                  disabled={nameReadOnly}
                   className={`w-full border rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    nameReadOnly ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''
+                  } ${
                     nameError 
                       ? 'border-red-500 focus:ring-red-500' 
                       : nameValid === true 
@@ -996,7 +1240,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
             {/* Parent project selector removed - regular projects cannot become subprojects */}
             {/* Show parent project info when creating subproject */}
-            {parentProjectId && !editingProject && (
+            {!isMinimalQuoteMode && parentProjectId && !editingProject && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   פרויקט אב
@@ -1010,9 +1254,10 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               </div>
             )}
           </div>
+          )}
 
           {/* Show description for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 תיאור
@@ -1027,6 +1272,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           )}
 
           {/* Show image upload for all project types (parent, regular, subproject, editing) */}
+          {!isMinimalQuoteMode && (
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               תמונת הפרויקט
@@ -1061,9 +1307,10 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                   )}
                 </div>
           </div>
+          )}
 
           {/* Contract upload - Only for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 חוזה עם הבניין
@@ -1107,7 +1354,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           )}
 
           {/* Show address and city for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1135,8 +1382,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             </div>
           )}
 
-          {/* Show budget section for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {/* Show budget section for subprojects, regular project creation, or editing non-parent projects - but NOT in quoteSubproject mode */}
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1231,7 +1478,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           )}
 
           {/* Dates and duration - hidden for parent projects, shown for regular projects and subprojects */}
-          {!isParentProject && (
+          {!isMinimalQuoteMode && !isParentProject && (
             <div className="space-y-4">
               {/* Top row: Period selection and Contract duration */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1430,7 +1677,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           {/* Removed num_residents and monthly_price_per_apartment inputs */}
 
           {/* Fund Section - Only for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex items-center gap-2 mb-2">
               <input
@@ -1489,7 +1736,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           )}
 
           {/* Category Budgets Section - Only for subprojects, regular project creation, or editing non-parent projects */}
-          {(parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
+          {!isMinimalQuoteMode && (parentProjectId || (editingProject && !isParentProject) || isRegularProjectCreation) && (
             <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex justify-between items-center">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

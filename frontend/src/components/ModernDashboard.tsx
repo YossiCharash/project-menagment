@@ -746,7 +746,7 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                 onChange={() => setDateFilterMode('all_time')}
                 className="w-4 h-4 text-blue-600 flex-shrink-0"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">כל הזמן</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">מחוזה הראשון</span>
             </label>
             <label className="flex items-center gap-2 whitespace-nowrap">
               <input

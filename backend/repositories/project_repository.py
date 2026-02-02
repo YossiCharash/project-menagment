@@ -55,3 +55,35 @@ class ProjectRepository:
         stmt = select(Project).where(Project.relation_project == project_id, Project.is_active == True)
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
+
+    async def get_project_by_name(self, name: str, exclude_project_id: int | None = None) -> Project | None:
+        """Get an active project by name (compare trimmed). Used to enforce unique names across all projects."""
+        name_trimmed = (name or "").strip()
+        if not name_trimmed:
+            return None
+        stmt = (
+            select(Project)
+            .where(Project.is_active == True, func.trim(Project.name) == name_trimmed)
+        )
+        if exclude_project_id is not None:
+            stmt = stmt.where(Project.id != exclude_project_id)
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def get_parent_project_by_name(self, name: str, exclude_project_id: int | None = None) -> Project | None:
+        """Get an active parent project by name (compare trimmed). Used to enforce unique names among parent projects."""
+        name_trimmed = (name or "").strip()
+        if not name_trimmed:
+            return None
+        stmt = (
+            select(Project)
+            .where(
+                Project.is_parent_project == True,
+                Project.is_active == True,
+                func.trim(Project.name) == name_trimmed,
+            )
+        )
+        if exclude_project_id is not None:
+            stmt = stmt.where(Project.id != exclude_project_id)
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none()

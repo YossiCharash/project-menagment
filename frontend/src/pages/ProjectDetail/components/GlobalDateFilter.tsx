@@ -71,8 +71,8 @@ export default function GlobalDateFilter({
                             <option value="current_month">חודש נוכחי</option>
                             <option value="selected_month">חודש ספציפי</option>
                             <option value="date_range">טווח תאריכים</option>
-                            <option value="project">מתחילת הפרויקט</option>
-                            <option value="all_time">כל הזמן</option>
+                            <option value="project">מתחילת החוזה</option>
+                            <option value="all_time">מחוזה הראשון</option>
                         </select>
 
                         {globalDateFilterMode === 'selected_month' && (
@@ -134,10 +134,10 @@ export default function GlobalDateFilter({
                             <span>מציג נתונים מ-{parseLocalDate(globalStartDate)?.toLocaleDateString('he-IL')} עד {parseLocalDate(globalEndDate)?.toLocaleDateString('he-IL')}</span>
                         )}
                         {globalDateFilterMode === 'project' && (
-                            <span>מציג נתונים מתחילת הפרויקט {projectStartDate ? `(${parseLocalDate(projectStartDate)?.toLocaleDateString('he-IL')})` : ''}</span>
+                            <span>מציג נתונים מתחילת החוזה {projectStartDate ? `(${parseLocalDate(projectStartDate)?.toLocaleDateString('he-IL')})` : ''}</span>
                         )}
                         {globalDateFilterMode === 'all_time' && (
-                            <span>מציג את כל הנתונים ללא הגבלת תאריך</span>
+                            <span>מציג נתונים מחוזה הראשון</span>
                         )}
                     </>
                 )}

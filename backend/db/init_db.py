@@ -24,7 +24,10 @@ from backend.models import (  # noqa: F401
     MemberInvite,
     Budget,
     UnforeseenTransaction,
-    UnforeseenTransactionExpense
+    UnforeseenTransactionExpense,
+    QuoteStructureItem,
+    QuoteProject,
+    QuoteLine,
 )
 
 

@@ -221,6 +221,9 @@ export function useProjectDetailState() {
   const [showPeriodSummaryModal, setShowPeriodSummaryModal] = useState(false)
   const [loadingPeriodSummary, setLoadingPeriodSummary] = useState(false)
 
+  // Accepted price quote (הצעת מחיר שאושרה) - when project was created from an approved quote
+  const [acceptedQuote, setAcceptedQuote] = useState<{ id: number; name: string; status: string } | null>(null)
+
   // Calculate total periods: previous periods + current period (if exists)
   const totalPeriods = useMemo(() => {
     const previousPeriodsCount = contractPeriods?.periods_by_year 
@@ -404,6 +407,10 @@ export function useProjectDetailState() {
     currentViewingPeriodIndex,
     prevPeriod,
     nextPeriod,
-    viewingPeriodId
+    viewingPeriodId,
+
+    // Accepted quote
+    acceptedQuote,
+    setAcceptedQuote,
   }
 }

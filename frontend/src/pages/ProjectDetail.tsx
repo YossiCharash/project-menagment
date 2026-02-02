@@ -1,5 +1,5 @@
 import {useMemo, useEffect} from 'react'
-import {useParams, useNavigate, useSearchParams} from 'react-router-dom'
+import {useParams, useNavigate, useSearchParams, Link} from 'react-router-dom'
 import {motion} from 'framer-motion'
 import {useAppDispatch, useAppSelector} from '../utils/hooks'
 import {archiveProject, hardDeleteProject} from '../store/slices/projectsSlice'
@@ -76,7 +76,7 @@ export default function ProjectDetail() {
     // Calculate financial summary using handler
     const financialSummary = useMemo(() => {
         return handlers.calculateFinancialSummary()
-    }, [state.txs, state.projectStartDate, state.projectEndDate, state.projectBudget, state.globalDateFilterMode, state.globalSelectedMonth, state.globalSelectedYear, state.globalStartDate, state.globalEndDate])
+    }, [state.txs, state.projectStartDate, state.projectEndDate, state.projectBudget, state.globalDateFilterMode, state.globalSelectedMonth, state.globalSelectedYear, state.globalStartDate, state.globalEndDate, state.firstContractStartDate, state.allPeriods])
 
     const income = financialSummary.income
     const expense = financialSummary.expense
@@ -1078,6 +1078,23 @@ export default function ProjectDetail() {
                 onArchiveDeleteClick={handleArchiveDeleteClick}
                 onNavigate={navigate}
             />
+
+            {/* Accepted price quote - הצעת מחיר שאושרה (when project was created from a quote) */}
+            {state.acceptedQuote && (
+                <div className="w-full max-w-7xl mx-auto">
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+                        <span className="text-emerald-800 dark:text-emerald-200 text-sm font-medium">
+                            הצעת מחיר שאושרה:
+                        </span>
+                        <Link
+                            to={`/price-quotes/${state.acceptedQuote.id}`}
+                            className="text-emerald-700 dark:text-emerald-300 font-semibold hover:underline"
+                        >
+                            {state.acceptedQuote.name}
+                        </Link>
+                    </div>
+                </div>
+            )}
 
             {/* Global Date Filter - Affects all sections */}
             <GlobalDateFilter

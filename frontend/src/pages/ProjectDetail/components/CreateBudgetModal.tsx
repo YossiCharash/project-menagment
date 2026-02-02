@@ -159,7 +159,7 @@ export default function CreateBudgetModal({
                                             disabled={!projectStartDate}
                                         />
                                         <span className="text-sm text-gray-700 dark:text-gray-300">
-                                            {isViewingHistoricalPeriod ? 'מתחילת התקופה' : 'מתחילת הפרויקט'} {projectStartDate && `(${new Date(projectStartDate).toLocaleDateString('he-IL')})`}
+                                            {isViewingHistoricalPeriod ? 'מתחילת התקופה' : 'מתחילת החוזה'} {projectStartDate && `(${new Date(projectStartDate).toLocaleDateString('he-IL')})`}
                                         </span>
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer">

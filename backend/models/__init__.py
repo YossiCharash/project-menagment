@@ -20,6 +20,9 @@ from backend.models.archived_contract import ArchivedContract
 from backend.models.deleted_recurring_instance import DeletedRecurringInstance
 from backend.models.project_document import ProjectDocument
 from backend.models.unforeseen_transaction import UnforeseenTransaction, UnforeseenTransactionExpense, UnforeseenTransactionStatus
+from backend.models.quote_structure_item import QuoteStructureItem
+from backend.models.quote_project import QuoteProject
+from backend.models.quote_line import QuoteLine
 
 __all__ = [
     "User",
@@ -45,5 +48,8 @@ __all__ = [
     "DeletedRecurringInstance",
     "UnforeseenTransaction",
     "UnforeseenTransactionExpense",
-    "UnforeseenTransactionStatus"
+    "UnforeseenTransactionStatus",
+    "QuoteStructureItem",
+    "QuoteProject",
+    "QuoteLine",
 ]

@@ -15,7 +15,8 @@ import {
   FileText,
   Building2,
   UserCog,
-  Activity
+  Activity,
+  Receipt
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { cn } from '../../lib/utils'
@@ -47,6 +48,12 @@ const getNavigationItems = (userRole?: string) => {
       href: '/reports',
       icon: BarChart3,
       description: 'דוחות פיננסיים ומעקב'
+    },
+    {
+      name: 'הצעות מחיר',
+      href: '/price-quotes',
+      icon: Receipt,
+      description: 'בניית הצעות מחיר והמרה לפרויקטים'
     }
   ]
 

@@ -86,6 +86,14 @@ export class ProjectAPI {
     return data
   }
 
+  /** Check if a parent project name is available (no other parent project with same name). */
+  static async checkParentProjectName(name: string, excludeId?: number): Promise<{ available: boolean }> {
+    const params: Record<string, string | number> = { name: name.trim() }
+    if (excludeId != null) params.exclude_id = excludeId
+    const { data } = await api.get<{ available: boolean }>('/projects/check-parent-name', { params })
+    return data
+  }
+
   // Create project with optional parent relationship
   static async createProject(project: ProjectCreate): Promise<Project> {
     const { data } = await api.post<Project>('/projects', project)
@@ -888,5 +896,171 @@ export class UnforeseenTransactionAPI {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     return data
+  }
+}
+
+// --- Quote Structure (חלוקת הצעת מחיר) - Settings ---
+export interface QuoteStructureItem {
+  id: number
+  name: string
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteStructureItemCreate {
+  name: string
+  sort_order?: number
+}
+
+export interface QuoteStructureItemUpdate {
+  name?: string
+  sort_order?: number
+  is_active?: boolean
+}
+
+export class QuoteStructureAPI {
+  static async list(includeInactive = false): Promise<QuoteStructureItem[]> {
+    const { data } = await api.get<QuoteStructureItem[]>(`/quote-structure?include_inactive=${includeInactive}`)
+    return data
+  }
+
+  static async get(id: number): Promise<QuoteStructureItem> {
+    const { data } = await api.get<QuoteStructureItem>(`/quote-structure/${id}`)
+    return data
+  }
+
+  static async create(payload: QuoteStructureItemCreate): Promise<QuoteStructureItem> {
+    const { data } = await api.post<QuoteStructureItem>('/quote-structure', payload)
+    return data
+  }
+
+  static async update(id: number, payload: QuoteStructureItemUpdate): Promise<QuoteStructureItem> {
+    const { data } = await api.put<QuoteStructureItem>(`/quote-structure/${id}`, payload)
+    return data
+  }
+
+  static async delete(id: number): Promise<void> {
+    await api.delete(`/quote-structure/${id}`)
+  }
+}
+
+// --- Quote Projects (הצעות מחיר) ---
+export interface QuoteLine {
+  id: number
+  quote_project_id: number
+  quote_structure_item_id: number
+  quote_structure_item_name: string
+  amount: number | null
+  sort_order: number
+  created_at?: string
+}
+
+export interface QuoteProject {
+  id: number
+  name: string
+  description: string | null
+  parent_id: number | null
+  project_id: number | null
+  expected_start_date: string | null
+  expected_income: number | null
+  expected_expenses: number | null
+  num_residents: number | null
+  status: 'draft' | 'approved'
+  converted_project_id: number | null
+  created_at: string
+  updated_at: string
+  quote_lines: QuoteLine[]
+  children_count: number
+  children?: QuoteProject[]
+}
+
+export interface QuoteProjectCreate {
+  name: string
+  description?: string | null
+  parent_id?: number | null
+  project_id?: number | null
+  expected_start_date?: string | null
+  expected_income?: number | null
+  expected_expenses?: number | null
+  num_residents?: number | null
+}
+
+export interface QuoteProjectUpdate {
+  name?: string
+  description?: string | null
+  parent_id?: number | null
+  expected_start_date?: string | null
+  expected_income?: number | null
+  expected_expenses?: number | null
+  num_residents?: number | null
+}
+
+export interface QuoteLineCreate {
+  quote_structure_item_id: number
+  amount?: number | null
+  sort_order?: number
+}
+
+export class QuoteProjectsAPI {
+  static async list(
+    parentId?: number | null,
+    projectId?: number | null,
+    status?: 'draft' | 'approved'
+  ): Promise<QuoteProject[]> {
+    const params = new URLSearchParams()
+    if (parentId != null) params.set('parent_id', String(parentId))
+    if (projectId != null) params.set('project_id', String(projectId))
+    if (status) params.set('status', status)
+    const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
+    return data
+  }
+
+  static async get(id: number): Promise<QuoteProject> {
+    const { data } = await api.get<QuoteProject>(`/quote-projects/${id}`)
+    return data
+  }
+
+  static async create(payload: QuoteProjectCreate): Promise<QuoteProject> {
+    const { data } = await api.post<QuoteProject>('/quote-projects', payload)
+    return data
+  }
+
+  static async update(id: number, payload: QuoteProjectUpdate): Promise<QuoteProject> {
+    const { data } = await api.put<QuoteProject>(`/quote-projects/${id}`, payload)
+    return data
+  }
+
+  static async delete(id: number): Promise<void> {
+    await api.delete(`/quote-projects/${id}`)
+  }
+
+  static async approve(
+    id: number,
+    projectId?: number | null
+  ): Promise<{ message: string; quote_project_id: number; project_id: number }> {
+    const body = projectId != null ? { project_id: projectId } : undefined
+    const { data } = await api.post(`/quote-projects/${id}/approve`, body)
+    return data
+  }
+
+  static async listLines(quoteProjectId: number): Promise<QuoteLine[]> {
+    const { data } = await api.get<QuoteLine[]>(`/quote-projects/${quoteProjectId}/lines`)
+    return data
+  }
+
+  static async addLine(quoteProjectId: number, payload: QuoteLineCreate): Promise<QuoteLine> {
+    const { data } = await api.post<QuoteLine>(`/quote-projects/${quoteProjectId}/lines`, payload)
+    return data
+  }
+
+  static async updateLine(quoteProjectId: number, lineId: number, payload: { amount?: number | null; sort_order?: number }): Promise<QuoteLine> {
+    const { data } = await api.put<QuoteLine>(`/quote-projects/${quoteProjectId}/lines/${lineId}`, payload)
+    return data
+  }
+
+  static async deleteLine(quoteProjectId: number, lineId: number): Promise<void> {
+    await api.delete(`/quote-projects/${quoteProjectId}/lines/${lineId}`)
   }
 }

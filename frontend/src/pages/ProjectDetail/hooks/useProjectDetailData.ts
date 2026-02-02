@@ -69,6 +69,13 @@ export function useProjectDetailData(
         state.setCurrentContractPeriod(data.current_period)
       }
 
+      // Update accepted quote (הצעת מחיר שאושרה) when project was created from a quote
+      if (data.accepted_quote) {
+        state.setAcceptedQuote(data.accepted_quote)
+      } else {
+        state.setAcceptedQuote(null)
+      }
+
       // Update selected period (when viewing historical period)
       if (data.selected_period) {
         state.setSelectedPeriod(data.selected_period)

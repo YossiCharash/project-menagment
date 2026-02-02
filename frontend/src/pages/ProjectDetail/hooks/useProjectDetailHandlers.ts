@@ -791,8 +791,24 @@ export function useProjectDetailHandlers(
       customEnd.setHours(23, 59, 59, 999)
       calculationEndDate = customEnd
     } else if (state.globalDateFilterMode === 'all_time') {
-      calculationStartDate = new Date(2000, 0, 1)
-      calculationEndDate = now
+      // "מחוזה הראשון" – מתחילת החוזה הראשון עד סוף החוזה האחרון (או היום)
+      const firstStart = state.firstContractStartDate || state.projectStartDate
+      if (firstStart) {
+        calculationStartDate = parseLocalDate(firstStart) || new Date(2000, 0, 1)
+      } else {
+        calculationStartDate = new Date(2000, 0, 1)
+      }
+      const sortedPeriods = state.allPeriods && state.allPeriods.length > 0
+        ? state.allPeriods
+        : []
+      const lastPeriod = sortedPeriods.length > 0 ? sortedPeriods[sortedPeriods.length - 1] : null
+      const lastEnd = lastPeriod?.end_date || state.projectEndDate
+      if (lastEnd) {
+        const endObj = parseLocalDate(lastEnd) || new Date()
+        calculationEndDate = endObj > now ? now : endObj
+      } else {
+        calculationEndDate = now
+      }
     } else {
       if (state.projectStartDate) {
         calculationStartDate = parseLocalDate(state.projectStartDate) || new Date(0)

@@ -254,7 +254,7 @@ const ConsolidatedFinancialSummary: React.FC<ConsolidatedFinancialSummaryProps> 
             >
               <option value="month">חודש ספציפי</option>
               <option value="year">שנה ספציפית</option>
-              <option value="project">מתחילת הפרויקט</option>
+              <option value="project">מתחילת החוזה</option>
               <option value="custom">טווח תאריכים</option>
             </select>
 

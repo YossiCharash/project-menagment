@@ -14,7 +14,7 @@ from backend.repositories.supplier_document_repository import SupplierDocumentRe
 from backend.repositories.category_repository import CategoryRepository
 from backend.models.supplier_document import SupplierDocument
 from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate
-from backend.services.transaction_service import TransactionService
+from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
 from backend.models.user import UserRole
 from backend.services.s3_service import S3Service

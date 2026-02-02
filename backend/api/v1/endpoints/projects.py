@@ -82,6 +82,8 @@ async def list_projects(db: DBSessionDep, include_archived: bool = Query(False),
             "manager_id": project.manager_id,
             "relation_project": project.relation_project,
             "is_parent_project": project.is_parent_project,
+            "show_in_quotes_tab": getattr(project, 'show_in_quotes_tab', False),
+            "is_active": project.is_active,
             "num_residents": project.num_residents,
             "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
             "address": project.address,
@@ -133,6 +135,8 @@ async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Quer
             "manager_id": project.manager_id,
             "relation_project": project.relation_project,
             "is_parent_project": project.is_parent_project,
+            "show_in_quotes_tab": getattr(project, 'show_in_quotes_tab', False),
+            "is_active": project.is_active,
             "num_residents": project.num_residents,
             "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
             "address": project.address,
@@ -156,22 +160,37 @@ async def check_project_name(
     db: DBSessionDep,
     name: str = Query(..., description="Project name to check"),
     exclude_id: Optional[int] = Query(None, description="Project ID to exclude from check (for updates)"),
-    user = Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    """Check if a project name already exists - accessible to all authenticated users"""
-    from sqlalchemy import select
-
-    query = select(Project).where(Project.name == name)
-    if exclude_id:
-        query = query.where(Project.id != exclude_id)
-
-    result = await db.execute(query)
-    existing_project = result.scalar_one_or_none()
-
+    """Check if a project name already exists (compare trimmed). For create/edit any project."""
+    name_trimmed = (name or "").strip()
+    if not name_trimmed:
+        return {"exists": False, "available": False}
+    existing = await ProjectRepository(db).get_project_by_name(
+        name_trimmed, exclude_project_id=exclude_id
+    )
     return {
-        "exists": existing_project is not None,
-        "available": existing_project is None
+        "exists": existing is not None,
+        "available": existing is None,
     }
+
+
+@router.get("/check-parent-name")
+async def check_parent_project_name(
+    db: DBSessionDep,
+    name: str = Query(..., description="Parent project name to check"),
+    exclude_id: Optional[int] = Query(None, description="Project ID to exclude (for edit)"),
+    user=Depends(get_current_user),
+):
+    """Check if a parent project with this name already exists. For use in create/edit parent project modal."""
+    name_trimmed = (name or "").strip()
+    if not name_trimmed:
+        return {"available": False, "reason": "empty"}
+    existing = await ProjectRepository(db).get_parent_project_by_name(
+        name_trimmed, exclude_project_id=exclude_id
+    )
+    return {"available": existing is None}
+
 
 @router.get("/profitability-alerts")
 async def get_profitability_alerts(
@@ -328,6 +347,8 @@ async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_curr
         "manager_id": project.manager_id,
         "relation_project": project.relation_project,
         "is_parent_project": project.is_parent_project,
+        "show_in_quotes_tab": getattr(project, 'show_in_quotes_tab', False),
+        "is_active": project.is_active,
         "num_residents": project.num_residents,
         "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
         "address": project.address,
@@ -368,6 +389,7 @@ async def get_project_full(
     from backend.services.budget_service import BudgetService
     from backend.services.report_service import ReportService
     from backend.repositories.contract_period_repository import ContractPeriodRepository
+    from backend.repositories.quote_project_repository import QuoteProjectRepository
     
     # Get project
     project = await ProjectRepository(db).get_by_id(project_id)
@@ -701,6 +723,8 @@ async def get_project_full(
         "manager_id": project.manager_id,
         "relation_project": project.relation_project,
         "is_parent_project": project.is_parent_project,
+        "show_in_quotes_tab": getattr(project, 'show_in_quotes_tab', False),
+        "is_active": project.is_active,
         "num_residents": project.num_residents,
         "monthly_price_per_apartment": project.monthly_price_per_apartment,
         "address": project.address,
@@ -752,6 +776,17 @@ async def get_project_full(
             'total_profit': period_financials['total_profit']
         }
     
+    # Accepted price quote that was converted to this project (if any)
+    accepted_quote = None
+    quote_repo = QuoteProjectRepository(db)
+    qp = await quote_repo.get_by_converted_project_id(project_id)
+    if qp:
+        accepted_quote = {
+            "id": qp.id,
+            "name": qp.name,
+            "status": qp.status,
+        }
+    
     return {
         "project": project_dict,
         "transactions": transactions_list,
@@ -763,7 +798,8 @@ async def get_project_full(
         "contract_periods": {
             "project_id": project_id,
             "periods_by_year": periods_by_year_list
-        }
+        },
+        "accepted_quote": accepted_quote,
     }
 
 
@@ -798,6 +834,7 @@ async def get_subprojects(project_id: int, db: DBSessionDep, user = Depends(get_
             "image_url": subproject.image_url,
             "contract_file_url": subproject.contract_file_url,
             "is_active": subproject.is_active,
+            "show_in_quotes_tab": getattr(subproject, 'show_in_quotes_tab', False),
             "created_at": subproject.created_at,
             "total_value": getattr(subproject, 'total_value', 0.0),
             "has_fund": fund is not None,
@@ -847,6 +884,23 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
         if 'is_parent_project' not in project_data:
             project_data['is_parent_project'] = False
     
+    # פרויקט על: בלי תאריכים ומשך חוזה – רק שם ותיאור
+    if project_data.get('is_parent_project') is True:
+        project_data['start_date'] = None
+        project_data['end_date'] = None
+        project_data['contract_duration_months'] = None
+
+    # ולידציה: מניעת שני פרויקטים (כל סוג) עם אותו שם
+    name_trimmed = (project_data.get('name') or '').strip()
+    if name_trimmed:
+        existing = await ProjectRepository(db).get_project_by_name(name_trimmed)
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="קיים כבר פרויקט עם שם זה. יש לבחור שם ייחודי.",
+            )
+        project_data['name'] = name_trimmed
+
     # Create the project
     project = await ProjectService(db).create(user_id=user.id, **project_data)
     
@@ -1002,6 +1056,18 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
         if len(subprojects) > 0 and not update_payload['is_parent_project']:
             raise HTTPException(status_code=400, detail="לא ניתן לשנות פרויקט על לפרויקט רגיל כאשר יש לו תת-פרויקטים")
     
+    # When updating name: ensure no duplicate project names (any project type)
+    if 'name' in update_payload:
+        name_trimmed = (update_payload['name'] or '').strip()
+        if name_trimmed:
+            existing = await repo.get_project_by_name(name_trimmed, exclude_project_id=project_id)
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail="קיים כבר פרויקט עם שם זה. יש לבחור שם ייחודי.",
+                )
+            update_payload['name'] = name_trimmed
+
     # Handle contract_duration_months changes
     # If apply_from_period_id is provided, allow changing duration from that period onwards
     # Otherwise, prevent retroactive changes if there are past periods
