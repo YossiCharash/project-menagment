@@ -45,7 +45,10 @@ class RecurringTransactionTemplate(Base):
     supplier: Mapped["Supplier | None"] = relationship("Supplier", lazy="selectin")
 
     # Payment method
-    payment_method: Mapped[str | None] = mapped_column(SAEnum(PaymentMethod, name="payment_method", create_constraint=True, native_enum=True), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(
+        SAEnum(PaymentMethod, name="payment_method", create_constraint=True, native_enum=True, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )
 
     # Recurring settings
     frequency: Mapped[str] = mapped_column(SAEnum(RecurringFrequency, name="recurring_frequency", create_constraint=True, native_enum=True), default=RecurringFrequency.MONTHLY.value)
