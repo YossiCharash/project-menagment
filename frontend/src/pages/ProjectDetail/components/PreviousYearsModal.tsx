@@ -165,18 +165,18 @@ export default function PreviousYearsModal({
                                                                 <div className="font-bold text-gray-900 dark:text-white mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                                                                     {period.year_label || `תקופה ${period.year_index || ''}`}
                                                                 </div>
-                                                                <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                                                                <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1" dir="ltr">
                                                                     <span>📅</span>
                                                                     {period.start_date && period.end_date ? (
                                                                         (() => {
                                                                             const start = parseLocalDate(period.start_date);
                                                                             const end = parseLocalDate(period.end_date);
                                                                             if (!start || !end) {
-                                                                                return `\u200E${formatDate(period.start_date)} - ${formatDate(period.end_date)}`;
+                                                                                return `${formatDate(period.start_date)} – ${formatDate(period.end_date)}`;
                                                                             }
                                                                             const displayStart = start <= end ? start : end;
                                                                             const displayEnd = start <= end ? end : start;
-                                                                            return `\u200E${formatDate(dateToLocalString(displayStart))} - ${formatDate(dateToLocalString(displayEnd))}`;
+                                                                            return `${formatDate(dateToLocalString(displayStart))} – ${formatDate(dateToLocalString(displayEnd))}`;
                                                                         })()
                                                                     ) : period.start_date ? formatDate(period.start_date) : ''}
                                                                 </div>

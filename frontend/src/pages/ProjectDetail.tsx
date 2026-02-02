@@ -1743,14 +1743,14 @@ export default function ProjectDetail() {
                                             </td>
                                             <td className="p-3 text-gray-700 dark:text-gray-300">
                                                 <div>{t.tx_date}</div>
-                                                {t.period_start_date && t.period_end_date && (
-                                                    <div
-                                                        className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded"
-                                                        key={`dated-dates-${t.id}`}>
-                                                        תאריכית:
-                                                        \u200E{formatDate(t.period_start_date)} - {formatDate(t.period_end_date)}
-                                                    </div>
-                                                )}
+                                                    {t.period_start_date && t.period_end_date && (
+                                                        <div
+                                                            className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded"
+                                                            key={`dated-dates-${t.id}`}
+                                                            dir="ltr">
+                                                            תאריכית: {formatDate(t.period_start_date)} – {formatDate(t.period_end_date)}
+                                                        </div>
+                                                    )}
                                             </td>
                                             <td className={`p-3 font-semibold ${t.type === 'Income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                                 <div>

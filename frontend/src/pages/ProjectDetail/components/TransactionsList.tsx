@@ -398,8 +398,8 @@ export default function TransactionsList({
                           <div className="text-right">
                             <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(tx.tx_date)}</div>
                             {tx.period_start_date && tx.period_end_date ? (
-                              <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`}>
-                                \u200E{formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} - {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
+                              <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`} dir="ltr">
+                                {formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} – {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
                               </div>
                             ) : null}
                           </div>

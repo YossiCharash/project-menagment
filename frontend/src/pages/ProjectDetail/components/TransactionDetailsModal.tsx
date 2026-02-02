@@ -102,8 +102,8 @@ export default function TransactionDetailsModal({
                   <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border-2 border-blue-200 dark:border-blue-700">
                     <div className="text-sm text-blue-800 dark:text-blue-300 font-bold mb-2">עסקה תאריכית</div>
                     <div className="text-xs text-blue-700 dark:text-blue-400 mb-1">תקופת תשלום:</div>
-                    <div className="text-base text-blue-900 dark:text-blue-200 font-semibold mb-2">
-                      {formatDate(transaction.period_start_date)} - {formatDate(transaction.period_end_date)}
+                    <div className="text-base text-blue-900 dark:text-blue-200 font-semibold mb-2" dir="ltr">
+                      {formatDate(transaction.period_start_date)} – {formatDate(transaction.period_end_date)}
                     </div>
                     {(transaction as any).proportionalAmount !== undefined && (transaction as any).daysInMonth !== undefined && (transaction as any).totalDays !== undefined && (
                       <div className="text-xs text-blue-700 dark:text-blue-400 space-y-1 mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">

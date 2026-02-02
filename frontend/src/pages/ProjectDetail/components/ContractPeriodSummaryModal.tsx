@@ -109,17 +109,17 @@ export default function ContractPeriodSummaryModal({
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                             {selectedPeriodSummary.contract_year ? (selectedPeriodSummary.year_label ? `שנת ${selectedPeriodSummary.contract_year} - ${selectedPeriodSummary.year_label}` : `שנת ${selectedPeriodSummary.contract_year}`) : 'סיכום תקופת חוזה'}
                         </h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1" dir="ltr">
                             {selectedPeriodSummary.start_date && selectedPeriodSummary.end_date ? (
                                 (() => {
                                     const start = parseLocalDate(selectedPeriodSummary.start_date);
                                     const end = parseLocalDate(selectedPeriodSummary.end_date);
                                     if (!start || !end) {
-                                        return `\u200E${formatDate(selectedPeriodSummary.start_date)} - ${formatDate(selectedPeriodSummary.end_date)}`;
+                                        return `${formatDate(selectedPeriodSummary.start_date)} – ${formatDate(selectedPeriodSummary.end_date)}`;
                                     }
                                     const displayStart = start <= end ? start : end;
                                     const displayEnd = start <= end ? end : start;
-                                    return `\u200E${formatDate(dateToLocalString(displayStart))} - ${formatDate(dateToLocalString(displayEnd))}`;
+                                    return `${formatDate(dateToLocalString(displayStart))} – ${formatDate(dateToLocalString(displayEnd))}`;
                                 })()
                             ) : selectedPeriodSummary.start_date ? formatDate(selectedPeriodSummary.start_date) : ''}
                         </p>
