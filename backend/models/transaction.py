@@ -3,19 +3,14 @@ from typing import TYPE_CHECKING
 from datetime import datetime, date
 from enum import Enum
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates, reconstructor
-from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.category import Category
-from backend.models.enums import PaymentMethod, PaymentMethodType
+from backend.models.enums import  PaymentMethodType
 
 if TYPE_CHECKING:
     from backend.models.project import Project
-    from backend.models.supplier import Supplier
-    from backend.models.recurring_transaction import RecurringTransactionTemplate
     from backend.models.supplier_document import SupplierDocument
-    from backend.models.user import User
 
 
 class TransactionType(str, Enum):
