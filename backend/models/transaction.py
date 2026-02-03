@@ -2,11 +2,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from datetime import datetime, date
 from enum import Enum
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, TypeDecorator
+from sqlalchemy.dialects.postgresql import ENUM as PgENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import PaymentMethodType
 
 if TYPE_CHECKING:
     from backend.models.project import Project
@@ -24,6 +24,68 @@ class ExpenseCategory(str, Enum):
     INSURANCE = "ביטוח"
     GARDENING = "גינון"
     OTHER = "אחר"
+
+
+# Payment method: PostgreSQL enum; app exposes Hebrew, DB may have English or Hebrew.
+class PaymentMethod(str, Enum):
+    """PostgreSQL payment_method enum values (Hebrew). API/display use Hebrew."""
+    STANDING_ORDER = "הוראת קבע"
+    CREDIT = "אשראי"
+    CHECK = "שיק"
+    CASH = "מזומן"
+    BANK_TRANSFER = "העברה בנקאית"
+    CENTRALIZED_YEAR_END = "גבייה מרוכזת סוף שנה"
+
+
+_PAYMENT_METHOD_DB_VALUES = [e.name for e in PaymentMethod] + [e.value for e in PaymentMethod]
+_PAYMENT_ENGLISH_TO_HEBREW = {e.name: e.value for e in PaymentMethod}
+_PAYMENT_HEBREW_TO_ENGLISH = {e.value: e.name for e in PaymentMethod}
+
+
+class PaymentMethodType(TypeDecorator):
+    """
+    Column type for payment_method: DB enum has English labels; app exposes Hebrew.
+    On write: convert Hebrew (or English name) -> English for DB.
+    On read: convert English from DB -> Hebrew for app (and accept legacy Hebrew if present).
+    """
+    impl = PgENUM(
+        *_PAYMENT_METHOD_DB_VALUES,
+        name="payment_method",
+        create_type=False,
+    )
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return self._to_english(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return self._to_hebrew(value)
+
+    @staticmethod
+    def _to_english(value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s in _PAYMENT_ENGLISH_TO_HEBREW:
+            return s
+        return _PAYMENT_HEBREW_TO_ENGLISH.get(s, s)
+
+    @staticmethod
+    def _to_hebrew(value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s in (e.value for e in PaymentMethod):
+            return s
+        return _PAYMENT_ENGLISH_TO_HEBREW.get(s, s)
 
 
 class Transaction(Base):

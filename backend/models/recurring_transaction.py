@@ -7,7 +7,7 @@ from sqlalchemy.ext.associationproxy import association_proxy
 
 from backend.db.base import Base
 from backend.models.category import Category
-from backend.models.enums import PaymentMethodType
+from backend.models.transaction import PaymentMethodType
 class RecurringFrequency(str, Enum):
     MONTHLY = "Monthly"
 
