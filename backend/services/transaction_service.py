@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 
 from backend.core.config import settings
+from backend.models.enums import PaymentMethod
 from backend.repositories.transaction_repository import TransactionRepository
-from backend.models.transaction import Transaction, PaymentMethod
-from backend.services.s3_service import S3Service
+from backend.models.transaction import Transaction
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.contract_period_repository import ContractPeriodRepository
