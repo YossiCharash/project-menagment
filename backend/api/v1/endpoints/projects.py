@@ -1975,17 +1975,20 @@ async def get_project_fund(
     # Total additions = monthly additions + income transactions to fund
     total_additions = total_monthly_additions + total_additions_from_transactions
     
-    # Calculate initial balance by working backwards from current balance
-    # Formula: current_balance = initial_balance + total_additions - total_deductions
-    # Therefore: initial_balance = current_balance - total_additions + total_deductions
+    # Recalculate current_balance from transactions (same logic as get_project_full) so it matches
+    # the "פרטי הקופה" display. If the stored balance drifted (e.g. missing deduction), sync it.
+    stored_current_balance = float(fund.current_balance)
+    calculated_initial = stored_current_balance + total_deductions - total_monthly_additions - total_additions_from_transactions
+    initial_total = max(0.0, calculated_initial)
+    recalculated_current_balance = initial_total + total_additions - total_deductions
+    if abs(recalculated_current_balance - stored_current_balance) > 0.01:
+        await fund_service.update_fund(fund, current_balance=recalculated_current_balance)
+        fund = await fund_service.get_fund_by_project(project_id)
+    
     current_balance = float(fund.current_balance)
     initial_balance = current_balance - total_additions + total_deductions
-    
-    # Initial total = total amount that entered the fund from the beginning
-    # This is simply: current_balance + total_deductions
-    # Because: initial_total = initial_balance + total_additions = (current_balance - total_additions + total_deductions) + total_additions = current_balance + total_deductions
     initial_total = current_balance + total_deductions
-    
+
     # Load user repository for created_by_user
     from backend.repositories.user_repository import UserRepository
     from backend.repositories.supplier_document_repository import SupplierDocumentRepository
