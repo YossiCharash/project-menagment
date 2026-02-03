@@ -7,6 +7,7 @@ from sqlalchemy.ext.associationproxy import association_proxy
 
 from backend.db.base import Base
 from backend.models.category import Category
+from backend.models.enums import PaymentMethodType
 class RecurringFrequency(str, Enum):
     MONTHLY = "Monthly"
 
@@ -41,8 +42,8 @@ class RecurringTransactionTemplate(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True, index=True)
     supplier: Mapped["Supplier | None"] = relationship("Supplier", lazy="selectin")
 
-    # String(50) instead of SAEnum: DB may contain English (CASH) or Hebrew (מזומן); strict Enum causes LookupError.
-    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # PostgreSQL enum; accepts both English/Hebrew on load, always exposes Hebrew str to app.
+    payment_method: Mapped[str | None] = mapped_column(PaymentMethodType(), nullable=True)
 
     # Recurring settings
     frequency: Mapped[str] = mapped_column(SAEnum(RecurringFrequency, name="recurring_frequency", create_constraint=True, native_enum=True), default=RecurringFrequency.MONTHLY.value)

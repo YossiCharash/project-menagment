@@ -32,7 +32,8 @@ from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.models.fund import Fund
 from backend.models.budget import Budget
 from backend.models.contract_period import ContractPeriod
-from sqlalchemy import delete
+from backend.models.quote_project import QuoteProject
+from sqlalchemy import delete, update
 
 router = APIRouter()
 
@@ -1661,10 +1662,14 @@ async def hard_delete_project(
     # 7. Delete transactions
     await tx_repo.delete_by_project(project_id)
     
-    # Commit all deletions
+    # 8. Nullify quote_projects references (project_id and converted_project_id) so quotes remain but project can be deleted
+    await db.execute(update(QuoteProject).where(QuoteProject.project_id == project_id).values(project_id=None))
+    await db.execute(update(QuoteProject).where(QuoteProject.converted_project_id == project_id).values(converted_project_id=None))
+    
+    # Commit all deletions and nullifications
     await db.commit()
     
-    # 8. Finally, delete the project itself
+    # 9. Finally, delete the project itself
     await proj_repo.delete(project)
     
     # Log delete action

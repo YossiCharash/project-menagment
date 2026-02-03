@@ -8,6 +8,7 @@ from sqlalchemy.ext.associationproxy import association_proxy
 
 from backend.db.base import Base
 from backend.models.category import Category
+from backend.models.enums import PaymentMethod, PaymentMethodType
 
 if TYPE_CHECKING:
     from backend.models.project import Project
@@ -28,15 +29,6 @@ class ExpenseCategory(str, Enum):
     INSURANCE = "ביטוח"
     GARDENING = "גינון"
     OTHER = "אחר"
-
-
-class PaymentMethod(str, Enum):
-    STANDING_ORDER = "הוראת קבע"
-    CREDIT = "אשראי"
-    CHECK = "שיק"
-    CASH = "מזומן"
-    BANK_TRANSFER = "העברה בנקאית"
-    CENTRALIZED_YEAR_END = "גבייה מרוכזת סוף שנה"
 
 
 class Transaction(Base):
@@ -60,8 +52,8 @@ class Transaction(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
     category: Mapped["Category | None"] = relationship(lazy="selectin")
     # category proxy removed as category is now the relationship object
-    # String(50) instead of SAEnum: DB may contain English (CASH) or Hebrew (מזומן); strict Enum causes LookupError.
-    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # PostgreSQL enum; accepts both English/Hebrew on load, always exposes Hebrew str to app.
+    payment_method: Mapped[str | None] = mapped_column(PaymentMethodType(), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     is_exceptional: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_generated: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
