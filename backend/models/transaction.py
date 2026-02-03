@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from datetime import datetime, date
 from enum import Enum
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Enum as SAEnum
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates, reconstructor
 from sqlalchemy.ext.associationproxy import association_proxy
 
@@ -60,10 +60,8 @@ class Transaction(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
     category: Mapped["Category | None"] = relationship(lazy="selectin")
     # category proxy removed as category is now the relationship object
-    payment_method: Mapped[str | None] = mapped_column(
-        SAEnum(PaymentMethod, name="payment_method", create_constraint=True, native_enum=True, values_callable=lambda x: [e.value for e in x]),
-        nullable=True,
-    )
+    # String(50) instead of SAEnum: DB may contain English (CASH) or Hebrew (מזומן); strict Enum causes LookupError.
+    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     is_exceptional: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_generated: Mapped[bool] = mapped_column(Boolean, default=False, index=True)

@@ -1,15 +1,12 @@
 from __future__ import annotations
 from datetime import datetime, date
 from enum import Enum
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Enum as SAEnum, Integer
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import association_proxy
 
 from backend.db.base import Base
 from backend.models.category import Category
-from backend.models.transaction import PaymentMethod
-
-
 class RecurringFrequency(str, Enum):
     MONTHLY = "Monthly"
 
@@ -44,11 +41,8 @@ class RecurringTransactionTemplate(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True, index=True)
     supplier: Mapped["Supplier | None"] = relationship("Supplier", lazy="selectin")
 
-    # Payment method
-    payment_method: Mapped[str | None] = mapped_column(
-        SAEnum(PaymentMethod, name="payment_method", create_constraint=True, native_enum=True, values_callable=lambda x: [e.value for e in x]),
-        nullable=True,
-    )
+    # String(50) instead of SAEnum: DB may contain English (CASH) or Hebrew (מזומן); strict Enum causes LookupError.
+    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Recurring settings
     frequency: Mapped[str] = mapped_column(SAEnum(RecurringFrequency, name="recurring_frequency", create_constraint=True, native_enum=True), default=RecurringFrequency.MONTHLY.value)
@@ -67,11 +61,5 @@ class RecurringTransactionTemplate(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by_user: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id], lazy="selectin")
 
-    # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Note: No relationship to generated_transactions defined here
-    # Access generated transactions via query: 
-    # select(Transaction).where(Transaction.recurring_template_id == self.id)
-    # The relationship is only one-way from Transaction.recurring_template

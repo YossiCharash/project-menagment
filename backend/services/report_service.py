@@ -1199,17 +1199,11 @@ class ReportService:
         except Exception:
             pass  # Ignore if there's no transaction to rollback
 
-        # Get only regular projects and subprojects (exclude parent-only projects)
-        projects_query = select(Project).where(
-            Project.is_active == True,
-            or_(
-                Project.relation_project.isnot(None),  # תת-פרויקטים
-                Project.is_parent_project == False,     # פרויקטים רגילים
-            ),
-        )
+        # Get all active projects: regular, subprojects, and parent projects
+        projects_query = select(Project).where(Project.is_active == True)
         projects_result = await self.db.execute(projects_query)
         projects = list(projects_result.scalars().all())
-        print(f"📋 Found {len(projects)} active projects (regular + subprojects only)")
+        print(f"📋 Found {len(projects)} active projects")
 
         if not projects:
             return {
