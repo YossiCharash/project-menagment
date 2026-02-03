@@ -6,7 +6,7 @@ from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolea
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import  PaymentMethodType
+from backend.models.enums import PaymentMethodType
 
 if TYPE_CHECKING:
     from backend.models.project import Project
