@@ -28,6 +28,8 @@ from backend.models import (  # noqa: F401
     QuoteStructureItem,
     QuoteProject,
     QuoteLine,
+    Task,
+    TaskAttachment,
 )
 
 

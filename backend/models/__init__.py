@@ -23,6 +23,7 @@ from backend.models.unforeseen_transaction import UnforeseenTransaction, Unfores
 from backend.models.quote_structure_item import QuoteStructureItem
 from backend.models.quote_project import QuoteProject
 from backend.models.quote_line import QuoteLine
+from backend.models.task import Task, TaskAttachment
 
 __all__ = [
     "User",
@@ -52,4 +53,6 @@ __all__ = [
     "QuoteStructureItem",
     "QuoteProject",
     "QuoteLine",
+    "Task",
+    "TaskAttachment",
 ]

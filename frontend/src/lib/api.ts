@@ -3,7 +3,7 @@ import axios from 'axios'
 
 
 const api = axios.create({
-  baseURL: "https://project-menager-1-1-0.onrender.com/api/v1/",
+  baseURL: "http://localhost:8000/api/v1/",
   timeout: 30000, // avoid ECONNABORTED on heavy endpoints during dev
   withCredentials: false,
 })

@@ -14,6 +14,7 @@ from backend.models.archived_contract import ArchivedContract
 from backend.models.audit_log import AuditLog
 from backend.models.member_invite import MemberInvite
 from backend.models.admin_invite import AdminInvite
+from backend.models.task import Task
 
 router = APIRouter()
 
@@ -21,6 +22,20 @@ router = APIRouter()
 @router.get("/me", response_model=UserOut)
 async def get_me(current = Depends(get_current_user)):
     return current
+
+
+@router.get("/for-tasks")
+async def list_users_for_tasks(db: DBSessionDep, user=Depends(get_current_user)):
+    """List users for task assignment: Admin sees all; Member sees only themselves."""
+    from sqlalchemy import select
+    from backend.models.user import User
+    if user.role == "Admin":
+        res = await db.execute(
+            select(User.id, User.full_name).where(User.is_active == True).order_by(User.full_name)
+        )
+        rows = res.all()
+        return [{"id": r.id, "full_name": r.full_name} for r in rows]
+    return [{"id": user.id, "full_name": user.full_name}]
 
 
 @router.get("/", response_model=list[UserOut])
@@ -155,6 +170,12 @@ async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(re
     await db.execute(
         delete(AdminInvite)
         .where(AdminInvite.created_by == user_id)
+    )
+
+    # 8. Delete tasks assigned to this user
+    await db.execute(
+        delete(Task)
+        .where(Task.assigned_to_user_id == user_id)
     )
 
     await user_repo.delete(user)

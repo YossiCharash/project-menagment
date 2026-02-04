@@ -32,3 +32,6 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     projects: Mapped[list["Project"]] = relationship(back_populates="manager")
+    tasks: Mapped[list["Task"]] = relationship(
+        "Task", back_populates="assigned_user", lazy="selectin"
+    )
