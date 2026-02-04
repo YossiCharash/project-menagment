@@ -1,9 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle, Trash2, Pencil, X } from 'lucide-react'
-import { QuoteProjectsAPI, QuoteStructureAPI, QuoteProject, QuoteLine } from '../lib/apiClient'
+import {
+  QuoteProjectsAPI,
+  QuoteStructureAPI,
+  QuoteProject,
+  QuoteLine,
+  QuoteBuilding,
+  QuoteApartment,
+  type QuoteCalculationMethod,
+} from '../lib/apiClient'
 import type { Project } from '../types/api'
 import CreateProjectModal from '../components/CreateProjectModal'
+import QuoteBuildingsPanel from '../components/QuoteBuildingsPanel'
 
 interface QuoteDetailProps {
   quoteId?: number | null
@@ -38,6 +47,12 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   const addLineSelectRef = useRef<HTMLSelectElement>(null)
   /** באותו פרויקט כבר אושרה הצעה אחרת – אז לא להציג כפתור אישור */
   const [projectHasOtherApprovedQuote, setProjectHasOtherApprovedQuote] = useState(false)
+  /** טאב בניין נבחר (0-based) */
+  const [activeBuildingIndex, setActiveBuildingIndex] = useState(0)
+  const [addingBuilding, setAddingBuilding] = useState(false)
+  const [newApartmentSize, setNewApartmentSize] = useState('')
+  const [editingApartmentId, setEditingApartmentId] = useState<number | null>(null)
+  const [editingApartmentSize, setEditingApartmentSize] = useState('')
 
   useEffect(() => {
     if (!quoteId || isNaN(quoteId)) return
@@ -50,6 +65,10 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           setQuote(data)
           setNumResidents(data.num_residents != null ? String(data.num_residents) : '')
           setQuoteNameInput(data.name ?? '')
+          setActiveBuildingIndex((i) => {
+            const len = data.quote_buildings?.length ?? 0
+            return len > 0 ? Math.min(i, len - 1) : 0
+          })
         }
       })
       .catch((err) => {
@@ -60,6 +79,25 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       })
     return () => { cancelled = true }
   }, [quoteId])
+
+  const buildings: QuoteBuilding[] = quote?.quote_buildings ?? []
+  const hasBuildings = buildings.length > 0
+  const currentBuilding: QuoteBuilding | null = hasBuildings && activeBuildingIndex < buildings.length ? buildings[activeBuildingIndex]! : null
+  const currentLines: QuoteLine[] = currentBuilding ? currentBuilding.quote_lines : (quote?.quote_lines ?? [])
+  const currentNumResidentsStr = currentBuilding != null
+    ? (currentBuilding.num_residents != null ? String(currentBuilding.num_residents) : '')
+    : numResidents
+  const setCurrentNumResidentsStr = (v: string) => {
+    if (currentBuilding != null) {
+      const next = quote ? {
+        ...quote,
+        quote_buildings: quote.quote_buildings.map((b, i) =>
+          i === activeBuildingIndex ? { ...b, num_residents: v === '' ? null : parseInt(v, 10) || null } : b
+        ) as QuoteBuilding[],
+      } : quote
+      setQuote(next)
+    } else setNumResidents(v)
+  }
 
   useEffect(() => {
     if (!quote?.project_id || !quoteId) {
@@ -96,7 +134,8 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       await QuoteProjectsAPI.addLine(quoteId, {
         quote_structure_item_id: idToAdd,
         amount,
-        sort_order: (quote?.quote_lines?.length ?? 0),
+        sort_order: currentLines.length,
+        quote_building_id: currentBuilding?.id ?? undefined,
       })
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
@@ -159,24 +198,127 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   }
 
   const effectiveResidents = (() => {
-    if (numResidents !== '' && !isNaN(parseFloat(numResidents)) && parseFloat(numResidents) > 0)
-      return parseFloat(numResidents)
+    const str = currentBuilding != null ? currentNumResidentsStr : numResidents
+    if (str !== '' && !isNaN(parseFloat(str)) && parseFloat(str) > 0) return parseFloat(str)
+    if (currentBuilding != null && currentBuilding.num_residents != null && currentBuilding.num_residents > 0)
+      return currentBuilding.num_residents
     return quote?.num_residents != null && quote.num_residents > 0 ? quote.num_residents : 1
   })()
 
+  const buildingTotal = currentLines.reduce((sum, l) => sum + (l.amount ?? 0), 0)
+  const apartments = currentBuilding?.quote_apartments ?? []
+  const totalSqm = apartments.reduce((s, a) => s + a.size_sqm, 0)
+  const costPerSqm = totalSqm > 0 ? buildingTotal / totalSqm : 0
+
   const handleSaveNumResidents = async () => {
     if (!quoteId || quote?.status !== 'draft') return
-    const num = numResidents.trim() === '' ? null : parseInt(numResidents.trim(), 10)
+    const str = currentBuilding != null ? currentNumResidentsStr : numResidents
+    const num = str.trim() === '' ? null : parseInt(str.trim(), 10)
     const value = num != null && !isNaN(num) && num > 0 ? num : null
     setSavingNumResidents(true)
     try {
-      await QuoteProjectsAPI.update(quoteId, { num_residents: value ?? undefined })
+      if (currentBuilding != null) {
+        await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { num_residents: value ?? undefined })
+      } else {
+        await QuoteProjectsAPI.update(quoteId, { num_residents: value ?? undefined })
+      }
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון מספר דיירים')
     } finally {
       setSavingNumResidents(false)
+    }
+  }
+
+  const handleSaveBuildingAddress = async (address: string | null) => {
+    if (!quoteId || currentBuilding == null || quote?.status !== 'draft') return
+    try {
+      await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { address: address || undefined })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון כתובת')
+    }
+  }
+
+  const handleSaveBuildingCalculationMethod = async (method: QuoteCalculationMethod) => {
+    if (!quoteId || currentBuilding == null || quote?.status !== 'draft') return
+    try {
+      await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { calculation_method: method })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון צורת חישוב')
+    }
+  }
+
+  const handleAddBuilding = async () => {
+    if (!quoteId || quote?.status !== 'draft') return
+    setAddingBuilding(true)
+    try {
+      await QuoteProjectsAPI.addBuilding(quoteId, { calculation_method: 'by_residents', sort_order: buildings.length })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setActiveBuildingIndex((updated.quote_buildings?.length ?? 1) - 1)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת בניין')
+    } finally {
+      setAddingBuilding(false)
+    }
+  }
+
+  const handleDeleteBuilding = async (buildingId: number) => {
+    if (!quoteId || quote?.status !== 'draft') return
+    if (!confirm('למחוק בניין זה? כל ההוצאות והדירות בו יימחקו.')) return
+    try {
+      await QuoteProjectsAPI.deleteBuilding(quoteId, buildingId)
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setActiveBuildingIndex((i) => Math.max(0, Math.min(i, (updated.quote_buildings?.length ?? 1) - 1)))
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת בניין')
+    }
+  }
+
+  const handleAddApartment = async () => {
+    if (!quoteId || currentBuilding == null) return
+    const size = parseFloat(newApartmentSize.trim())
+    if (isNaN(size) || size <= 0) return
+    try {
+      await QuoteProjectsAPI.addApartment(quoteId, currentBuilding.id, {
+        size_sqm: size,
+        sort_order: currentBuilding.quote_apartments?.length ?? 0,
+      })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setNewApartmentSize('')
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת דירה')
+    }
+  }
+
+  const handleUpdateApartment = async (apartmentId: number, sizeSqm: number) => {
+    if (!quoteId || currentBuilding == null) return
+    try {
+      await QuoteProjectsAPI.updateApartment(quoteId, currentBuilding.id, apartmentId, { size_sqm: sizeSqm })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setEditingApartmentId(null)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון דירה')
+    }
+  }
+
+  const handleDeleteApartment = async (apartmentId: number) => {
+    if (!quoteId || currentBuilding == null) return
+    try {
+      await QuoteProjectsAPI.deleteApartment(quoteId, currentBuilding.id, apartmentId)
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setEditingApartmentId(null)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת דירה')
     }
   }
 
@@ -229,7 +371,7 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
     }
   }
 
-  const alreadyAddedIds = new Set((quote?.quote_lines ?? []).map((l) => l.quote_structure_item_id))
+  const alreadyAddedIds = new Set((currentLines ?? []).map((l) => l.quote_structure_item_id))
 
   if (!quoteId || isNaN(quoteId)) {
     return (
@@ -374,6 +516,18 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           </div>
         )}
 
+        <QuoteBuildingsPanel
+          buildings={buildings}
+          activeBuildingIndex={activeBuildingIndex}
+          onSelectBuilding={setActiveBuildingIndex}
+          onAddBuilding={quote?.status === 'draft' ? handleAddBuilding : undefined}
+          onDeleteBuilding={quote?.status === 'draft' ? handleDeleteBuilding : undefined}
+          onSaveAddress={handleSaveBuildingAddress}
+          onSaveCalculationMethod={handleSaveBuildingCalculationMethod}
+          isDraft={quote?.status === 'draft'}
+          addingBuilding={addingBuilding}
+        />
+
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
             <thead>
@@ -435,14 +589,14 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
                   </td>
                 </tr>
               )}
-              {(!quote?.quote_lines || quote.quote_lines.length === 0) && !addSuccessMessage ? (
+              {(!currentLines || currentLines.length === 0) && !addSuccessMessage ? (
                 <tr>
                   <td colSpan={3} className="py-8 px-4 text-center text-gray-500 dark:text-gray-400">
                     אין פריטים. בחר פריט מהרשימה למעלה והוא יתווסף אוטומטית. להגדרת פריטים: הגדרות → חלוקת הצעת מחיר.
                   </td>
                 </tr>
               ) : (
-                (quote?.quote_lines ?? []).map((line: QuoteLine) => (
+                currentLines.map((line: QuoteLine) => (
                   <tr key={line.id} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
                     <td className="py-2.5 px-4 text-gray-900 dark:text-white">
                       {line.quote_structure_item_name}
@@ -490,47 +644,141 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
                 <tr className="bg-blue-50 dark:bg-blue-900/20 border-t-2 border-gray-200 dark:border-gray-700">
                   <td className="py-2.5 px-4 font-semibold text-gray-800 dark:text-gray-200">סה&quot;כ הוצאות הצעת מחיר</td>
                   <td className="py-2.5 px-4 text-right font-semibold tabular-nums text-gray-900 dark:text-white">
-                    {(quote?.quote_lines ?? []).reduce((sum, l) => sum + (l.amount ?? 0), 0).toLocaleString('he-IL')} ₪
+                    {buildingTotal.toLocaleString('he-IL')} ₪
                   </td>
                   {quote?.status === 'draft' && <td />}
                 </tr>
-                <tr className={`border-t border-gray-200 dark:border-gray-700 ${quote?.status === 'draft' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
-                  <td className="py-2.5 px-4 font-semibold text-gray-800 dark:text-gray-200">מספר דיירים</td>
-                  <td className="py-2.5 px-4 text-right">
-                    {quote?.status === 'draft' ? (
-                      <div className="flex items-center justify-end gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={numResidents}
-                          onChange={(e) => setNumResidents(e.target.value)}
-                          onBlur={handleSaveNumResidents}
-                          className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white tabular-nums"
-                        />
-                        {savingNumResidents && <span className="text-xs text-gray-500">שומר...</span>}
-                      </div>
-                    ) : (
-                      <span className="tabular-nums font-semibold">{effectiveResidents.toLocaleString('he-IL')}</span>
-                    )}
-                  </td>
-                  {quote?.status === 'draft' && <td />}
-                </tr>
-                <tr className="bg-amber-50 dark:bg-amber-900/20 border-t border-gray-200 dark:border-gray-700 font-semibold">
-                  <td className="py-2.5 px-4 text-gray-800 dark:text-gray-200">סה&quot;כ הוצאה לכל דייר</td>
-                  <td className="py-2.5 px-4 text-right tabular-nums text-gray-900 dark:text-white">
-                    {effectiveResidents > 0
-                      ? (
-                          (quote?.quote_lines ?? []).reduce((sum, l) => sum + (l.amount ?? 0), 0) / effectiveResidents
-                        ).toLocaleString('he-IL', { minimumFractionDigits: 2 })
-                      : '0.00'}{' '}
-                    ₪
-                  </td>
-                  {quote?.status === 'draft' && <td />}
-                </tr>
+                {currentBuilding?.calculation_method !== 'by_apartment_size' && (
+                  <>
+                    <tr className={`border-t border-gray-200 dark:border-gray-700 ${quote?.status === 'draft' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
+                      <td className="py-2.5 px-4 font-semibold text-gray-800 dark:text-gray-200">מספר דיירים</td>
+                      <td className="py-2.5 px-4 text-right">
+                        {quote?.status === 'draft' ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={currentNumResidentsStr}
+                              onChange={(e) => setCurrentNumResidentsStr(e.target.value)}
+                              onBlur={handleSaveNumResidents}
+                              className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white tabular-nums"
+                            />
+                            {savingNumResidents && <span className="text-xs text-gray-500">שומר...</span>}
+                          </div>
+                        ) : (
+                          <span className="tabular-nums font-semibold">{effectiveResidents.toLocaleString('he-IL')}</span>
+                        )}
+                      </td>
+                      {quote?.status === 'draft' && <td />}
+                    </tr>
+                    <tr className="bg-amber-50 dark:bg-amber-900/20 border-t border-gray-200 dark:border-gray-700 font-semibold">
+                      <td className="py-2.5 px-4 text-gray-800 dark:text-gray-200">סה&quot;כ הוצאה לכל דייר</td>
+                      <td className="py-2.5 px-4 text-right tabular-nums text-gray-900 dark:text-white">
+                        {effectiveResidents > 0
+                          ? (buildingTotal / effectiveResidents).toLocaleString('he-IL', { minimumFractionDigits: 2 })
+                          : '0.00'}{' '}
+                        ₪
+                      </td>
+                      {quote?.status === 'draft' && <td />}
+                    </tr>
+                  </>
+                )}
               </tfoot>
             )}
           </table>
         </div>
+
+        {/* לפי גודל הדירה: רשימת דירות + תשלום לכל דירה */}
+        {currentBuilding?.calculation_method === 'by_apartment_size' && (
+          <div className="mt-6 p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-amber-50/30 dark:bg-amber-900/10">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">חישוב לפי גודל הדירה</h3>
+            {quote?.status === 'draft' && (
+              <div className="flex flex-wrap items-end gap-2 mb-4">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={newApartmentSize}
+                  onChange={(e) => setNewApartmentSize(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddApartment()}
+                  placeholder="גודל דירה (מ&quot;ר)"
+                  className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddApartment}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  הוסף דירה
+                </button>
+              </div>
+            )}
+            {apartments.length === 0 ? (
+              <p className="text-gray-500 dark:text-gray-400 text-sm">הוסף דירות עם גודל (מ&quot;ר) כדי לראות תשלום לכל דירה.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  סה&quot;כ שטח: {totalSqm.toLocaleString('he-IL')} מ&quot;ר · מחיר למ&quot;ר: {costPerSqm.toLocaleString('he-IL', { minimumFractionDigits: 2 })} ₪
+                </p>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-right py-2 px-2 font-medium text-gray-700 dark:text-gray-300">דירה</th>
+                      <th className="text-right py-2 px-2 font-medium text-gray-700 dark:text-gray-300">גודל (מ&quot;ר)</th>
+                      <th className="text-right py-2 px-2 font-medium text-gray-700 dark:text-gray-300">תשלום (₪)</th>
+                      {quote?.status === 'draft' && <th className="w-16" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apartments.map((apt, idx) => (
+                      <tr key={apt.id} className="border-b border-gray-100 dark:border-gray-700">
+                        <td className="py-2 px-2 text-gray-900 dark:text-white">דירה {idx + 1}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">
+                          {editingApartmentId === apt.id ? (
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={editingApartmentSize}
+                              onChange={(e) => setEditingApartmentSize(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleUpdateApartment(apt.id, parseFloat(editingApartmentSize) || apt.size_sqm)
+                                if (e.key === 'Escape') setEditingApartmentId(null)
+                              }}
+                              className="w-20 px-2 py-1 border rounded bg-white dark:bg-gray-700"
+                            />
+                          ) : (
+                            <span
+                              className={quote?.status === 'draft' ? 'cursor-pointer hover:text-blue-600' : ''}
+                              onClick={() => quote?.status === 'draft' && (setEditingApartmentId(apt.id), setEditingApartmentSize(String(apt.size_sqm)))}
+                            >
+                              {apt.size_sqm.toLocaleString('he-IL')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums font-medium text-gray-900 dark:text-white">
+                          {(costPerSqm * apt.size_sqm).toLocaleString('he-IL', { minimumFractionDigits: 2 })} ₪
+                        </td>
+                        {quote?.status === 'draft' && (
+                          <td className="py-2 px-2">
+                            {editingApartmentId === apt.id ? (
+                              <div className="flex gap-1">
+                                <button type="button" onClick={() => handleUpdateApartment(apt.id, parseFloat(editingApartmentSize) || apt.size_sqm)} className="p-1 text-green-600"><CheckCircle className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => setEditingApartmentId(null)} className="p-1 text-gray-500"><X className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => handleDeleteApartment(apt.id)} className="p-1 text-red-500 hover:text-red-600" title="מחק"><Trash2 className="w-4 h-4" /></button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {approveCurrentQuote && (

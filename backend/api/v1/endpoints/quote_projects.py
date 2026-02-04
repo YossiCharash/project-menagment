@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 
 from backend.core.deps import DBSessionDep, get_current_user
 from pydantic import BaseModel
-from backend.models import QuoteProject, QuoteLine
+from backend.models import QuoteProject, QuoteLine, QuoteBuilding, QuoteApartment
 from backend.repositories.quote_project_repository import QuoteProjectRepository
 from backend.repositories.quote_line_repository import QuoteLineRepository
+from backend.repositories.quote_building_repository import QuoteBuildingRepository, QuoteApartmentRepository
 from backend.repositories.quote_structure_repository import QuoteStructureRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.schemas.quote_project import (
@@ -14,10 +15,58 @@ from backend.schemas.quote_project import (
     QuoteLineOutNested,
 )
 from backend.schemas.quote_line import QuoteLineCreate, QuoteLineOut, QuoteLineUpdate
+from backend.schemas.quote_building import (
+    QuoteBuildingCreate,
+    QuoteBuildingUpdate,
+    QuoteBuildingOut,
+    QuoteApartmentOut,
+    QuoteApartmentCreate,
+    QuoteApartmentUpdate,
+    QuoteLineOutNested as BuildingLineNested,
+)
 from backend.services.project_service import ProjectService
 from backend.services.contract_period_service import ContractPeriodService
 
 router = APIRouter()
+
+
+def _build_line_nested(line: QuoteLine):
+    name = line.quote_structure_item.name if line.quote_structure_item else ""
+    return QuoteLineOutNested(
+        id=line.id,
+        quote_structure_item_id=line.quote_structure_item_id,
+        quote_structure_item_name=name,
+        amount=float(line.amount) if line.amount is not None else None,
+        sort_order=line.sort_order,
+    )
+
+
+def _build_building_out(b: QuoteBuilding) -> QuoteBuildingOut:
+    lines_out = [
+        BuildingLineNested(
+            id=line.id,
+            quote_structure_item_id=line.quote_structure_item_id,
+            quote_structure_item_name=line.quote_structure_item.name if line.quote_structure_item else "",
+            amount=float(line.amount) if line.amount is not None else None,
+            sort_order=line.sort_order,
+        )
+        for line in b.quote_lines
+    ]
+    apartments_out = [
+        QuoteApartmentOut.model_validate(apt) for apt in b.quote_apartments
+    ]
+    return QuoteBuildingOut(
+        id=b.id,
+        quote_project_id=b.quote_project_id,
+        address=b.address,
+        num_residents=b.num_residents,
+        calculation_method=b.calculation_method,
+        sort_order=b.sort_order,
+        created_at=b.created_at,
+        updated_at=b.updated_at,
+        quote_lines=lines_out,
+        quote_apartments=apartments_out,
+    )
 
 
 def _quote_project_to_out(
@@ -26,19 +75,26 @@ def _quote_project_to_out(
     lines: list | None = None,
 ) -> QuoteProjectOut:
     """Build QuoteProjectOut. Pass lines=[] when qp has no lines loaded (e.g. after create) to avoid async lazy-load."""
-    line_list = lines if lines is not None else qp.quote_lines
-    lines_out = []
-    for line in line_list:
-        name = line.quote_structure_item.name if line.quote_structure_item else ""
-        lines_out.append(
+    # Build buildings (בניינים) with their lines and apartments
+    buildings_out = [_build_building_out(b) for b in (qp.quote_buildings or [])]
+
+    # Top-level quote_lines: first building's lines for backward compat, or legacy project lines
+    if buildings_out:
+        line_list = buildings_out[0].quote_lines
+        lines_out = [
             QuoteLineOutNested(
-                id=line.id,
-                quote_structure_item_id=line.quote_structure_item_id,
-                quote_structure_item_name=name,
-                amount=float(line.amount) if line.amount is not None else None,
-                sort_order=line.sort_order,
+                id=ln.id,
+                quote_structure_item_id=ln.quote_structure_item_id,
+                quote_structure_item_name=ln.quote_structure_item_name,
+                amount=ln.amount,
+                sort_order=ln.sort_order,
             )
-        )
+            for ln in line_list
+        ]
+    else:
+        line_list = lines if lines is not None else qp.quote_lines
+        lines_out = [_build_line_nested(line) for line in line_list]
+
     return QuoteProjectOut(
         id=qp.id,
         name=qp.name,
@@ -54,6 +110,7 @@ def _quote_project_to_out(
         created_at=qp.created_at,
         updated_at=qp.updated_at,
         quote_lines=lines_out,
+        quote_buildings=buildings_out,
         children_count=children_count,
     )
 
@@ -112,6 +169,18 @@ async def create_quote_project(
         if not parent:
             raise HTTPException(status_code=404, detail="Parent quote project not found")
     created = await repo.create(qp)
+    # One default building (בניין) so the quote has at least one "page"
+    building_repo = QuoteBuildingRepository(db)
+    default_building = QuoteBuilding(
+        quote_project_id=created.id,
+        address=None,
+        num_residents=created.num_residents,
+        calculation_method="by_residents",
+        sort_order=0,
+    )
+    await building_repo.create(default_building)
+    # Reload with buildings
+    created = await repo.get(created.id)
     children_count = 0
     return _quote_project_to_out(created, children_count=children_count, lines=[])
 
@@ -212,23 +281,58 @@ async def add_quote_line(
     item = await struct_repo.get(data.quote_structure_item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Quote structure item not found")
-    line = QuoteLine(
-        quote_project_id=quote_project_id,
-        quote_structure_item_id=data.quote_structure_item_id,
-        amount=data.amount,
-        sort_order=data.sort_order,
-    )
+
+    building_id = getattr(data, "quote_building_id", None)
+    if building_id is not None:
+        building_repo = QuoteBuildingRepository(db)
+        building = await building_repo.get(building_id)
+        if not building or building.quote_project_id != quote_project_id:
+            raise HTTPException(status_code=404, detail="Quote building not found")
+        line = QuoteLine(
+            quote_project_id=None,
+            quote_building_id=building_id,
+            quote_structure_item_id=data.quote_structure_item_id,
+            amount=data.amount,
+            sort_order=data.sort_order,
+        )
+    else:
+        # Use first building if exists
+        if qp.quote_buildings and len(qp.quote_buildings) > 0:
+            first_b = qp.quote_buildings[0]
+            line = QuoteLine(
+                quote_project_id=None,
+                quote_building_id=first_b.id,
+                quote_structure_item_id=data.quote_structure_item_id,
+                amount=data.amount,
+                sort_order=data.sort_order,
+            )
+        else:
+            line = QuoteLine(
+                quote_project_id=quote_project_id,
+                quote_building_id=None,
+                quote_structure_item_id=data.quote_structure_item_id,
+                amount=data.amount,
+                sort_order=data.sort_order,
+            )
     line_repo = QuoteLineRepository(db)
     created = await line_repo.create(line)
     return QuoteLineOut(
         id=created.id,
-        quote_project_id=created.quote_project_id,
+        quote_project_id=created.quote_project_id or quote_project_id,
         quote_structure_item_id=created.quote_structure_item_id,
         quote_structure_item_name=item.name,
         amount=float(created.amount) if created.amount is not None else None,
         sort_order=created.sort_order,
         created_at=created.created_at,
     )
+
+
+def _line_belongs_to_quote(line: QuoteLine, quote_project_id: int, qp: QuoteProject) -> bool:
+    if line.quote_project_id == quote_project_id:
+        return True
+    if line.quote_building_id and qp.quote_buildings:
+        return any(b.id == line.quote_building_id for b in qp.quote_buildings)
+    return False
 
 
 @router.put("/{quote_project_id}/lines/{line_id}", response_model=QuoteLineOut)
@@ -247,7 +351,7 @@ async def update_quote_line(
         raise HTTPException(status_code=400, detail="Cannot update lines of an approved quote project")
     line_repo = QuoteLineRepository(db)
     line = await line_repo.get(line_id)
-    if not line or line.quote_project_id != quote_project_id:
+    if not line or not _line_belongs_to_quote(line, quote_project_id, qp):
         raise HTTPException(status_code=404, detail="Quote line not found")
     if data.amount is not None:
         line.amount = data.amount
@@ -257,7 +361,7 @@ async def update_quote_line(
     name = updated.quote_structure_item.name if updated.quote_structure_item else ""
     return QuoteLineOut(
         id=updated.id,
-        quote_project_id=updated.quote_project_id,
+        quote_project_id=updated.quote_project_id or quote_project_id,
         quote_structure_item_id=updated.quote_structure_item_id,
         quote_structure_item_name=name,
         amount=float(updated.amount) if updated.amount is not None else None,
@@ -281,9 +385,194 @@ async def delete_quote_line(
         raise HTTPException(status_code=400, detail="Cannot delete lines of an approved quote project")
     line_repo = QuoteLineRepository(db)
     line = await line_repo.get(line_id)
-    if not line or line.quote_project_id != quote_project_id:
+    if not line or not _line_belongs_to_quote(line, quote_project_id, qp):
         raise HTTPException(status_code=404, detail="Quote line not found")
     await line_repo.delete(line)
+    return None
+
+
+# --- Quote buildings (בניינים) ---
+
+
+@router.get("/{quote_project_id}/buildings", response_model=list[QuoteBuildingOut])
+async def list_quote_buildings(
+    quote_project_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp:
+        raise HTTPException(status_code=404, detail="Quote project not found")
+    return [_build_building_out(b) for b in (qp.quote_buildings or [])]
+
+
+@router.post("/{quote_project_id}/buildings", response_model=QuoteBuildingOut)
+async def add_quote_building(
+    quote_project_id: int,
+    db: DBSessionDep,
+    data: QuoteBuildingCreate,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp:
+        raise HTTPException(status_code=404, detail="Quote project not found")
+    if qp.status == "approved":
+        raise HTTPException(status_code=400, detail="Cannot add building to an approved quote")
+    building_repo = QuoteBuildingRepository(db)
+    max_order = max((b.sort_order for b in (qp.quote_buildings or [])), default=-1) + 1
+    b = QuoteBuilding(
+        quote_project_id=quote_project_id,
+        address=data.address,
+        num_residents=data.num_residents,
+        calculation_method=data.calculation_method,
+        sort_order=data.sort_order if data.sort_order else max_order,
+    )
+    created = await building_repo.create(b)
+    created = await building_repo.get(created.id)
+    return _build_building_out(created)
+
+
+@router.put("/{quote_project_id}/buildings/{building_id}", response_model=QuoteBuildingOut)
+async def update_quote_building(
+    quote_project_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    data: QuoteBuildingUpdate,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp:
+        raise HTTPException(status_code=404, detail="Quote project not found")
+    if qp.status == "approved":
+        raise HTTPException(status_code=400, detail="Cannot update building of an approved quote")
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    if data.address is not None:
+        b.address = data.address
+    if data.num_residents is not None:
+        b.num_residents = data.num_residents
+    if data.calculation_method is not None:
+        b.calculation_method = data.calculation_method
+    if data.sort_order is not None:
+        b.sort_order = data.sort_order
+    updated = await building_repo.update(b)
+    updated = await building_repo.get(updated.id)
+    return _build_building_out(updated)
+
+
+@router.delete("/{quote_project_id}/buildings/{building_id}", status_code=204)
+async def delete_quote_building(
+    quote_project_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp:
+        raise HTTPException(status_code=404, detail="Quote project not found")
+    if qp.status == "approved":
+        raise HTTPException(status_code=400, detail="Cannot delete building of an approved quote")
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    if len(qp.quote_buildings or []) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the only building")
+    await building_repo.delete(b)
+    return None
+
+
+# --- Quote apartments (דירות, for by_apartment_size) ---
+
+
+@router.get("/{quote_project_id}/buildings/{building_id}/apartments", response_model=list[QuoteApartmentOut])
+async def list_quote_apartments(
+    quote_project_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    return [QuoteApartmentOut.model_validate(apt) for apt in b.quote_apartments]
+
+
+@router.post("/{quote_project_id}/buildings/{building_id}/apartments", response_model=QuoteApartmentOut)
+async def add_quote_apartment(
+    quote_project_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    data: QuoteApartmentCreate,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp or qp.status == "approved":
+        raise HTTPException(status_code=400, detail="Quote not found or already approved")
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    apt_repo = QuoteApartmentRepository(db)
+    apt = QuoteApartment(
+        quote_building_id=building_id,
+        size_sqm=data.size_sqm,
+        sort_order=data.sort_order,
+    )
+    created = await apt_repo.create(apt)
+    return QuoteApartmentOut.model_validate(created)
+
+
+@router.put("/{quote_project_id}/buildings/{building_id}/apartments/{apartment_id}", response_model=QuoteApartmentOut)
+async def update_quote_apartment(
+    quote_project_id: int,
+    building_id: int,
+    apartment_id: int,
+    db: DBSessionDep,
+    data: QuoteApartmentUpdate,
+    user=Depends(get_current_user),
+):
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    apt_repo = QuoteApartmentRepository(db)
+    apt = await apt_repo.get(apartment_id)
+    if not apt or apt.quote_building_id != building_id:
+        raise HTTPException(status_code=404, detail="Quote apartment not found")
+    if data.size_sqm is not None:
+        apt.size_sqm = data.size_sqm
+    if data.sort_order is not None:
+        apt.sort_order = data.sort_order
+    updated = await apt_repo.update(apt)
+    return QuoteApartmentOut.model_validate(updated)
+
+
+@router.delete("/{quote_project_id}/buildings/{building_id}/apartments/{apartment_id}", status_code=204)
+async def delete_quote_apartment(
+    quote_project_id: int,
+    building_id: int,
+    apartment_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    apt_repo = QuoteApartmentRepository(db)
+    apt = await apt_repo.get(apartment_id)
+    if not apt or apt.quote_building_id != building_id:
+        raise HTTPException(status_code=404, detail="Quote apartment not found")
+    await apt_repo.delete(apt)
     return None
 
 

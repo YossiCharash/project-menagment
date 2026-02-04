@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from backend.models import QuoteProject, QuoteLine, QuoteStructureItem
+from backend.models import QuoteProject, QuoteLine, QuoteStructureItem, QuoteBuilding, QuoteApartment
 
 
 class QuoteProjectRepository:
@@ -19,6 +19,8 @@ class QuoteProjectRepository:
     ) -> List[QuoteProject]:
         query = select(QuoteProject).options(
             selectinload(QuoteProject.quote_lines).selectinload(QuoteLine.quote_structure_item),
+            selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_lines).selectinload(QuoteLine.quote_structure_item),
+            selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_apartments),
             selectinload(QuoteProject.children),
         )
         if project_id is not None:
@@ -38,6 +40,8 @@ class QuoteProjectRepository:
             select(QuoteProject)
             .options(
                 selectinload(QuoteProject.quote_lines).selectinload(QuoteLine.quote_structure_item),
+                selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_lines).selectinload(QuoteLine.quote_structure_item),
+                selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_apartments),
                 selectinload(QuoteProject.children),
                 selectinload(QuoteProject.parent),
             )

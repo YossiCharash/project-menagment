@@ -7,7 +7,6 @@ import {
   Eye,
   FileText,
   ChevronDown,
-  FolderOpen,
   Trash2,
   CheckCircle,
   Building2,
@@ -313,7 +312,6 @@ export default function PriceQuotes() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | ''>('')
-  const [cityFilter, setCityFilter] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   // Create (handled inside QuoteViewModal – רק לפרויקט)
   const [createForProjectId, setCreateForProjectId] = useState<number | null>(null)
@@ -332,13 +330,13 @@ export default function PriceQuotes() {
   const [approveParentProjectId, setApproveParentProjectId] = useState<number | null>(null)
 
   const [showCreateParentProjectModal, setShowCreateParentProjectModal] = useState(false)
-  const [showCreateRegularProjectModal, setShowCreateRegularProjectModal] = useState(false)
   const [createSubprojectForParentId, setCreateSubprojectForParentId] = useState<number | null>(null)
   const [showSelectParentForSubproject, setShowSelectParentForSubproject] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [viewQuoteId, setViewQuoteId] = useState<number | null>(null)
   const [showCreateInViewModal, setShowCreateInViewModal] = useState(false)
   const [projectQuotesModal, setProjectQuotesModal] = useState<ProjectWithQuotes | null>(null)
+  const [standaloneQuotes, setStandaloneQuotes] = useState<QuoteProject[]>([])
 
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true)
@@ -391,6 +389,9 @@ export default function PriceQuotes() {
           ),
         }))
       setProjects(filtered)
+
+      const standalone = await QuoteProjectsAPI.list(undefined, undefined, statusFilter || undefined)
+      setStandaloneQuotes(standalone)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת הפרויקטים')
     } finally {
@@ -447,6 +448,8 @@ export default function PriceQuotes() {
             return p
           })
         )
+      } else {
+        setStandaloneQuotes((prev) => prev.filter((x) => x.id !== q.id))
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת ההצעה')
@@ -522,35 +525,34 @@ export default function PriceQuotes() {
         (q.description || '').toLowerCase().includes(searchTerm.toLowerCase())
     )
 
-  const filterProjects = (projs: ProjectWithQuotes[]): ProjectWithQuotes[] => {
-    return projs.filter((p) => {
-      const matchesSearch =
-        !searchTerm ||
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.subprojects?.some(
-          (s) =>
-            s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (s.description || '').toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      const matchesCity = !cityFilter || p.city?.toLowerCase().includes(cityFilter.toLowerCase())
-      return matchesSearch && matchesCity
-    })
-  }
+  const allQuotesFlat = useMemo(() => {
+    const fromProjects = projects.flatMap((p) => [
+      ...(p.quotes ?? []),
+      ...(p.subprojects?.flatMap((s) => s.quotes ?? []) ?? []),
+    ])
+    return [...standaloneQuotes, ...fromProjects]
+  }, [projects, standaloneQuotes])
+
+  const filteredQuotes = useMemo(
+    () =>
+      allQuotesFlat.filter(
+        (q) =>
+          !searchTerm ||
+          q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (q.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [allQuotesFlat, searchTerm]
+  )
 
   const loading = projectsLoading
 
   const stats = useMemo(() => {
-    const allQuotes = projects.flatMap((p) => [
-      ...(p.quotes ?? []),
-      ...(p.subprojects?.flatMap((s) => s.quotes ?? []) ?? []),
-    ])
     return {
-      total: allQuotes.length,
-      draft: allQuotes.filter((q) => q.status === 'draft').length,
-      approved: allQuotes.filter((q) => q.status === 'approved').length,
+      total: allQuotesFlat.length,
+      draft: allQuotesFlat.filter((q) => q.status === 'draft').length,
+      approved: allQuotesFlat.filter((q) => q.status === 'approved').length,
     }
-  }, [projects])
+  }, [allQuotesFlat])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900" dir="rtl">
@@ -559,7 +561,7 @@ export default function PriceQuotes() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">הצעות מחיר</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחר הצעות מחיר לפרויקטים</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחר הצעות מחיר</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <motion.button
@@ -571,17 +573,8 @@ export default function PriceQuotes() {
               }}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-md"
             >
-              <Building2 className="w-5 h-5" />
-              <span>פרויקט על חדש</span>
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowCreateRegularProjectModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition-all shadow-md"
-            >
-              <FolderOpen className="w-5 h-5" />
-              <span>פרויקט רגיל (תת-פרויקט)</span>
+              <Plus className="w-5 h-5" />
+              <span>הוספת הצעת מחיר</span>
             </motion.button>
           </div>
         </div>
@@ -653,13 +646,6 @@ export default function PriceQuotes() {
               <option value="draft">טיוטה</option>
               <option value="approved">אושרה</option>
             </select>
-            <input
-              type="text"
-              placeholder="סינון לפי עיר..."
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-            />
             <div className="flex gap-2">
               <button
                 onClick={() => setViewMode('grid')}
@@ -701,25 +687,30 @@ export default function PriceQuotes() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Projects Section */}
+            {/* Quotes only – no project grouping */}
             <div
               className={`grid gap-6 ${
                 viewMode === 'grid' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'
               }`}
             >
-              {filterProjects(projects).map((project) => (
-                <ProjectQuoteCard
-                  key={project.id}
-                  project={project}
-                  onOpenQuotesModal={(p) => setProjectQuotesModal(p)}
-                  onEditProject={(p) => {
-                    setEditingProject(p)
-                    setShowCreateParentProjectModal(true)
-                  }}
-                  viewMode={viewMode}
+              {filteredQuotes.map((q) => (
+                <QuoteCard
+                  key={q.id}
+                  q={q}
+                  onView={(quote) => setViewQuoteId(quote.id)}
+                  onEdit={openEditModal}
+                  onApprove={handleApproveQuote}
+                  onDelete={handleDeleteQuote}
+                  showAddChild={false}
+                  canApprove={true}
                 />
               ))}
             </div>
+            {filteredQuotes.length === 0 && (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                אין הצעות מחיר. הוסף הצעת מחיר חדשה.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -887,22 +878,18 @@ export default function PriceQuotes() {
         editingProject={showCreateParentProjectModal ? editingProject : null}
       />
 
-      {/* Create Regular Project (תת-פרויקט) - נפתח ישירות עם שם, תיאור, הכנסות ולחצן יצירת הצעה ללא פרויקט */}
+      {/* Create subproject (תת-פרויקט) – נפתח רק מתוך הוספת תת-הצעה לפרויקט קיים */}
       <CreateProjectModal
-        isOpen={showCreateRegularProjectModal || createSubprojectForParentId != null}
-        onClose={() => {
-          setShowCreateRegularProjectModal(false)
-          setCreateSubprojectForParentId(null)
-        }}
+        isOpen={createSubprojectForParentId != null}
+        onClose={() => setCreateSubprojectForParentId(null)}
         onSuccess={() => {
-          setShowCreateRegularProjectModal(false)
           setCreateSubprojectForParentId(null)
           loadProjects()
         }}
         editingProject={null}
         createMode="quoteSubproject"
         parentProjectId={createSubprojectForParentId ?? undefined}
-        openWithoutParentSelection={showCreateRegularProjectModal}
+        openWithoutParentSelection={false}
       />
 
       {/* Approve Quote Modal – תמיד נפתח לפני יצירת הפרויקט ואישור ההצעה */}

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from backend.schemas.quote_line import QuoteLineOut
+    from backend.schemas.quote_building import QuoteBuildingOut
 
 
 class QuoteProjectBase(BaseModel):
@@ -55,6 +56,13 @@ class QuoteProjectOut(QuoteProjectBase):
     created_at: datetime
     updated_at: datetime
     quote_lines: list[QuoteLineOutNested] = Field(default_factory=list)
+    quote_buildings: list["QuoteBuildingOut"] = Field(default_factory=list)
     children_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Resolve forward ref: QuoteBuildingOut must be in module namespace for list["QuoteBuildingOut"]
+from backend.schemas.quote_building import QuoteBuildingOut  # noqa: E402
+
+QuoteProjectOut.model_rebuild()

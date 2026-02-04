@@ -31,4 +31,7 @@ class QuoteProject(Base):
 
     parent: Mapped["QuoteProject | None"] = relationship("QuoteProject", remote_side=[id], back_populates="children")
     children: Mapped[list["QuoteProject"]] = relationship("QuoteProject", back_populates="parent", cascade="all, delete-orphan")
+    quote_buildings: Mapped[list["QuoteBuilding"]] = relationship(
+        "QuoteBuilding", back_populates="quote_project", cascade="all, delete-orphan", order_by="QuoteBuilding.sort_order, QuoteBuilding.id"
+    )
     quote_lines: Mapped[list["QuoteLine"]] = relationship("QuoteLine", back_populates="quote_project", cascade="all, delete-orphan")

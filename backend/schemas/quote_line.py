@@ -6,6 +6,7 @@ class QuoteLineBase(BaseModel):
     quote_structure_item_id: int
     amount: float | None = None
     sort_order: int = 0
+    quote_building_id: int | None = None  # when set, line belongs to this building
 
 
 class QuoteLineCreate(QuoteLineBase):

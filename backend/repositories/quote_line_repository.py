@@ -20,6 +20,15 @@ class QuoteLineRepository:
         )
         return list(result.scalars().all())
 
+    async def list_by_quote_building(self, quote_building_id: int) -> List[QuoteLine]:
+        result = await self.db.execute(
+            select(QuoteLine)
+            .options(selectinload(QuoteLine.quote_structure_item))
+            .where(QuoteLine.quote_building_id == quote_building_id)
+            .order_by(QuoteLine.sort_order, QuoteLine.id)
+        )
+        return list(result.scalars().all())
+
     async def get(self, line_id: int) -> QuoteLine | None:
         result = await self.db.execute(
             select(QuoteLine)
