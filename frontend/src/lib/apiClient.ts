@@ -957,12 +957,62 @@ export interface QuoteLine {
   created_at?: string
 }
 
+export type QuoteCalculationMethod = 'by_residents' | 'by_apartment_size'
+
+export interface QuoteApartment {
+  id: number
+  quote_building_id: number
+  size_sqm: number
+  sort_order: number
+  created_at: string
+}
+
+export interface QuoteBuilding {
+  id: number
+  quote_project_id: number
+  address: string | null
+  num_residents: number | null
+  calculation_method: QuoteCalculationMethod
+  sort_order: number
+  created_at: string
+  updated_at: string
+  quote_lines: QuoteLine[]
+  quote_apartments: QuoteApartment[]
+}
+
+// Quote subject (נושא הצעה) – project-like info for a quote: address, num_apartments, num_buildings, notes
+export interface QuoteSubject {
+  id: number
+  address: string | null
+  num_apartments: number | null
+  num_buildings: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteSubjectCreate {
+  address?: string | null
+  num_apartments?: number | null
+  num_buildings?: number | null
+  notes?: string | null
+}
+
+export interface QuoteSubjectUpdate {
+  address?: string | null
+  num_apartments?: number | null
+  num_buildings?: number | null
+  notes?: string | null
+}
+
 export interface QuoteProject {
   id: number
   name: string
   description: string | null
   parent_id: number | null
   project_id: number | null
+  quote_subject_id: number | null
+  quote_subject: QuoteSubject | null
   expected_start_date: string | null
   expected_income: number | null
   expected_expenses: number | null
@@ -972,11 +1022,13 @@ export interface QuoteProject {
   created_at: string
   updated_at: string
   quote_lines: QuoteLine[]
+  quote_buildings: QuoteBuilding[]
   children_count: number
   children?: QuoteProject[]
 }
 
 export interface QuoteProjectCreate {
+  quote_subject_id: number
   name: string
   description?: string | null
   parent_id?: number | null
@@ -991,15 +1043,78 @@ export interface QuoteProjectUpdate {
   name?: string
   description?: string | null
   parent_id?: number | null
+  project_id?: number | null
+  quote_subject_id?: number | null
   expected_start_date?: string | null
   expected_income?: number | null
   expected_expenses?: number | null
   num_residents?: number | null
 }
 
+export class QuoteSubjectsAPI {
+  static async list(): Promise<QuoteSubject[]> {
+    const { data } = await api.get<QuoteSubject[]>('/quote-subjects')
+    return data
+  }
+
+  static async get(id: number): Promise<QuoteSubject> {
+    const { data } = await api.get<QuoteSubject>(`/quote-subjects/${id}`)
+    return data
+  }
+
+  static async create(payload: QuoteSubjectCreate): Promise<QuoteSubject> {
+    const { data } = await api.post<QuoteSubject>('/quote-subjects', payload)
+    return data
+  }
+
+  static async update(id: number, payload: QuoteSubjectUpdate): Promise<QuoteSubject> {
+    const { data } = await api.put<QuoteSubject>(`/quote-subjects/${id}`, payload)
+    return data
+  }
+
+  static async delete(id: number): Promise<void> {
+    await api.delete(`/quote-subjects/${id}`)
+  }
+
+  /** מחק פרויקט והצעות שבתוכו – דורש סיסמת מנהל */
+  static async deleteWithPassword(id: number, password: string): Promise<void> {
+    await api.post(`/quote-subjects/${id}/delete`, { password })
+  }
+}
+
 export interface QuoteLineCreate {
   quote_structure_item_id: number
   amount?: number | null
+  sort_order?: number
+  quote_building_id?: number | null
+}
+
+export interface QuoteBuildingCreate {
+  address?: string | null
+  num_residents?: number | null
+  calculation_method?: QuoteCalculationMethod
+  sort_order?: number
+}
+
+export interface QuoteBuildingUpdate {
+  address?: string | null
+  num_residents?: number | null
+  calculation_method?: QuoteCalculationMethod
+  sort_order?: number
+}
+
+export interface QuoteApartmentCreate {
+  size_sqm: number
+  sort_order?: number
+}
+
+export interface QuoteApartmentsBulkCreate {
+  count: number
+  size_sqm: number
+}
+
+export interface QuoteApartmentUpdate {
+  size_sqm?: number
   sort_order?: number
 }
 
@@ -1007,11 +1122,13 @@ export class QuoteProjectsAPI {
   static async list(
     parentId?: number | null,
     projectId?: number | null,
+    quoteSubjectId?: number | null,
     status?: 'draft' | 'approved'
   ): Promise<QuoteProject[]> {
     const params = new URLSearchParams()
     if (parentId != null) params.set('parent_id', String(parentId))
     if (projectId != null) params.set('project_id', String(projectId))
+    if (quoteSubjectId != null) params.set('quote_subject_id', String(quoteSubjectId))
     if (status) params.set('status', status)
     const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
     return data
@@ -1062,5 +1179,50 @@ export class QuoteProjectsAPI {
 
   static async deleteLine(quoteProjectId: number, lineId: number): Promise<void> {
     await api.delete(`/quote-projects/${quoteProjectId}/lines/${lineId}`)
+  }
+
+  // Buildings (בניינים)
+  static async listBuildings(quoteProjectId: number): Promise<QuoteBuilding[]> {
+    const { data } = await api.get<QuoteBuilding[]>(`/quote-projects/${quoteProjectId}/buildings`)
+    return data
+  }
+
+  static async addBuilding(quoteProjectId: number, payload: QuoteBuildingCreate): Promise<QuoteBuilding> {
+    const { data } = await api.post<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings`, payload)
+    return data
+  }
+
+  static async updateBuilding(quoteProjectId: number, buildingId: number, payload: QuoteBuildingUpdate): Promise<QuoteBuilding> {
+    const { data } = await api.put<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`, payload)
+    return data
+  }
+
+  static async deleteBuilding(quoteProjectId: number, buildingId: number): Promise<void> {
+    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`)
+  }
+
+  // Apartments (דירות – for by_apartment_size)
+  static async listApartments(quoteProjectId: number, buildingId: number): Promise<QuoteApartment[]> {
+    const { data } = await api.get<QuoteApartment[]>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments`)
+    return data
+  }
+
+  static async addApartment(quoteProjectId: number, buildingId: number, payload: QuoteApartmentCreate): Promise<QuoteApartment> {
+    const { data } = await api.post<QuoteApartment>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments`, payload)
+    return data
+  }
+
+  static async addApartmentsBulk(quoteProjectId: number, buildingId: number, payload: QuoteApartmentsBulkCreate): Promise<QuoteApartment[]> {
+    const { data } = await api.post<QuoteApartment[]>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/bulk`, payload)
+    return data
+  }
+
+  static async updateApartment(quoteProjectId: number, buildingId: number, apartmentId: number, payload: QuoteApartmentUpdate): Promise<QuoteApartment> {
+    const { data } = await api.put<QuoteApartment>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`, payload)
+    return data
+  }
+
+  static async deleteApartment(quoteProjectId: number, buildingId: number, apartmentId: number): Promise<void> {
+    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`)
   }
 }

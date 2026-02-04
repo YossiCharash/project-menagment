@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from backend.schemas.quote_line import QuoteLineOut
+    from backend.schemas.quote_building import QuoteBuildingOut
 
 
 class QuoteProjectBase(BaseModel):
@@ -11,6 +12,7 @@ class QuoteProjectBase(BaseModel):
     description: str | None = None
     parent_id: int | None = None
     project_id: int | None = None
+    quote_subject_id: int | None = None
     expected_start_date: date | None = None
     expected_income: float | None = None
     expected_expenses: float | None = None
@@ -24,7 +26,8 @@ class QuoteProjectBase(BaseModel):
 
 
 class QuoteProjectCreate(QuoteProjectBase):
-    pass
+    """quote_subject_id is required – every quote must be linked to a quote subject (project)."""
+    quote_subject_id: int
 
 
 class QuoteProjectUpdate(BaseModel):
@@ -32,6 +35,7 @@ class QuoteProjectUpdate(BaseModel):
     description: str | None = None
     parent_id: int | None = None
     project_id: int | None = None
+    quote_subject_id: int | None = None
     expected_start_date: date | None = None
     expected_income: float | None = None
     expected_expenses: float | None = None
@@ -55,6 +59,15 @@ class QuoteProjectOut(QuoteProjectBase):
     created_at: datetime
     updated_at: datetime
     quote_lines: list[QuoteLineOutNested] = Field(default_factory=list)
+    quote_buildings: list["QuoteBuildingOut"] = Field(default_factory=list)
     children_count: int = 0
+    quote_subject: "QuoteSubjectOut | None" = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Resolve forward refs
+from backend.schemas.quote_building import QuoteBuildingOut  # noqa: E402
+from backend.schemas.quote_subject import QuoteSubjectOut  # noqa: E402
+
+QuoteProjectOut.model_rebuild()

@@ -1,9 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, CheckCircle, Trash2, Pencil, X } from 'lucide-react'
-import { QuoteProjectsAPI, QuoteStructureAPI, QuoteProject, QuoteLine } from '../lib/apiClient'
+import {
+  QuoteProjectsAPI,
+  QuoteStructureAPI,
+  QuoteProject,
+  QuoteLine,
+  QuoteBuilding,
+  type QuoteCalculationMethod,
+} from '../lib/apiClient'
 import type { Project } from '../types/api'
 import CreateProjectModal from '../components/CreateProjectModal'
+import QuoteBuildingsPanel from '../components/QuoteBuildingsPanel'
+import QuoteDetailHeader from './QuoteDetail/components/QuoteDetailHeader'
+import QuoteExpenseLinesTable from './QuoteDetail/components/QuoteExpenseLinesTable'
+import QuoteApartmentsBySize from './QuoteDetail/components/QuoteApartmentsBySize'
 
 interface QuoteDetailProps {
   quoteId?: number | null
@@ -38,6 +48,13 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   const addLineSelectRef = useRef<HTMLSelectElement>(null)
   /** באותו פרויקט כבר אושרה הצעה אחרת – אז לא להציג כפתור אישור */
   const [projectHasOtherApprovedQuote, setProjectHasOtherApprovedQuote] = useState(false)
+  /** טאב בניין נבחר (0-based) */
+  const [activeBuildingIndex, setActiveBuildingIndex] = useState(0)
+  const [addingBuilding, setAddingBuilding] = useState(false)
+  const [addApartmentCount, setAddApartmentCount] = useState('1')
+  const [addApartmentSizeSqm, setAddApartmentSizeSqm] = useState('')
+  const [addingApartments, setAddingApartments] = useState(false)
+  const [deletingApartmentsSizeSqm, setDeletingApartmentsSizeSqm] = useState<number | null>(null)
 
   useEffect(() => {
     if (!quoteId || isNaN(quoteId)) return
@@ -50,6 +67,10 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           setQuote(data)
           setNumResidents(data.num_residents != null ? String(data.num_residents) : '')
           setQuoteNameInput(data.name ?? '')
+          setActiveBuildingIndex((i) => {
+            const len = data.quote_buildings?.length ?? 0
+            return len > 0 ? Math.min(i, len - 1) : 0
+          })
         }
       })
       .catch((err) => {
@@ -60,6 +81,25 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       })
     return () => { cancelled = true }
   }, [quoteId])
+
+  const buildings: QuoteBuilding[] = quote?.quote_buildings ?? []
+  const hasBuildings = buildings.length > 0
+  const currentBuilding: QuoteBuilding | null = hasBuildings && activeBuildingIndex < buildings.length ? buildings[activeBuildingIndex]! : null
+  const currentLines: QuoteLine[] = currentBuilding ? currentBuilding.quote_lines : (quote?.quote_lines ?? [])
+  const currentNumResidentsStr = currentBuilding != null
+    ? (currentBuilding.num_residents != null ? String(currentBuilding.num_residents) : '')
+    : numResidents
+  const setCurrentNumResidentsStr = (v: string) => {
+    if (currentBuilding != null) {
+      const next = quote ? {
+        ...quote,
+        quote_buildings: quote.quote_buildings.map((b, i) =>
+          i === activeBuildingIndex ? { ...b, num_residents: v === '' ? null : parseInt(v, 10) || null } : b
+        ) as QuoteBuilding[],
+      } : quote
+      setQuote(next)
+    } else setNumResidents(v)
+  }
 
   useEffect(() => {
     if (!quote?.project_id || !quoteId) {
@@ -96,7 +136,8 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       await QuoteProjectsAPI.addLine(quoteId, {
         quote_structure_item_id: idToAdd,
         amount,
-        sort_order: (quote?.quote_lines?.length ?? 0),
+        sort_order: currentLines.length,
+        quote_building_id: currentBuilding?.id ?? undefined,
       })
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
@@ -159,24 +200,120 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   }
 
   const effectiveResidents = (() => {
-    if (numResidents !== '' && !isNaN(parseFloat(numResidents)) && parseFloat(numResidents) > 0)
-      return parseFloat(numResidents)
+    const str = currentBuilding != null ? currentNumResidentsStr : numResidents
+    if (str !== '' && !isNaN(parseFloat(str)) && parseFloat(str) > 0) return parseFloat(str)
+    if (currentBuilding != null && currentBuilding.num_residents != null && currentBuilding.num_residents > 0)
+      return currentBuilding.num_residents
     return quote?.num_residents != null && quote.num_residents > 0 ? quote.num_residents : 1
   })()
 
+  const buildingTotal = currentLines.reduce((sum, l) => sum + (l.amount ?? 0), 0)
+  const apartments = currentBuilding?.quote_apartments ?? []
+  const totalSqm = apartments.reduce((s, a) => s + a.size_sqm, 0)
+  const costPerSqm = totalSqm > 0 ? buildingTotal / totalSqm : 0
+
   const handleSaveNumResidents = async () => {
     if (!quoteId || quote?.status !== 'draft') return
-    const num = numResidents.trim() === '' ? null : parseInt(numResidents.trim(), 10)
+    const str = currentBuilding != null ? currentNumResidentsStr : numResidents
+    const num = str.trim() === '' ? null : parseInt(str.trim(), 10)
     const value = num != null && !isNaN(num) && num > 0 ? num : null
     setSavingNumResidents(true)
     try {
-      await QuoteProjectsAPI.update(quoteId, { num_residents: value ?? undefined })
+      if (currentBuilding != null) {
+        await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { num_residents: value ?? undefined })
+      } else {
+        await QuoteProjectsAPI.update(quoteId, { num_residents: value ?? undefined })
+      }
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון מספר דיירים')
     } finally {
       setSavingNumResidents(false)
+    }
+  }
+
+  const handleSaveBuildingAddress = async (address: string | null) => {
+    if (!quoteId || currentBuilding == null || quote?.status !== 'draft') return
+    try {
+      await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { address: address || undefined })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון כתובת')
+    }
+  }
+
+  const handleSaveBuildingCalculationMethod = async (method: QuoteCalculationMethod) => {
+    if (!quoteId || currentBuilding == null || quote?.status !== 'draft') return
+    try {
+      await QuoteProjectsAPI.updateBuilding(quoteId, currentBuilding.id, { calculation_method: method })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון צורת חישוב')
+    }
+  }
+
+  const handleAddBuilding = async () => {
+    if (!quoteId || quote?.status !== 'draft') return
+    setAddingBuilding(true)
+    try {
+      await QuoteProjectsAPI.addBuilding(quoteId, { calculation_method: 'by_residents', sort_order: buildings.length })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setActiveBuildingIndex((updated.quote_buildings?.length ?? 1) - 1)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת בניין')
+    } finally {
+      setAddingBuilding(false)
+    }
+  }
+
+  const handleDeleteBuilding = async (buildingId: number) => {
+    if (!quoteId || quote?.status !== 'draft') return
+    if (!confirm('למחוק בניין זה? כל ההוצאות והדירות בו יימחקו.')) return
+    try {
+      await QuoteProjectsAPI.deleteBuilding(quoteId, buildingId)
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setActiveBuildingIndex((i) => Math.max(0, Math.min(i, (updated.quote_buildings?.length ?? 1) - 1)))
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת בניין')
+    }
+  }
+
+  const handleAddApartments = async (count: number, sizeSqm: number) => {
+    if (!quoteId || currentBuilding == null) return
+    if (count < 1 || sizeSqm <= 0) return
+    setAddingApartments(true)
+    try {
+      await QuoteProjectsAPI.addApartmentsBulk(quoteId, currentBuilding.id, { count, size_sqm: sizeSqm })
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+      setAddApartmentSizeSqm('')
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת דירות')
+    } finally {
+      setAddingApartments(false)
+    }
+  }
+
+  const handleDeleteApartmentsOfSize = async (sizeSqm: number) => {
+    if (!quoteId || currentBuilding == null) return
+    const toDelete = (currentBuilding.quote_apartments ?? []).filter((a) => a.size_sqm === sizeSqm)
+    if (toDelete.length === 0) return
+    setDeletingApartmentsSizeSqm(sizeSqm)
+    try {
+      for (const apt of toDelete) {
+        await QuoteProjectsAPI.deleteApartment(quoteId, currentBuilding.id, apt.id)
+      }
+      const updated = await QuoteProjectsAPI.get(quoteId)
+      setQuote(updated)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת דירות')
+    } finally {
+      setDeletingApartmentsSizeSqm(null)
     }
   }
 
@@ -229,7 +366,7 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
     }
   }
 
-  const alreadyAddedIds = new Set((quote?.quote_lines ?? []).map((l) => l.quote_structure_item_id))
+  const alreadyAddedIds = new Set((currentLines ?? []).map((l) => l.quote_structure_item_id))
 
   if (!quoteId || isNaN(quoteId)) {
     return (
@@ -265,105 +402,58 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-auto">
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            {!embedMode && (
-              <button
-                type="button"
-                onClick={goBack}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-              >
-                <ArrowRight className="w-5 h-5" />
-              </button>
-            )}
-            <div>
-              {quote?.status === 'draft' && editingQuoteName ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={quoteNameInput}
-                    onChange={(e) => setQuoteNameInput(e.target.value)}
-                    onBlur={handleSaveQuoteName}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveQuoteName()
-                      if (e.key === 'Escape') {
-                        setEditingQuoteName(false)
-                        setQuoteNameInput(quote?.name ?? '')
-                      }
-                    }}
-                    className="text-2xl font-bold px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white min-w-[200px]"
-                    autoFocus
-                  />
-                  {savingQuoteName && <span className="text-xs text-gray-500">שומר...</span>}
-                </div>
-              ) : (
-                <h1
-                  className={`text-2xl font-bold text-gray-900 dark:text-white ${quote?.status === 'draft' ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-2 py-1 -mx-2 -my-1' : ''}`}
-                  onClick={() => quote?.status === 'draft' && setEditingQuoteName(true)}
-                  title={quote?.status === 'draft' ? 'לחץ לעריכת השם' : undefined}
-                >
-                  {quote?.name ?? 'הצעת מחיר'}
-                </h1>
-              )}
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-sm font-medium ${
-                  quote?.status === 'approved'
-                    ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                    : 'bg-amber-100 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'
-                }`}
-              >
-                {quote?.status === 'approved' ? 'אושרה' : 'טיוטה'}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {quote?.status === 'draft' && !projectHasOtherApprovedQuote && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleApproveClick}
-                  disabled={approving}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50"
-                >
-                  {approving ? 'מאשר...' : 'אשר הצעת מחיר'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteQuote}
-                  disabled={deleting}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? 'מוחק...' : 'מחק הצעת מחיר'}
-                </button>
-              </>
-            )}
-            {quote?.status === 'approved' && quote?.converted_project_id && (
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${quote.converted_project_id}`)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
-              >
-                מעבר לפרויקט
-              </button>
-            )}
-            {embedMode && onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <QuoteDetailHeader
+        quoteName={quote?.name ?? 'הצעת מחיר'}
+        quoteStatus={quote?.status ?? 'draft'}
+        convertedProjectId={quote?.converted_project_id ?? null}
+        embedMode={embedMode}
+        showApproveActions={!projectHasOtherApprovedQuote}
+        approving={approving}
+        deleting={deleting}
+        editingQuoteName={editingQuoteName}
+        quoteNameInput={quoteNameInput}
+        savingQuoteName={savingQuoteName}
+        onGoBack={goBack}
+        onClose={onClose}
+        onQuoteNameChange={setQuoteNameInput}
+        onQuoteNameBlur={handleSaveQuoteName}
+        onQuoteNameKeyDown={(e) => {
+          if (e.key === 'Enter') handleSaveQuoteName()
+          if (e.key === 'Escape') {
+            setEditingQuoteName(false)
+            setQuoteNameInput(quote?.name ?? '')
+          }
+        }}
+        onStartEditQuoteName={() => quote?.status === 'draft' && setEditingQuoteName(true)}
+        onApproveClick={handleApproveClick}
+        onDeleteQuote={handleDeleteQuote}
+        onNavigateToProject={(projectId) => navigate(`/projects/${projectId}`)}
+      />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {error && (
           <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300">
             {error}
+          </div>
+        )}
+
+        {quote?.quote_subject && (
+          <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 space-y-2">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">פרויקט (נושא ההצעה)</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              {quote.quote_subject.address && (
+                <p className="text-gray-900 dark:text-white"><span className="text-gray-500 dark:text-gray-400">כתובת:</span> {quote.quote_subject.address}</p>
+              )}
+              {quote.quote_subject.num_apartments != null && (
+                <p className="text-gray-900 dark:text-white"><span className="text-gray-500 dark:text-gray-400">מספר דירות:</span> {quote.quote_subject.num_apartments}</p>
+              )}
+              {quote.quote_subject.num_buildings != null && (
+                <p className="text-gray-900 dark:text-white"><span className="text-gray-500 dark:text-gray-400">כמות בניינים:</span> {quote.quote_subject.num_buildings}</p>
+              )}
+            </div>
+            {quote.quote_subject.notes && (
+              <p className="text-gray-900 dark:text-white text-sm mt-2"><span className="text-gray-500 dark:text-gray-400">הערות:</span> {quote.quote_subject.notes}</p>
+            )}
           </div>
         )}
 
@@ -374,163 +464,64 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           </div>
         )}
 
-        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-700 dark:bg-gray-600">
-                <th className="text-right py-3 px-4 font-semibold text-white">הוצאות הצעת המחיר</th>
-                <th className="text-right py-3 px-4 font-semibold text-white w-28">סכום לחיוב (₪)</th>
-                {quote?.status === 'draft' && <th className="w-20" />}
-              </tr>
-            </thead>
-            <tbody>
-              {quote?.status === 'draft' && (
-                <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                  <td colSpan={3} className="py-3 px-4">
-                    <div className="flex flex-wrap items-end gap-3">
-                      <select
-                        ref={addLineSelectRef}
-                        value={selectedStructureId ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          if (val) {
-                            const id = parseInt(val, 10)
-                            handleAddLine(id)
-                          } else {
-                            setSelectedStructureId(null)
-                          }
-                        }}
-                        className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      >
-                        <option value="">בחר פריט להוספה...</option>
-                        {structureItems
-                          .filter((item) => !alreadyAddedIds.has(item.id))
-                          .map((item) => (
-                            <option key={item.id} value={item.id}>{item.name}</option>
-                          ))}
-                      </select>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={addLineAmount}
-                          onChange={(e) => setAddLineAmount(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); selectedStructureId != null && handleAddLine(); } }}
-                          placeholder="סכום לחיוב (₪) – אופציונלי"
-                          className="w-40 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                      </div>
-                      <span className="text-xs text-gray-500">בחר קטגוריה ותווסף מיד. סכום ריק = ניתן לערוך אחר כך</span>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {addSuccessMessage && (
-                <tr>
-                  <td colSpan={3} className="py-2 px-4">
-                    <div className="p-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 text-xs flex items-center gap-2">
-                      <CheckCircle className="w-3.5 h-3.5" /> {addSuccessMessage}
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {(!quote?.quote_lines || quote.quote_lines.length === 0) && !addSuccessMessage ? (
-                <tr>
-                  <td colSpan={3} className="py-8 px-4 text-center text-gray-500 dark:text-gray-400">
-                    אין פריטים. בחר פריט מהרשימה למעלה והוא יתווסף אוטומטית. להגדרת פריטים: הגדרות → חלוקת הצעת מחיר.
-                  </td>
-                </tr>
-              ) : (
-                (quote?.quote_lines ?? []).map((line: QuoteLine) => (
-                  <tr key={line.id} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
-                    <td className="py-2.5 px-4 text-gray-900 dark:text-white">
-                      {line.quote_structure_item_name}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums text-gray-900 dark:text-white">
-                      {quote?.status === 'draft' && editingLineId === line.id ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editingAmount}
-                            onChange={(e) => setEditingAmount(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateLineAmount(line.id, editingAmount)}
-                            className="w-24 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          />
-                          <button type="button" onClick={() => handleUpdateLineAmount(line.id, editingAmount)} className="p-1 text-green-600"><CheckCircle className="w-4 h-4" /></button>
-                          <button type="button" onClick={() => setEditingLineId(null)} className="p-1 text-gray-500"><X className="w-4 h-4" /></button>
-                        </div>
-                      ) : (
-                        <span
-                          className={`tabular-nums ${quote?.status === 'draft' ? 'cursor-pointer hover:text-blue-600' : ''}`}
-                          onClick={() => quote?.status === 'draft' && (setEditingLineId(line.id), setEditingAmount(line.amount != null ? String(line.amount) : ''))}
-                        >
-                          {line.amount != null ? line.amount.toLocaleString('he-IL') + ' ₪' : '–'}
-                        </span>
-                      )}
-                    </td>
-                    {quote?.status === 'draft' && (
-                      <td className="py-2.5 px-2">
-                        {editingLineId !== line.id && (
-                          <div className="flex gap-0.5">
-                            <button type="button" onClick={() => { setEditingLineId(line.id); setEditingAmount(line.amount != null ? String(line.amount) : ''); }} className="p-1.5 text-gray-400 hover:text-gray-600 rounded" title="ערוך"><Pencil className="w-4 h-4" /></button>
-                            <button type="button" onClick={() => handleDeleteLine(line.id)} className="p-1.5 text-red-500 hover:text-red-600 rounded" title="מחק"><Trash2 className="w-4 h-4" /></button>
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {quote && (
-              <tfoot>
-                <tr className="bg-blue-50 dark:bg-blue-900/20 border-t-2 border-gray-200 dark:border-gray-700">
-                  <td className="py-2.5 px-4 font-semibold text-gray-800 dark:text-gray-200">סה&quot;כ הוצאות הצעת מחיר</td>
-                  <td className="py-2.5 px-4 text-right font-semibold tabular-nums text-gray-900 dark:text-white">
-                    {(quote?.quote_lines ?? []).reduce((sum, l) => sum + (l.amount ?? 0), 0).toLocaleString('he-IL')} ₪
-                  </td>
-                  {quote?.status === 'draft' && <td />}
-                </tr>
-                <tr className={`border-t border-gray-200 dark:border-gray-700 ${quote?.status === 'draft' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
-                  <td className="py-2.5 px-4 font-semibold text-gray-800 dark:text-gray-200">מספר דיירים</td>
-                  <td className="py-2.5 px-4 text-right">
-                    {quote?.status === 'draft' ? (
-                      <div className="flex items-center justify-end gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={numResidents}
-                          onChange={(e) => setNumResidents(e.target.value)}
-                          onBlur={handleSaveNumResidents}
-                          className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white tabular-nums"
-                        />
-                        {savingNumResidents && <span className="text-xs text-gray-500">שומר...</span>}
-                      </div>
-                    ) : (
-                      <span className="tabular-nums font-semibold">{effectiveResidents.toLocaleString('he-IL')}</span>
-                    )}
-                  </td>
-                  {quote?.status === 'draft' && <td />}
-                </tr>
-                <tr className="bg-amber-50 dark:bg-amber-900/20 border-t border-gray-200 dark:border-gray-700 font-semibold">
-                  <td className="py-2.5 px-4 text-gray-800 dark:text-gray-200">סה&quot;כ הוצאה לכל דייר</td>
-                  <td className="py-2.5 px-4 text-right tabular-nums text-gray-900 dark:text-white">
-                    {effectiveResidents > 0
-                      ? (
-                          (quote?.quote_lines ?? []).reduce((sum, l) => sum + (l.amount ?? 0), 0) / effectiveResidents
-                        ).toLocaleString('he-IL', { minimumFractionDigits: 2 })
-                      : '0.00'}{' '}
-                    ₪
-                  </td>
-                  {quote?.status === 'draft' && <td />}
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+        <QuoteBuildingsPanel
+          buildings={buildings}
+          activeBuildingIndex={activeBuildingIndex}
+          onSelectBuilding={setActiveBuildingIndex}
+          onAddBuilding={quote?.status === 'draft' ? handleAddBuilding : undefined}
+          onDeleteBuilding={quote?.status === 'draft' ? handleDeleteBuilding : undefined}
+          onSaveAddress={handleSaveBuildingAddress}
+          onSaveCalculationMethod={handleSaveBuildingCalculationMethod}
+          isDraft={quote?.status === 'draft'}
+          addingBuilding={addingBuilding}
+        />
+
+        <QuoteExpenseLinesTable
+          isDraft={quote?.status === 'draft'}
+          currentLines={currentLines}
+          structureItems={structureItems}
+          alreadyAddedIds={alreadyAddedIds}
+          selectedStructureId={selectedStructureId}
+          addLineAmount={addLineAmount}
+          addLineSelectRef={addLineSelectRef}
+          editingLineId={editingLineId}
+          editingAmount={editingAmount}
+          addSuccessMessage={addSuccessMessage}
+          buildingTotal={buildingTotal}
+          showNumResidents={currentBuilding?.calculation_method !== 'by_apartment_size'}
+          currentNumResidentsStr={currentNumResidentsStr}
+          effectiveResidents={effectiveResidents}
+          savingNumResidents={savingNumResidents}
+          onAddLine={handleAddLine}
+          onSelectStructureId={setSelectedStructureId}
+          onAddLineAmountChange={setAddLineAmount}
+          onEditLineAmount={(lineId, amount) => {
+            setEditingLineId(lineId)
+            setEditingAmount(amount)
+          }}
+          onCancelEditLine={() => setEditingLineId(null)}
+          onUpdateLineAmount={handleUpdateLineAmount}
+          onDeleteLine={handleDeleteLine}
+          onNumResidentsChange={setCurrentNumResidentsStr}
+          onNumResidentsBlur={handleSaveNumResidents}
+        />
+
+        {currentBuilding?.calculation_method === 'by_apartment_size' && (
+          <QuoteApartmentsBySize
+            isDraft={quote?.status === 'draft'}
+            apartments={apartments}
+            totalSqm={totalSqm}
+            costPerSqm={costPerSqm}
+            addCount={addApartmentCount}
+            addSizeSqm={addApartmentSizeSqm}
+            onAddCountChange={setAddApartmentCount}
+            onAddSizeSqmChange={setAddApartmentSizeSqm}
+            onAddApartments={handleAddApartments}
+            adding={addingApartments}
+            onDeleteApartmentsOfSize={handleDeleteApartmentsOfSize}
+            deletingSizeSqm={deletingApartmentsSizeSqm}
+          />
+        )}
       </div>
 
       {approveCurrentQuote && (

@@ -7,7 +7,6 @@ import {
   Eye,
   FileText,
   ChevronDown,
-  FolderOpen,
   Trash2,
   CheckCircle,
   Building2,
@@ -17,13 +16,18 @@ import {
   BarChart3,
   TrendingUp,
   Clock,
+  Pencil,
 } from 'lucide-react'
-import { QuoteProjectsAPI, QuoteProject } from '../lib/apiClient'
+import { QuoteProjectsAPI, QuoteSubjectsAPI, QuoteProject, type QuoteSubject } from '../lib/apiClient'
+import QuoteViewModal, { type CreateSubjectInput } from '../components/QuoteViewModal'
+import CreateQuoteSubjectModal from '../components/CreateQuoteSubjectModal'
+import EditQuoteSubjectModal from '../components/EditQuoteSubjectModal'
+import DeleteQuoteSubjectModal from '../components/DeleteQuoteSubjectModal'
+import SubjectQuotesFloatingModal, { type SubjectWithQuotes } from '../components/SubjectQuotesFloatingModal'
 import { ProjectAPI } from '../lib/apiClient'
 import type { Project } from '../types/api'
 import CreateProjectModal from '../components/CreateProjectModal'
 import CreateParentProjectSimpleModal from '../components/CreateParentProjectSimpleModal'
-import QuoteViewModal from '../components/QuoteViewModal'
 import ProjectQuotesFloatingModal from '../components/ProjectQuotesFloatingModal'
 
 export interface ProjectWithQuotes extends Project {
@@ -313,13 +317,18 @@ export default function PriceQuotes() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | ''>('')
-  const [cityFilter, setCityFilter] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   // Create (handled inside QuoteViewModal – רק לפרויקט)
   const [createForProjectId, setCreateForProjectId] = useState<number | null>(null)
+  const [quoteSubjects, setQuoteSubjects] = useState<QuoteSubject[]>([])
+  const [createSubjectMode, setCreateSubjectMode] = useState<'existing' | 'new'>('new')
+  const [createSubjectId, setCreateSubjectId] = useState<number | null>(null)
+  const [createAddress, setCreateAddress] = useState('')
+  const [createNumApartments, setCreateNumApartments] = useState('')
+  const [createNumBuildings, setCreateNumBuildings] = useState('')
+  const [createNotes, setCreateNotes] = useState('')
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
-  const [newNumResidents, setNewNumResidents] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -332,13 +341,22 @@ export default function PriceQuotes() {
   const [approveParentProjectId, setApproveParentProjectId] = useState<number | null>(null)
 
   const [showCreateParentProjectModal, setShowCreateParentProjectModal] = useState(false)
-  const [showCreateRegularProjectModal, setShowCreateRegularProjectModal] = useState(false)
   const [createSubprojectForParentId, setCreateSubprojectForParentId] = useState<number | null>(null)
   const [showSelectParentForSubproject, setShowSelectParentForSubproject] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [viewQuoteId, setViewQuoteId] = useState<number | null>(null)
   const [showCreateInViewModal, setShowCreateInViewModal] = useState(false)
   const [projectQuotesModal, setProjectQuotesModal] = useState<ProjectWithQuotes | null>(null)
+  const [standaloneQuotes, setStandaloneQuotes] = useState<QuoteProject[]>([])
+
+  // פרויקטים (נושאי הצעה) + הצעות לכל פרויקט
+  const [subjectsWithQuotes, setSubjectsWithQuotes] = useState<{ subject: QuoteSubject; quotes: QuoteProject[] }[]>([])
+  const [subjectsLoading, setSubjectsLoading] = useState(true)
+  const [showCreateSubjectModal, setShowCreateSubjectModal] = useState(false)
+  const [editingSubject, setEditingSubject] = useState<QuoteSubject | null>(null)
+  const [selectedSubjectWithQuotes, setSelectedSubjectWithQuotes] = useState<SubjectWithQuotes | null>(null)
+  const [deleteSubjectModal, setDeleteSubjectModal] = useState<{ subject: QuoteSubject; quotesCount: number } | null>(null)
+  const [createForSubjectId, setCreateForSubjectId] = useState<number | null>(null)
 
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true)
@@ -391,6 +409,9 @@ export default function PriceQuotes() {
           ),
         }))
       setProjects(filtered)
+
+      const standalone = await QuoteProjectsAPI.list(undefined, undefined, statusFilter || undefined)
+      setStandaloneQuotes(standalone)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת הפרויקטים')
     } finally {
@@ -410,18 +431,70 @@ export default function PriceQuotes() {
     [statusFilter]
   )
 
+  const loadSubjectsWithQuotes = useCallback(async (): Promise<SubjectWithQuotes[]> => {
+    setSubjectsLoading(true)
+    try {
+      const subjects = await QuoteSubjectsAPI.list()
+      const withQuotes: SubjectWithQuotes[] = await Promise.all(
+        subjects.map(async (subject) => {
+          const quotes = await QuoteProjectsAPI.list(undefined, undefined, subject.id, statusFilter || undefined)
+          return { subject, quotes }
+        })
+      )
+      setSubjectsWithQuotes(withQuotes)
+      setQuoteSubjects(subjects)
+      return withQuotes
+    } catch {
+      setSubjectsWithQuotes([])
+      return []
+    } finally {
+      setSubjectsLoading(false)
+    }
+  }, [statusFilter])
+
   useEffect(() => {
     loadProjects()
   }, [loadProjects])
 
-  const openAddQuote = (projectId: number) => {
+  useEffect(() => {
+    loadSubjectsWithQuotes()
+  }, [loadSubjectsWithQuotes])
+
+  useEffect(() => {
+    if (showCreateInViewModal && quoteSubjects.length === 0) {
+      QuoteSubjectsAPI.list().then(setQuoteSubjects).catch(() => setQuoteSubjects([]))
+    }
+  }, [showCreateInViewModal])
+
+  const openAddQuoteForProject = (projectId: number) => {
     setCreateForProjectId(projectId)
+    setCreateForSubjectId(null)
+    setCreateSubjectMode('new')
+    setCreateSubjectId(null)
+    setCreateAddress('')
+    setCreateNumApartments('')
+    setCreateNumBuildings('')
+    setCreateNotes('')
     setNewName('')
     setNewDescription('')
     setCreateError(null)
     setViewQuoteId(null)
     setShowCreateInViewModal(true)
   }
+
+  const openAddQuoteForSubject = (subjectId: number) => {
+    setCreateForProjectId(null)
+    setCreateForSubjectId(subjectId)
+    setCreateSubjectMode('existing')
+    setCreateSubjectId(subjectId)
+    setNewName('')
+    setNewDescription('')
+    setCreateError(null)
+    setViewQuoteId(null)
+    setShowCreateInViewModal(true)
+  }
+
+  const openAddQuote = openAddQuoteForProject
 
   const openEditModal = (q: QuoteProject) => {
     setViewQuoteId(q.id)
@@ -447,6 +520,14 @@ export default function PriceQuotes() {
             return p
           })
         )
+      } else {
+        setStandaloneQuotes((prev) => prev.filter((x) => x.id !== q.id))
+      }
+      const updated = await loadSubjectsWithQuotes()
+      const subId = q.quote_subject_id ?? null
+      if (subId != null && selectedSubjectWithQuotes?.subject.id === subId) {
+        const entry = updated.find((e) => e.subject.id === subId)
+        if (entry) setSelectedSubjectWithQuotes(entry)
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת ההצעה')
@@ -522,35 +603,37 @@ export default function PriceQuotes() {
         (q.description || '').toLowerCase().includes(searchTerm.toLowerCase())
     )
 
-  const filterProjects = (projs: ProjectWithQuotes[]): ProjectWithQuotes[] => {
-    return projs.filter((p) => {
-      const matchesSearch =
-        !searchTerm ||
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.subprojects?.some(
-          (s) =>
-            s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (s.description || '').toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      const matchesCity = !cityFilter || p.city?.toLowerCase().includes(cityFilter.toLowerCase())
-      return matchesSearch && matchesCity
-    })
-  }
+  const allQuotesFlat = useMemo(() => {
+    const fromProjects = projects.flatMap((p) => [
+      ...(p.quotes ?? []),
+      ...(p.subprojects?.flatMap((s) => s.quotes ?? []) ?? []),
+    ])
+    const fromSubjects = subjectsWithQuotes.flatMap(({ quotes }) => quotes)
+    const byId = new Map<number, QuoteProject>()
+    ;[...standaloneQuotes, ...fromProjects, ...fromSubjects].forEach((q) => byId.set(q.id, q))
+    return Array.from(byId.values())
+  }, [projects, standaloneQuotes, subjectsWithQuotes])
+
+  const filteredQuotes = useMemo(
+    () =>
+      allQuotesFlat.filter(
+        (q) =>
+          !searchTerm ||
+          q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (q.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [allQuotesFlat, searchTerm]
+  )
 
   const loading = projectsLoading
 
   const stats = useMemo(() => {
-    const allQuotes = projects.flatMap((p) => [
-      ...(p.quotes ?? []),
-      ...(p.subprojects?.flatMap((s) => s.quotes ?? []) ?? []),
-    ])
     return {
-      total: allQuotes.length,
-      draft: allQuotes.filter((q) => q.status === 'draft').length,
-      approved: allQuotes.filter((q) => q.status === 'approved').length,
+      total: allQuotesFlat.length,
+      draft: allQuotesFlat.filter((q) => q.status === 'draft').length,
+      approved: allQuotesFlat.filter((q) => q.status === 'approved').length,
     }
-  }, [projects])
+  }, [allQuotesFlat])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900" dir="rtl">
@@ -559,29 +642,17 @@ export default function PriceQuotes() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">הצעות מחיר</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחר הצעות מחיר לפרויקטים</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחר הצעות מחיר</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                setEditingProject(null)
-                setShowCreateParentProjectModal(true)
-              }}
+              onClick={() => setShowCreateSubjectModal(true)}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-md"
             >
-              <Building2 className="w-5 h-5" />
-              <span>פרויקט על חדש</span>
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowCreateRegularProjectModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition-all shadow-md"
-            >
-              <FolderOpen className="w-5 h-5" />
-              <span>פרויקט רגיל (תת-פרויקט)</span>
+              <Plus className="w-5 h-5" />
+              <span>הוספת פרויקט</span>
             </motion.button>
           </div>
         </div>
@@ -653,13 +724,6 @@ export default function PriceQuotes() {
               <option value="draft">טיוטה</option>
               <option value="approved">אושרה</option>
             </select>
-            <input
-              type="text"
-              placeholder="סינון לפי עיר..."
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-            />
             <div className="flex gap-2">
               <button
                 onClick={() => setViewMode('grid')}
@@ -694,35 +758,112 @@ export default function PriceQuotes() {
           </div>
         )}
 
-        {loading ? (
+        {(loading || subjectsLoading) ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">טוען נתונים...</p>
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Projects Section */}
-            <div
-              className={`grid gap-6 ${
-                viewMode === 'grid' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'
-              }`}
-            >
-              {filterProjects(projects).map((project) => (
-                <ProjectQuoteCard
-                  key={project.id}
-                  project={project}
-                  onOpenQuotesModal={(p) => setProjectQuotesModal(p)}
-                  onEditProject={(p) => {
-                    setEditingProject(p)
-                    setShowCreateParentProjectModal(true)
-                  }}
-                  viewMode={viewMode}
-                />
-              ))}
+            {/* פרויקטים (נושאי הצעה) – בתוך כל פרויקט יוצרים הצעות מחיר */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">פרויקטים</h2>
+              {subjectsWithQuotes.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">אין עדיין פרויקטים. צור פרויקט ואז תוכל להוסיף אליו הצעות מחיר.</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateSubjectModal(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700"
+                  >
+                    <Plus className="w-4 h-4" />
+                    הוספת פרויקט
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {subjectsWithQuotes.map(({ subject, quotes }) => {
+                    const subjectLabel = [
+                      subject.address,
+                      subject.num_apartments != null ? subject.num_apartments + ' דירות' : null,
+                      subject.num_buildings != null ? subject.num_buildings + ' בניינים' : null,
+                    ].filter(Boolean).join(' • ') || 'פרויקט #' + subject.id
+                    return (
+                      <motion.button
+                        key={subject.id}
+                        type="button"
+                        initial={{ opacity: 0, scale: 0.92 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={() => setSelectedSubjectWithQuotes({ subject, quotes })}
+                        className="aspect-square min-h-[120px] flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-all text-right"
+                      >
+                        <span className="font-medium text-gray-900 dark:text-white text-sm line-clamp-2 text-center leading-tight">
+                          {subjectLabel}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          {quotes.length} הצעות
+                        </span>
+                      </motion.button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
+
+      <CreateQuoteSubjectModal
+        isOpen={showCreateSubjectModal}
+        onClose={() => setShowCreateSubjectModal(false)}
+        onSuccess={() => {
+          setShowCreateSubjectModal(false)
+          loadSubjectsWithQuotes()
+          QuoteSubjectsAPI.list().then(setQuoteSubjects).catch(() => {})
+        }}
+      />
+
+      <EditQuoteSubjectModal
+        subject={editingSubject}
+        onClose={() => setEditingSubject(null)}
+        onSuccess={(updated) => {
+          setEditingSubject(null)
+          setSubjectsWithQuotes((prev) =>
+            prev.map((item) =>
+              item.subject.id === updated.id ? { ...item, subject: updated } : item
+            )
+          )
+          setQuoteSubjects((prev) =>
+            prev.map((s) => (s.id === updated.id ? updated : s))
+          )
+          if (selectedSubjectWithQuotes?.subject.id === updated.id) {
+            setSelectedSubjectWithQuotes((prev) => prev ? { ...prev, subject: updated } : null)
+          }
+        }}
+      />
+
+      <SubjectQuotesFloatingModal
+        subjectWithQuotes={selectedSubjectWithQuotes}
+        onClose={() => setSelectedSubjectWithQuotes(null)}
+        onViewQuote={(quote) => setViewQuoteId(quote.id)}
+        onEditQuote={openEditModal}
+        onApproveQuote={handleApproveQuote}
+        onDeleteQuote={handleDeleteQuote}
+        onAddQuote={(subjectId) => openAddQuoteForSubject(subjectId)}
+        onEditSubject={(sub) => setEditingSubject(sub)}
+        onDeleteSubject={(sub, quotesCount) => setDeleteSubjectModal({ subject: sub, quotesCount })}
+      />
+
+      <DeleteQuoteSubjectModal
+        subject={deleteSubjectModal?.subject ?? null}
+        quotesCount={deleteSubjectModal?.quotesCount ?? 0}
+        onClose={() => setDeleteSubjectModal(null)}
+        onSuccess={() => {
+          setDeleteSubjectModal(null)
+          setSelectedSubjectWithQuotes(null)
+          loadSubjectsWithQuotes()
+        }}
+      />
 
       {/* Quote View Modal - יצירה וצפייה בהצעת מחיר */}
       <QuoteViewModal
@@ -732,52 +873,88 @@ export default function PriceQuotes() {
           setViewQuoteId(null)
           setShowCreateInViewModal(false)
           setCreateForProjectId(null)
+          setCreateForSubjectId(null)
+          setCreateSubjectId(null)
+          setCreateAddress('')
+          setCreateNumApartments('')
+          setCreateNumBuildings('')
+          setCreateNotes('')
           setNewName('')
           setNewDescription('')
-          setNewNumResidents('')
           setCreateError(null)
           loadProjects()
+          loadSubjectsWithQuotes()
         }}
         createContext={
-          showCreateInViewModal && createForProjectId != null
-            ? { projectId: createForProjectId, parentQuoteId: null }
+          showCreateInViewModal
+            ? createForSubjectId != null
+              ? { subjectId: createForSubjectId }
+              : createForProjectId != null
+                ? { projectId: createForProjectId, parentQuoteId: null }
+                : null
             : null
         }
+        quoteSubjects={quoteSubjects}
+        createSubjectMode={createSubjectMode}
+        createSubjectId={createSubjectId}
+        createAddress={createAddress}
+        createNumApartments={createNumApartments}
+        createNumBuildings={createNumBuildings}
+        createNotes={createNotes}
         createName={newName}
         createDescription={newDescription}
+        onCreateSubjectModeChange={setCreateSubjectMode}
+        onCreateSubjectIdChange={setCreateSubjectId}
+        onCreateAddressChange={setCreateAddress}
+        onCreateNumApartmentsChange={setCreateNumApartments}
+        onCreateNumBuildingsChange={setCreateNumBuildings}
+        onCreateNotesChange={setCreateNotes}
         onCreateNameChange={setNewName}
         onCreateDescriptionChange={setNewDescription}
         createError={createError}
         creating={creating}
-        createNumResidents={newNumResidents}
-        onCreateNumResidentsChange={setNewNumResidents}
-        onCreateSubmit={async (nameVal, descVal, numResidentsVal) => {
+        onCreateSubmit={async (subject: CreateSubjectInput, nameVal, descVal) => {
           setCreating(true)
           setCreateError(null)
           try {
-            const pid = createForProjectId
-            if (pid == null) return
+            let quoteSubjectId: number
+            if (subject.type === 'existing') {
+              quoteSubjectId = subject.id
+            } else {
+              const sub = await QuoteSubjectsAPI.create({
+                address: subject.address ?? undefined,
+                num_apartments: subject.num_apartments ?? undefined,
+                num_buildings: subject.num_buildings ?? undefined,
+                notes: subject.notes ?? undefined,
+              })
+              quoteSubjectId = sub.id
+            }
+            const pid = createForProjectId ?? undefined
             const created = await QuoteProjectsAPI.create({
+              quote_subject_id: quoteSubjectId,
               name: nameVal,
               description: descVal || null,
-              project_id: pid,
-              num_residents: numResidentsVal ?? undefined,
+              project_id: pid != null ? pid : undefined,
             })
             setCreateForProjectId(null)
+            setCreateForSubjectId(null)
             setShowCreateInViewModal(false)
-            const quotes = await loadQuotesForProject(pid)
-            setProjects((prev) =>
-              prev.map((p) => {
-                if (p.id === pid) return { ...p, quotes }
-                if (p.subprojects) {
-                  return {
-                    ...p,
-                    subprojects: p.subprojects.map((sp) => (sp.id === pid ? { ...sp, quotes } : sp)),
+            if (pid != null) {
+              const quotes = await loadQuotesForProject(pid)
+              setProjects((prev) =>
+                prev.map((p) => {
+                  if (p.id === pid) return { ...p, quotes }
+                  if (p.subprojects) {
+                    return {
+                      ...p,
+                      subprojects: p.subprojects.map((sp) => (sp.id === pid ? { ...sp, quotes } : sp)),
+                    }
                   }
-                }
-                return p
-              })
-            )
+                  return p
+                })
+              )
+            }
+            await loadSubjectsWithQuotes()
             setViewQuoteId(created.id)
             return created.id
           } catch (err: any) {
@@ -887,22 +1064,18 @@ export default function PriceQuotes() {
         editingProject={showCreateParentProjectModal ? editingProject : null}
       />
 
-      {/* Create Regular Project (תת-פרויקט) - נפתח ישירות עם שם, תיאור, הכנסות ולחצן יצירת הצעה ללא פרויקט */}
+      {/* Create subproject (תת-פרויקט) – נפתח רק מתוך הוספת תת-הצעה לפרויקט קיים */}
       <CreateProjectModal
-        isOpen={showCreateRegularProjectModal || createSubprojectForParentId != null}
-        onClose={() => {
-          setShowCreateRegularProjectModal(false)
-          setCreateSubprojectForParentId(null)
-        }}
+        isOpen={createSubprojectForParentId != null}
+        onClose={() => setCreateSubprojectForParentId(null)}
         onSuccess={() => {
-          setShowCreateRegularProjectModal(false)
           setCreateSubprojectForParentId(null)
           loadProjects()
         }}
         editingProject={null}
         createMode="quoteSubproject"
         parentProjectId={createSubprojectForParentId ?? undefined}
-        openWithoutParentSelection={showCreateRegularProjectModal}
+        openWithoutParentSelection={false}
       />
 
       {/* Approve Quote Modal – תמיד נפתח לפני יצירת הפרויקט ואישור ההצעה */}

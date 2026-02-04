@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from backend.models import QuoteProject, QuoteLine, QuoteStructureItem
+from backend.models import QuoteProject, QuoteLine, QuoteStructureItem, QuoteBuilding, QuoteApartment
 
 
 class QuoteProjectRepository:
@@ -15,13 +15,19 @@ class QuoteProjectRepository:
         self,
         parent_id: int | None = None,
         project_id: int | None = None,
+        quote_subject_id: int | None = None,
         status: str | None = None,
     ) -> List[QuoteProject]:
         query = select(QuoteProject).options(
+            selectinload(QuoteProject.quote_subject),
             selectinload(QuoteProject.quote_lines).selectinload(QuoteLine.quote_structure_item),
+            selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_lines).selectinload(QuoteLine.quote_structure_item),
+            selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_apartments),
             selectinload(QuoteProject.children),
         )
-        if project_id is not None:
+        if quote_subject_id is not None:
+            query = query.where(QuoteProject.quote_subject_id == quote_subject_id)
+        elif project_id is not None:
             query = query.where(QuoteProject.project_id == project_id)
         elif parent_id is not None:
             query = query.where(QuoteProject.parent_id == parent_id)
@@ -37,7 +43,10 @@ class QuoteProjectRepository:
         result = await self.db.execute(
             select(QuoteProject)
             .options(
+                selectinload(QuoteProject.quote_subject),
                 selectinload(QuoteProject.quote_lines).selectinload(QuoteLine.quote_structure_item),
+                selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_lines).selectinload(QuoteLine.quote_structure_item),
+                selectinload(QuoteProject.quote_buildings).selectinload(QuoteBuilding.quote_apartments),
                 selectinload(QuoteProject.children),
                 selectinload(QuoteProject.parent),
             )
