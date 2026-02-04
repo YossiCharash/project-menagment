@@ -26,16 +26,16 @@ async def get_me(current = Depends(get_current_user)):
 
 @router.get("/for-tasks")
 async def list_users_for_tasks(db: DBSessionDep, user=Depends(get_current_user)):
-    """List users for task assignment: Admin sees all; Member sees only themselves."""
+    """List users for task assignment: Admin sees all; Member sees only themselves. Includes calendar_color."""
     from sqlalchemy import select
     from backend.models.user import User
     if user.role == "Admin":
         res = await db.execute(
-            select(User.id, User.full_name).where(User.is_active == True).order_by(User.full_name)
+            select(User.id, User.full_name, User.calendar_color).where(User.is_active == True).order_by(User.full_name)
         )
         rows = res.all()
-        return [{"id": r.id, "full_name": r.full_name} for r in rows]
-    return [{"id": user.id, "full_name": user.full_name}]
+        return [{"id": r.id, "full_name": r.full_name, "calendar_color": getattr(r, "calendar_color", None)} for r in rows]
+    return [{"id": user.id, "full_name": user.full_name, "calendar_color": getattr(user, "calendar_color", None)}]
 
 
 @router.get("/", response_model=list[UserOut])
@@ -86,7 +86,9 @@ async def update_user(
         user.group_id = user_data.group_id
     if user_data.password is not None:
         user.password_hash = hash_password(user_data.password)
-    
+    if user_data.calendar_color is not None:
+        user.calendar_color = user_data.calendar_color.strip() or None if isinstance(user_data.calendar_color, str) else user_data.calendar_color
+
     updated_user = await user_repo.update(user)
     
     # Log update action

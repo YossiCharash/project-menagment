@@ -8,6 +8,11 @@ from backend.repositories.task_repository import TaskRepository
 from backend.repositories.user_repository import UserRepository
 from backend.schemas.task import TaskCreate, TaskOut, TaskUpdate
 from backend.models.task import Task, TaskStatus, EventType, generate_unique_tag
+from backend.services.outlook_sync_service import (
+    create_outlook_event,
+    update_outlook_event,
+    delete_outlook_event,
+)
 
 router = APIRouter()
 
@@ -37,7 +42,11 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
 
 def _task_to_out(task: Task) -> dict:
     idx = (task.assigned_to_user_id - 1) % len(EMPLOYEE_COLORS)
-    color = EMPLOYEE_COLORS[idx]
+    color = (
+        getattr(task.assigned_user, "calendar_color", None)
+        if task.assigned_user and getattr(task.assigned_user, "calendar_color", None)
+        else EMPLOYEE_COLORS[idx]
+    )
     return {
         "id": task.id,
         "title": task.title,
@@ -102,6 +111,13 @@ async def create_task(
     task.unique_tag = generate_unique_tag()
     repo = TaskRepository(db)
     created = await repo.create(task)
+    try:
+        outlook_id = await create_outlook_event(db, created)
+        if outlook_id:
+            created.outlook_event_id = outlook_id
+            await repo.update(created)
+    except Exception:
+        pass
     return _task_to_out(created)
 
 
@@ -136,7 +152,18 @@ async def update_task(
         if k in ("start_time", "end_time") and v is not None:
             v = _to_naive_utc(v) or v
         setattr(task, k, v)
+    # Persist to DB (e.g. drag & drop new date/time)
     updated = await repo.update(task)
+    try:
+        if task.outlook_event_id:
+            await update_outlook_event(db, task)
+        else:
+            outlook_id = await create_outlook_event(db, task)
+            if outlook_id:
+                task.outlook_event_id = outlook_id
+                await repo.update(task)
+    except Exception:
+        pass
     return _task_to_out(updated)
 
 
@@ -153,5 +180,12 @@ async def delete_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if user.role != "Admin" and task.assigned_to_user_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied. You can only delete your own tasks.")
+    outlook_id = task.outlook_event_id
+    user_id = task.assigned_to_user_id
     await repo.delete(task)
+    try:
+        if outlook_id:
+            await delete_outlook_event(db, user_id, outlook_id)
+    except Exception:
+        pass
     return None

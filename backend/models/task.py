@@ -48,6 +48,7 @@ class Task(Base):
     unique_tag: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, default=generate_unique_tag
     )
+    outlook_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

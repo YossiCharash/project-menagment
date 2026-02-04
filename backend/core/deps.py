@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from backend.models.user import UserRole
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
@@ -88,3 +89,18 @@ def require_admin():
             )
         return user
     return _admin_dep
+
+
+async def get_outlook_connect_user_id(
+    request: Request,
+    token_header: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
+):
+    """For Outlook connect: user id from ?token= JWT or Authorization header."""
+    query_token = request.query_params.get("token")
+    token = query_token or token_header
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token required")
+    payload = decode_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    return int(payload["sub"])

@@ -3,6 +3,8 @@ import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
 import api from '../lib/api'
 
+const DEFAULT_CALENDAR_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
+
 interface User {
   id: number
   email: string
@@ -11,6 +13,7 @@ interface User {
   group_id?: number
   is_active: boolean
   created_at: string
+  calendar_color?: string | null
 }
 
 export default function UserManagement() {
@@ -33,7 +36,8 @@ export default function UserManagement() {
   const [editUser, setEditUser] = useState({
     full_name: '',
     role: 'Member' as 'Admin' | 'Member',
-    is_active: true
+    is_active: true,
+    calendar_color: '' as string
   })
 
   // Fetch user data if not loaded
@@ -130,7 +134,8 @@ export default function UserManagement() {
     setEditUser({
       full_name: user.full_name,
       role: user.role,
-      is_active: user.is_active
+      is_active: user.is_active,
+      calendar_color: user.calendar_color || ''
     })
   }
 
@@ -144,11 +149,12 @@ export default function UserManagement() {
       await api.put(`/users/${editingUser.id}`, {
         full_name: editUser.full_name,
         role: editUser.role,
-        is_active: editUser.is_active
+        is_active: editUser.is_active,
+        calendar_color: editUser.calendar_color?.trim() || null
       })
       
       setEditingUser(null)
-      setEditUser({ full_name: '', role: 'Member', is_active: true })
+      setEditUser({ full_name: '', role: 'Member', is_active: true, calendar_color: '' })
       await fetchUsers() // Refresh the list
       alert('משתמש עודכן בהצלחה')
     } catch (err: any) {
@@ -219,6 +225,27 @@ export default function UserManagement() {
                     </label>
                   </div>
                   
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">צבע ביומן משימות</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={editUser.calendar_color || DEFAULT_CALENDAR_COLORS[(editingUser?.id ?? 0) % DEFAULT_CALENDAR_COLORS.length]}
+                        onChange={(e) => setEditUser({...editUser, calendar_color: e.target.value})}
+                        className="w-10 h-10 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent"
+                        title="צבע אירועים ביומן"
+                      />
+                      <input
+                        type="text"
+                        value={editUser.calendar_color || ''}
+                        onChange={(e) => setEditUser({...editUser, calendar_color: e.target.value})}
+                        placeholder="#3B82F6"
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">צבע האירועים של העובד ביומן (הקסדצימלי)</p>
+                  </div>
+                  
                   {error && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                       <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
@@ -236,7 +263,7 @@ export default function UserManagement() {
                       type="button"
                       onClick={() => {
                         setEditingUser(null)
-                        setEditUser({ full_name: '', role: 'Member', is_active: true })
+                        setEditUser({ full_name: '', role: 'Member', is_active: true, calendar_color: '' })
                       }}
                       className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
                     >
@@ -320,6 +347,7 @@ export default function UserManagement() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">צבע יומן</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">שם מלא</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">אימייל</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">תפקיד</th>
@@ -330,19 +358,26 @@ export default function UserManagement() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <td colSpan={6} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       טוען משתמשים...
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <td colSpan={6} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       אין משתמשים במערכת
                     </td>
                   </tr>
                 ) : (
                   users.map((user) => (
                     <tr key={user.id} className="border-b border-gray-200 dark:border-gray-700">
+                      <td className="py-3 px-4">
+                        <span
+                          className="inline-block w-6 h-6 rounded border border-gray-300 dark:border-gray-600"
+                          style={{ backgroundColor: user.calendar_color || DEFAULT_CALENDAR_COLORS[(user.id - 1) % DEFAULT_CALENDAR_COLORS.length] }}
+                          title={user.calendar_color || 'צבע ברירת מחדל'}
+                        />
+                      </td>
                       <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{user.full_name}</td>
                       <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{user.email}</td>
                       <td className="py-3 px-4">

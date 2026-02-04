@@ -107,6 +107,11 @@ class Settings(BaseModel):
     GOOGLE_CLIENT_SECRET: str = Field(default=os.getenv("GOOGLE_CLIENT_SECRET", ""))
     GOOGLE_REDIRECT_URI: str = Field(default=os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback"))
 
+    # Microsoft / Outlook Calendar Sync (Azure AD app)
+    MICROSOFT_CLIENT_ID: str = Field(default=os.getenv("MICROSOFT_CLIENT_ID", ""))
+    MICROSOFT_CLIENT_SECRET: str = Field(default=os.getenv("MICROSOFT_CLIENT_SECRET", ""))
+    MICROSOFT_REDIRECT_URI: str = Field(default=os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/api/v1/outlook/callback"))
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

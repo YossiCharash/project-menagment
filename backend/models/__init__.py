@@ -25,6 +25,7 @@ from backend.models.quote_subject import QuoteSubject
 from backend.models.quote_project import QuoteProject
 from backend.models.quote_line import QuoteLine
 from backend.models.task import Task, TaskAttachment
+from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
 
 __all__ = [
@@ -60,4 +61,5 @@ __all__ = [
     "QuoteApartment",
     "Task",
     "TaskAttachment",
+    "OutlookSync",
 ]

@@ -21,11 +21,13 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     group_id: int | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    calendar_color: str | None = Field(default=None, max_length=7)
 
 
 class UserOut(UserBase):
     id: int
     created_at: datetime
+    calendar_color: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
