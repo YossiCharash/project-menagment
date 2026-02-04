@@ -21,6 +21,7 @@ from backend.models.deleted_recurring_instance import DeletedRecurringInstance
 from backend.models.project_document import ProjectDocument
 from backend.models.unforeseen_transaction import UnforeseenTransaction, UnforeseenTransactionExpense, UnforeseenTransactionStatus
 from backend.models.quote_structure_item import QuoteStructureItem
+from backend.models.quote_subject import QuoteSubject
 from backend.models.quote_project import QuoteProject
 from backend.models.quote_line import QuoteLine
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
@@ -51,6 +52,7 @@ __all__ = [
     "UnforeseenTransactionExpense",
     "UnforeseenTransactionStatus",
     "QuoteStructureItem",
+    "QuoteSubject",
     "QuoteProject",
     "QuoteLine",
     "QuoteBuilding",

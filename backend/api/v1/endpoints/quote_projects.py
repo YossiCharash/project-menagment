@@ -14,6 +14,7 @@ from backend.schemas.quote_project import (
     QuoteProjectOut,
     QuoteLineOutNested,
 )
+from backend.schemas.quote_subject import QuoteSubjectOut
 from backend.schemas.quote_line import QuoteLineCreate, QuoteLineOut, QuoteLineUpdate
 from backend.schemas.quote_building import (
     QuoteBuildingCreate,
@@ -22,6 +23,7 @@ from backend.schemas.quote_building import (
     QuoteApartmentOut,
     QuoteApartmentCreate,
     QuoteApartmentUpdate,
+    QuoteApartmentsBulkCreate,
     QuoteLineOutNested as BuildingLineNested,
 )
 from backend.services.project_service import ProjectService
@@ -95,12 +97,14 @@ def _quote_project_to_out(
         line_list = lines if lines is not None else qp.quote_lines
         lines_out = [_build_line_nested(line) for line in line_list]
 
+    quote_subject_out = QuoteSubjectOut.model_validate(qp.quote_subject) if qp.quote_subject else None
     return QuoteProjectOut(
         id=qp.id,
         name=qp.name,
         description=qp.description,
         parent_id=qp.parent_id,
         project_id=getattr(qp, 'project_id', None),
+        quote_subject_id=qp.quote_subject_id,
         expected_start_date=qp.expected_start_date,
         expected_income=float(qp.expected_income) if qp.expected_income is not None else None,
         expected_expenses=float(qp.expected_expenses) if qp.expected_expenses is not None else None,
@@ -112,6 +116,7 @@ def _quote_project_to_out(
         quote_lines=lines_out,
         quote_buildings=buildings_out,
         children_count=children_count,
+        quote_subject=quote_subject_out,
     )
 
 
@@ -120,11 +125,12 @@ async def list_quote_projects(
     db: DBSessionDep,
     parent_id: int | None = Query(None, description="Filter by parent quote (legacy)"),
     project_id: int | None = Query(None, description="Filter by project - quotes for this project"),
+    quote_subject_id: int | None = Query(None, description="Filter by quote subject (project)"),
     status: str | None = Query(None, description="draft | approved"),
     user=Depends(get_current_user),
 ):
     repo = QuoteProjectRepository(db)
-    items = await repo.list(parent_id=parent_id, project_id=project_id, status=status)
+    items = await repo.list(parent_id=parent_id, project_id=project_id, quote_subject_id=quote_subject_id, status=status)
     result = []
     for qp in items:
         children_count = await repo.get_children_count(qp.id)
@@ -152,11 +158,17 @@ async def create_quote_project(
     data: QuoteProjectCreate,
     user=Depends(get_current_user),
 ):
+    from backend.repositories.quote_subject_repository import QuoteSubjectRepository
+    subject_repo = QuoteSubjectRepository(db)
+    subject = await subject_repo.get(data.quote_subject_id)
+    if not subject:
+        raise HTTPException(status_code=400, detail="quote_subject_id is required and must reference an existing quote subject (project)")
     qp = QuoteProject(
         name=data.name.strip(),
         description=data.description.strip() if data.description else None,
         parent_id=data.parent_id,
         project_id=getattr(data, 'project_id', None),
+        quote_subject_id=data.quote_subject_id,
         expected_start_date=data.expected_start_date,
         expected_income=data.expected_income,
         expected_expenses=data.expected_expenses,
@@ -206,6 +218,13 @@ async def update_quote_project(
         qp.parent_id = data.parent_id
     if 'project_id' in data.model_dump(exclude_unset=True):
         qp.project_id = data.project_id
+    if data.quote_subject_id is not None:
+        from backend.repositories.quote_subject_repository import QuoteSubjectRepository
+        subject_repo = QuoteSubjectRepository(db)
+        subject = await subject_repo.get(data.quote_subject_id)
+        if not subject:
+            raise HTTPException(status_code=400, detail="quote_subject_id must reference an existing quote subject")
+        qp.quote_subject_id = data.quote_subject_id
     if data.expected_start_date is not None:
         qp.expected_start_date = data.expected_start_date
     if data.expected_income is not None:
@@ -503,6 +522,36 @@ async def list_quote_apartments(
     if not b or b.quote_project_id != quote_project_id:
         raise HTTPException(status_code=404, detail="Quote building not found")
     return [QuoteApartmentOut.model_validate(apt) for apt in b.quote_apartments]
+
+
+@router.post("/{quote_project_id}/buildings/{building_id}/apartments/bulk", response_model=list[QuoteApartmentOut])
+async def add_quote_apartments_bulk(
+    quote_project_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    data: QuoteApartmentsBulkCreate,
+    user=Depends(get_current_user),
+):
+    qp_repo = QuoteProjectRepository(db)
+    qp = await qp_repo.get(quote_project_id)
+    if not qp or qp.status == "approved":
+        raise HTTPException(status_code=400, detail="Quote not found or already approved")
+    building_repo = QuoteBuildingRepository(db)
+    b = await building_repo.get(building_id)
+    if not b or b.quote_project_id != quote_project_id:
+        raise HTTPException(status_code=404, detail="Quote building not found")
+    apt_repo = QuoteApartmentRepository(db)
+    existing_count = len(b.quote_apartments or [])
+    out = []
+    for i in range(data.count):
+        apt = QuoteApartment(
+            quote_building_id=building_id,
+            size_sqm=data.size_sqm,
+            sort_order=existing_count + i,
+        )
+        created = await apt_repo.create(apt)
+        out.append(QuoteApartmentOut.model_validate(created))
+    return out
 
 
 @router.post("/{quote_project_id}/buildings/{building_id}/apartments", response_model=QuoteApartmentOut)

@@ -26,6 +26,7 @@ from backend.models import (  # noqa: F401
     UnforeseenTransaction,
     UnforeseenTransactionExpense,
     QuoteStructureItem,
+    QuoteSubject,
     QuoteProject,
     QuoteLine,
 )
@@ -55,6 +56,9 @@ async def init_database(engine: AsyncEngine):
         
         # Run migration to add contract_duration_months to projects table if it doesn't exist
         await _add_contract_duration_months_to_projects(engine)
+        
+        # Run migration: quote_subjects table + quote_subject_id on quote_projects
+        await _add_quote_subjects(engine)
         
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
@@ -175,3 +179,49 @@ async def _add_contract_duration_months_to_projects(engine: AsyncEngine):
     except Exception as e:
         # Log but don't fail - column might already exist or there might be a constraint issue
         print(f"Note: Could not add contract_duration_months column (may already exist): {e}")
+
+
+async def _add_quote_subjects(engine: AsyncEngine):
+    """Create quote_subjects table and add quote_subject_id to quote_projects if not exist."""
+    try:
+        async with engine.begin() as conn:
+            # Check if quote_subjects table exists
+            check_table = text("""
+                SELECT 1 FROM information_schema.tables WHERE table_name = 'quote_subjects'
+            """)
+            result = await conn.execute(check_table)
+            table_exists = result.scalar_one_or_none() is not None
+            if not table_exists:
+                print("Creating quote_subjects table...")
+                await conn.execute(text("""
+                    CREATE TABLE quote_subjects (
+                        id SERIAL PRIMARY KEY,
+                        address VARCHAR(255),
+                        num_apartments INTEGER,
+                        num_buildings INTEGER,
+                        notes TEXT,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                """))
+                print("✓ Created quote_subjects table")
+            else:
+                print("✓ quote_subjects table already exists")
+            # Add quote_subject_id to quote_projects if not exists
+            check_col = text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'quote_projects' AND column_name = 'quote_subject_id'
+            """)
+            r2 = await conn.execute(check_col)
+            col_exists = r2.scalar_one_or_none() is not None
+            if not col_exists:
+                print("Adding quote_subject_id to quote_projects...")
+                await conn.execute(text("""
+                    ALTER TABLE quote_projects ADD COLUMN quote_subject_id INTEGER REFERENCES quote_subjects(id) ON DELETE RESTRICT
+                """))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_quote_projects_quote_subject_id ON quote_projects(quote_subject_id)"))
+                print("✓ Added quote_subject_id to quote_projects")
+            else:
+                print("✓ quote_subject_id already exists on quote_projects")
+    except Exception as e:
+        print(f"Note: Could not add quote_subjects (may already exist): {e}")

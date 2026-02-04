@@ -980,12 +980,39 @@ export interface QuoteBuilding {
   quote_apartments: QuoteApartment[]
 }
 
+// Quote subject (נושא הצעה) – project-like info for a quote: address, num_apartments, num_buildings, notes
+export interface QuoteSubject {
+  id: number
+  address: string | null
+  num_apartments: number | null
+  num_buildings: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteSubjectCreate {
+  address?: string | null
+  num_apartments?: number | null
+  num_buildings?: number | null
+  notes?: string | null
+}
+
+export interface QuoteSubjectUpdate {
+  address?: string | null
+  num_apartments?: number | null
+  num_buildings?: number | null
+  notes?: string | null
+}
+
 export interface QuoteProject {
   id: number
   name: string
   description: string | null
   parent_id: number | null
   project_id: number | null
+  quote_subject_id: number | null
+  quote_subject: QuoteSubject | null
   expected_start_date: string | null
   expected_income: number | null
   expected_expenses: number | null
@@ -1001,6 +1028,7 @@ export interface QuoteProject {
 }
 
 export interface QuoteProjectCreate {
+  quote_subject_id: number
   name: string
   description?: string | null
   parent_id?: number | null
@@ -1015,10 +1043,43 @@ export interface QuoteProjectUpdate {
   name?: string
   description?: string | null
   parent_id?: number | null
+  project_id?: number | null
+  quote_subject_id?: number | null
   expected_start_date?: string | null
   expected_income?: number | null
   expected_expenses?: number | null
   num_residents?: number | null
+}
+
+export class QuoteSubjectsAPI {
+  static async list(): Promise<QuoteSubject[]> {
+    const { data } = await api.get<QuoteSubject[]>('/quote-subjects')
+    return data
+  }
+
+  static async get(id: number): Promise<QuoteSubject> {
+    const { data } = await api.get<QuoteSubject>(`/quote-subjects/${id}`)
+    return data
+  }
+
+  static async create(payload: QuoteSubjectCreate): Promise<QuoteSubject> {
+    const { data } = await api.post<QuoteSubject>('/quote-subjects', payload)
+    return data
+  }
+
+  static async update(id: number, payload: QuoteSubjectUpdate): Promise<QuoteSubject> {
+    const { data } = await api.put<QuoteSubject>(`/quote-subjects/${id}`, payload)
+    return data
+  }
+
+  static async delete(id: number): Promise<void> {
+    await api.delete(`/quote-subjects/${id}`)
+  }
+
+  /** מחק פרויקט והצעות שבתוכו – דורש סיסמת מנהל */
+  static async deleteWithPassword(id: number, password: string): Promise<void> {
+    await api.post(`/quote-subjects/${id}/delete`, { password })
+  }
 }
 
 export interface QuoteLineCreate {
@@ -1047,6 +1108,11 @@ export interface QuoteApartmentCreate {
   sort_order?: number
 }
 
+export interface QuoteApartmentsBulkCreate {
+  count: number
+  size_sqm: number
+}
+
 export interface QuoteApartmentUpdate {
   size_sqm?: number
   sort_order?: number
@@ -1056,11 +1122,13 @@ export class QuoteProjectsAPI {
   static async list(
     parentId?: number | null,
     projectId?: number | null,
+    quoteSubjectId?: number | null,
     status?: 'draft' | 'approved'
   ): Promise<QuoteProject[]> {
     const params = new URLSearchParams()
     if (parentId != null) params.set('parent_id', String(parentId))
     if (projectId != null) params.set('project_id', String(projectId))
+    if (quoteSubjectId != null) params.set('quote_subject_id', String(quoteSubjectId))
     if (status) params.set('status', status)
     const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
     return data
@@ -1141,6 +1209,11 @@ export class QuoteProjectsAPI {
 
   static async addApartment(quoteProjectId: number, buildingId: number, payload: QuoteApartmentCreate): Promise<QuoteApartment> {
     const { data } = await api.post<QuoteApartment>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments`, payload)
+    return data
+  }
+
+  static async addApartmentsBulk(quoteProjectId: number, buildingId: number, payload: QuoteApartmentsBulkCreate): Promise<QuoteApartment[]> {
+    const { data } = await api.post<QuoteApartment[]>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/bulk`, payload)
     return data
   }
 
