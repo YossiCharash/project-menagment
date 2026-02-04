@@ -1,0 +1,61 @@
+"""Task model for Task Management Calendar with unique tagging logic."""
+from __future__ import annotations
+from datetime import datetime
+from sqlalchemy import String, DateTime, Text, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from backend.db.base import Base
+
+
+def generate_unique_tag() -> str:
+    """Generate a unique tag: timestamp (YYYYMMDDHHMMSS) + short UUID (8 chars)."""
+    import uuid
+    from datetime import datetime
+    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    short_uuid = uuid.uuid4().hex[:8]
+    return f"{ts}-{short_uuid}"
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), index=True)
+    start_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    end_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id"), nullable=False, index=True
+    )
+    unique_tag: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=generate_unique_tag
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    employee: Mapped["Employee"] = relationship(
+        "Employee", back_populates="tasks", lazy="selectin"
+    )
+    attachments: Mapped[list["TaskAttachment"]] = relationship(
+        "TaskAttachment", back_populates="task", cascade="all, delete-orphan"
+    )
+
+
+class TaskAttachment(Base):
+    """File attachment for a task - each attachment gets its own unique tag."""
+    __tablename__ = "task_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_path: Mapped[str] = mapped_column(String(512))
+    file_name: Mapped[str] = mapped_column(String(255))
+    unique_tag: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=generate_unique_tag
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    task: Mapped["Task"] = relationship("Task", back_populates="attachments")

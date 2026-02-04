@@ -26,6 +26,7 @@ import Suppliers from './pages/Suppliers'
 import SupplierDocuments from './pages/SupplierDocuments'
 import Settings from './pages/Settings'
 import UnforeseenTransactions from './pages/UnforeseenTransactions'
+import TaskCalendar from './pages/TaskCalendar'
 import { logout, fetchMe } from './store/slices/authSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -177,6 +178,7 @@ function AppContent() {
               <Route path="/price-quotes" element={<RequireAuth><PriceQuotes /></RequireAuth>} />
               <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
+              <Route path="/task-calendar" element={<RequireAuth><TaskCalendar /></RequireAuth>} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />

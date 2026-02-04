@@ -16,7 +16,8 @@ import {
   Building2,
   UserCog,
   Activity,
-  Receipt
+  Receipt,
+  Calendar
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { cn } from '../../lib/utils'
@@ -54,6 +55,12 @@ const getNavigationItems = (userRole?: string) => {
       href: '/price-quotes',
       icon: Receipt,
       description: 'בניית הצעות מחיר והמרה לפרויקטים'
+    },
+    {
+      name: 'יומן משימות',
+      href: '/task-calendar',
+      icon: Calendar,
+      description: 'ניהול משימות וקביעת פגישות'
     }
   ]
 
