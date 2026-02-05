@@ -1,6 +1,9 @@
 import { motion } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
+import api from '../lib/api'
 
 export interface DocumentToView {
+  id?: number
   file_path: string
   description?: string | null
   uploaded_at?: string | null
@@ -35,9 +38,56 @@ function isPdf(filePath: string): boolean {
 }
 
 export default function DocumentViewerModal({ isOpen, document: doc, onClose }: DocumentViewerModalProps) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const blobUrlRef = useRef<string | null>(null)
+
+  // When document has id (e.g. unforeseen transaction doc), fetch via API so auth is sent; then display via blob URL
+  useEffect(() => {
+    if (!isOpen || !doc) {
+      setBlobUrl(null)
+      setError(null)
+      return
+    }
+    if (!doc.id) {
+      setBlobUrl(null)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    api
+      .get(`/unforeseen-transactions/documents/${doc.id}/view`, { responseType: 'blob' })
+      .then((res) => {
+        if (cancelled) return
+        const url = URL.createObjectURL(res.data as Blob)
+        blobUrlRef.current = url
+        setBlobUrl(url)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err.response?.data?.detail || 'שגיאה בטעינת המסמך')
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+      setBlobUrl(null)
+    }
+  }, [isOpen, doc?.id, doc?.file_path])
+
   if (!isOpen || !doc) return null
 
-  const fileUrl = getFileUrl(doc.file_path)
+  const useViewEndpoint = Boolean(doc.id)
+  const fileUrl = useViewEndpoint && blobUrl ? blobUrl : getFileUrl(doc.file_path)
+  const isLoading = useViewEndpoint && loading
+  const hasError = useViewEndpoint && error
 
   return (
     <motion.div
@@ -70,7 +120,22 @@ export default function DocumentViewerModal({ isOpen, document: doc, onClose }: 
           </button>
         </div>
         <div className="flex-1 min-h-0 p-4 overflow-auto">
-          {isImage(doc.file_path) ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center min-h-[400px]">
+              <p className="text-gray-600 dark:text-gray-400">טוען מסמך...</p>
+            </div>
+          ) : hasError ? (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+              <p className="text-red-600 dark:text-red-400">{error}</p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                סגור
+              </button>
+            </div>
+          ) : isImage(doc.file_path) ? (
             <div className="flex items-center justify-center bg-gray-50 dark:bg-gray-900 rounded-lg p-4 min-h-[400px]">
               <img
                 src={fileUrl}

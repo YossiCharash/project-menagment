@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import Response
 from typing import Optional
+import mimetypes
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
@@ -55,6 +58,45 @@ async def list_unforeseen_transactions_by_contract_period(
     """List all unforeseen transactions for a contract period"""
     service = UnforeseenTransactionService(db)
     return await service.list_by_contract_period(contract_period_id)
+
+
+@router.get("/documents/{document_id}/view")
+async def view_unforeseen_document(
+    document_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    """Stream a document for viewing (for docs linked to unforeseen transaction expense/income). Enables opening documents in the site even when S3 is private."""
+    doc_repo = SupplierDocumentRepository(db)
+    doc = await doc_repo.get_by_id(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="מסמך לא נמצא")
+    if not doc.unforeseen_transaction_expense_id and not doc.unforeseen_transaction_income_id:
+        raise HTTPException(status_code=404, detail="מסמך לא שייך לעסקה לא צפויה")
+
+    file_path = doc.file_path
+    if not file_path:
+        raise HTTPException(status_code=404, detail="נתיב קובץ חסר")
+
+    s3 = S3Service()
+    content = await asyncio.to_thread(s3.get_file_content, file_path)
+    if not content:
+        raise HTTPException(status_code=404, detail="לא ניתן לטעון את הקובץ")
+
+    # Infer media type and filename for response
+    filename = file_path.split("/")[-1] if "/" in file_path else file_path
+    media_type, _ = mimetypes.guess_type(filename)
+    if not media_type:
+        media_type = "application/octet-stream"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @router.get("/by-resulting-transaction/{resulting_transaction_id}", response_model=dict)
