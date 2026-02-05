@@ -408,7 +408,7 @@ export default function UnforeseenTransactionDetailsModal({
                                         disabled={updatingStatus}
                                         className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                                     >
-                                        בצע
+                                        אשר כבוצע
                                     </button>
                                 </>
                             )}
@@ -420,7 +420,7 @@ export default function UnforeseenTransactionDetailsModal({
                                     disabled={updatingStatus}
                                     className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                                 >
-                                    בצע
+                                    אשר כבוצע
                                 </button>
                             )}
 
@@ -480,10 +480,10 @@ export default function UnforeseenTransactionDetailsModal({
                 isOpen={showExecuteConfirm}
                 onClose={() => setShowExecuteConfirm(false)}
                 onConfirm={handleExecute}
-                title="ביצוע עסקה"
-                message="האם אתה בטוח שברצונך לבצע את העסקה?"
+                title="אישור כבוצע"
+                message="האם אתה בטוח שברצונך לאשר ולבצע את העסקה?"
                 variant="warning"
-                confirmText="בצע"
+                confirmText="אשר כבוצע"
                 cancelText="ביטול"
                 loading={updatingStatus}
             />

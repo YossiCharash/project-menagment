@@ -37,6 +37,8 @@ interface TransactionRow {
   periodError: string | null
   // Unforeseen transaction fields
   isUnforeseen?: boolean
+  /** סטטוס לעסקה לא צפויה: טיוטה | מחכה לאישור | אשר כבוצע */
+  unforeseenStatus?: 'draft' | 'waiting_for_approval' | 'executed'
   incomes?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
   expenses?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
   contractPeriodId?: number | ''
@@ -83,6 +85,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       period_end_date: '',
       periodError: null,
       isUnforeseen: false,
+      unforeseenStatus: 'draft',
       incomes: [{ amount: '', description: '', documentFiles: [] }],
       expenses: [{ amount: '', description: '', documentFiles: [] }],
       contractPeriodId: ''
@@ -229,6 +232,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       period_end_date: '',
       periodError: null,
       isUnforeseen: false,
+      unforeseenStatus: 'draft',
       incomes: [{ amount: '', description: '', documentFiles: [] }],
       expenses: [{ amount: '', description: '', documentFiles: [] }],
       contractPeriodId: ''
@@ -245,6 +249,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           return {
             ...row,
             isUnforeseen: true,
+            unforeseenStatus: row.unforeseenStatus ?? 'draft',
             incomes: row.incomes?.length ? row.incomes : [{ amount: '', description: '', documentFiles: [] }],
             expenses: row.expenses?.length ? row.expenses : [{ amount: '', description: '', documentFiles: [] }],
             contractPeriodId: row.contractPeriodId || ''
@@ -253,6 +258,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         return {
           ...row,
           isUnforeseen: false,
+          unforeseenStatus: undefined,
           incomes: undefined,
           expenses: undefined,
           contractPeriodId: ''
@@ -862,6 +868,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             }
           }
 
+          const status = row.unforeseenStatus ?? 'draft'
+          if (status === 'waiting_for_approval') {
+            try {
+              await UnforeseenTransactionAPI.updateUnforeseenTransaction(unforeseenTx.id, { status: 'waiting_for_approval' })
+            } catch (err: any) {
+              results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בעדכון סטטוס למחכה לאישור'}`)
+            }
+          } else if (status === 'executed') {
+            try {
+              await UnforeseenTransactionAPI.executeUnforeseenTransaction(unforeseenTx.id)
+            } catch (err: any) {
+              results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה באישור כבוצע'}`)
+            }
+          }
+
           results.success++
           continue
         }
@@ -1208,6 +1229,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 <thead>
                   <tr className="bg-gray-100 dark:bg-gray-700/70 text-right text-xs font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
                     <th className="px-4 py-2.5 min-w-[110px]">סוג עסקה</th>
+                    <th className="px-4 py-2.5 min-w-[130px]">סטטוס</th>
                     <th className="px-4 py-2.5 min-w-[120px]">פרויקט</th>
                     <th className="px-4 py-2.5 min-w-[110px]">תת-פרויקט</th>
                     <th className="px-4 py-2.5 min-w-[120px]">תקופה / סוג</th>
@@ -1244,6 +1266,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                 <option value="unforeseen">לא צפויה</option>
                               </select>
                             </td>
+                            <td className="px-4 py-2 align-middle">
+                              <select value={row.unforeseenStatus ?? 'draft'} onChange={(e) => updateRow(row.id, 'unforeseenStatus', e.target.value as 'draft' | 'waiting_for_approval' | 'executed')} className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium h-[38px]" title="סטטוס לעסקה לא צפויה">
+                                <option value="draft">טיוטה</option>
+                                <option value="waiting_for_approval">מחכה לאישור</option>
+                                <option value="executed">אשר כבוצע</option>
+                              </select>
+                            </td>
                             <td className="px-4 py-2 align-middle"><select value={row.projectId} onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" required><option value="">בחר פרויקט</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
                             <td className="px-4 py-2 align-middle">
                               {isParentProject ? (
@@ -1268,7 +1297,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                             </td>
                           </tr>
                           <tr className={`${rowBgClass} border-b-4 border-gray-400 dark:border-gray-500`}>
-                            <td colSpan={9} className="px-4 py-3">
+                            <td colSpan={10} className="px-4 py-3">
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 <div className="space-y-2 p-3 rounded-lg bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800">
                                   <div className="flex items-center justify-between">
@@ -1325,7 +1354,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                           </tr>
                           {index < rows.length - 1 && (
                             <tr>
-                              <td colSpan={9} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                              <td colSpan={10} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
                             </tr>
                           )}
                         </React.Fragment>
@@ -1345,6 +1374,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                               <option value="unforeseen">לא צפויה</option>
                             </select>
                           </td>
+                          <td className="px-4 py-3 align-middle text-center text-gray-400 dark:text-gray-500 text-sm">—</td>
                           <td className="px-4 py-3 align-middle">
                             <select
                               value={row.projectId}
@@ -1645,7 +1675,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                         {/* רווח בין עסקאות */}
                         {index < rows.length - 1 && (
                           <tr>
-                            <td colSpan={9} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
+                            <td colSpan={10} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
                           </tr>
                         )}
                       </React.Fragment>

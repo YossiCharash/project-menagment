@@ -604,7 +604,7 @@ export default function CreateUnforeseenTransactionModal({
                                                 disabled={unforeseenSubmitting || unforeseenExpenses.some((e: any) => (e.documentFiles?.length ?? 0) > 0) || unforeseenIncomes.some((i: any) => (i.documentFiles?.length ?? 0) > 0)}
                                                 className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 font-medium transition-all hover:shadow-md active:scale-[0.98]"
                                             >
-                                                {unforeseenSubmitting ? 'מבצע...' : 'בצע'}
+                                                {unforeseenSubmitting ? 'מבצע...' : 'אשר כבוצע'}
                                             </button>
                                         )}
                                     </>
@@ -622,10 +622,10 @@ export default function CreateUnforeseenTransactionModal({
                     setShowExecuteConfirm(false)
                     onExecute()
                 }}
-                title="ביצוע עסקה"
-                message="האם אתה בטוח שברצונך לבצע את העסקה?"
+                title="אישור כבוצע"
+                message="האם אתה בטוח שברצונך לאשר ולבצע את העסקה?"
                 variant="warning"
-                confirmText="בצע"
+                confirmText="אשר כבוצע"
                 cancelText="ביטול"
                 loading={unforeseenSubmitting}
             />

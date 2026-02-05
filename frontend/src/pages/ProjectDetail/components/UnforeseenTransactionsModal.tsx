@@ -302,7 +302,7 @@ export default function UnforeseenTransactionsModal({
                                                     }}
                                                     className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                                                 >
-                                                    בצע
+                                                    אשר כבוצע
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -335,7 +335,7 @@ export default function UnforeseenTransactionsModal({
                                                     }}
                                                     className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                                                 >
-                                                    בצע
+                                                    אשר כבוצע
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -533,7 +533,15 @@ export default function UnforeseenTransactionsModal({
                                 )}
 
                                 {/* Actions */}
-                                <div className="flex items-center justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 flex-wrap">
+                                    {(selectedTransaction.status === 'draft' || selectedTransaction.status === 'waiting_for_approval') && (
+                                        <button
+                                            onClick={() => setExecuteConfirmState({ isOpen: true, transactionId: selectedTransaction.id })}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                                        >
+                                            אשר כבוצע
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => {
                                             setSelectedTransaction(null)
@@ -575,12 +583,13 @@ export default function UnforeseenTransactionsModal({
                     if (executeConfirmState.transactionId) {
                         await onExecuteTransaction(executeConfirmState.transactionId)
                         setExecuteConfirmState({ isOpen: false, transactionId: null })
+                        setSelectedTransaction(null)
                     }
                 }}
-                title="ביצוע עסקה"
-                message="האם אתה בטוח שברצונך לבצע את העסקה?"
+                title="אישור כבוצע"
+                message="האם אתה בטוח שברצונך לאשר ולבצע את העסקה?"
                 variant="warning"
-                confirmText="בצע"
+                confirmText="אשר כבוצע"
                 cancelText="ביטול"
             />
         </motion.div>
