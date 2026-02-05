@@ -53,6 +53,16 @@ export default {
         'slide-down': 'slideDown 0.3s ease-out',
         'scale-in': 'scaleIn 0.2s ease-out',
       },
+      fontSize: {
+        'fluid-sm': 'clamp(0.8125rem, 2vw + 0.5rem, 0.875rem)',
+        'fluid-base': 'clamp(0.875rem, 2vw + 0.5rem, 1rem)',
+        'fluid-lg': 'clamp(1rem, 2vw + 0.5rem, 1.125rem)',
+        'fluid-xl': 'clamp(1.125rem, 2vw + 0.5rem, 1.25rem)',
+        'fluid-2xl': 'clamp(1.25rem, 3vw + 0.5rem, 1.5rem)',
+      },
+      screens: {
+        'narrow': '767px',
+      },
       keyframes: {
         fadeIn: {
           '0%': { opacity: '0' },

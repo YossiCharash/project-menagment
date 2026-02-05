@@ -468,14 +468,12 @@ export default function Settings() {
             <p className="text-gray-600 dark:text-gray-400">ניהול הגדרות מערכת</p>
           </div>
 
-          {/* Tabs */}
-          <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex gap-4">
+          {/* Tabs - wrap so all items stay visible on narrow screens */}
+          <div className="settings-tabs-wrapper mb-6 border-b border-gray-200 dark:border-gray-700 min-w-0">
+            <div className="settings-tabs flex flex-wrap gap-2 sm:gap-4">
               <button
-                onClick={() => {
-                  setActiveTab('categories')
-                }}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                onClick={() => setActiveTab('categories')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
                   activeTab === 'categories'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -484,10 +482,8 @@ export default function Settings() {
                 ניהול קטגוריות
               </button>
               <button
-                onClick={() => {
-                  setActiveTab('suppliers')
-                }}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                onClick={() => setActiveTab('suppliers')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
                   activeTab === 'suppliers'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -496,10 +492,8 @@ export default function Settings() {
                 ניהול ספקים
               </button>
               <button
-                onClick={() => {
-                  setActiveTab('quoteStructure')
-                }}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                onClick={() => setActiveTab('quoteStructure')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
                   activeTab === 'quoteStructure'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -508,10 +502,8 @@ export default function Settings() {
                 חלוקת הצעת מחיר
               </button>
               <button
-                onClick={() => {
-                  setActiveTab('display')
-                }}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                onClick={() => setActiveTab('display')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
                   activeTab === 'display'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'

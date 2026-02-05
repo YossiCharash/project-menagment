@@ -1045,7 +1045,7 @@ export default function ProjectDetail() {
     }
 
     return (
-        <div className="space-y-8 relative">
+        <div className="project-detail-page space-y-8 relative px-4 md:px-6">
             {/* Loading Overlay */}
             <LoadingOverlay loading={state.loading} updatingProject={state.updatingProject} />
 
@@ -1132,8 +1132,8 @@ export default function ProjectDetail() {
             />
 
 
-            {/* Main content - consistent width */}
-            <div className="w-full max-w-7xl mx-auto space-y-6">
+            {/* Main content - consistent width; grid/flex children wrap as whole blocks */}
+            <div className="project-detail-main-content w-full max-w-7xl mx-auto space-y-6">
             {/* KPIs - Compact row */}
             <FinancialSummary
                 income={income}
@@ -1141,10 +1141,10 @@ export default function ProjectDetail() {
                 fundBalance={state.fundData?.current_balance}
             />
 
-            {/* Main dashboard: Chart + Fund & Unforeseen side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-6">
+            {/* Main dashboard: Chart + Fund & Unforeseen side by side; wrap as whole blocks */}
+            <div className="project-detail-grid-dashboard grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-6">
                 {/* Left: Trends chart (wider) */}
-                <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-5 overflow-hidden min-h-[260px]">
+                <div className="project-detail-section project-detail-card lg:col-span-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-5 overflow-hidden min-h-[260px] min-w-0">
                     <ProjectTrendsChart
                         projectId={parseInt(id || '0')}
                         projectName={state.projectName}
@@ -1160,7 +1160,7 @@ export default function ProjectDetail() {
                     />
                 </div>
                 {/* Right: Fund + Unforeseen */}
-                <div id="project-fund" className="lg:col-span-2 flex flex-col min-h-[260px]">
+                <div id="project-fund" className="project-detail-section project-detail-card lg:col-span-2 flex flex-col min-h-[260px] min-w-0">
                     <FundAndUnforeseenPanel
                         fundData={state.fundData}
                         fundLoading={state.fundLoading}
@@ -1191,9 +1191,9 @@ export default function ProjectDetail() {
                 </div>
             </div>
 
-            {/* Budgets + Transactions - side by side; when no room, list drops to next row and keeps size */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_minmax(20rem,28rem)] gap-6 items-start">
-                <div className="min-w-0">
+            {/* Budgets + Transactions - side by side; when no room, blocks wrap to next row */}
+            <div className="project-detail-grid-budgets grid grid-cols-1 xl:grid-cols-[1fr_minmax(20rem,28rem)] gap-6 items-start">
+                <div className="project-detail-section min-w-0">
                     <BudgetsAndCharts
                         chartsLoading={state.chartsLoading}
                         projectBudgets={state.projectBudgets}
@@ -1202,7 +1202,7 @@ export default function ProjectDetail() {
                         onEditBudget={handleStartEditBudget}
                     />
                 </div>
-                <div id="project-transactions" className="w-full min-w-0 max-w-[28rem] mx-auto xl:max-w-none xl:mx-0">
+                <div id="project-transactions" className="project-detail-section project-detail-card w-full min-w-0 max-w-[28rem] mx-auto xl:max-w-none xl:mx-0">
                     <TransactionsList
                     txs={state.txs}
                     loading={state.loading}

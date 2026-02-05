@@ -58,30 +58,82 @@
   }
   html {
     direction: rtl;
+    /* Dynamic base font size for responsive clamp() */
+    font-size: clamp(14px, 2vw, 16px);
   }
   body {
     @apply bg-background text-foreground;
     direction: rtl;
     font-feature-settings: "rlig" 1, "calt" 1;
-    word-break: break-word;
-    overflow-wrap: break-word;
+    /* Prevent mid-word break in UI; break only between words */
+    word-break: keep-all;
+    overflow-wrap: normal;
     text-align: right;
   }
-  
-  /* Ensure Hebrew text wraps properly */
-  [dir="rtl"], 
+
+  /* Long-form content (descriptions, notes) may break words if needed */
+  .text-content-long {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Ensure Hebrew text wraps at word boundaries, not mid-word */
+  [dir="rtl"],
   body[dir="rtl"] * {
     direction: rtl;
     text-align: right;
-    word-break: break-word;
-    overflow-wrap: break-word;
-    hyphens: auto;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    hyphens: none;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Prevent text from breaking mid-word (labels, buttons, short UI text) */
+  .text-no-break-mid {
+    word-break: keep-all;
+    white-space: nowrap;
+  }
+  .text-wrap-words {
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  /* Flex container: children wrap as whole blocks, don't shrink */
+  .layout-wrap-blocks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .layout-wrap-blocks > * {
+    flex-shrink: 0;
+    min-width: fit-content;
+  }
+}
+
+/* Mobile: reduce padding and font size below 768px */
+@media (max-width: 767px) {
+  .project-detail-page {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  .project-detail-card,
+  .project-detail-section {
+    padding: 0.75rem 1rem !important;
+  }
+  .project-detail-heading {
+    font-size: clamp(0.9rem, 4vw, 1.125rem) !important;
+  }
+  .project-detail-body {
+    font-size: clamp(0.8125rem, 2.5vw, 0.9375rem) !important;
+  }
+  .project-detail-button {
+    padding: 0.5rem 0.75rem !important;
+    font-size: clamp(0.75rem, 2vw, 0.875rem) !important;
   }
 }
 

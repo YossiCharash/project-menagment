@@ -248,21 +248,21 @@ export default function TransactionsList({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 }}
-      className="lg:col-span-1 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex flex-col max-h-[480px] overflow-hidden"
+      className="transactions-list-card project-detail-card lg:col-span-1 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex flex-col max-h-[480px] overflow-hidden min-w-0"
     >
-      <div className="mb-4 flex-shrink-0">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+      <div className="transactions-list-header mb-4 flex-shrink-0">
+        <h2 className="transactions-list-title project-detail-heading text-fluid-xl font-bold text-gray-900 dark:text-white mb-2 whitespace-nowrap">
           רשימת עסקאות
         </h2>
       </div>
-      <div className="flex flex-col flex-1 min-h-0">
-        <div className="border border-gray-200 dark:border-gray-700 rounded-xl flex flex-col flex-1 min-h-0">
-          <div className="bg-gray-50 dark:bg-gray-700 px-6 py-4 border-b border-gray-200 dark:border-gray-600 flex-shrink-0">
+      <div className="flex flex-col flex-1 min-h-0 min-w-0">
+        <div className="border border-gray-200 dark:border-gray-700 rounded-xl flex flex-col flex-1 min-h-0 min-w-0">
+          <div className="transactions-list-filters bg-gray-50 dark:bg-gray-700 px-6 py-4 border-b border-gray-200 dark:border-gray-600 flex-shrink-0">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end mb-4">
               <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="transactions-list-filter-group flex items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0">
                   <select
-                    className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-nowrap"
+                    className="transactions-list-select px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-fluid-sm focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-nowrap"
                     value={filterType}
                     onChange={e => onSetFilterType(e.target.value as 'all' | 'Income' | 'Expense' | 'unforeseen')}
                   >
@@ -271,7 +271,7 @@ export default function TransactionsList({
                     <option value="Expense">הוצאות</option>
                     <option value="unforeseen">עסקאות לא צפויות</option>
                   </select>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  <label className="transactions-list-filter-label flex items-center gap-2 text-fluid-sm text-gray-700 dark:text-gray-300 whitespace-nowrap shrink-0">
                     <input
                       type="checkbox"
                       checked={filterExceptional === 'only'}
@@ -280,7 +280,7 @@ export default function TransactionsList({
                     />
                     רק חריגות
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  <label className="transactions-list-filter-label flex items-center gap-2 text-fluid-sm text-gray-700 dark:text-gray-300 whitespace-nowrap shrink-0">
                     <input
                       type="checkbox"
                       checked={filterDated === 'only'}
@@ -290,11 +290,11 @@ export default function TransactionsList({
                     רק תאריכיות
                   </label>
                 </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <div className="shrink-0">
+                  <label className="transactions-list-filter-label flex items-center gap-2 text-fluid-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
                     <span>קטגוריה:</span>
                     <select
-                      className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="transactions-list-select px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-fluid-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={categoryFilter}
                       onChange={(e) => onSetCategoryFilter(e.target.value)}
                     >
@@ -361,49 +361,42 @@ export default function TransactionsList({
                   // Use monthKey for period transactions to ensure unique keys
                   const uniqueKey = (tx as any).monthKey ? `${tx.id}-${(tx as any).monthKey}` : tx.id
                   return (
-                    <div key={uniqueKey} className="border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md transition-shadow cursor-pointer">
+                    <div key={uniqueKey} className="transactions-list-item border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md transition-shadow cursor-pointer min-w-0">
                       <button
-                        className="w-full px-4 py-3 text-right flex items-center gap-2 sm:gap-4 justify-between min-w-0"
+                        type="button"
+                        className="transactions-list-item-btn w-full px-4 py-3 text-right flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 min-w-0"
                         onClick={() => onShowTransactionDetails(tx)}
                       >
-                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 ${tx.type === 'Income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {tx.type === 'Income' ? 'הכנסה' : 'הוצאה'}
-                          </span>
-                          {tx.is_generated && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800 whitespace-nowrap flex-shrink-0">
-                              מחזורי
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 flex-1 justify-between sm:justify-start">
+                          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${tx.type === 'Income' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                              {tx.type === 'Income' ? 'הכנסה' : 'הוצאה'}
                             </span>
-                          )}
-                          {tx.is_unforeseen && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800 whitespace-nowrap flex-shrink-0">
-                              לא צפויה
-                            </span>
-                          )}
-                          {tx.period_start_date && tx.period_end_date ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 whitespace-nowrap flex-shrink-0" key={`dated-${tx.id}`}>
-                              תאריכית
-                            </span>
-                          ) : null}
-                          <span className="text-sm text-gray-600 dark:text-gray-300 truncate min-w-0">
-                            {tx.is_unforeseen && tx.description ? (
-                              tx.description
-                            ) : (() => {
-                              const catName = getCategoryName(tx.category);
-                              return catName ? (CATEGORY_LABELS[catName] || catName) : '-';
-                            })()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-                          <div className="text-right">
-                            <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(tx.tx_date)}</div>
+                            {tx.is_generated && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800 whitespace-nowrap">
+                                מחזורי
+                              </span>
+                            )}
+                            {tx.is_unforeseen && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800 whitespace-nowrap">
+                                לא צפויה
+                              </span>
+                            )}
                             {tx.period_start_date && tx.period_end_date ? (
-                              <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`} dir="ltr">
-                                {formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} – {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
-                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 whitespace-nowrap" key={`dated-${tx.id}`}>
+                                תאריכית
+                              </span>
                             ) : null}
                           </div>
-                          <div className="text-right">
+                          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                            <div className="text-right">
+                              <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(tx.tx_date)}</div>
+                              {tx.period_start_date && tx.period_end_date ? (
+                                <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" key={`dates-${tx.id}`} dir="ltr">
+                                  {formatDate(tx.period_start_date, '', {day: '2-digit', month: '2-digit'})} – {formatDate(tx.period_end_date, '', {day: '2-digit', month: '2-digit'})}
+                                </div>
+                              ) : null}
+                            </div>
                             <span className={`text-lg font-semibold whitespace-nowrap ${tx.type === 'Income' ? 'text-green-600' : 'text-red-600'}`}>
                               {formatCurrency((tx as any).proportionalAmount !== undefined ? (tx as any).proportionalAmount : tx.amount)} ₪
                             </span>
@@ -413,6 +406,14 @@ export default function TransactionsList({
                               </div>
                             )}
                           </div>
+                        </div>
+                        <div className="transactions-list-item-desc text-sm text-gray-600 dark:text-gray-300 min-w-0 text-wrap-words line-clamp-2">
+                          {tx.is_unforeseen && tx.description ? (
+                            tx.description
+                          ) : (() => {
+                            const catName = getCategoryName(tx.category);
+                            return catName ? (CATEGORY_LABELS[catName] || catName) : '-';
+                          })()}
                         </div>
                       </button>
                     </div>
