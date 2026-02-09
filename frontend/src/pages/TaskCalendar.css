@@ -467,6 +467,19 @@
   margin-right: 0.75em;
 }
 
+/* ---- Custom Hebrew prev/next/today buttons: match standard FullCalendar buttons ---- */
+.task-calendar-wrap .fc .fc-hebrewPrev-button,
+.task-calendar-wrap .fc .fc-hebrewNext-button {
+  font-size: 1.25rem !important;
+  line-height: 1 !important;
+  padding: 0.4rem 0.75rem !important;
+  min-width: 2rem !important;
+}
+
+.task-calendar-wrap .fc .fc-hebrewToday-button {
+  font-size: 0.875rem !important;
+}
+
 /* Drag mirror appended to body: use LTR so left/top follow cursor correctly in RTL */
 body > .fc-event-dragging {
   direction: ltr;

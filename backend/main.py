@@ -21,11 +21,82 @@ from backend.models import (  # noqa: F401
 # Also import base_models to ensure all models are loaded
 from backend.db import base_models  # noqa: F401
 
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 from backend.api.v1.router import api_router
 from backend.core.config import settings
 from backend.db.session import engine
 from backend.db.base import Base
 from backend.db.init_db import init_database
+
+# Regex: allow http(s)://localhost or 127.0.0.1 with optional port
+_CORS_LOCALHOST_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", re.IGNORECASE)
+
+
+class PreflightCORSMiddleware:
+    """
+    ASGI middleware that runs first (add it last) and responds to CORS preflight
+    (OPTIONS) with valid headers. Fixes 'Access-Control-Allow-Origin Missing Header'
+    when the request might not reach FastAPI (e.g. proxy) or when other middleware order varies.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    @staticmethod
+    def _origin_allowed(origin: str | None) -> bool:
+        if not origin or not origin.strip():
+            return False
+        o = origin.strip().rstrip("/")
+        if _CORS_LOCALHOST_RE.match(o):
+            return True
+        if o in settings.CORS_ORIGINS:
+            return True
+        if o.replace("https://ziposystem.co.il", "https://www.ziposystem.co.il") in settings.CORS_ORIGINS:
+            return True
+        if o.replace("https://www.ziposystem.co.il", "https://ziposystem.co.il") in settings.CORS_ORIGINS:
+            return True
+        return False
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "")
+        headers = scope.get("headers") or []
+        headers_dict = {k.decode().lower(): v.decode() for k, v in headers}
+        raw_origin = (headers_dict.get("origin") or "").strip()
+        origin_normalized = raw_origin.rstrip("/") if raw_origin else ""
+        acrm = headers_dict.get("access-control-request-method")
+        acrh = headers_dict.get("access-control-request-headers", "")
+
+        if method == "OPTIONS" and acrm:
+            if not self._origin_allowed(raw_origin or origin_normalized):
+                await self._send_response(send, 403, [], b"CORS origin not allowed")
+                return
+            allow_origin = origin_normalized or raw_origin
+            if not allow_origin:
+                await self._send_response(send, 400, [], b"Missing Origin")
+                return
+            cors_headers = [
+                (b"access-control-allow-origin", allow_origin.encode("utf-8")),
+                (b"access-control-allow-methods", b"GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"),
+                (b"access-control-allow-headers", (acrh or "*").encode()),
+                (b"access-control-max-age", b"3600"),
+                (b"access-control-allow-credentials", b"true"),
+            ]
+            await self._send_response(send, 204, cors_headers, b"")
+            return
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _send_response(send: Send, status: int, headers: list, body: bytes) -> None:
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": headers,
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 @asynccontextmanager
@@ -166,17 +237,21 @@ def create_app() -> FastAPI:
             content={"detail": "Internal Server Error. Please contact support."},
         )
 
-    # Add CORS middleware FIRST, before any other middleware
-    # This ensures CORS headers are set for all requests including preflight
+    # Standard CORS middleware (runs after PreflightCORSMiddleware).
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
         allow_headers=["*"],
         expose_headers=["*"],
-        max_age=3600,  # Cache preflight requests for 1 hour
+        max_age=3600,
     )
+
+    # CORS preflight: add LAST so it runs FIRST (outermost). Handles OPTIONS and returns
+    # 204 with valid Access-Control-* headers so the browser never sees "Missing Header".
+    app.add_middleware(PreflightCORSMiddleware)
 
     @app.middleware("http")
     async def resolve_trailing_slash(request, call_next):
@@ -197,6 +272,8 @@ def create_app() -> FastAPI:
         response = await call_next(request)
         return response
     
+    _localhost_regex = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+
     @app.middleware("http")
     async def add_cors_debug_headers(request, call_next):
         """
@@ -204,33 +281,22 @@ def create_app() -> FastAPI:
         """
         origin = request.headers.get("origin")
         method = request.method
-        
-        if origin:
-            # Check if origin is in allowed list (with or without www)
-            origin_normalized = origin.rstrip("/")
-            origin_with_www = origin_normalized.replace("https://ziposystem.co.il", "https://www.ziposystem.co.il")
-            origin_without_www = origin_normalized.replace("https://www.ziposystem.co.il", "https://ziposystem.co.il")
-            
-            is_allowed = (
-                origin_normalized in settings.CORS_ORIGINS or
-                origin_with_www in settings.CORS_ORIGINS or
-                origin_without_www in settings.CORS_ORIGINS
-            )
-        
+
         response = await call_next(request)
-        
+
         # Ensure CORS headers are set for allowed origins
         if origin:
             origin_normalized = origin.rstrip("/")
             origin_with_www = origin_normalized.replace("https://ziposystem.co.il", "https://www.ziposystem.co.il")
             origin_without_www = origin_normalized.replace("https://www.ziposystem.co.il", "https://ziposystem.co.il")
-            
+            is_localhost = bool(_localhost_regex.match(origin_normalized))
             is_allowed = (
-                origin_normalized in settings.CORS_ORIGINS or
-                origin_with_www in settings.CORS_ORIGINS or
-                origin_without_www in settings.CORS_ORIGINS
+                is_localhost
+                or origin_normalized in settings.CORS_ORIGINS
+                or origin_with_www in settings.CORS_ORIGINS
+                or origin_without_www in settings.CORS_ORIGINS
             )
-            
+
             if is_allowed:
                 # Ensure CORS headers are present
                 if "Access-Control-Allow-Origin" not in response.headers:

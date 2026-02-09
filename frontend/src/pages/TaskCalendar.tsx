@@ -12,8 +12,8 @@ import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X } from 'lucide-react'
 import Modal from '../components/Modal'
 import { cn } from '../lib/utils'
-import { fetchMe } from '../store/slices/authSlice'
-import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, type CalendarDateDisplay } from '../lib/calendarUtils'
+import { fetchMe, updateUser } from '../store/slices/authSlice'
+import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
 
 export interface UserForTask {
@@ -382,8 +382,6 @@ export default function TaskCalendar() {
 
   const lastEventClickRef = useRef<{ id: string; time: number } | null>(null)
   const calendarRef = useRef<InstanceType<typeof FullCalendar>>(null)
-  /** When switching עברי/לועזי/עברי ולועזי, we navigate once to this date so the calendar doesn't jump twice. */
-  const pendingGotoDateAfterDisplayChange = useRef<Date | null>(null)
   /** Drag to edge of month view to go prev/next month: timeout and cooldown. */
   const edgeNavTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastEdgeNavTimeRef = useRef<number>(0)
@@ -391,6 +389,8 @@ export default function TaskCalendar() {
   const edgeZoneRef = useRef<'left' | 'right' | null>(null)
   const currentViewTypeRef = useRef(currentViewType)
   currentViewTypeRef.current = currentViewType
+  /** Anchor date = midpoint of visible range; survives display-mode switches. */
+  const anchorDateRef = useRef<Date>(dateRange?.start ?? new Date())
 
   const handleEventClick = (info: EventClickArg) => {
     if (info.event.id.startsWith('jewish-') || info.event.id.startsWith('islamic-')) return
@@ -443,47 +443,47 @@ export default function TaskCalendar() {
   }
 
   // Update toolbar title when switching hebrew/gregorian display (datesSet handles date navigation)
-  // In Hebrew month view, use last day of range for header so we show one month (e.g. "שבט תשפ״ו") not two
+  // In Hebrew month view, use the middle of the range to determine the current month header.
+  // We use a MutationObserver because FullCalendar may re-render its own Gregorian title
+  // after our manual override, causing both titles to appear together.
   useEffect(() => {
-    if (currentViewType !== 'dayGridMonth' || !dateRange?.start) return
+    if (currentViewType !== 'dayGridMonth' || !dateRange?.start || !dateRange?.end) return
     const el = document.querySelector('.task-calendar-wrap .fc-toolbar-title')
     if (!el) return
+
+    let desiredTitle: string
     if (localCalendarDateDisplay === 'hebrew' || localCalendarDateDisplay === 'both') {
-      const lastDay = dateRange.end ? new Date(dateRange.end.getTime() - 86400000) : undefined
-      el.textContent = getHebrewMonthYearHeader(dateRange.start, lastDay)
+      const midDate = new Date((dateRange.start.getTime() + dateRange.end.getTime()) / 2)
+      desiredTitle = getHebrewMonthYearHeader(midDate)
     } else {
-      el.textContent = dateRange.start.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
+      desiredTitle = dateRange.start.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
     }
+
+    const applyTitle = () => {
+      if (el.textContent !== desiredTitle) {
+        el.textContent = desiredTitle
+      }
+    }
+    applyTitle()
+
+    // Watch for FullCalendar overwriting our title and re-apply
+    const observer = new MutationObserver(applyTitle)
+    observer.observe(el, { childList: true, characterData: true, subtree: true })
+    return () => observer.disconnect()
   }, [localCalendarDateDisplay, currentViewType, dateRange?.start, dateRange?.end])
 
   const handleDatesSet = (arg: DatesSetArg) => {
     const viewType = arg.view?.type ?? 'dayGridMonth'
-    const viewJustChanged = viewType !== currentViewTypeRef.current
     setCurrentViewType(viewType)
-    // When only the view type changed (month → week → day etc.), keep the same date so the
-    // remounted calendar gets initialDate=dateRange.start and stays on the same period.
-    if (viewJustChanged) {
-      return
-    }
+    // Keep anchor date at the midpoint of the visible range so switching
+    // display modes (Hebrew ↔ Gregorian) stays on the same period.
+    anchorDateRef.current = new Date((arg.start.getTime() + arg.end.getTime()) / 2)
     setDateRange(prev => {
       const newStart = arg.start.getTime()
       const newEnd = arg.end.getTime()
       if (prev && prev.start.getTime() === newStart && prev.end.getTime() === newEnd) return prev
       return { start: arg.start, end: arg.end }
     })
-    // Update toolbar title: Hebrew month when hebrew/both (single month), else Gregorian
-    if (viewType === 'dayGridMonth') {
-      setTimeout(() => {
-        const el = document.querySelector('.task-calendar-wrap .fc-toolbar-title')
-        if (!el) return
-        if (localCalendarDateDisplay === 'hebrew' || localCalendarDateDisplay === 'both') {
-          const lastDay = arg.end ? new Date(arg.end.getTime() - 86400000) : undefined
-          el.textContent = getHebrewMonthYearHeader(arg.start, lastDay)
-        } else {
-          el.textContent = arg.start.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
-        }
-      }, 0)
-    }
   }
 
   const toDateTimeLocal = (d: Date) => {
@@ -875,45 +875,25 @@ export default function TaskCalendar() {
   }
 
   const handleCalendarDateDisplayChange = async (value: CalendarDateDisplay) => {
-    const calApi = calendarRef.current?.getApi()
-    const viewStart = calApi?.view?.currentStart ?? dateRange?.start ?? new Date()
-    if (currentViewType === 'dayGridMonth') {
-      if (value === 'hebrew' || value === 'both') {
-        const range = getHebrewMonthRange(viewStart)
-        if (range) pendingGotoDateAfterDisplayChange.current = range.start
-      } else {
-        pendingGotoDateAfterDisplayChange.current = new Date(viewStart.getFullYear(), viewStart.getMonth(), 1)
-      }
-    }
     setLocalCalendarDateDisplay(value)
     try {
       sessionStorage.setItem('taskCalendarDateDisplay', value)
     } catch {
       /* ignore */
     }
+    // Optimistically update Redux store to avoid "revert" flicker from useEffect
+    dispatch(updateUser({ calendar_date_display: value }))
+    
     try {
       await api.patch('/users/me', { calendar_date_display: value })
-      dispatch(fetchMe())
+      // No need to fetchMe() here, we already updated locally.
+      // This prevents the global loading spinner and full page refresh.
     } catch {
+      // Revert if failed
       setLocalCalendarDateDisplay((me?.calendar_date_display as CalendarDateDisplay) ?? 'gregorian')
-      pendingGotoDateAfterDisplayChange.current = null
+      dispatch(updateUser({ calendar_date_display: (me?.calendar_date_display as CalendarDateDisplay) ?? 'gregorian' }))
     }
   }
-
-  // After switching עברי/לועזי/עברי ולועזי, navigate once to the right month so the view stays relevant (no double jump)
-  useEffect(() => {
-    const target = pendingGotoDateAfterDisplayChange.current
-    if (target == null) return
-    pendingGotoDateAfterDisplayChange.current = null
-    const cal = calendarRef.current?.getApi()
-    if (!cal?.view) return
-    const t = new Date(target.getTime())
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (calendarRef.current) calendarRef.current.getApi()?.gotoDate(t)
-      })
-    })
-  }, [localCalendarDateDisplay])
 
   const calendarDateDisplay = localCalendarDateDisplay
   const showJewishHolidays = me?.show_jewish_holidays ?? true
@@ -932,6 +912,8 @@ export default function TaskCalendar() {
     return { start: range.start, end }
   }, [])
 
+  const isHebrewMode = calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both'
+
   const hebrewMonthViews = useMemo(() => {
     const base: Record<string, object> = {
       timeGridWorkWeek: {
@@ -940,16 +922,60 @@ export default function TaskCalendar() {
         buttonText: 'שבוע עבודה',
       },
     }
-    if (calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both') {
+    if (isHebrewMode) {
       base.dayGridMonth = {
         fixedWeekCount: false,
         showNonCurrentDates: false,
-        dateIncrement: { days: 30 }, // Hebrew months are 29–30 days; stabilizes prev/next navigation
         visibleRange: hebrewVisibleRange,
       }
     }
     return base
-  }, [calendarDateDisplay, hebrewVisibleRange])
+  }, [isHebrewMode, hebrewVisibleRange])
+
+  /**
+   * Custom prev/next/today buttons for Hebrew mode.
+   * Standard FullCalendar prev/next computes dateIncrement from the visible range duration,
+   * which breaks for variable-length Hebrew months (29–30 days) – going back from a 30-day
+   * month can skip a 29-day month entirely.
+   * These custom buttons always navigate to the exact adjacent Hebrew month.
+   */
+  const hebrewCustomButtons = useMemo(() => {
+    if (!isHebrewMode) return undefined
+    return {
+      hebrewPrev: {
+        text: '‹',
+        click: () => {
+          const cal = calendarRef.current?.getApi()
+          if (!cal) return
+          if (cal.view.type === 'dayGridMonth') {
+            const prevStart = getPrevHebrewMonthStart(cal.getDate())
+            cal.gotoDate(prevStart)
+          } else {
+            cal.prev()
+          }
+        },
+      },
+      hebrewNext: {
+        text: '›',
+        click: () => {
+          const cal = calendarRef.current?.getApi()
+          if (!cal) return
+          if (cal.view.type === 'dayGridMonth') {
+            const nextStart = getNextHebrewMonthStart(cal.getDate())
+            cal.gotoDate(nextStart)
+          } else {
+            cal.next()
+          }
+        },
+      },
+      hebrewToday: {
+        text: 'היום',
+        click: () => {
+          calendarRef.current?.getApi()?.today()
+        },
+      },
+    }
+  }, [isHebrewMode])
 
   const holidayEvents =
     dateRange?.start && dateRange?.end
@@ -1254,13 +1280,13 @@ export default function TaskCalendar() {
                 >
             <FullCalendar
               ref={calendarRef}
-              key={`${currentViewType}-${calendarDateDisplay}-${calendarRefreshKey}`}
+              key={`${calendarDateDisplay}-${calendarRefreshKey}`}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
               initialView={currentViewType}
               initialDate={
                 (calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both') && currentViewType === 'dayGridMonth'
-                  ? (getHebrewMonthRange(dateRange?.start ?? new Date())?.start ?? dateRange?.start) ?? undefined
-                  : dateRange?.start ?? undefined
+                  ? (getHebrewMonthRange(anchorDateRef.current)?.start ?? anchorDateRef.current)
+                  : anchorDateRef.current
               }
               events={events}
               dayCellContent={(arg) => {
@@ -1336,10 +1362,11 @@ export default function TaskCalendar() {
                   html: `<div class="fc-event-main-frame"><div class="fc-event-title-container"><div class="fc-event-title fc-sticky">${String(title).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div></div><div class="fc-event-labels" style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${pills}</div></div>`,
                 }
               }}
+              customButtons={hebrewCustomButtons}
               headerToolbar={{
                 start: 'timeGridDay,timeGridWeek,timeGridWorkWeek,dayGridMonth,listWeek',
                 center: 'title',
-                end: 'prev,next today',
+                end: isHebrewMode ? 'hebrewPrev,hebrewNext hebrewToday' : 'prev,next today',
               }}
               views={hebrewMonthViews}
               buttonText={{
