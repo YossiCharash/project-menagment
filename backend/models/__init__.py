@@ -24,7 +24,8 @@ from backend.models.quote_structure_item import QuoteStructureItem
 from backend.models.quote_subject import QuoteSubject
 from backend.models.quote_project import QuoteProject
 from backend.models.quote_line import QuoteLine
-from backend.models.task import Task, TaskAttachment
+from backend.models.task import Task, TaskLabel, TaskAttachment, TaskParticipant
+from backend.models.user_notification import UserNotification
 from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
 from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
@@ -61,7 +62,10 @@ __all__ = [
     "QuoteBuilding",
     "QuoteApartment",
     "Task",
+    "TaskLabel",
     "TaskAttachment",
+    "TaskParticipant",
+    "UserNotification",
     "OutlookSync",
     "GroupTransactionDraft",
     "GroupTransactionDraftDocument",

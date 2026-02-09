@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useLocation } from 'react-router-dom'
 import { 
@@ -17,12 +17,14 @@ import {
   UserCog,
   Activity,
   Receipt,
-  Calendar
+  Calendar,
+  Bell
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { cn } from '../../lib/utils'
-import { useSelector } from 'react-redux'
-import type { RootState } from '../../store'
+import { useSelector, useDispatch } from 'react-redux'
+import type { RootState, AppDispatch } from '../../store'
+import { fetchUnreadCount } from '../../store/slices/notificationsSlice'
 import { Logo } from './Logo'
 
 interface SidebarProps {
@@ -61,13 +63,19 @@ const getNavigationItems = (userRole?: string) => {
       href: '/task-calendar',
       icon: Calendar,
       description: 'ניהול משימות וקביעת פגישות'
+    },
+    {
+      name: 'הודעות',
+      href: '/notifications',
+      icon: Bell,
+      description: 'הוראות, משימות ותזכורות'
     }
   ]
 
   // Add admin-only items
   if (userRole === 'Admin') {
     baseItems.push({
-      name: 'יומן פעילות',
+      name: 'היסטורית פעילות',
       href: '/audit-logs',
       icon: Activity,
       description: 'מעקב אחר כל הפעולות במערכת'
@@ -90,7 +98,7 @@ const getNavigationItems = (userRole?: string) => {
     name: 'הגדרות',
     href: '/settings',
     icon: Settings,
-    description: 'הגדרות מערכת ומשתמש'
+    description: 'אזור אישי, הגדרות מערכת ומשתמש'
   })
 
   return baseItems
@@ -98,9 +106,15 @@ const getNavigationItems = (userRole?: string) => {
 
 export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const location = useLocation()
+  const dispatch = useDispatch<AppDispatch>()
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
+  const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
   const navigationItems = getNavigationItems(me?.role)
+
+  useEffect(() => {
+    if (me) dispatch(fetchUnreadCount())
+  }, [dispatch, me])
 
   return (
     <motion.aside
@@ -158,16 +172,23 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
               key={item.name}
               to={item.href}
               className={cn(
-                "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative",
                 isActive
                   ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                   : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               )}
             >
-              <Icon className={cn(
-                "w-5 h-5 flex-shrink-0",
-                isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
-              )} />
+              <span className="relative flex-shrink-0">
+                <Icon className={cn(
+                  "w-5 h-5",
+                  isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                )} />
+                {item.href === '/notifications' && unreadNotifications > 0 && (
+                  <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
+              </span>
               
               <AnimatePresence>
                 {!isCollapsed && (
@@ -238,6 +259,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
+  const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
   const navigationItems = getNavigationItems(me?.role)
 
   return (
@@ -284,16 +306,23 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     to={item.href}
                     onClick={onClose}
                     className={cn(
-                      "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                      "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative",
                       isActive
                         ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                     )}
                   >
-                    <Icon className={cn(
-                      "w-5 h-5 flex-shrink-0",
-                      isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
-                    )} />
+                    <span className="relative flex-shrink-0">
+                      <Icon className={cn(
+                        "w-5 h-5",
+                        isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                      )} />
+                      {item.href === '/notifications' && unreadNotifications > 0 && (
+                        <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
+                          {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                        </span>
+                      )}
+                    </span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{item.name}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">

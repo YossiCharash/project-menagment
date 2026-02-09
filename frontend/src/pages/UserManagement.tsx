@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
-import api from '../lib/api'
+import api, { avatarUrl } from '../lib/api'
 
 const DEFAULT_CALENDAR_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
 
@@ -14,6 +14,7 @@ interface User {
   is_active: boolean
   created_at: string
   calendar_color?: string | null
+  avatar_url?: string | null
 }
 
 export default function UserManagement() {
@@ -24,7 +25,9 @@ export default function UserManagement() {
   const [error, setError] = useState<string | null>(null)
   const [showAddUser, setShowAddUser] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
   // Add user form state
   const [newUser, setNewUser] = useState({
     email: '',
@@ -139,6 +142,30 @@ export default function UserManagement() {
     })
   }
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>, userId: number) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('image/')) {
+      alert('נא לבחור קובץ תמונה (JPG, PNG וכו\')')
+      return
+    }
+    setUploadingAvatar(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const endpoint = userId === me?.id ? '/users/me/avatar' : `/users/${userId}/avatar`
+      const { data } = await api.post(endpoint, formData)
+      await fetchUsers()
+      if (editingUser?.id === userId) setEditingUser({ ...editingUser, avatar_url: data.avatar_url })
+      if (userId === me?.id) dispatch(fetchMe())
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'שגיאה בהעלאת התמונה')
+    } finally {
+      setUploadingAvatar(false)
+      e.target.value = ''
+      avatarInputRef.current?.value && (avatarInputRef.current.value = '')
+    }
+  }
+
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingUser) return
@@ -245,6 +272,36 @@ export default function UserManagement() {
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">צבע האירועים של העובד ביומן (הקסדצימלי)</p>
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תמונת פרופיל</label>
+                    <div className="flex items-center gap-4">
+                      {avatarUrl(editingUser?.avatar_url) ? (
+                        <img src={avatarUrl(editingUser?.avatar_url)!} alt="" className="w-14 h-14 rounded-full object-cover border border-gray-300 dark:border-gray-600" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-xl font-medium text-gray-600 dark:text-gray-400">
+                          {editingUser?.full_name?.charAt(0) || '?'}
+                        </div>
+                      )}
+                      <div>
+                        <input
+                          ref={avatarInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => editingUser && handleAvatarUpload(e, editingUser.id)}
+                        />
+                        <button
+                          type="button"
+                          disabled={uploadingAvatar}
+                          onClick={() => avatarInputRef.current?.click()}
+                          className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg disabled:opacity-50"
+                        >
+                          {uploadingAvatar ? 'מעלה...' : 'העלה תמונה'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   
                   {error && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -347,6 +404,7 @@ export default function UserManagement() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">תמונה</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">צבע יומן</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">שם מלא</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">אימייל</th>
@@ -358,19 +416,32 @@ export default function UserManagement() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <td colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       טוען משתמשים...
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <td colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       אין משתמשים במערכת
                     </td>
                   </tr>
                 ) : (
                   users.map((user) => (
                     <tr key={user.id} className="border-b border-gray-200 dark:border-gray-700">
+                      <td className="py-3 px-4">
+                        {avatarUrl(user.avatar_url) ? (
+                          <img src={avatarUrl(user.avatar_url)!} alt="" className="w-8 h-8 rounded-full object-cover border border-gray-300 dark:border-gray-600" />
+                        ) : (
+                          <span
+                            className="inline-flex w-8 h-8 rounded-full items-center justify-center text-xs font-medium text-white border border-gray-300 dark:border-gray-600"
+                            style={{ backgroundColor: user.calendar_color || DEFAULT_CALENDAR_COLORS[(user.id - 1) % DEFAULT_CALENDAR_COLORS.length] }}
+                            title={user.full_name}
+                          >
+                            {user.full_name?.charAt(0) || '?'}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-4">
                         <span
                           className="inline-block w-6 h-6 rounded border border-gray-300 dark:border-gray-600"

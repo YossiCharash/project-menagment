@@ -345,3 +345,27 @@ export interface UnforeseenTransactionUpdate {
   expenses?: UnforeseenTransactionExpenseCreate[]
   incomes?: UnforeseenTransactionIncomeCreate[]
 }
+
+// User notifications (הודעות, הוראות, תזכורות)
+export type NotificationType = 'instruction' | 'task_assignment' | 'task_reminder' | 'general'
+
+export interface Notification {
+  id: number
+  user_id: number
+  from_user_id: number | null
+  task_id: number | null
+  type: NotificationType
+  title: string
+  body: string | null
+  read_at: string | null
+  created_at: string
+  from_user_name: string | null
+  task_title: string | null
+}
+
+export interface NotificationCreate {
+  user_ids: number[]
+  type?: NotificationType
+  title: string
+  body?: string | null
+}

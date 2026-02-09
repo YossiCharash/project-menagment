@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
-import api from '../lib/api'
+import api, { avatarUrl } from '../lib/api'
 
 interface AuditLog {
   id: number
@@ -38,6 +38,7 @@ interface AuditLog {
     id: number
     full_name: string
     email: string
+    avatar_url?: string | null
   } | null
   action: string
   entity: string
@@ -492,7 +493,7 @@ export default function AuditLogs() {
                 <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">יומן פעילות</h1>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">היסטורית פעילות</h1>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">
                   מעקב אחר כל הפעולות במערכת
                 </p>
@@ -694,7 +695,11 @@ export default function AuditLogs() {
                           <div className="mt-2 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
                             {log.user ? (
                               <div className="flex items-center gap-2">
-                                <User className="w-4 h-4" />
+                                {avatarUrl(log.user.avatar_url) ? (
+                                  <img src={avatarUrl(log.user.avatar_url)!} alt="" className="w-6 h-6 rounded-full object-cover" />
+                                ) : (
+                                  <User className="w-4 h-4 flex-shrink-0" />
+                                )}
                                 <span className="font-medium">{log.user.full_name}</span>
                                 <span className="text-gray-400">({log.user.email})</span>
                               </div>

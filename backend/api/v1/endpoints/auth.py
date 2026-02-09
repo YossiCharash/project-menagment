@@ -347,5 +347,12 @@ async def get_profile(db: DBSessionDep, current_user = Depends(get_current_user)
         full_name=current_user.full_name,
         role=current_user.role,
         is_active=current_user.is_active,
-        created_at=current_user.created_at
+        created_at=current_user.created_at,
+        group_id=getattr(current_user, "group_id", None),
+        phone=getattr(current_user, "phone", None),
+        avatar_url=getattr(current_user, "avatar_url", None),
+        calendar_color=getattr(current_user, "calendar_color", None),
+        calendar_date_display=getattr(current_user, "calendar_date_display", "gregorian") or "gregorian",
+        show_jewish_holidays=getattr(current_user, "show_jewish_holidays", True),
+        show_islamic_holidays=getattr(current_user, "show_islamic_holidays", False),
     )

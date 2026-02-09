@@ -375,7 +375,7 @@ export default function PriceQuotes() {
       const allProjectIds = withSubs.flatMap((p) => [p.id, ...(p.subprojects ?? []).map((s) => s.id)])
       const quotesByProjectId = await Promise.all(
         allProjectIds.map(async (pid) => {
-          const quotes = await QuoteProjectsAPI.list(undefined, pid, statusFilter || undefined)
+          const quotes = await QuoteProjectsAPI.list(undefined, pid, undefined, statusFilter || undefined)
           return { projectId: pid, quotes }
         })
       )
@@ -410,7 +410,7 @@ export default function PriceQuotes() {
         }))
       setProjects(filtered)
 
-      const standalone = await QuoteProjectsAPI.list(undefined, undefined, statusFilter || undefined)
+      const standalone = await QuoteProjectsAPI.list(undefined, undefined, undefined, statusFilter || undefined)
       setStandaloneQuotes(standalone)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת הפרויקטים')
@@ -422,7 +422,7 @@ export default function PriceQuotes() {
   const loadQuotesForProject = useCallback(
     async (projectId: number) => {
       try {
-        const list = await QuoteProjectsAPI.list(undefined, projectId, statusFilter || undefined)
+        const list = await QuoteProjectsAPI.list(undefined, projectId, undefined, statusFilter || undefined)
         return list
       } catch {
         return []
@@ -567,7 +567,7 @@ export default function PriceQuotes() {
     await QuoteProjectsAPI.approve(quote.id, project.id)
     const children =
       quote.children_count > 0
-        ? await QuoteProjectsAPI.list(quote.id, undefined, statusFilter || undefined)
+        ? await QuoteProjectsAPI.list(quote.id, undefined, undefined, statusFilter || undefined)
         : []
     if (children.length > 0) {
       setApproveParentProjectId(project.id)

@@ -1,9 +1,29 @@
 """Task schemas for Task Management Calendar."""
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
+
+from backend.schemas.task_label import TaskLabelOut
 
 
 TASK_STATUS_VALUES = ("pending", "in_progress", "completed")
+
+PARTICIPANT_RESPONSE_VALUES = ("pending", "accepted", "declined")
+
+RECURRENCE_RULE_VALUES = ("", "weekly", "monthly")
+
+
+class TaskParticipantOut(BaseModel):
+    user_id: int
+    full_name: str
+    response_status: str  # pending, accepted, declined
+    avatar_url: str | None = None
+
+
+class TaskAttachmentOut(BaseModel):
+    id: int
+    file_name: str
+    """URL path to download the file (e.g. /uploads/task_attachments/...)"""
+    file_url: str
 
 
 class TaskBase(BaseModel):
@@ -14,10 +34,13 @@ class TaskBase(BaseModel):
     status: str = "pending"
     event_type: str = "task"
     assigned_to_user_id: int
+    recurrence_rule: str = ""
+    recurrence_end_date: date | None = None
 
 
 class TaskCreate(TaskBase):
-    pass
+    label_ids: list[int] = []
+    participant_ids: list[int] = []  # users to invite (like Outlook)
 
 
 class TaskUpdate(BaseModel):
@@ -28,6 +51,10 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     event_type: str | None = None
     assigned_to_user_id: int | None = None
+    label_ids: list[int] | None = None
+    recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
+    participant_ids: list[int] | None = None
 
 
 class TaskOut(BaseModel):
@@ -40,9 +67,15 @@ class TaskOut(BaseModel):
     event_type: str
     assigned_to_user_id: int
     unique_tag: str
+    recurrence_rule: str = ""
+    recurrence_end_date: date | None = None
     created_at: datetime
     updated_at: datetime
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
+    assigned_user_avatar: str | None = None
+    labels: list[TaskLabelOut] = []
+    participants: list[TaskParticipantOut] = []
+    attachments: list[TaskAttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)

@@ -15,7 +15,8 @@ from contextlib import asynccontextmanager
 from backend.models import (  # noqa: F401
     User, Project, Subproject, Transaction, AuditLog,
     Supplier, SupplierDocument, AdminInvite, EmailVerification,
-    RecurringTransactionTemplate, MemberInvite, Task, TaskAttachment
+    RecurringTransactionTemplate, MemberInvite, Task, TaskAttachment,
+    UserNotification,
 )
 # Also import base_models to ensure all models are loaded
 from backend.db import base_models  # noqa: F401
@@ -290,8 +291,12 @@ def create_app() -> FastAPI:
     # Create subdirectories
     projects_dir = os.path.join(uploads_dir, 'projects')
     suppliers_dir = os.path.join(uploads_dir, 'suppliers')
+    avatars_dir = os.path.join(uploads_dir, 'avatars')
+    task_attachments_dir = os.path.join(uploads_dir, 'task_attachments')
     os.makedirs(projects_dir, exist_ok=True)
     os.makedirs(suppliers_dir, exist_ok=True)
+    os.makedirs(avatars_dir, exist_ok=True)
+    os.makedirs(task_attachments_dir, exist_ok=True)
     # Note: Supplier-specific subdirectories will be created automatically when needed
     
     # Mount static files - this allows serving files from /uploads/{path}

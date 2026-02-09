@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
 import { CategoryAPI, Category, CategoryCreate, SupplierAPI, Supplier, SupplierCreate, SupplierUpdate, QuoteStructureAPI, QuoteStructureItem } from '../lib/apiClient'
-import { Plus, Trash2, Edit2, X, Check, Moon, Sun, Eye } from 'lucide-react'
+import api, { avatarUrl } from '../lib/api'
+import { Plus, Trash2, Edit2, X, Check, Moon, Sun, Eye, Calendar, User, Mail, Phone } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import DeleteSupplierModal from '../components/DeleteSupplierModal'
@@ -19,7 +20,7 @@ export default function Settings() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [nameValidationError, setNameValidationError] = useState<string | null>(null)
   const [isValidatingName, setIsValidatingName] = useState(false)
-  const [activeTab, setActiveTab] = useState<'categories' | 'suppliers' | 'display' | 'quoteStructure'>('categories')
+  const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'suppliers' | 'display' | 'calendar' | 'quoteStructure'>('profile')
   
   // Suppliers state
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -50,6 +51,23 @@ export default function Settings() {
   const [quoteStructureError, setQuoteStructureError] = useState<string | null>(null)
   const [quoteStructureLoading, setQuoteStructureLoading] = useState(false)
   const [quoteStructureItems, setQuoteStructureItems] = useState<QuoteStructureItem[]>([])
+
+  // Calendar preferences (display tab) – synced from me when tab opens
+  const [calendarDateDisplay, setCalendarDateDisplay] = useState<'gregorian' | 'hebrew' | 'both'>('gregorian')
+  const [showJewishHolidays, setShowJewishHolidays] = useState(true)
+  const [showIslamicHolidays, setShowIslamicHolidays] = useState(false)
+  const [calendarSettingsSaving, setCalendarSettingsSaving] = useState(false)
+  const [calendarSettingsError, setCalendarSettingsError] = useState<string | null>(null)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  // Profile form (אזור אישי)
+  const [profileFullName, setProfileFullName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [profileSuccess, setProfileSuccess] = useState(false)
 
   const navigate = useNavigate()
 
@@ -93,6 +111,21 @@ export default function Settings() {
     setShowQuoteStructureForm(false)
     setNewQuoteStructureName('')
     setQuoteStructureError(null)
+    setCalendarSettingsError(null)
+    setProfileError(null)
+
+    // Sync profile form from me when opening profile tab
+    if (activeTab === 'profile' && me) {
+      setProfileFullName(me.full_name ?? '')
+      setProfileEmail(me.email ?? '')
+      setProfilePhone(me.phone ?? '')
+    }
+    // Sync calendar preferences from me when opening calendar tab
+    if (activeTab === 'calendar' && me) {
+      setCalendarDateDisplay(me.calendar_date_display ?? 'gregorian')
+      setShowJewishHolidays(me.show_jewish_holidays ?? true)
+      setShowIslamicHolidays(me.show_islamic_holidays ?? false)
+    }
     
     // Load data based on active tab
     if (activeTab === 'categories') {
@@ -103,7 +136,7 @@ export default function Settings() {
     } else if (activeTab === 'quoteStructure') {
       fetchQuoteStructure()
     }
-  }, [activeTab])
+  }, [activeTab, me])
 
   const fetchQuoteStructure = async () => {
     setQuoteStructureLoading(true)
@@ -117,7 +150,73 @@ export default function Settings() {
       setQuoteStructureLoading(false)
     }
   }
-  
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('image/')) {
+      alert('נא לבחור קובץ תמונה (JPG, PNG וכו\')')
+      return
+    }
+    setAvatarUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await api.post('/users/me/avatar', formData)
+      dispatch(fetchMe())
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'שגיאה בהעלאת התמונה')
+    } finally {
+      setAvatarUploading(false)
+      e.target.value = ''
+      avatarInputRef.current && (avatarInputRef.current.value = '')
+    }
+  }
+
+  const handleSaveProfile = async (e: FormEvent) => {
+    e.preventDefault()
+    setProfileError(null)
+    setProfileSuccess(false)
+    setProfileSaving(true)
+    try {
+      await api.patch('/users/me/profile', {
+        full_name: profileFullName.trim() || undefined,
+        email: profileEmail.trim() || undefined,
+        phone: profilePhone.trim() || undefined,
+      })
+      dispatch(fetchMe())
+      setProfileSuccess(true)
+      setTimeout(() => setProfileSuccess(false), 3000)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setProfileError(
+        typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((x: any) => x?.msg ?? x).join(', ')
+            : err.message || 'שגיאה בשמירת הפרופיל'
+      )
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const saveCalendarSettings = async () => {
+    setCalendarSettingsSaving(true)
+    setCalendarSettingsError(null)
+    try {
+      await api.patch('/users/me', {
+        calendar_date_display: calendarDateDisplay,
+        show_jewish_holidays: showJewishHolidays,
+        show_islamic_holidays: showIslamicHolidays,
+      })
+      dispatch(fetchMe())
+    } catch (err: any) {
+      setCalendarSettingsError(err.response?.data?.detail || err.message || 'שגיאה בשמירת הגדרות לוח השנה')
+    } finally {
+      setCalendarSettingsSaving(false)
+    }
+  }
+
   // Load categories for suppliers dropdown
   const loadCategoriesForSuppliers = async () => {
     try {
@@ -144,7 +243,7 @@ export default function Settings() {
   }
   
   // Quote structure: add item
-  const handleAddQuoteStructure = async (e: React.FormEvent) => {
+  const handleAddQuoteStructure = async (e: FormEvent) => {
     e.preventDefault()
     if (!newQuoteStructureName.trim()) {
       setQuoteStructureError('נא להזין שם פריט')
@@ -180,7 +279,7 @@ export default function Settings() {
   }
 
   // Handle add supplier
-  const handleAddSupplier = async (e: React.FormEvent) => {
+  const handleAddSupplier = async (e: FormEvent) => {
     e.preventDefault()
     
     if (!supplierFormData.name || !supplierFormData.name.trim()) {
@@ -392,7 +491,7 @@ export default function Settings() {
     )
   }
 
-  const handleAddCategory = async (e: React.FormEvent) => {
+  const handleAddCategory = async (e: FormEvent) => {
     e.preventDefault()
     
     // Final validation before submit
@@ -472,6 +571,16 @@ export default function Settings() {
           <div className="settings-tabs-wrapper mb-6 border-b border-gray-200 dark:border-gray-700 min-w-0">
             <div className="settings-tabs flex flex-wrap gap-2 sm:gap-4">
               <button
+                onClick={() => setActiveTab('profile')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
+                  activeTab === 'profile'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                אזור אישי
+              </button>
+              <button
                 onClick={() => setActiveTab('categories')}
                 className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
                   activeTab === 'categories'
@@ -511,8 +620,127 @@ export default function Settings() {
               >
                 תצוגה
               </button>
+              <button
+                onClick={() => setActiveTab('calendar')}
+                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
+                  activeTab === 'calendar'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                לוח שנה
+              </button>
             </div>
           </div>
+
+          {/* Profile Tab Content - אזור אישי */}
+          {activeTab === 'profile' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                  <User className="w-5 h-5 text-indigo-500" />
+                  אזור אישי
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">עדכן את פרטי הפרופיל והתמונה שלך</p>
+              </div>
+
+              {/* Avatar */}
+              <div className="mb-8 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <h3 className="text-base font-medium text-gray-900 dark:text-white mb-3">תמונת פרופיל</h3>
+                <div className="flex items-center gap-6">
+                  {(me as any)?.avatar_url && avatarUrl((me as any).avatar_url) ? (
+                    <img src={avatarUrl((me as any).avatar_url)!} alt="" className="w-20 h-20 rounded-full object-cover border-2 border-gray-300 dark:border-gray-600" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center text-2xl font-medium text-gray-600 dark:text-gray-400 border-2 border-gray-300 dark:border-gray-600">
+                      {me?.full_name?.charAt(0) || '?'}
+                    </div>
+                  )}
+                  <div>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarUpload}
+                    />
+                    <button
+                      type="button"
+                      disabled={avatarUploading}
+                      onClick={() => avatarInputRef.current?.click()}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {avatarUploading ? 'מעלה...' : 'העלה / החלף תמונה'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile form */}
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <h3 className="text-base font-medium text-gray-900 dark:text-white mb-4">פרטים אישיים</h3>
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  {profileError && (
+                    <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
+                      {profileError}
+                    </div>
+                  )}
+                  {profileSuccess && (
+                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-sm">
+                      הפרופיל נשמר בהצלחה
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם מלא</label>
+                    <div className="relative">
+                      <User className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="text"
+                        value={profileFullName}
+                        onChange={(e) => setProfileFullName(e.target.value)}
+                        className="w-full pr-10 pl-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        placeholder="השם שלך"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">אימייל</label>
+                    <div className="relative">
+                      <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="email"
+                        value={profileEmail}
+                        onChange={(e) => setProfileEmail(e.target.value)}
+                        className="w-full pr-10 pl-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        placeholder="your@email.com"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מספר טלפון</label>
+                    <div className="relative">
+                      <Phone className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={profilePhone}
+                        onChange={(e) => setProfilePhone(e.target.value)}
+                        className="w-full pr-10 pl-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        placeholder="050-1234567"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={profileSaving}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg disabled:opacity-50"
+                  >
+                    {profileSaving ? 'שומר...' : 'שמור שינויים'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Categories Tab Content */}
           {activeTab === 'categories' && (
@@ -1093,6 +1321,66 @@ export default function Settings() {
                       }
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Calendar Tab Content - הגדרות לוח שנה */}
+          {activeTab === 'calendar' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-indigo-500" />
+                  הגדרות לוח שנה (יומן משימות)
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">בחר איך להציג תאריכים ואילו חגים להציג בלוח השנה.</p>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סוג תאריך בתאים</label>
+                    <select
+                      value={calendarDateDisplay}
+                      onChange={(e) => setCalendarDateDisplay(e.target.value as 'gregorian' | 'hebrew' | 'both')}
+                      className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="gregorian">לועזי בלבד</option>
+                      <option value="hebrew">עברי בלבד</option>
+                      <option value="both">עברי ולועזי</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap gap-6">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showJewishHolidays}
+                        onChange={(e) => setShowJewishHolidays(e.target.checked)}
+                        className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">הצג חגי ישראל</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showIslamicHolidays}
+                        onChange={(e) => setShowIslamicHolidays(e.target.checked)}
+                        className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">הצג חגים אסלאמיים</span>
+                    </label>
+                  </div>
+                  {calendarSettingsError && (
+                    <p className="text-sm text-red-600 dark:text-red-400">{calendarSettingsError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={saveCalendarSettings}
+                    disabled={calendarSettingsSaving}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    {calendarSettingsSaving ? 'שומר...' : 'שמור הגדרות לוח שנה'}
+                  </button>
                 </div>
               </div>
             </div>

@@ -112,7 +112,8 @@ async def list_audit_logs_with_users(
             users_dict[uid] = {
                 "id": user_obj.id,
                 "full_name": user_obj.full_name,
-                "email": user_obj.email
+                "email": user_obj.email,
+                "avatar_url": getattr(user_obj, "avatar_url", None),
             }
     
     # Combine logs with user info

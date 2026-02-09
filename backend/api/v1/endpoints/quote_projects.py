@@ -63,11 +63,12 @@ async def list_quote_projects(
     db: DBSessionDep,
     parent_id: int | None = Query(None, description="Filter by parent quote (legacy)"),
     project_id: int | None = Query(None, description="Filter by project - quotes for this project"),
+    quote_subject_id: int | None = Query(None, description="Filter by quote subject (נושא הצעה)"),
     status: str | None = Query(None, description="draft | approved"),
     user=Depends(get_current_user),
 ):
     repo = QuoteProjectRepository(db)
-    items = await repo.list(parent_id=parent_id, project_id=project_id, status=status)
+    items = await repo.list(parent_id=parent_id, project_id=project_id, quote_subject_id=quote_subject_id, status=status)
     result = []
     for qp in items:
         children_count = await repo.get_children_count(qp.id)

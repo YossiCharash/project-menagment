@@ -71,3 +71,10 @@ class UserProfile(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    group_id: Optional[int] = None
+    phone: Optional[str] = None
+    avatar_url: Optional[str] = None
+    calendar_color: Optional[str] = None
+    calendar_date_display: str = "gregorian"
+    show_jewish_holidays: bool = True
+    show_islamic_holidays: bool = False

@@ -1135,11 +1135,13 @@ export class QuoteProjectsAPI {
   static async list(
     parentId?: number | null,
     projectId?: number | null,
+    quoteSubjectId?: number | null,
     status?: 'draft' | 'approved'
   ): Promise<QuoteProject[]> {
     const params = new URLSearchParams()
     if (parentId != null) params.set('parent_id', String(parentId))
     if (projectId != null) params.set('project_id', String(projectId))
+    if (quoteSubjectId != null) params.set('quote_subject_id', String(quoteSubjectId))
     if (status) params.set('status', status)
     const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
     return data

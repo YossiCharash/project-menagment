@@ -160,7 +160,7 @@
   transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
-/* Task calendar: פגישה vs משימה – הבדל ויזואלי ברור */
+/* Task calendar: פגישה vs משימה – הבדל ויזואלי (overrides in TaskCalendar.css inside .task-calendar-wrap) */
 .fc-event-meeting {
   border-left-width: 6px !important;
   border-left-style: solid !important;

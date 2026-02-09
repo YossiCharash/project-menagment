@@ -1,11 +1,19 @@
 """Task model for Task Management Calendar with unique tagging logic."""
 from __future__ import annotations
-from datetime import datetime
+from datetime import date, datetime
 import uuid
-from sqlalchemy import String, DateTime, Text, ForeignKey
+from sqlalchemy import String, DateTime, Date, Text, ForeignKey, Table, Column, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
+
+# Many-to-many: tasks <-> task_labels (labels for calendar tasks)
+task_task_labels = Table(
+    "task_task_labels",
+    Base.metadata,
+    Column("task_id", Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("task_label_id", Integer, ForeignKey("task_labels.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 def generate_unique_tag() -> str:
@@ -26,6 +34,26 @@ class EventType:
     """Event type: פגישה (with hours) vs משימה (all-day or no date)."""
     MEETING = "meeting"
     TASK = "task"
+
+
+class ParticipantResponse:
+    """Invitation response: ממתין, מקבל, דוחה (like Outlook)."""
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class TaskLabel(Base):
+    """Label/tag for tasks in the calendar (e.g. דחוף, לקוח)."""
+    __tablename__ = "task_labels"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    color: Mapped[str] = mapped_column(String(7), default="#3B82F6", nullable=False)  # hex
+
+    tasks: Mapped[list["Task"]] = relationship(
+        "Task", secondary=task_task_labels, back_populates="labels"
+    )
 
 
 class Task(Base):
@@ -49,6 +77,8 @@ class Task(Base):
         String(64), unique=True, index=True, default=generate_unique_tag
     )
     outlook_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    recurrence_rule: Mapped[str] = mapped_column(String(32), default="", nullable=False, index=True)
+    recurrence_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -60,6 +90,32 @@ class Task(Base):
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         "TaskAttachment", back_populates="task", cascade="all, delete-orphan"
     )
+    labels: Mapped[list["TaskLabel"]] = relationship(
+        "TaskLabel", secondary=task_task_labels, back_populates="tasks", lazy="selectin"
+    )
+    participants: Mapped[list["TaskParticipant"]] = relationship(
+        "TaskParticipant", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class TaskParticipant(Base):
+    """Invitee to a task/meeting – can accept or decline (like Outlook)."""
+    __tablename__ = "task_participants"
+    __table_args__ = (UniqueConstraint("task_id", "user_id", name="uq_task_participants_task_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    response_status: Mapped[str] = mapped_column(
+        String(32), default=ParticipantResponse.PENDING, nullable=False, index=True
+    )
+
+    task: Mapped["Task"] = relationship("Task", back_populates="participants")
+    user: Mapped["User"] = relationship("User", back_populates="task_participations", lazy="selectin")
 
 
 class TaskAttachment(Base):

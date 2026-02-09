@@ -1,13 +1,19 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import api from '../../lib/api'
 
-interface CurrentUser {
+export interface CurrentUser {
   id: number
   email: string
   full_name: string
   role: 'Admin' | 'Member'
   group_id?: number
   is_active: boolean
+  phone?: string | null
+  avatar_url?: string | null
+  calendar_color?: string | null
+  calendar_date_display?: 'gregorian' | 'hebrew' | 'both'
+  show_jewish_holidays?: boolean
+  show_islamic_holidays?: boolean
 }
 
 interface AuthState {

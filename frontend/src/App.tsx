@@ -27,6 +27,7 @@ import SupplierDocuments from './pages/SupplierDocuments'
 import Settings from './pages/Settings'
 import UnforeseenTransactions from './pages/UnforeseenTransactions'
 import TaskCalendar from './pages/TaskCalendar'
+import Notifications from './pages/Notifications'
 import { logout, fetchMe } from './store/slices/authSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -34,6 +35,7 @@ import { LoadingOverlay } from './components/ui/Loading'
 import { Logo } from './components/ui/Logo'
 import { Menu, LogOut, User } from 'lucide-react'
 import { cn } from './lib/utils'
+import { avatarUrl } from './lib/api'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const dispatch = useDispatch()
@@ -142,7 +144,17 @@ function AppContent() {
 
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                {me?.avatar_url && avatarUrl(me.avatar_url) ? (
+                  <img
+                    src={avatarUrl(me.avatar_url)!}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-600"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  </div>
+                )}
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {me?.full_name || me?.email}
                 </span>
@@ -179,8 +191,10 @@ function AppContent() {
               <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
               <Route path="/task-calendar" element={<RequireAuth><TaskCalendar /></RequireAuth>} />
+              <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
+              <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
               <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/admin-invites" element={<RequireAuth><AdminInviteManagement /></RequireAuth>} />

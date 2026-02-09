@@ -22,14 +22,37 @@ class UserUpdate(BaseModel):
     group_id: int | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
     calendar_color: str | None = Field(default=None, max_length=7)
+    calendar_date_display: Literal["gregorian", "hebrew", "both"] | None = None
+    show_jewish_holidays: bool | None = None
+    show_islamic_holidays: bool | None = None
 
 
 class UserOut(UserBase):
     id: int
     created_at: datetime
     calendar_color: str | None = None
+    avatar_url: str | None = None
+    phone: str | None = None
+    calendar_date_display: str = "gregorian"
+    show_jewish_holidays: bool = True
+    show_islamic_holidays: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileUpdate(BaseModel):
+    """Schema for user updating their own profile (name, email, phone)."""
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=50)
+
+
+class CalendarSettingsUpdate(BaseModel):
+    """Only calendar-related settings; any user can update their own via PATCH /users/me."""
+    calendar_color: str | None = Field(default=None, max_length=7)
+    calendar_date_display: Literal["gregorian", "hebrew", "both"] | None = None
+    show_jewish_holidays: bool | None = None
+    show_islamic_holidays: bool | None = None
 
 
 class AdminRegister(BaseModel):
