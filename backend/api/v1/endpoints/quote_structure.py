@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.models.quote_structure_item import QuoteStructureItem
+from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.quote_structure_repository import QuoteStructureRepository
 from backend.schemas.quote_structure import (
     QuoteStructureItemCreate,
@@ -17,9 +18,26 @@ async def list_quote_structure_items(
     include_inactive: bool = Query(False),
     user=Depends(get_current_user),
 ):
-    """List quote structure items (חלוקת הצעת מחיר) - for use in Settings and when building quotes"""
-    repo = QuoteStructureRepository(db)
-    items = await repo.list(include_inactive=include_inactive)
+    """List quote structure items (חלוקת הצעת מחיר). Ensures every expense category from Settings appears as an option for quotes."""
+    struct_repo = QuoteStructureRepository(db)
+    items = await struct_repo.list(include_inactive=include_inactive)
+    existing_names = {s.name for s in items}
+
+    # Sync: create a quote_structure_item for each expense category that doesn't have one yet
+    category_repo = CategoryRepository(db)
+    categories = await category_repo.list(include_inactive=False)
+    category_names = {c.name for c in categories}
+    next_sort = max((s.sort_order for s in items), default=-1) + 1
+    for name in category_names:
+        if name and name not in existing_names:
+            new_item = QuoteStructureItem(name=name, sort_order=next_sort, is_active=True)
+            created = await struct_repo.create(new_item)
+            items.append(created)
+            existing_names.add(name)
+            next_sort += 1
+
+    # Re-fetch so order is consistent (new items appended)
+    items = await struct_repo.list(include_inactive=include_inactive)
     return [QuoteStructureItemOut.model_validate(i) for i in items]
 
 

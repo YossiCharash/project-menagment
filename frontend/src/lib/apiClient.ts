@@ -86,14 +86,6 @@ export class ProjectAPI {
     return data
   }
 
-  /** Check if a parent project name is available (no other parent project with same name). */
-  static async checkParentProjectName(name: string, excludeId?: number): Promise<{ available: boolean }> {
-    const params: Record<string, string | number> = { name: name.trim() }
-    if (excludeId != null) params.exclude_id = excludeId
-    const { data } = await api.get<{ available: boolean }>('/projects/check-parent-name', { params })
-    return data
-  }
-
   // Create project with optional parent relationship
   static async createProject(project: ProjectCreate): Promise<Project> {
     const { data } = await api.post<Project>('/projects', project)
@@ -496,6 +488,87 @@ export class TransactionAPI {
   // Delete transaction document
   static async deleteTransactionDocument(transactionId: number, documentId: number): Promise<void> {
     await api.delete(`/transactions/${transactionId}/documents/${documentId}`)
+  }
+
+  /** Rollback a transaction (creator only, no documents). Used when group transaction document upload fails. */
+  static async rollbackTransaction(transactionId: number): Promise<{ ok: boolean }> {
+    const { data } = await api.post<{ ok: boolean }>(`/transactions/${transactionId}/rollback`)
+    return data
+  }
+}
+
+/** Group transaction draft (טיוטת עסקה קבוצתית) - rows + documents stored until user submits. */
+export interface GroupTransactionDraftDocumentOut {
+  id: number
+  row_index: number
+  sub_type: string | null
+  sub_index: number | null
+  original_filename: string
+}
+
+export interface GroupTransactionDraftOut {
+  id: number
+  user_id: number
+  name: string | null
+  rows: Record<string, unknown>[]
+  documents: GroupTransactionDraftDocumentOut[]
+  created_at: string
+  updated_at: string
+}
+
+export class GroupTransactionDraftAPI {
+  static async list(): Promise<GroupTransactionDraftOut[]> {
+    const { data } = await api.get<GroupTransactionDraftOut[]>('/group-transaction-drafts')
+    return data
+  }
+
+  static async get(draftId: number): Promise<GroupTransactionDraftOut> {
+    const { data } = await api.get<GroupTransactionDraftOut>(`/group-transaction-drafts/${draftId}`)
+    return data
+  }
+
+  static async create(payload: { name: string; rows: Record<string, unknown>[] }): Promise<GroupTransactionDraftOut> {
+    const { data } = await api.post<GroupTransactionDraftOut>('/group-transaction-drafts', payload)
+    return data
+  }
+
+  static async update(
+    draftId: number,
+    payload: { name?: string; rows?: Record<string, unknown>[] }
+  ): Promise<GroupTransactionDraftOut> {
+    const { data } = await api.patch<GroupTransactionDraftOut>(`/group-transaction-drafts/${draftId}`, payload)
+    return data
+  }
+
+  static async delete(draftId: number): Promise<void> {
+    await api.delete(`/group-transaction-drafts/${draftId}`)
+  }
+
+  static async uploadDocument(
+    draftId: number,
+    file: File,
+    rowIndex: number,
+    subType: 'main' | 'income' | 'expense' = 'main',
+    subIndex?: number
+  ): Promise<GroupTransactionDraftDocumentOut> {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('row_index', String(rowIndex))
+    formData.append('sub_type', subType)
+    if (subIndex != null) formData.append('sub_index', String(subIndex))
+    const { data } = await api.post<GroupTransactionDraftDocumentOut>(
+      `/group-transaction-drafts/${draftId}/documents`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+    return data
+  }
+
+  static async downloadDocument(draftId: number, docId: number): Promise<Blob> {
+    const { data } = await api.get(`/group-transaction-drafts/${draftId}/documents/${docId}/download`, {
+      responseType: 'blob'
+    })
+    return data
   }
 }
 
@@ -946,41 +1019,7 @@ export class QuoteStructureAPI {
   }
 }
 
-// --- Quote Projects (הצעות מחיר) ---
-export interface QuoteLine {
-  id: number
-  quote_project_id: number
-  quote_structure_item_id: number
-  quote_structure_item_name: string
-  amount: number | null
-  sort_order: number
-  created_at?: string
-}
-
-export type QuoteCalculationMethod = 'by_residents' | 'by_apartment_size'
-
-export interface QuoteApartment {
-  id: number
-  quote_building_id: number
-  size_sqm: number
-  sort_order: number
-  created_at: string
-}
-
-export interface QuoteBuilding {
-  id: number
-  quote_project_id: number
-  address: string | null
-  num_residents: number | null
-  calculation_method: QuoteCalculationMethod
-  sort_order: number
-  created_at: string
-  updated_at: string
-  quote_lines: QuoteLine[]
-  quote_apartments: QuoteApartment[]
-}
-
-// Quote subject (נושא הצעה) – project-like info for a quote: address, num_apartments, num_buildings, notes
+// --- Quote Subjects (פרויקטים בהצעות מחיר) ---
 export interface QuoteSubject {
   id: number
   address: string | null
@@ -1003,52 +1042,6 @@ export interface QuoteSubjectUpdate {
   num_apartments?: number | null
   num_buildings?: number | null
   notes?: string | null
-}
-
-export interface QuoteProject {
-  id: number
-  name: string
-  description: string | null
-  parent_id: number | null
-  project_id: number | null
-  quote_subject_id: number | null
-  quote_subject: QuoteSubject | null
-  expected_start_date: string | null
-  expected_income: number | null
-  expected_expenses: number | null
-  num_residents: number | null
-  status: 'draft' | 'approved'
-  converted_project_id: number | null
-  created_at: string
-  updated_at: string
-  quote_lines: QuoteLine[]
-  quote_buildings: QuoteBuilding[]
-  children_count: number
-  children?: QuoteProject[]
-}
-
-export interface QuoteProjectCreate {
-  quote_subject_id: number
-  name: string
-  description?: string | null
-  parent_id?: number | null
-  project_id?: number | null
-  expected_start_date?: string | null
-  expected_income?: number | null
-  expected_expenses?: number | null
-  num_residents?: number | null
-}
-
-export interface QuoteProjectUpdate {
-  name?: string
-  description?: string | null
-  parent_id?: number | null
-  project_id?: number | null
-  quote_subject_id?: number | null
-  expected_start_date?: string | null
-  expected_income?: number | null
-  expected_expenses?: number | null
-  num_residents?: number | null
 }
 
 export class QuoteSubjectsAPI {
@@ -1076,45 +1069,65 @@ export class QuoteSubjectsAPI {
     await api.delete(`/quote-subjects/${id}`)
   }
 
-  /** מחק פרויקט והצעות שבתוכו – דורש סיסמת מנהל */
+  /** Delete subject and all its quotes (admin only, requires password). */
   static async deleteWithPassword(id: number, password: string): Promise<void> {
     await api.post(`/quote-subjects/${id}/delete`, { password })
   }
 }
 
+// --- Quote Projects (הצעות מחיר) ---
+export interface QuoteLine {
+  id: number
+  quote_project_id: number
+  quote_structure_item_id: number
+  quote_structure_item_name: string
+  amount: number | null
+  sort_order: number
+  created_at?: string
+}
+
+export interface QuoteProject {
+  id: number
+  name: string
+  description: string | null
+  parent_id: number | null
+  project_id: number | null
+  expected_start_date: string | null
+  expected_income: number | null
+  expected_expenses: number | null
+  num_residents: number | null
+  status: 'draft' | 'approved'
+  converted_project_id: number | null
+  created_at: string
+  updated_at: string
+  quote_lines: QuoteLine[]
+  children_count: number
+}
+
+export interface QuoteProjectCreate {
+  name: string
+  description?: string | null
+  parent_id?: number | null
+  project_id?: number | null
+  expected_start_date?: string | null
+  expected_income?: number | null
+  expected_expenses?: number | null
+  num_residents?: number | null
+}
+
+export interface QuoteProjectUpdate {
+  name?: string
+  description?: string | null
+  parent_id?: number | null
+  expected_start_date?: string | null
+  expected_income?: number | null
+  expected_expenses?: number | null
+  num_residents?: number | null
+}
+
 export interface QuoteLineCreate {
   quote_structure_item_id: number
   amount?: number | null
-  sort_order?: number
-  quote_building_id?: number | null
-}
-
-export interface QuoteBuildingCreate {
-  address?: string | null
-  num_residents?: number | null
-  calculation_method?: QuoteCalculationMethod
-  sort_order?: number
-}
-
-export interface QuoteBuildingUpdate {
-  address?: string | null
-  num_residents?: number | null
-  calculation_method?: QuoteCalculationMethod
-  sort_order?: number
-}
-
-export interface QuoteApartmentCreate {
-  size_sqm: number
-  sort_order?: number
-}
-
-export interface QuoteApartmentsBulkCreate {
-  count: number
-  size_sqm: number
-}
-
-export interface QuoteApartmentUpdate {
-  size_sqm?: number
   sort_order?: number
 }
 
@@ -1122,13 +1135,11 @@ export class QuoteProjectsAPI {
   static async list(
     parentId?: number | null,
     projectId?: number | null,
-    quoteSubjectId?: number | null,
     status?: 'draft' | 'approved'
   ): Promise<QuoteProject[]> {
     const params = new URLSearchParams()
     if (parentId != null) params.set('parent_id', String(parentId))
     if (projectId != null) params.set('project_id', String(projectId))
-    if (quoteSubjectId != null) params.set('quote_subject_id', String(quoteSubjectId))
     if (status) params.set('status', status)
     const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
     return data
@@ -1179,50 +1190,5 @@ export class QuoteProjectsAPI {
 
   static async deleteLine(quoteProjectId: number, lineId: number): Promise<void> {
     await api.delete(`/quote-projects/${quoteProjectId}/lines/${lineId}`)
-  }
-
-  // Buildings (בניינים)
-  static async listBuildings(quoteProjectId: number): Promise<QuoteBuilding[]> {
-    const { data } = await api.get<QuoteBuilding[]>(`/quote-projects/${quoteProjectId}/buildings`)
-    return data
-  }
-
-  static async addBuilding(quoteProjectId: number, payload: QuoteBuildingCreate): Promise<QuoteBuilding> {
-    const { data } = await api.post<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings`, payload)
-    return data
-  }
-
-  static async updateBuilding(quoteProjectId: number, buildingId: number, payload: QuoteBuildingUpdate): Promise<QuoteBuilding> {
-    const { data } = await api.put<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`, payload)
-    return data
-  }
-
-  static async deleteBuilding(quoteProjectId: number, buildingId: number): Promise<void> {
-    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`)
-  }
-
-  // Apartments (דירות – for by_apartment_size)
-  static async listApartments(quoteProjectId: number, buildingId: number): Promise<QuoteApartment[]> {
-    const { data } = await api.get<QuoteApartment[]>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments`)
-    return data
-  }
-
-  static async addApartment(quoteProjectId: number, buildingId: number, payload: QuoteApartmentCreate): Promise<QuoteApartment> {
-    const { data } = await api.post<QuoteApartment>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments`, payload)
-    return data
-  }
-
-  static async addApartmentsBulk(quoteProjectId: number, buildingId: number, payload: QuoteApartmentsBulkCreate): Promise<QuoteApartment[]> {
-    const { data } = await api.post<QuoteApartment[]>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/bulk`, payload)
-    return data
-  }
-
-  static async updateApartment(quoteProjectId: number, buildingId: number, apartmentId: number, payload: QuoteApartmentUpdate): Promise<QuoteApartment> {
-    const { data } = await api.put<QuoteApartment>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`, payload)
-    return data
-  }
-
-  static async deleteApartment(quoteProjectId: number, buildingId: number, apartmentId: number): Promise<void> {
-    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`)
   }
 }

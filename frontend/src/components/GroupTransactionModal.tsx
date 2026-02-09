@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Upload, File } from 'lucide-react'
 import { TransactionCreate, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
-import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI } from '../lib/apiClient'
+import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI, GroupTransactionDraftAPI, GroupTransactionDraftOut } from '../lib/apiClient'
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
+import ConfirmationModal from './ConfirmationModal'
 
 interface GroupTransactionModalProps {
   isOpen: boolean
@@ -50,7 +51,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   onSuccess
 }) => {
   const dispatch = useAppDispatch()
-  const { items: suppliers } = useAppSelector(s => s.suppliers)
+  const { items: suppliers, loading: suppliersLoading } = useAppSelector(s => s.suppliers)
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +63,16 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState('')
   const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftsList, setDraftsList] = useState<GroupTransactionDraftOut[]>([])
+  const [showLoadDraft, setShowLoadDraft] = useState(false)
+  const [showSaveDraftModal, setShowSaveDraftModal] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [draftToDelete, setDraftToDelete] = useState<GroupTransactionDraftOut | null>(null)
+  const [deletingDraft, setDeletingDraft] = useState(false)
+  /** כשנטענה טיוטה שמורה – מזהה ושם ננעלים (לא ניתן להחליף שם) */
+  const [currentDraftId, setCurrentDraftId] = useState<number | null>(null)
+  const [currentDraftName, setCurrentDraftName] = useState('')
   const [rows, setRows] = useState<TransactionRow[]>([
     {
       id: '1',
@@ -415,10 +426,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             if (selectedCategoryId && row.supplierId) {
               // Check if current supplier belongs to the new category
               const currentSupplier = suppliers.find(s => s.id === row.supplierId)
-              if (currentSupplier) {
-                // Filter by category name (as suppliers have category as string)
-                const supplierCategoryName = currentSupplier.category
-                if (supplierCategoryName !== selectedCategory?.name) {
+              if (currentSupplier && selectedCategoryId) {
+                if (currentSupplier.category_id !== selectedCategoryId) {
                   updatedRow.supplierId = ''
                 }
               }
@@ -776,15 +785,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       return
     }
 
-    // Create all transactions
+    // Create all transactions; track which row indices succeeded (for partial failure: keep only failed rows and offer "save remaining as draft")
     const results: { success: number; failed: number; errors: string[] } = {
       success: 0,
       failed: 0,
       errors: []
     }
+    const succeededRowIndices = new Set<number>()
 
-    const transactionIds: number[] = []
-    
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       try {
@@ -824,6 +832,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           const unforeseenTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(unforeseenData)
           await new Promise(r => setTimeout(r, 100))
 
+          let unforeseenDocError = false
           if (unforeseenTx.incomes && row.incomes) {
             const createdIncomes = unforeseenTx.incomes
             const filteredIncomes = (row.incomes || []).filter(inc => inc.amount && Number(inc.amount) > 0)
@@ -835,11 +844,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   try {
                     if (file.size > 50 * 1024 * 1024) {
                       results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${file.name} גדול מדי`)
+                      unforeseenDocError = true
                       continue
                     }
                     await UnforeseenTransactionAPI.uploadIncomeDocument(unforeseenTx.id, createdInc.id, file)
                   } catch (err: any) {
                     results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                    unforeseenDocError = true
                   }
                 }
               }
@@ -857,15 +868,26 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   try {
                     if (file.size > 50 * 1024 * 1024) {
                       results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${file.name} גדול מדי`)
+                      unforeseenDocError = true
                       continue
                     }
                     await UnforeseenTransactionAPI.uploadExpenseDocument(unforeseenTx.id, createdExp.id, file)
                   } catch (err: any) {
                     results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                    unforeseenDocError = true
                   }
                 }
               }
             }
+          }
+
+          if (unforeseenDocError) {
+            try {
+              await UnforeseenTransactionAPI.deleteUnforeseenTransaction(unforeseenTx.id)
+            } catch (_) {}
+            results.failed++
+            results.errors.push(`שורה ${i + 1}: העסקה הלא צפויה בוטלה כי העלאת מסמכים נכשלה`)
+            continue
           }
 
           const status = row.unforeseenStatus ?? 'draft'
@@ -884,6 +906,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           }
 
           results.success++
+          succeededRowIndices.add(i)
           continue
         }
 
@@ -924,12 +947,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           console.error('❌ [GROUP TX] Invalid transaction ID:', transaction.id)
           throw new Error(`Invalid transaction ID: ${transaction.id}`)
         }
-        
-        transactionIds.push(transactionId)
-        results.success++
-        console.log('✅ [GROUP TX] Transaction added to results. Total success:', results.success)
-        
-        // Upload files for this transaction if any
+
+        // Upload files for this transaction if any; if any upload fails, rollback this transaction so the deal is not performed
         if (row.files.length > 0) {
           console.log(`📎 [GROUP TX] Starting upload of ${row.files.length} files for transaction ${transactionId}`)
           console.log('📎 [GROUP TX] Files to upload:', row.files.map(f => ({
@@ -1049,15 +1068,24 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           })
           
           if (fileErrorCount > 0) {
-            if (fileSuccessCount > 0) {
-              results.errors.push(`שורה ${i + 1}: הועלו ${fileSuccessCount} מסמכים, ${fileErrorCount} נכשלו: ${fileErrors.join('; ')}`)
-            } else {
-              results.errors.push(`שורה ${i + 1}: כל המסמכים נכשלו בהעלאה: ${fileErrors.join('; ')}`)
+            // אם חלק מהמסמכים לא הועלו – מבטלים את העסקה (rollback) כדי שהעסקה לא תתבצע
+            try {
+              await TransactionAPI.rollbackTransaction(transactionId)
+            } catch (rollbackErr: any) {
+              results.errors.push(`שורה ${i + 1}: ביטול עסקה לאחר כישלון העלאה נכשל: ${rollbackErr.response?.data?.detail || rollbackErr.message || 'שגיאה'}`)
             }
-          } else {
-            console.log(`All ${fileSuccessCount} files uploaded successfully for transaction ${transactionId}`)
+            results.failed++
+            if (fileSuccessCount > 0) {
+              results.errors.push(`שורה ${i + 1}: הועלו ${fileSuccessCount} מסמכים, ${fileErrorCount} נכשלו – העסקה בוטלה: ${fileErrors.join('; ')}`)
+            } else {
+              results.errors.push(`שורה ${i + 1}: כל המסמכים נכשלו בהעלאה – העסקה בוטלה: ${fileErrors.join('; ')}`)
+            }
+            continue
           }
+          console.log(`All ${fileSuccessCount} files uploaded successfully for transaction ${transactionId}`)
         }
+        results.success++
+        succeededRowIndices.add(i)
       } catch (err: any) {
         results.failed++
         results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'}`)
@@ -1076,19 +1104,29 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     const fileUploadErrors = results.errors.filter(err => err.includes('מסמכים') || err.includes('קובץ'))
     
     if (results.failed > 0 || fileUploadErrors.length > 0) {
+      const remainingRows = rows.filter((_, idx) => !succeededRowIndices.has(idx))
+      if (succeededRowIndices.size > 0) {
+        onSuccess()
+        setRows(remainingRows)
+      }
+      // כשעסקה אחת או יותר נכשלות – שומרים אוטומטית את כל השורות שלא הצליחו כטיוטה יחד עם המסמכים
+      let draftMessage = ''
+      if (remainingRows.length > 0) {
+        const draftResult = await saveRowsAsDraftAuto(remainingRows)
+        if (draftResult.saved && draftResult.draftName) {
+          draftMessage = `\n\nהשורות שנכשלו נשמרו אוטומטית כטיוטה "${draftResult.draftName}". תוכל לטעון מ"טען טיוטה" לתקן ולשלוח שוב.`
+        } else if (draftResult.error) {
+          draftMessage = `\n\nשמירת טיוטה אוטומטית נכשלה: ${draftResult.error}. השורות נשארו בטופס.`
+        }
+      }
       const errorMessages = [
-        `נוצרו ${results.success} עסקאות בהצלחה`,
+        results.success > 0 ? `נוצרו ${results.success} עסקאות בהצלחה` : '',
         results.failed > 0 ? `${results.failed} עסקאות נכשלו` : '',
         fileUploadErrors.length > 0 ? `${fileUploadErrors.length} שגיאות בהעלאת מסמכים` : ''
       ].filter(Boolean).join(', ')
-      
       setError(
-        `${errorMessages}:\n${results.errors.join('\n')}`
+        `${errorMessages}:\n${results.errors.join('\n')}${draftMessage}`
       )
-      if (results.success > 0) {
-        // Some succeeded, refresh data
-        onSuccess()
-      }
     } else {
       // All succeeded - calculate totals
       const regularRows = rows.filter(r => !r.isUnforeseen)
@@ -1150,11 +1188,257 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
     ])
     setError(null)
+    setCurrentDraftId(null)
+    setCurrentDraftName('')
   }
 
   const handleClose = () => {
     onClose()
     resetForm()
+    setShowLoadDraft(false)
+    setShowSaveDraftModal(false)
+  }
+
+  /** Serialize row for draft (no File objects). */
+  const serializeRowForDraft = (row: TransactionRow): Record<string, unknown> => ({
+    projectId: row.projectId,
+    subprojectId: row.subprojectId,
+    type: row.type,
+    txDate: row.txDate,
+    amount: row.amount,
+    description: row.description,
+    categoryId: row.categoryId,
+    supplierId: row.supplierId,
+    paymentMethod: row.paymentMethod,
+    notes: row.notes,
+    isExceptional: row.isExceptional,
+    fromFund: row.fromFund,
+    period_start_date: row.period_start_date,
+    period_end_date: row.period_end_date,
+    isUnforeseen: row.isUnforeseen,
+    unforeseenStatus: row.unforeseenStatus ?? 'draft',
+    contractPeriodId: row.contractPeriodId,
+    incomes: (row.incomes || []).map(inc => ({ amount: inc.amount, description: inc.description })),
+    expenses: (row.expenses || []).map(exp => ({ amount: exp.amount, description: exp.description }))
+  })
+
+  /** Save given rows as a new draft with all their documents (e.g. after partial submit failure). */
+  const saveRowsAsDraftAuto = async (
+    rowsToSave: TransactionRow[]
+  ): Promise<{ saved: boolean; draftName?: string; error?: string }> => {
+    const validRows = rowsToSave.filter(r => r.projectId)
+    if (validRows.length === 0) return { saved: false, error: 'אין שורות עם פרויקט' }
+    const draftName = `טיוטה אוטומטית - ${new Date().toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}`
+    try {
+      const rowsPayload = validRows.map(serializeRowForDraft)
+      const draft = await GroupTransactionDraftAPI.create({ name: draftName, rows: rowsPayload })
+      for (let rowIndex = 0; rowIndex < validRows.length; rowIndex++) {
+        const row = validRows[rowIndex]
+        if (!row.isUnforeseen) {
+          for (const file of row.files || []) {
+            await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main')
+          }
+        } else {
+          for (let j = 0; j < (row.incomes?.length || 0); j++) {
+            const files = row.incomes![j].documentFiles || []
+            for (const file of files) {
+              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j)
+            }
+          }
+          for (let j = 0; j < (row.expenses?.length || 0); j++) {
+            const files = row.expenses![j].documentFiles || []
+            for (const file of files) {
+              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j)
+            }
+          }
+        }
+      }
+      return { saved: true, draftName }
+    } catch (err: any) {
+      return { saved: false, error: err.response?.data?.detail || err.message || 'שגיאה' }
+    }
+  }
+
+  const openSaveDraftModal = () => {
+    const validRows = rows.filter(r => r.projectId)
+    if (validRows.length === 0) {
+      setError('יש להוסיף לפחות שורה אחת עם פרויקט כדי לשמור כטיוטה')
+      return
+    }
+    setError(null)
+    setDraftName(currentDraftId ? currentDraftName : '')
+    setShowSaveDraftModal(true)
+  }
+
+  const saveAsDraft = async () => {
+    const nameTrimmed = draftName.trim()
+    if (!currentDraftId && !nameTrimmed) {
+      setError('יש להזין שם לטיוטה')
+      return
+    }
+    const validRows = rows.filter(r => r.projectId)
+    if (validRows.length === 0) {
+      setError('יש להוסיף לפחות שורה אחת עם פרויקט כדי לשמור כטיוטה')
+      return
+    }
+    setSavingDraft(true)
+    setError(null)
+    try {
+      const rowsPayload = validRows.map(serializeRowForDraft)
+      const draftId = currentDraftId
+      let draft: GroupTransactionDraftOut
+      if (draftId) {
+        draft = await GroupTransactionDraftAPI.update(draftId, { rows: rowsPayload })
+      } else {
+        draft = await GroupTransactionDraftAPI.create({ name: nameTrimmed, rows: rowsPayload })
+      }
+      for (let rowIndex = 0; rowIndex < validRows.length; rowIndex++) {
+        const row = validRows[rowIndex]
+        if (!row.isUnforeseen) {
+          for (const file of row.files || []) {
+            await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main')
+          }
+        } else {
+          for (let j = 0; j < (row.incomes?.length || 0); j++) {
+            const files = row.incomes![j].documentFiles || []
+            for (const file of files) {
+              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j)
+            }
+          }
+          for (let j = 0; j < (row.expenses?.length || 0); j++) {
+            const files = row.expenses![j].documentFiles || []
+            for (const file of files) {
+              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j)
+            }
+          }
+        }
+      }
+      setShowSaveDraftModal(false)
+      setDraftName('')
+      if (draftId) {
+        setCurrentDraftId(draft.id)
+        setCurrentDraftName(draft.name || `טיוטה ${draft.id}`)
+        alert(`הטיוטה "${draft.name || nameTrimmed}" עודכנה (${validRows.length} עסקאות).`)
+      } else {
+        setCurrentDraftId(draft.id)
+        setCurrentDraftName(draft.name || nameTrimmed)
+        alert(`נשמר כטיוטה "${nameTrimmed}" (${validRows.length} עסקאות). תוכל לטעון את הטיוטה מ"טען טיוטה".`)
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בשמירת טיוטה')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  const loadDraftsList = async () => {
+    try {
+      const list = await GroupTransactionDraftAPI.list()
+      setDraftsList(list)
+      setShowLoadDraft(true)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת רשימת טיוטות')
+    }
+  }
+
+  const confirmDeleteDraft = async () => {
+    if (!draftToDelete) return
+    try {
+      setDeletingDraft(true)
+      await GroupTransactionDraftAPI.delete(draftToDelete.id)
+      setDraftsList(prev => prev.filter(x => x.id !== draftToDelete.id))
+      setDraftToDelete(null)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת טיוטה')
+    } finally {
+      setDeletingDraft(false)
+    }
+  }
+
+  const loadDraft = async (draft: GroupTransactionDraftOut) => {
+    const defaultRow = (idx: number): TransactionRow => ({
+      id: idx === 0 ? '1' : `draft-${Date.now()}-${idx}`,
+      projectId: '',
+      subprojectId: '',
+      type: 'Expense',
+      txDate: new Date().toISOString().split('T')[0],
+      amount: '',
+      description: '',
+      categoryId: '',
+      supplierId: '',
+      paymentMethod: '',
+      notes: '',
+      isExceptional: false,
+      fromFund: false,
+      files: [],
+      dateError: null,
+      duplicateError: null,
+      checkingDuplicate: false,
+      period_start_date: '',
+      period_end_date: '',
+      periodError: null,
+      isUnforeseen: false,
+      unforeseenStatus: 'draft',
+      incomes: [{ amount: '', description: '', documentFiles: [] }],
+      expenses: [{ amount: '', description: '', documentFiles: [] }],
+      contractPeriodId: ''
+    })
+    const loaded: TransactionRow[] = (draft.rows || []).map((r: any, idx: number) => {
+      const base = defaultRow(idx)
+      return {
+        ...base,
+        id: base.id,
+        projectId: r.projectId ?? base.projectId,
+        subprojectId: r.subprojectId ?? base.subprojectId,
+        type: r.type ?? base.type,
+        txDate: r.txDate || base.txDate,
+        amount: r.amount ?? base.amount,
+        description: r.description ?? base.description,
+        categoryId: r.categoryId ?? base.categoryId,
+        supplierId: r.supplierId ?? base.supplierId,
+        paymentMethod: r.paymentMethod ?? base.paymentMethod,
+        notes: r.notes ?? base.notes,
+        isExceptional: r.isExceptional ?? base.isExceptional,
+        fromFund: r.fromFund ?? base.fromFund,
+        period_start_date: r.period_start_date ?? base.period_start_date,
+        period_end_date: r.period_end_date ?? base.period_end_date,
+        isUnforeseen: r.isUnforeseen ?? base.isUnforeseen,
+        unforeseenStatus: (r.unforeseenStatus ?? base.unforeseenStatus) as TransactionRow['unforeseenStatus'],
+        contractPeriodId: r.contractPeriodId ?? base.contractPeriodId,
+        incomes: Array.isArray(r.incomes) && r.incomes.length > 0
+          ? r.incomes.map((inc: any) => ({ amount: inc.amount ?? '', description: inc.description ?? '', documentFiles: [] as File[] }))
+          : base.incomes!,
+        expenses: Array.isArray(r.expenses) && r.expenses.length > 0
+          ? r.expenses.map((exp: any) => ({ amount: exp.amount ?? '', description: exp.description ?? '', documentFiles: [] as File[] }))
+          : base.expenses!
+      }
+    })
+    const docs = draft.documents || []
+    for (const doc of docs) {
+      try {
+        const blob = await GroupTransactionDraftAPI.downloadDocument(draft.id, doc.id)
+        const file = new File([blob], doc.original_filename, { type: blob.type || 'application/octet-stream' })
+        if (doc.row_index < 0 || doc.row_index >= loaded.length) continue
+        const row = loaded[doc.row_index]
+        if (doc.sub_type === 'income' && doc.sub_index != null && row.incomes && row.incomes[doc.sub_index]) {
+          row.incomes[doc.sub_index].documentFiles = row.incomes[doc.sub_index].documentFiles || []
+          row.incomes[doc.sub_index].documentFiles!.push(file)
+        } else if (doc.sub_type === 'expense' && doc.sub_index != null && row.expenses && row.expenses[doc.sub_index]) {
+          row.expenses[doc.sub_index].documentFiles = row.expenses[doc.sub_index].documentFiles || []
+          row.expenses[doc.sub_index].documentFiles!.push(file)
+        } else {
+          row.files = row.files || []
+          row.files.push(file)
+        }
+      } catch (_) {
+        // skip failed document
+      }
+    }
+    setRows(loaded.length > 0 ? loaded : [defaultRow(0)])
+    setCurrentDraftId(draft.id)
+    setCurrentDraftName(draft.name || `טיוטה ${draft.id}`)
+    setShowLoadDraft(false)
+    setError(null)
   }
 
   const openTextEditor = (rowId: string, field: 'description' | 'notes', currentValue: string) => {
@@ -1193,7 +1477,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.2 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700"
+        className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 bg-gradient-to-r from-orange-500 to-red-600 dark:from-orange-600 dark:to-red-700 rounded-t-2xl">
@@ -1202,6 +1486,55 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <span>עסקה קבוצתית</span>
               <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
             </h2>
+            <div className="relative flex items-center gap-2">
+              <button
+                type="button"
+                onClick={loadDraftsList}
+                className="px-3 py-1.5 text-sm bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
+              >
+                טען טיוטה
+              </button>
+              {showLoadDraft && (
+                <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto min-w-[200px]">
+                  {draftsList.length === 0 ? (
+                    <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">אין טיוטות שמורות</div>
+                  ) : (
+                    draftsList.map((d) => (
+                      <div
+                        key={d.id}
+                        className="flex items-center justify-between gap-2 w-full text-right px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm group"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => loadDraft(d)}
+                          className="flex-1 min-w-0 text-right"
+                        >
+                          {d.name || `טיוטה ${d.id}`} ({Array.isArray(d.rows) ? d.rows.length : 0} שורות)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDraftToDelete(d)
+                          }}
+                          className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
+                          title="מחק טיוטה"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowLoadDraft(false)}
+                    className="w-full text-right px-4 py-2 border-t border-gray-200 dark:border-gray-600 text-gray-500 text-sm"
+                  >
+                    סגור
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={handleClose}
@@ -1543,10 +1876,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                                   if (!selectedCategory) {
                                     return <option value="" disabled>בחר קודם קטגוריה</option>
                                   }
-                                  const categoryName = selectedCategory.name
+                                  if (suppliersLoading) {
+                                    return <option value="" disabled>טוען ספקים...</option>
+                                  }
+                                  const categoryId = selectedCategory.id
                                   const filteredSuppliers = suppliers.filter(s => {
-                                    if (!s.is_active) return false
-                                    return s.category === categoryName
+                                    if (s.is_active === false) return false
+                                    return s.category_id === categoryId
                                   })
                                   if (filteredSuppliers.length === 0) {
                                     return <option value="" disabled>אין ספקים בקטגוריה זו</option>
@@ -1785,6 +2121,16 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-2xl">
           <motion.button
             type="button"
+            onClick={openSaveDraftModal}
+            disabled={rows.every(r => !r.projectId)}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all shadow-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            שמור כטיוטה
+          </motion.button>
+          <motion.button
+            type="button"
             onClick={handleClose}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1793,8 +2139,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             ביטול
           </motion.button>
           <motion.button
-            type="submit"
-            onClick={handleSubmit}
+            type="button"
+            onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
             disabled={loading}
             whileHover={!loading ? { scale: 1.05 } : {}}
             whileTap={!loading ? { scale: 0.95 } : {}}
@@ -1815,6 +2161,67 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           </motion.button>
         </div>
       </motion.div>
+
+      {/* מודל שם ותיאור לטיוטה */}
+      {showSaveDraftModal && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/50 rounded-2xl">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              {currentDraftId ? 'עדכון טיוטה' : 'שמירת טיוטה'}
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם הטיוטה</label>
+              <input
+                type="text"
+                value={draftName}
+                onChange={e => setDraftName(e.target.value)}
+                placeholder="למשל: עסקאות חודש ינואר"
+                disabled={!!currentDraftId}
+                readOnly={!!currentDraftId}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:opacity-70 disabled:cursor-not-allowed"
+                autoFocus={!currentDraftId}
+              />
+              {currentDraftId && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">שם הטיוטה לא ניתן לשינוי לאחר שמירה.</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                onClick={() => { setShowSaveDraftModal(false); setDraftName('') }}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium"
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                onClick={saveAsDraft}
+                disabled={savingDraft || (!currentDraftId && !draftName.trim())}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium"
+              >
+                {savingDraft ? (currentDraftId ? 'מעדכן...' : 'שומר...') : (currentDraftId ? 'עדכן' : 'שמור')}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      <ConfirmationModal
+        isOpen={!!draftToDelete}
+        onClose={() => setDraftToDelete(null)}
+        onConfirm={confirmDeleteDraft}
+        title="מחיקת טיוטה"
+        message="האם אתה בטוח שברצונך למחוק את הטיוטה?"
+        confirmText="מחק"
+        cancelText="ביטול"
+        variant="danger"
+        loading={deletingDraft}
+      />
     </div>
   )
 }

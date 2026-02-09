@@ -875,8 +875,8 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                         במצב טוב – פירוט
                       </div>
                       <ul className="space-y-1 max-h-72 overflow-y-auto">
-                        {projectsByStatusGreen.map((p) => (
-                          <li key={p.id}>
+                        {projectsByStatusGreen.map((p, idx) => (
+                          <li key={`green-${p.id}-${idx}`}>
                             <button
                               type="button"
                               onClick={() => {
@@ -898,8 +898,8 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                         שימו לב – פירוט
                       </div>
                       <ul className="space-y-1 max-h-72 overflow-y-auto">
-                        {projectsByStatusYellow.map((p) => (
-                          <li key={p.id}>
+                        {projectsByStatusYellow.map((p, idx) => (
+                          <li key={`yellow-${p.id}-${idx}`}>
                             <button
                               type="button"
                               onClick={() => {
@@ -921,8 +921,8 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                         דורש טיפול – פירוט
                       </div>
                       <ul className="space-y-1 max-h-72 overflow-y-auto">
-                        {projectsByStatusRed.map((p) => (
-                          <li key={p.id}>
+                        {projectsByStatusRed.map((p, idx) => (
+                          <li key={`red-${p.id}-${idx}`}>
                             <button
                               type="button"
                               onClick={() => {
@@ -955,11 +955,11 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">לפי רווח (הכנסות פחות הוצאות)</p>
                 <ul className="space-y-2">
-                  {topProfitableProjects.map((p) => {
+                  {topProfitableProjects.map((p, idx) => {
                     const profit = projectProfit(p)
                     return (
                       <li
-                        key={p.id}
+                        key={`profit-${p.id}-${idx}`}
                         className="flex justify-between items-center gap-2 text-sm py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0"
                       >
                         <button
@@ -988,11 +988,11 @@ export default function ModernDashboard({ onProjectClick, onProjectEdit }: Moder
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">לפי הפסד (הוצאות גבוהות מהכנסות)</p>
                 <ul className="space-y-2">
-                  {topLossMakingProjects.map((p) => {
+                  {topLossMakingProjects.map((p, idx) => {
                     const profit = projectProfit(p)
                     return (
                       <li
-                        key={p.id}
+                        key={`loss-${p.id}-${idx}`}
                         className="flex justify-between items-center gap-2 text-sm py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0"
                       >
                         <button

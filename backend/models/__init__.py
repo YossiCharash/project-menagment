@@ -27,6 +27,7 @@ from backend.models.quote_line import QuoteLine
 from backend.models.task import Task, TaskAttachment
 from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
+from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
 
 __all__ = [
     "User",
@@ -62,4 +63,6 @@ __all__ = [
     "Task",
     "TaskAttachment",
     "OutlookSync",
+    "GroupTransactionDraft",
+    "GroupTransactionDraftDocument",
 ]

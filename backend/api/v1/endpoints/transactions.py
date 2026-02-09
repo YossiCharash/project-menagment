@@ -655,6 +655,33 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
     return result
 
 
+@router.post("/{tx_id}/rollback")
+async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(get_current_user)):
+    """Rollback a transaction created by the current user with no documents (e.g. group transaction when document upload failed)."""
+    repo = TransactionRepository(db)
+    tx = await repo.get_by_id(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if tx.created_by_user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot rollback: transaction has no creator (legacy). Use delete instead."
+        )
+    if tx.created_by_user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can rollback this transaction")
+    if len(tx.documents) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot rollback transaction that has documents; use delete instead"
+        )
+    if getattr(tx, "from_fund", False) and tx.type == "Expense":
+        from backend.services.fund_service import FundService
+        fund_service = FundService(db)
+        await fund_service.refund_to_fund(tx.project_id, tx.amount)
+    await repo.delete(tx)
+    return {"ok": True}
+
+
 @router.delete("/{tx_id}")
 async def delete_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_admin())):
     """Delete transaction - Admin only"""

@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from backend.api.v1.endpoints import transactions, auth, reports, suppliers, users, projects, financial_aggregation, \
     admin_invites, email_verification, recurring_transactions, oauth, member_invites, budgets, audit_logs, categories, \
-    unforeseen_transactions, quote_structure, quote_projects, tasks, quote_subjects, outlook
+    unforeseen_transactions, quote_structure, quote_projects, tasks, quote_subjects, outlook, group_transaction_drafts
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -26,3 +26,4 @@ api_router.include_router(quote_subjects.router, prefix="/quote-subjects", tags=
 api_router.include_router(quote_projects.router, prefix="/quote-projects", tags=["quote-projects"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(outlook.router, prefix="/outlook", tags=["outlook"])
+api_router.include_router(group_transaction_drafts.router, prefix="/group-transaction-drafts", tags=["group-transaction-drafts"])

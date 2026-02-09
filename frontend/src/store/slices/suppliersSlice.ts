@@ -7,6 +7,7 @@ export interface Supplier {
   contact_email?: string | null
   phone?: string | null
   category?: string | null
+  category_id?: number | null
   annual_budget?: number | null
   is_active?: boolean
 }

@@ -31,6 +31,8 @@ from backend.models import (  # noqa: F401
     QuoteLine,
     Task,
     TaskAttachment,
+    GroupTransactionDraft,
+    GroupTransactionDraftDocument,
 )
 
 
