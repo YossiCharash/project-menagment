@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState } from '../store'
 import FullCalendar from '@fullcalendar/react'
@@ -919,6 +919,38 @@ export default function TaskCalendar() {
   const showJewishHolidays = me?.show_jewish_holidays ?? true
   const showIslamicHolidays = me?.show_islamic_holidays ?? false
 
+  /** Stable visibleRange for Hebrew month – prevents re-render loops and navigation issues. */
+  const hebrewVisibleRange = useCallback((currentDate: Date) => {
+    const range = getHebrewMonthRange(currentDate)
+    if (!range) {
+      const s = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+      const e = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+      return { start: s, end: new Date(e.getTime() + 86400000) }
+    }
+    const end = new Date(range.end)
+    end.setDate(end.getDate() + 1) // FullCalendar end is exclusive
+    return { start: range.start, end }
+  }, [])
+
+  const hebrewMonthViews = useMemo(() => {
+    const base: Record<string, object> = {
+      timeGridWorkWeek: {
+        type: 'timeGrid',
+        duration: { days: 5 },
+        buttonText: 'שבוע עבודה',
+      },
+    }
+    if (calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both') {
+      base.dayGridMonth = {
+        fixedWeekCount: false,
+        showNonCurrentDates: false,
+        dateIncrement: { days: 30 }, // Hebrew months are 29–30 days; stabilizes prev/next navigation
+        visibleRange: hebrewVisibleRange,
+      }
+    }
+    return base
+  }, [calendarDateDisplay, hebrewVisibleRange])
+
   const holidayEvents =
     dateRange?.start && dateRange?.end
       ? [
@@ -1309,32 +1341,7 @@ export default function TaskCalendar() {
                 center: 'title',
                 end: 'prev,next today',
               }}
-              views={{
-                timeGridWorkWeek: {
-                  type: 'timeGrid',
-                  duration: { days: 5 },
-                  buttonText: 'שבוע עבודה',
-                },
-                ...(calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both'
-                  ? {
-                      dayGridMonth: {
-                        fixedWeekCount: false,
-                        showNonCurrentDates: false,
-                        visibleRange: (currentDate: Date) => {
-                          const range = getHebrewMonthRange(currentDate)
-                          if (!range) {
-                            const s = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
-                            const e = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
-                            return { start: s, end: new Date(e.getTime() + 86400000) }
-                          }
-                          const end = new Date(range.end)
-                          end.setDate(end.getDate() + 1) // FullCalendar end is exclusive
-                          return { start: range.start, end }
-                        },
-                      },
-                    }
-                  : {}),
-              }}
+              views={hebrewMonthViews}
               buttonText={{
                 today: 'היום',
                 month: 'חודש',
