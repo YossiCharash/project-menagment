@@ -1,0 +1,473 @@
+/* ============================================
+   Task Calendar – Innovative design system
+   Scoped to .task-calendar-wrap & .task-calendar-page
+   ============================================ */
+
+/* Page-level background (optional mesh/gradient) */
+.task-calendar-page {
+  --calendar-accent: #7c3aed;
+  --calendar-accent-hover: #6d28d9;
+  --calendar-accent-muted: rgba(124, 58, 237, 0.12);
+  --calendar-surface: #ffffff;
+  --calendar-surface-elevated: #fafafa;
+  --calendar-border: #e5e7eb;
+  --calendar-text-muted: #6b7280;
+  --calendar-today-ring: #7c3aed;
+}
+
+.dark .task-calendar-page {
+  --calendar-accent: #8b5cf6;
+  --calendar-accent-hover: #7c3aed;
+  --calendar-accent-muted: rgba(139, 92, 246, 0.2);
+  --calendar-surface: #1f2937;
+  --calendar-surface-elevated: #111827;
+  --calendar-border: #374151;
+  --calendar-text-muted: #9ca3af;
+  --calendar-today-ring: #8b5cf6;
+}
+
+/* ---- FullCalendar CSS variables ---- */
+.task-calendar-wrap {
+  --fc-page-bg-color: var(--calendar-surface);
+  --fc-border-color: var(--calendar-border);
+  --fc-neutral-bg-color: var(--calendar-surface-elevated);
+  --fc-neutral-text-color: var(--calendar-text-muted);
+  --fc-button-bg-color: var(--calendar-accent);
+  --fc-button-border-color: var(--calendar-accent);
+  --fc-button-text-color: #fff;
+  --fc-button-hover-bg-color: var(--calendar-accent-hover);
+  --fc-button-hover-border-color: var(--calendar-accent-hover);
+  --fc-button-active-bg-color: var(--calendar-accent-hover);
+  --fc-button-active-border-color: var(--calendar-accent-hover);
+  --fc-today-bg-color: var(--calendar-accent-muted);
+  --fc-now-indicator-color: #ef4444;
+  --fc-highlight-color: var(--calendar-accent-muted);
+  --fc-event-selected-overlay-color: rgba(0, 0, 0, 0.08);
+}
+
+.dark .task-calendar-wrap {
+  --fc-event-selected-overlay-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ---- Container ---- */
+.task-calendar-wrap .fc {
+  font-family: inherit;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--fc-page-bg-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.dark .task-calendar-wrap .fc {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ---- Toolbar: segmented control style ---- */
+.task-calendar-wrap .fc .fc-toolbar {
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  padding: 0.5rem 0 1.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: none;
+}
+
+.task-calendar-wrap .fc .fc-toolbar-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: inherit;
+  letter-spacing: -0.03em;
+}
+
+/* View switcher: pill group */
+.task-calendar-wrap .fc .fc-toolbar-chunk:first-child .fc-button-group {
+  background: var(--fc-neutral-bg-color);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 2px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.task-calendar-wrap .fc .fc-toolbar-chunk:first-child .fc-button {
+  background: transparent !important;
+  color: var(--fc-neutral-text-color) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 0.5rem 0.85rem !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.task-calendar-wrap .fc .fc-toolbar-chunk:first-child .fc-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: inherit !important;
+}
+
+.dark .task-calendar-wrap .fc .fc-toolbar-chunk:first-child .fc-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.task-calendar-wrap .fc .fc-toolbar-chunk:first-child .fc-button.fc-button-active {
+  background: var(--fc-button-bg-color) !important;
+  color: var(--fc-button-text-color) !important;
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.3);
+}
+
+/* Nav: Today + Prev/Next */
+.task-calendar-wrap .fc .fc-toolbar-chunk:last-child .fc-button-group {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.task-calendar-wrap .fc .fc-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 0;
+  text-transform: none;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.task-calendar-wrap .fc .fc-button-primary {
+  border: none;
+  background: var(--fc-button-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-button-primary:hover:not(:disabled) {
+  background: var(--fc-button-hover-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-button-primary.fc-button-active,
+.task-calendar-wrap .fc .fc-button-primary:active:not(:disabled) {
+  background: var(--fc-button-active-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-button-primary:focus {
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.35);
+}
+
+.dark .task-calendar-wrap .fc .fc-button-primary:focus {
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+}
+
+/* ---- Day grid (month) ---- */
+.task-calendar-wrap .fc-theme-standard .fc-scrollgrid {
+  border-radius: 12px;
+  border: 1px solid var(--fc-border-color);
+  overflow: hidden;
+}
+
+.task-calendar-wrap .fc .fc-col-header-cell {
+  padding: 0.75rem 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fc-neutral-text-color);
+  background: var(--fc-neutral-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-col-header-cell-cushion {
+  padding: 6px 8px;
+}
+
+.task-calendar-wrap .fc .fc-scrollgrid,
+.task-calendar-wrap .fc .fc-daygrid-body table {
+  table-layout: fixed;
+}
+
+/* Month grid: fixed cell height so all day cells are always equal (5 or 6 rows) */
+.task-calendar-wrap .fc .fc-daygrid-day {
+  min-height: 110px;
+}
+
+.task-calendar-wrap.task-calendar-wrap--month .fc .fc-daygrid-day {
+  height: 110px;
+  min-height: 110px;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-number {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-number.fc-day-both {
+  width: auto;
+  min-width: 40px;
+  height: auto;
+  min-height: 40px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 4px 8px;
+  text-align: center;
+  line-height: 1.25;
+  border-radius: 10px;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-number.fc-day-both .fc-day-greg {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-number.fc-day-both .fc-day-heb {
+  font-size: 0.7rem;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.task-calendar-wrap .fc .fc-day-today .fc-daygrid-day-number.fc-day-both .fc-day-heb {
+  opacity: 1;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day:hover .fc-daygrid-day-number {
+  background: var(--fc-neutral-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-day-today .fc-daygrid-day-number {
+  background: var(--fc-button-bg-color);
+  color: var(--fc-button-text-color);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+}
+
+.dark .task-calendar-wrap .fc .fc-day-today .fc-daygrid-day-number {
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4);
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-frame {
+  min-height: 100%;
+}
+
+/* Month view: constrain content so cell height stays fixed and equal.
+   Use pointer-events so drop target is the cell (td); frame is none, top & events are auto. */
+.task-calendar-wrap.task-calendar-wrap--month .fc .fc-daygrid-day-frame {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.task-calendar-wrap.task-calendar-wrap--month .fc .fc-daygrid-day-top,
+.task-calendar-wrap.task-calendar-wrap--month .fc .fc-daygrid-day-events {
+  pointer-events: auto;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-day-events {
+  margin: 4px 6px;
+  min-height: 0;
+}
+
+.task-calendar-wrap.task-calendar-wrap--month .fc .fc-daygrid-day-events {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.task-calendar-wrap .fc .fc-day-sat,
+.task-calendar-wrap .fc .fc-day-sun {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.dark .task-calendar-wrap .fc .fc-day-sat,
+.dark .task-calendar-wrap .fc .fc-day-sun {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ---- Time grid (week/day) ---- */
+.task-calendar-wrap .fc .fc-timegrid-slot {
+  height: 3em;
+}
+
+.task-calendar-wrap .fc .fc-timegrid-slot-label {
+  font-size: 0.8125rem;
+  color: var(--fc-neutral-text-color);
+  vertical-align: top;
+  padding-top: 0.25rem;
+}
+
+.task-calendar-wrap .fc .fc-timegrid-axis {
+  background: var(--fc-neutral-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-timegrid-now-indicator-line {
+  border-width: 2px;
+  border-color: var(--fc-now-indicator-color);
+}
+
+.task-calendar-wrap .fc .fc-timegrid-now-indicator-arrow {
+  border-color: var(--fc-now-indicator-color);
+}
+
+.task-calendar-wrap .fc .fc-timegrid-col.fc-day-today {
+  background: var(--fc-today-bg-color);
+}
+
+/* ---- Events: card style ---- */
+.task-calendar-wrap .fc .fc-event {
+  border: none;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.task-calendar-wrap .fc .fc-event:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.task-calendar-wrap .fc .fc-event .fc-event-main-frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-calendar-wrap .fc .fc-event .fc-event-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-calendar-wrap .fc-event-meeting {
+  border-left: none !important;
+  border-right: 4px solid rgba(0, 0, 0, 0.35) !important;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dark .task-calendar-wrap .fc-event-meeting {
+  border-right-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.task-calendar-wrap .fc-event-task {
+  border: 2px dashed currentColor !important;
+  border-radius: 10px;
+  opacity: 0.96;
+  background-clip: padding-box;
+}
+
+.task-calendar-wrap .fc-event-holiday {
+  cursor: default;
+  opacity: 0.95;
+}
+
+.task-calendar-wrap .fc-event-holiday .fc-event-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-calendar-wrap .fc-event-holiday-jewish {
+  border-right: 3px solid #22c55e !important;
+}
+
+.task-calendar-wrap .fc-event-holiday-islamic {
+  border-right: 3px solid #3b82f6 !important;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-block-event .fc-event-main {
+  padding: 4px 8px;
+}
+
+.task-calendar-wrap .fc .fc-daygrid-event-harness {
+  margin-bottom: 4px;
+}
+
+.task-calendar-wrap .fc .fc-more-link {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 8px;
+  margin: 2px 6px 2px 0;
+}
+
+.task-calendar-wrap .fc .fc-more-link:hover {
+  text-decoration: none;
+  opacity: 0.9;
+}
+
+/* ---- List view ---- */
+.task-calendar-wrap .fc .fc-list {
+  border-radius: 12px;
+  border: 1px solid var(--fc-border-color);
+  overflow: hidden;
+}
+
+.task-calendar-wrap .fc .fc-list-day-cushion {
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  background: var(--fc-neutral-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-list-event:hover td {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.dark .task-calendar-wrap .fc .fc-list-event:hover td {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.task-calendar-wrap .fc .fc-list-event-dot {
+  border-radius: 50%;
+}
+
+/* ---- Popover ---- */
+.task-calendar-wrap .fc .fc-popover {
+  border-radius: 12px;
+  border: 1px solid var(--fc-border-color);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.12), 0 8px 12px -6px rgba(0, 0, 0, 0.08);
+}
+
+.task-calendar-wrap .fc .fc-popover-header {
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+/* ---- Scrollbars ---- */
+.task-calendar-wrap .fc .fc-scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.task-calendar-wrap .fc .fc-scroller::-webkit-scrollbar-track {
+  background: var(--fc-neutral-bg-color);
+}
+
+.task-calendar-wrap .fc .fc-scroller::-webkit-scrollbar-thumb {
+  background: var(--fc-border-color);
+  border-radius: 4px;
+}
+
+.task-calendar-wrap .fc .fc-scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--fc-neutral-text-color);
+}
+
+/* ---- Sidebar select (when used in page) ---- */
+.task-calendar-select:focus {
+  outline: none;
+}
+
+/* ---- RTL toolbar spacing ---- */
+.task-calendar-wrap.fc-direction-rtl .fc-toolbar > * > :not(:first-child) {
+  margin-right: 0.75em;
+}
+
+/* Drag mirror appended to body: use LTR so left/top follow cursor correctly in RTL */
+body > .fc-event-dragging {
+  direction: ltr;
+}
