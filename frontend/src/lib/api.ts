@@ -57,6 +57,38 @@ api.interceptors.request.use((config) => {
 
   return config
 })
+
+/** Base URL of the backend (origin) for building absolute URLs for uploads/avatars */
+const getBaseUrl = () => {
+  const base = api.defaults.baseURL ?? ''
+  const withoutPath = base.replace(/\/api\/v1\/?$/, '')
+  return withoutPath || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL
+    ? String(import.meta.env.VITE_API_URL).replace(/\/api\/v1\/?$/, '')
+    : '')
+}
+
+/**
+ * Returns absolute URL for an avatar path from the API (e.g. /uploads/avatars/xxx).
+ * Returns null if path is falsy.
+ */
+export function avatarUrl(path: string | null | undefined): string | null {
+  if (path == null || path === '') return null
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const base = getBaseUrl()
+  return base ? `${base}${path.startsWith('/') ? path : `/${path}`}` : path
+}
+
+/**
+ * Returns absolute URL for a file attachment path from the API.
+ * Returns null if path is falsy.
+ */
+export function fileAttachmentUrl(path: string | null | undefined): string | null {
+  if (path == null || path === '') return null
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const base = getBaseUrl()
+  return base ? `${base}${path.startsWith('/') ? path : `/${path}`}` : path
+}
+
 api.interceptors.response.use(
   (res) => {
     return res      
