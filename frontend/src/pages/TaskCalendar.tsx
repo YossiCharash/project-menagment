@@ -389,8 +389,8 @@ export default function TaskCalendar() {
   const edgeZoneRef = useRef<'left' | 'right' | null>(null)
   const currentViewTypeRef = useRef(currentViewType)
   currentViewTypeRef.current = currentViewType
-  /** Anchor date = midpoint of visible range; survives display-mode switches. */
-  const anchorDateRef = useRef<Date>(dateRange?.start ?? new Date())
+  /** Track previous isHebrewMode to detect display-mode transitions. */
+  const prevIsHebrewModeRef = useRef<boolean | null>(null)
 
   const handleEventClick = (info: EventClickArg) => {
     if (info.event.id.startsWith('jewish-') || info.event.id.startsWith('islamic-')) return
@@ -475,9 +475,6 @@ export default function TaskCalendar() {
   const handleDatesSet = (arg: DatesSetArg) => {
     const viewType = arg.view?.type ?? 'dayGridMonth'
     setCurrentViewType(viewType)
-    // Keep anchor date at the midpoint of the visible range so switching
-    // display modes (Hebrew ↔ Gregorian) stays on the same period.
-    anchorDateRef.current = new Date((arg.start.getTime() + arg.end.getTime()) / 2)
     setDateRange(prev => {
       const newStart = arg.start.getTime()
       const newEnd = arg.end.getTime()
@@ -977,6 +974,30 @@ export default function TaskCalendar() {
     }
   }, [isHebrewMode])
 
+  // When the display mode changes (Hebrew ↔ Gregorian ↔ Both), the calendar stays mounted
+  // (no key change). We use the API to re-evaluate the view so Hebrew month boundaries,
+  // day-cell rendering, and the toolbar update correctly – without losing the current date.
+  useEffect(() => {
+    const api = calendarRef.current?.getApi()
+    if (!api) return
+    // Skip the very first render – nothing to transition from
+    if (prevIsHebrewModeRef.current === null) {
+      prevIsHebrewModeRef.current = isHebrewMode
+      return
+    }
+    const hebrewModeChanged = prevIsHebrewModeRef.current !== isHebrewMode
+    prevIsHebrewModeRef.current = isHebrewMode
+
+    if (hebrewModeChanged && api.view.type === 'dayGridMonth') {
+      // Re-initialize month view so FullCalendar picks up the new visibleRange config
+      const currentDate = api.getDate()
+      api.changeView('dayGridMonth', currentDate)
+    } else {
+      // For non-month views or same-mode switches (hebrew ↔ both), just re-render cells
+      api.render()
+    }
+  }, [calendarDateDisplay, isHebrewMode])
+
   const holidayEvents =
     dateRange?.start && dateRange?.end
       ? [
@@ -1124,6 +1145,8 @@ export default function TaskCalendar() {
                   סינון לפי משתמש
                 </h2>
                 <select
+                  id="filter-user"
+                  name="filter-user"
                   value={filterUserId ?? ''}
                   onChange={(e) => setFilterUserId(e.target.value ? Number(e.target.value) : null)}
                   className="task-calendar-select w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
@@ -1157,12 +1180,15 @@ export default function TaskCalendar() {
                               </div>
                             )}
                             <input
+                              id={`user-color-${u.id}`}
+                              name={`user-color-${u.id}`}
                               type="color"
                               value={color.startsWith('#') ? color : `#${color}`}
                               onChange={(e) => handleUserColorChange(u.id, e.target.value)}
                               disabled={!!updatingUserColorId}
                               className="w-8 h-8 rounded-lg border-2 border-gray-200 dark:border-gray-600 cursor-pointer disabled:opacity-50 bg-transparent"
                               title={`צבע ל${u.full_name}`}
+                              aria-label={`צבע ל${u.full_name}`}
                             />
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate flex-1">{u.full_name}</span>
                           </li>
@@ -1280,14 +1306,10 @@ export default function TaskCalendar() {
                 >
             <FullCalendar
               ref={calendarRef}
-              key={`${calendarDateDisplay}-${calendarRefreshKey}`}
+              key={calendarRefreshKey}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
               initialView={currentViewType}
-              initialDate={
-                (calendarDateDisplay === 'hebrew' || calendarDateDisplay === 'both') && currentViewType === 'dayGridMonth'
-                  ? (getHebrewMonthRange(anchorDateRef.current)?.start ?? anchorDateRef.current)
-                  : anchorDateRef.current
-              }
+              initialDate={dateRange?.start ?? undefined}
               events={events}
               dayCellContent={(arg) => {
                 const esc = (s: string) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1443,8 +1465,10 @@ export default function TaskCalendar() {
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">או בחר תאריך ושעה אחרים:</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">משעה</label>
+                  <label htmlFor="drop-custom-start" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">משעה</label>
                   <input
+                    id="drop-custom-start"
+                    name="drop-custom-start"
                     type="datetime-local"
                     value={dropConfirm.customStart}
                     onChange={(e) => setDropConfirm(d => d ? { ...d, customStart: e.target.value } : d)}
@@ -1455,8 +1479,10 @@ export default function TaskCalendar() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">עד שעה</label>
+                  <label htmlFor="drop-custom-end" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">עד שעה</label>
                   <input
+                    id="drop-custom-end"
+                    name="drop-custom-end"
                     type="datetime-local"
                     value={dropConfirm.customEnd}
                     onChange={(e) => setDropConfirm(d => d ? { ...d, customEnd: e.target.value } : d)}
@@ -1493,8 +1519,10 @@ export default function TaskCalendar() {
               <span className="font-medium">{EVENT_TYPE_LABELS[(selectedTask.event_type || 'task') as EventType]}</span>
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400">מצב: </span>
+              <label htmlFor="detail-status" className="text-sm text-gray-600 dark:text-gray-400">מצב: </label>
               <select
+                id="detail-status"
+                name="detail-status"
                 value={selectedTask.status || 'pending'}
                 onChange={(e) => handleStatusChange(selectedTask.id, e.target.value as TaskStatus)}
                 disabled={updatingStatus}
@@ -1600,8 +1628,10 @@ export default function TaskCalendar() {
               <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">כותרת</label>
+              <label htmlFor="edit-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">כותרת</label>
               <input
+                id="edit-title"
+                name="edit-title"
                 type="text"
                 value={editForm.title}
                 onChange={(e) => setEditForm(f => f ? { ...f, title: e.target.value } : f)}
@@ -1636,8 +1666,10 @@ export default function TaskCalendar() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מצב משימה</label>
+              <label htmlFor="edit-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מצב משימה</label>
               <select
+                id="edit-status"
+                name="edit-status"
                 value={editForm.status}
                 onChange={(e) => setEditForm(f => f ? { ...f, status: e.target.value as TaskStatus } : f)}
                 className={cn(
@@ -1651,8 +1683,10 @@ export default function TaskCalendar() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מוקצה למשתמש</label>
+              <label htmlFor="edit-assigned" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מוקצה למשתמש</label>
               <select
+                id="edit-assigned"
+                name="edit-assigned"
                 value={editForm.assigned_to_user_id}
                 onChange={(e) => setEditForm(f => f ? { ...f, assigned_to_user_id: e.target.value } : f)}
                 className={cn(
@@ -1702,19 +1736,25 @@ export default function TaskCalendar() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <input
+                  id="edit-new-label-name"
+                  name="edit-new-label-name"
                   type="text"
                   placeholder="שם לייבל חדש"
                   value={newLabelName}
                   onChange={(e) => setNewLabelName(e.target.value)}
+                  aria-label="שם לייבל חדש"
                   className={cn(
                     'px-3 py-1.5 border rounded-lg text-sm w-32',
                     'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
                   )}
                 />
                 <input
+                  id="edit-new-label-color"
+                  name="edit-new-label-color"
                   type="color"
                   value={newLabelColor}
                   onChange={(e) => setNewLabelColor(e.target.value)}
+                  aria-label="צבע לייבל חדש"
                   className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent"
                 />
                 <button
@@ -1731,8 +1771,10 @@ export default function TaskCalendar() {
               <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">משעה *</label>
+                    <label htmlFor="edit-start-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">משעה *</label>
                     <input
+                      id="edit-start-time"
+                      name="edit-start-time"
                       type="datetime-local"
                       value={editForm.start_time}
                       onChange={(e) => setEditForm(f => f ? { ...f, start_time: e.target.value } : f)}
@@ -1743,8 +1785,10 @@ export default function TaskCalendar() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">עד שעה *</label>
+                    <label htmlFor="edit-end-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">עד שעה *</label>
                     <input
+                      id="edit-end-time"
+                      name="edit-end-time"
                       type="datetime-local"
                       value={editForm.end_time}
                       onChange={(e) => setEditForm(f => f ? { ...f, end_time: e.target.value } : f)}
@@ -1759,8 +1803,10 @@ export default function TaskCalendar() {
             )}
             {editForm.event_type === 'task' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך (משימה)</label>
+                <label htmlFor="edit-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך (משימה)</label>
                 <input
+                  id="edit-date"
+                  name="edit-date"
                   type="date"
                   value={editForm.date}
                   onChange={(e) => setEditForm(f => f ? { ...f, date: e.target.value } : f)}
@@ -1776,8 +1822,10 @@ export default function TaskCalendar() {
                 <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">משימה מחזורית</p>
                 <div className="flex flex-wrap items-center gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">חזרה</label>
+                    <label htmlFor="edit-recurrence" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">חזרה</label>
                     <select
+                      id="edit-recurrence"
+                      name="edit-recurrence"
                       value={editForm.recurrence_rule}
                       onChange={(e) => setEditForm(f => f ? { ...f, recurrence_rule: e.target.value as RecurrenceRule } : f)}
                       className={cn(
@@ -1792,8 +1840,10 @@ export default function TaskCalendar() {
                   </div>
                   {(editForm.recurrence_rule === 'weekly' || editForm.recurrence_rule === 'monthly') && (
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">תאריך סיום חזרות (אופציונלי)</label>
+                      <label htmlFor="edit-recurrence-end" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">תאריך סיום חזרות (אופציונלי)</label>
                       <input
+                        id="edit-recurrence-end"
+                        name="edit-recurrence-end"
                         type="date"
                         value={editForm.recurrence_end_date}
                         onChange={(e) => setEditForm(f => f ? { ...f, recurrence_end_date: e.target.value } : f)}
@@ -1812,6 +1862,8 @@ export default function TaskCalendar() {
                 <Paperclip className="w-3.5 h-3.5" /> קבצים / תמונות
               </label>
               <input
+                id="edit-files"
+                name="edit-files"
                 ref={editFileInputRef}
                 type="file"
                 multiple
@@ -1853,8 +1905,10 @@ export default function TaskCalendar() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
+              <label htmlFor="edit-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
               <textarea
+                id="edit-description"
+                name="edit-description"
                 value={editForm.description}
                 onChange={(e) => setEditForm(f => f ? { ...f, description: e.target.value } : f)}
                 rows={2}
@@ -1895,8 +1949,10 @@ export default function TaskCalendar() {
               <p className="text-sm text-red-600 dark:text-red-400">{createError}</p>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-0.5">כותרת</label>
+              <label htmlFor="create-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-0.5">כותרת</label>
               <input
+                id="create-title"
+                name="create-title"
                 type="text"
                 value={createForm.title}
                 onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
@@ -1927,8 +1983,10 @@ export default function TaskCalendar() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מצב</label>
+                  <label htmlFor="create-status" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מצב</label>
                   <select
+                    id="create-status"
+                    name="create-status"
                     value={createForm.status}
                     onChange={(e) => setCreateForm(f => ({ ...f, status: e.target.value as TaskStatus }))}
                     className={cn(
@@ -1942,8 +2000,10 @@ export default function TaskCalendar() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מוקצה ל</label>
+                  <label htmlFor="create-assigned" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מוקצה ל</label>
                   <select
+                    id="create-assigned"
+                    name="create-assigned"
                     value={createForm.assigned_to_user_id}
                     onChange={(e) => setCreateForm(f => ({ ...f, assigned_to_user_id: e.target.value }))}
                     className={cn(
@@ -1988,23 +2048,28 @@ export default function TaskCalendar() {
                   </label>
                 ))}
                 <input
+                  id="create-new-label-name"
+                  name="create-new-label-name"
                   type="text"
                   placeholder="לייבל חדש"
                   value={newLabelName}
                   onChange={(e) => setNewLabelName(e.target.value)}
+                  aria-label="שם לייבל חדש"
                   className={cn(
                     'px-2 py-1 border rounded text-xs w-24',
                     'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
                   )}
                 />
-                <input type="color" value={newLabelColor} onChange={(e) => setNewLabelColor(e.target.value)} className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent" title="צבע" />
+                <input id="create-new-label-color" name="create-new-label-color" type="color" value={newLabelColor} onChange={(e) => setNewLabelColor(e.target.value)} className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent" title="צבע" aria-label="צבע לייבל חדש" />
                 <button type="button" onClick={handleCreateTaskLabel} disabled={addingLabel || !newLabelName.trim()} className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50">הוסף</button>
               </div>
             </div>
             {taskType === 'all_day' && (
               <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תאריך *</label>
+                <label htmlFor="create-date" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תאריך *</label>
                 <input
+                  id="create-date"
+                  name="create-date"
                   type="date"
                   value={createForm.date}
                   onChange={(e) => setCreateForm(f => ({ ...f, date: e.target.value }))}
@@ -2019,8 +2084,10 @@ export default function TaskCalendar() {
               <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">משעה *</label>
+                    <label htmlFor="create-start-time" className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">משעה *</label>
                     <input
+                      id="create-start-time"
+                      name="create-start-time"
                       type="datetime-local"
                       value={createForm.start_time}
                       onChange={(e) => setCreateForm(f => ({ ...f, start_time: e.target.value }))}
@@ -2032,8 +2099,10 @@ export default function TaskCalendar() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">עד שעה *</label>
+                    <label htmlFor="create-end-time" className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">עד שעה *</label>
                     <input
+                      id="create-end-time"
+                      name="create-end-time"
                       type="datetime-local"
                       value={createForm.end_time}
                       onChange={(e) => setCreateForm(f => ({ ...f, end_time: e.target.value }))}
@@ -2049,8 +2118,10 @@ export default function TaskCalendar() {
             )}
             {(taskType === 'meeting' || taskType === 'all_day') && (
               <div className="p-2 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">חזרה</span>
+                <label htmlFor="create-recurrence" className="text-xs font-medium text-gray-700 dark:text-gray-300">חזרה</label>
                 <select
+                  id="create-recurrence"
+                  name="create-recurrence"
                   value={createForm.recurrence_rule}
                   onChange={(e) => setCreateForm(f => ({ ...f, recurrence_rule: e.target.value as RecurrenceRule }))}
                   className={cn(
@@ -2064,6 +2135,8 @@ export default function TaskCalendar() {
                 </select>
                 {(createForm.recurrence_rule === 'weekly' || createForm.recurrence_rule === 'monthly') && (
                   <input
+                    id="create-recurrence-end"
+                    name="create-recurrence-end"
                     type="date"
                     value={createForm.recurrence_end_date}
                     onChange={(e) => setCreateForm(f => ({ ...f, recurrence_end_date: e.target.value }))}
@@ -2072,6 +2145,7 @@ export default function TaskCalendar() {
                       "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     )}
                     title="תאריך סיום חזרות"
+                    aria-label="תאריך סיום חזרות"
                   />
                 )}
               </div>
@@ -2082,6 +2156,8 @@ export default function TaskCalendar() {
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
               <input
+                id="create-files"
+                name="create-files"
                 ref={createFileInputRef}
                 type="file"
                 multiple
@@ -2109,8 +2185,10 @@ export default function TaskCalendar() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תיאור</label>
+              <label htmlFor="create-description" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תיאור</label>
               <textarea
+                id="create-description"
+                name="create-description"
                 value={createForm.description}
                 onChange={(e) => setCreateForm(f => ({ ...f, description: e.target.value }))}
                 rows={2}
