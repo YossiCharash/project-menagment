@@ -11,6 +11,12 @@ export default defineConfig({
       '/api': {
         target: 'https://project-menager-1-1-0.onrender.com',
         changeOrigin: true,
+        secure: true,
+      },
+      '/uploads': {
+        target: 'https://project-menager-1-1-0.onrender.com',
+        changeOrigin: true,
+        secure: true,
       },
     },
   },

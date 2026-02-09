@@ -90,6 +90,36 @@ export function getHebrewMonthRange(date: Date): { start: Date; end: Date } | nu
   }
 }
 
+/** Get the Gregorian start date of the next Hebrew month relative to the given date. */
+export function getNextHebrewMonthStart(date: Date): Date {
+  try {
+    const h = new HDate(date)
+    const first = new HDate(1, h.getMonth(), h.getFullYear())
+    const daysInMonth = first.daysInMonth()
+    const last = new HDate(daysInMonth, h.getMonth(), h.getFullYear())
+    const dayAfterLast = new Date(last.greg())
+    dayAfterLast.setDate(dayAfterLast.getDate() + 1)
+    return dayAfterLast
+  } catch {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 1)
+  }
+}
+
+/** Get the Gregorian start date of the previous Hebrew month relative to the given date. */
+export function getPrevHebrewMonthStart(date: Date): Date {
+  try {
+    const h = new HDate(date)
+    const firstOfCurrent = new HDate(1, h.getMonth(), h.getFullYear())
+    const dayBefore = new Date(firstOfCurrent.greg())
+    dayBefore.setDate(dayBefore.getDate() - 1)
+    const prevH = new HDate(dayBefore)
+    const prevFirst = new HDate(1, prevH.getMonth(), prevH.getFullYear())
+    return prevFirst.greg()
+  } catch {
+    return new Date(date.getFullYear(), date.getMonth() - 1, 1)
+  }
+}
+
 export interface HolidayEvent {
   id: string
   title: string

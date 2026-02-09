@@ -56,7 +56,16 @@ class Settings(BaseModel):
             "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,https://www.ziposystem.co.il,https://ziposystem.co.il,https://bms-project-frontend.onrender.com"
         ).split(",") if origin.strip()
     ]
-    
+
+    @model_validator(mode='after')
+    def ensure_dev_origins(self):
+        """Ensure localhost dev origins are allowed when using default CORS (e.g. local dev against Render)."""
+        dev_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+        for origin in dev_origins:
+            if origin not in self.CORS_ORIGINS:
+                self.CORS_ORIGINS.append(origin)
+        return self
+
     @model_validator(mode='after')
     def ensure_ziposystem_domains(self):
         """Ensure both www and non-www versions of ziposystem.co.il are included"""

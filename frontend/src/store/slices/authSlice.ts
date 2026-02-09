@@ -196,6 +196,12 @@ const slice = createSlice({
     clearAuthState(state){
       state.error = null
       state.registered = false
+    },
+    updateUser(state, action: { payload: Partial<CurrentUser>; type: string }) {
+      if (state.me) {
+        state.me = { ...state.me, ...action.payload }
+        saveCachedUser(state.me)
+      }
     }
   },
   extraReducers: (builder) => {
@@ -280,5 +286,5 @@ const slice = createSlice({
   },
 })
 
-export const { logout, clearAuthState, clearPasswordChangeRequirement } = slice.actions
+export const { logout, clearAuthState, clearPasswordChangeRequirement, updateUser } = slice.actions
 export default slice.reducer
