@@ -1,33 +1,35 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState } from './store'
 import { motion, AnimatePresence } from 'framer-motion'
+// Auth pages - keep eagerly loaded (first pages the user sees)
 import Login from './pages/Login'
 import Register from './pages/Register'
-import AdminRegister from './pages/AdminRegister'
-import AdminInviteRegister from './pages/AdminInviteRegister'
-import AdminInviteManagement from './pages/AdminInviteManagement'
-import EmailVerificationRegister from './pages/EmailVerificationRegister'
-import OAuthCallback from './pages/OAuthCallback'
-import ResetPassword from './pages/ResetPassword'
-import AdminManagement from './pages/AdminManagement'
-import UserManagement from './pages/UserManagement'
-import AuditLogs from './pages/AuditLogs'
-import Dashboard from './pages/Dashboard'
-import Projects from './pages/Projects'
-import ProjectDetail from './pages/ProjectDetail'
-import Subprojects from './pages/Subprojects'
-import ParentProjectDetail from './components/ParentProjectDetail'
-import Reports from './pages/Reports'
-import PriceQuotes from './pages/PriceQuotes'
-import QuoteDetail from './pages/QuoteDetail'
-import Suppliers from './pages/Suppliers'
-import SupplierDocuments from './pages/SupplierDocuments'
-import Settings from './pages/Settings'
-import UnforeseenTransactions from './pages/UnforeseenTransactions'
-import TaskCalendar from './pages/TaskCalendar'
-import Notifications from './pages/Notifications'
+// Lazy-loaded pages (code splitting - only loaded when navigated to)
+const AdminRegister = React.lazy(() => import('./pages/AdminRegister'))
+const AdminInviteRegister = React.lazy(() => import('./pages/AdminInviteRegister'))
+const AdminInviteManagement = React.lazy(() => import('./pages/AdminInviteManagement'))
+const EmailVerificationRegister = React.lazy(() => import('./pages/EmailVerificationRegister'))
+const OAuthCallback = React.lazy(() => import('./pages/OAuthCallback'))
+const ResetPassword = React.lazy(() => import('./pages/ResetPassword'))
+const AdminManagement = React.lazy(() => import('./pages/AdminManagement'))
+const UserManagement = React.lazy(() => import('./pages/UserManagement'))
+const AuditLogs = React.lazy(() => import('./pages/AuditLogs'))
+const Dashboard = React.lazy(() => import('./pages/Dashboard'))
+const Projects = React.lazy(() => import('./pages/Projects'))
+const ProjectDetail = React.lazy(() => import('./pages/ProjectDetail'))
+const Subprojects = React.lazy(() => import('./pages/Subprojects'))
+const ParentProjectDetail = React.lazy(() => import('./components/ParentProjectDetail'))
+const Reports = React.lazy(() => import('./pages/Reports'))
+const PriceQuotes = React.lazy(() => import('./pages/PriceQuotes'))
+const QuoteDetail = React.lazy(() => import('./pages/QuoteDetail'))
+const Suppliers = React.lazy(() => import('./pages/Suppliers'))
+const SupplierDocuments = React.lazy(() => import('./pages/SupplierDocuments'))
+const Settings = React.lazy(() => import('./pages/Settings'))
+const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
+const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
+const Notifications = React.lazy(() => import('./pages/Notifications'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -94,6 +96,7 @@ function AppContent() {
   if (!token) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <Suspense fallback={<LoadingOverlay message="טוען..." />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -104,6 +107,7 @@ function AppContent() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
+        </Suspense>
       </div>
     )
   }
@@ -178,6 +182,7 @@ function AppContent() {
             transition={{ duration: 0.3 }}
             className="max-w-7xl mx-auto"
           >
+            <Suspense fallback={<LoadingOverlay message="טוען..." />}>
             <Routes>
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
@@ -201,6 +206,7 @@ function AppContent() {
               <Route path="/admin-management" element={<RequireAuth><AdminManagement /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </Suspense>
           </motion.div>
         </main>
       </div>

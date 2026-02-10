@@ -1192,18 +1192,11 @@ class ReportService:
         from sqlalchemy.orm import selectinload
         from backend.models.fund import Fund
         from backend.models.budget import Budget
-        
-        # Rollback any failed transaction before starting
-        try:
-            await self.db.rollback()
-        except Exception:
-            pass  # Ignore if there's no transaction to rollback
 
         # Get all active projects: regular, subprojects, and parent projects
         projects_query = select(Project).where(Project.is_active == True)
         projects_result = await self.db.execute(projects_query)
         projects = list(projects_result.scalars().all())
-        print(f"📋 Found {len(projects)} active projects")
 
         if not projects:
             return {

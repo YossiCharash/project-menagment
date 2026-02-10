@@ -1,7 +1,7 @@
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
-from typing import Tuple
+from typing import Tuple, Optional
 from backend.models.budget import Budget
 from backend.models.transaction import Transaction
 
@@ -83,11 +83,18 @@ class BudgetRepository:
     async def calculate_spending_for_budget(
         self, 
         budget: Budget, 
-        as_of_date: date | None = None
+        as_of_date: date | None = None,
+        contract_period: "Optional[object]" = ...,
+        category_ids: "Optional[list[int]]" = None,
     ) -> Tuple[float, float]:
         """Calculate spending breakdown for a budget's category within the budget period.
         If budget is linked to a contract period, filter transactions by contract period dates.
         Returns (total_expenses, total_income).
+        
+        OPTIMIZED: Accepts pre-loaded contract_period and category_ids to avoid redundant
+        queries when called in a loop. Pass contract_period=None to skip lookup,
+        or omit (sentinel ...) to auto-load from DB.
+        Combined 4 queries into 2 (CASE WHEN for regular, single query for period txs).
         """
         if as_of_date is None:
             as_of_date = date.today()
@@ -95,11 +102,14 @@ class BudgetRepository:
         # If budget is linked to a contract period, use contract period dates for filtering
         # Otherwise, use budget dates
         if budget.contract_period_id:
-            from backend.models.contract_period import ContractPeriod
-            contract_period_result = await self.db.execute(
-                select(ContractPeriod).where(ContractPeriod.id == budget.contract_period_id)
-            )
-            contract_period = contract_period_result.scalar_one_or_none()
+            # Allow caller to pass pre-loaded contract_period to avoid re-querying
+            if contract_period is ...:
+                from backend.models.contract_period import ContractPeriod
+                contract_period_result = await self.db.execute(
+                    select(ContractPeriod).where(ContractPeriod.id == budget.contract_period_id)
+                )
+                contract_period = contract_period_result.scalar_one_or_none()
+            
             if contract_period:
                 # Use contract period dates (end_date is EXCLUSIVE, so use end_date - 1 day as the last day)
                 from datetime import timedelta
@@ -115,23 +125,33 @@ class BudgetRepository:
             start_date = budget.start_date
             end_date = budget.end_date if budget.end_date else as_of_date
         
-        # Get category_ids from category name (Budget stores category as string name)
-        # Handle case where multiple categories might have the same name (due to removed unique constraint)
-        from backend.models.category import Category
-        category_result = await self.db.execute(
-            select(Category.id).where(Category.name == budget.category)
-        )
-        category_ids = category_result.scalars().all()
+        # Allow caller to pass pre-loaded category_ids to avoid re-querying
+        if category_ids is None:
+            # Get category_ids from category name (Budget stores category as string name)
+            # Handle case where multiple categories might have the same name (due to removed unique constraint)
+            from backend.models.category import Category
+            category_result = await self.db.execute(
+                select(Category.id).where(Category.name == budget.category)
+            )
+            category_ids = list(category_result.scalars().all())
         
         # If category not found, return zero spending
         if not category_ids:
             return 0.0, 0.0
         
-        # 1. Regular expenses (no period dates) in range
-        regular_expenses_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        # Query 1: Regular expenses + income in a single query using CASE WHEN
+        regular_query = select(
+            func.coalesce(func.sum(case(
+                (Transaction.type == "Expense", Transaction.amount),
+                else_=0
+            )), 0).label("expenses"),
+            func.coalesce(func.sum(case(
+                (Transaction.type == "Income", Transaction.amount),
+                else_=0
+            )), 0).label("income"),
+        ).where(
             and_(
                 Transaction.project_id == budget.project_id,
-                Transaction.type == "Expense",
                 Transaction.category_id.in_(category_ids),
                 Transaction.tx_date >= start_date,
                 Transaction.tx_date <= end_date,
@@ -144,34 +164,15 @@ class BudgetRepository:
             )
         )
         
-        # 2. Regular income (no period dates) in range
-        regular_income_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        regular_result = await self.db.execute(regular_query)
+        regular_row = regular_result.one()
+        total_expenses = float(regular_row.expenses or 0.0)
+        total_income = float(regular_row.income or 0.0)
+        
+        # Query 2: ALL period transactions that overlap with budget period (income + expense)
+        period_query = select(Transaction).where(
             and_(
                 Transaction.project_id == budget.project_id,
-                Transaction.type == "Income",
-                Transaction.category_id.in_(category_ids),
-                Transaction.tx_date >= start_date,
-                Transaction.tx_date <= end_date,
-                Transaction.from_fund == False,  # Exclude fund transactions
-                # Explicitly exclude period transactions
-                or_(
-                    Transaction.period_start_date.is_(None),
-                    Transaction.period_end_date.is_(None)
-                )
-            )
-        )
-        
-        regular_expenses_result = await self.db.execute(regular_expenses_query)
-        regular_income_result = await self.db.execute(regular_income_query)
-        
-        total_expenses = float(regular_expenses_result.scalar_one() or 0.0)
-        total_income = float(regular_income_result.scalar_one() or 0.0)
-        
-        # 3. Period expenses that overlap with budget period
-        period_expenses_query = select(Transaction).where(
-            and_(
-                Transaction.project_id == budget.project_id,
-                Transaction.type == "Expense",
                 Transaction.category_id.in_(category_ids),
                 Transaction.from_fund == False,  # Exclude fund transactions
                 Transaction.period_start_date.is_not(None),
@@ -182,26 +183,10 @@ class BudgetRepository:
             )
         )
         
-        # 4. Period income that overlaps with budget period
-        period_income_query = select(Transaction).where(
-            and_(
-                Transaction.project_id == budget.project_id,
-                Transaction.type == "Income",
-                Transaction.category_id.in_(category_ids),
-                Transaction.from_fund == False,  # Exclude fund transactions
-                Transaction.period_start_date.is_not(None),
-                Transaction.period_end_date.is_not(None),
-                # Overlap: (StartA <= EndB) and (EndA >= StartB)
-                Transaction.period_start_date <= end_date,
-                Transaction.period_end_date >= start_date
-            )
-        )
+        period_txs = (await self.db.execute(period_query)).scalars().all()
         
-        period_expenses = (await self.db.execute(period_expenses_query)).scalars().all()
-        period_income = (await self.db.execute(period_income_query)).scalars().all()
-        
-        # Calculate proportional amounts for period expenses
-        for tx in period_expenses:
+        # Calculate proportional amounts for period transactions
+        for tx in period_txs:
             total_days = (tx.period_end_date - tx.period_start_date).days + 1
             if total_days <= 0:
                 continue
@@ -214,23 +199,11 @@ class BudgetRepository:
             
             overlap_days = (overlap_end - overlap_start).days + 1
             if overlap_days > 0:
-                total_expenses += daily_rate * overlap_days
-        
-        # Calculate proportional amounts for period income
-        for tx in period_income:
-            total_days = (tx.period_end_date - tx.period_start_date).days + 1
-            if total_days <= 0:
-                continue
-            
-            daily_rate = float(tx.amount) / total_days
-            
-            # Calculate overlap with budget period
-            overlap_start = max(tx.period_start_date, start_date)
-            overlap_end = min(tx.period_end_date, end_date)
-            
-            overlap_days = (overlap_end - overlap_start).days + 1
-            if overlap_days > 0:
-                total_income += daily_rate * overlap_days
+                proportional_amount = daily_rate * overlap_days
+                if tx.type == "Expense":
+                    total_expenses += proportional_amount
+                else:
+                    total_income += proportional_amount
         
         return total_expenses, total_income
 

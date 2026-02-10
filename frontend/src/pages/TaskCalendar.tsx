@@ -276,8 +276,12 @@ export default function TaskCalendar() {
       const params: Record<string, string> = {}
       if (filterUserId) params.assigned_to_user_id = String(filterUserId)
       if (dateRange) {
-        params.start = dateRange.start.toISOString()
-        params.end = dateRange.end.toISOString()
+        // Send local time strings (no timezone) — the backend stores naive datetimes
+        // that represent local time. Using toISOString() would send UTC, causing mismatches.
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const fmtLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+        params.start = fmtLocal(dateRange.start)
+        params.end = fmtLocal(dateRange.end)
       }
       const { data } = await api.get<Task[]>('/tasks/', { params })
       setTasks(data)
@@ -488,6 +492,14 @@ export default function TaskCalendar() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
+  /** Local ISO string with seconds — matches the format used by the create flow.
+   *  IMPORTANT: Do NOT use Date.toISOString() for task times — that produces UTC
+   *  (with Z suffix) which the backend strips, causing a timezone shift. */
+  const toLocalISO = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  }
+
   const EDGE_NAV_ZONE = 0.18
   const EDGE_NAV_DELAY_MS = 450
   const EDGE_NAV_COOLDOWN_MS = 700
@@ -600,18 +612,24 @@ export default function TaskCalendar() {
     }
     setDropConfirmSaving(true)
     try {
-      await api.put(`/tasks/${dropConfirm.taskId}`, {
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
+      const { data: updatedTask } = await api.put<Task>(`/tasks/${dropConfirm.taskId}`, {
+        start_time: toLocalISO(start),
+        end_time: toLocalISO(end),
       })
       setDropConfirm(null)
+      // Update task in state from server response so the calendar shows new position
+      // (refetch would exclude the task if it was dragged outside current date range)
+      setTasks((prev) =>
+        prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
+      )
       try {
         sessionStorage.setItem('taskCalendarView', currentViewType)
         if (dateRange?.start) sessionStorage.setItem('taskCalendarDate', dateRange.start.toISOString())
       } catch {
         /* ignore */
       }
-      await fetchTasks()
+      // Force calendar to re-render with new event positions
+      setCalendarRefreshKey((k) => k + 1)
     } catch (err) {
       console.error('Failed to update task:', err)
       if (dropConfirm.info) dropConfirm.info.revert()
@@ -637,8 +655,8 @@ export default function TaskCalendar() {
     if (!start || !end) return
     try {
       await api.put(`/tasks/${taskId}`, {
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
+        start_time: toLocalISO(start),
+        end_time: toLocalISO(end),
       })
       await fetchTasks()
     } catch (err) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Activity, 
@@ -116,29 +116,8 @@ export default function AuditLogs() {
     }
   }, [me, authLoading, dispatch])
 
-  if (authLoading || !me) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">טוען...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (me.role !== 'Admin') {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">גישה נדחית</h1>
-          <p className="text-gray-600 dark:text-gray-400">רק מנהלי מערכת יכולים לגשת לעמוד זה</p>
-        </div>
-      </div>
-    )
-  }
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
+    if (!me || me.role !== 'Admin') return
     setLoading(true)
     setError(null)
     try {
@@ -167,11 +146,33 @@ export default function AuditLogs() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [me, page, filters])
 
   useEffect(() => {
     fetchLogs()
-  }, [page, filters])
+  }, [fetchLogs])
+
+  if (authLoading || !me) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">טוען...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (me.role !== 'Admin') {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">גישה נדחית</h1>
+          <p className="text-gray-600 dark:text-gray-400">רק מנהלי מערכת יכולים לגשת לעמוד זה</p>
+        </div>
+      </div>
+    )
+  }
 
   const toggleExpand = (logId: number) => {
     const newExpanded = new Set(expandedLogs)

@@ -65,6 +65,9 @@ async def init_database(engine: AsyncEngine):
         # Run migration: quote_subjects table + quote_subject_id on quote_projects
         await _add_quote_subjects(engine)
         
+        # Run migration: add composite indexes to transactions for performance
+        await _add_composite_indexes_to_transactions(engine)
+        
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
     except OSError as e:
@@ -230,3 +233,23 @@ async def _add_quote_subjects(engine: AsyncEngine):
                 print("✓ quote_subject_id already exists on quote_projects")
     except Exception as e:
         print(f"Note: Could not add quote_subjects (may already exist): {e}")
+
+
+async def _add_composite_indexes_to_transactions(engine: AsyncEngine):
+    """Add composite indexes to transactions table for query performance.
+    Uses CREATE INDEX IF NOT EXISTS so it's safe to run multiple times."""
+    try:
+        async with engine.begin() as conn:
+            indexes = [
+                ("ix_transactions_project_type_date", "transactions(project_id, type, tx_date)"),
+                ("ix_transactions_project_category_type_date", "transactions(project_id, category_id, type, tx_date)"),
+                ("ix_transactions_project_period", "transactions(project_id, period_start_date, period_end_date)"),
+                ("ix_transactions_project_fund_date", "transactions(project_id, from_fund, tx_date)"),
+            ]
+            for idx_name, idx_def in indexes:
+                await conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS {idx_name} ON {idx_def}"
+                ))
+            print("✓ Composite indexes on transactions table are up to date")
+    except Exception as e:
+        print(f"Note: Could not add composite indexes to transactions (may already exist): {e}")

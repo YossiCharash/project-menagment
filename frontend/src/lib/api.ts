@@ -11,47 +11,14 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const isFormData = config.data instanceof FormData
 
-  if (isFormData) {
-    console.log('🔧 [INTERCEPTOR] FormData request detected:', {
-      url: config.url,
-      method: config.method,
-      hasData: !!config.data,
-      dataType: config.data?.constructor?.name
-    })
-  }
-
   const token = localStorage.getItem('token')
   if (token) {
     config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
-    if (isFormData) {
-      console.log('🔧 [INTERCEPTOR] Token added to headers')
-    }
   }
 
   // For FormData, don't set Content-Type - let axios/browser set it with boundary
   if (isFormData) {
-    const hadContentType = 'Content-Type' in (config.headers || {})
-    delete config.headers['Content-Type']
-    console.log('🔧 [INTERCEPTOR] Content-Type header:', {
-      hadContentType,
-      removed: true,
-      finalHeaders: Object.keys(config.headers || {})
-    })
-  }
-
-  if (isFormData) {
-    console.log('🔧 [INTERCEPTOR] Final request config:', {
-      url: config.url,
-      method: config.method,
-      timeout: config.timeout,
-      headers: Object.keys(config.headers || {}),
-      hasData: !!config.data
-    })
-  }
-  
-  // For FormData, don't set Content-Type - let axios/browser set it with boundary
-  if (config.data instanceof FormData) {
     delete config.headers['Content-Type']
   }
 
