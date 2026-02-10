@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.transaction import Transaction
 
@@ -56,12 +56,7 @@ class TransactionRepository:
         Optionally filters by project contract period dates in SQL.
         Returns list of dicts ready for TransactionOut schema.
         """
-        import time
         from sqlalchemy import text, and_, or_
-        from datetime import datetime
-        
-        # Log start time for performance monitoring
-        start_time = time.time()
 
         # Build WHERE clause with optional date filtering
         where_conditions = ["t.project_id = :project_id"]
@@ -170,6 +165,13 @@ class TransactionRepository:
                 row_dict['is_generated'] = is_generated_value
                 row_dict['created_by_user'] = created_by_user
                 
+                # Convert payment_method from DB format (English) to app format (Hebrew)
+                # Raw SQL bypasses the PaymentMethodType TypeDecorator
+                pm = row_dict.get('payment_method')
+                if pm:
+                    from backend.models.transaction import PaymentMethodType
+                    row_dict['payment_method'] = PaymentMethodType._to_hebrew(pm)
+                
                 # Add category name to row_dict (it may be named 'category_name' in the result)
                 # If category_name exists, use it as category; otherwise set category to None
                 if 'category_name' in row_dict:
@@ -204,8 +206,11 @@ class TransactionRepository:
 
     async def get_monthly_financial_summary(self, project_id: int, month_start: date) -> dict:
         """Get monthly financial summary for a project (excluding fund transactions)
-        Handles period transactions by calculating proportional amounts for the month"""
-        from sqlalchemy import and_, or_
+        Handles period transactions by calculating proportional amounts for the month.
+        
+        OPTIMIZED: 2 queries instead of 4 (combined income+expense with CASE WHEN,
+        single query for all period transactions)."""
+        from sqlalchemy import and_, or_, case
         from datetime import date as date_type
         
         # Calculate month end date
@@ -214,11 +219,19 @@ class TransactionRepository:
         else:
             month_end = date_type(month_start.year, month_start.month + 1, 1)
         
-        # 1. Regular income (no period dates) in month
-        regular_income_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        # Query 1: Regular income + expense in a single query using CASE WHEN
+        regular_query = select(
+            func.coalesce(func.sum(case(
+                (Transaction.type == "Income", Transaction.amount),
+                else_=0
+            )), 0).label("income"),
+            func.coalesce(func.sum(case(
+                (Transaction.type == "Expense", Transaction.amount),
+                else_=0
+            )), 0).label("expense"),
+        ).where(
             and_(
                 Transaction.project_id == project_id,
-                Transaction.type == "Income",
                 Transaction.tx_date >= month_start,
                 Transaction.tx_date < month_end,
                 Transaction.from_fund == False,  # Exclude fund transactions
@@ -230,30 +243,15 @@ class TransactionRepository:
             )
         )
         
-        # 2. Regular expenses (no period dates) in month
-        regular_expense_query = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        regular_result = await self.db.execute(regular_query)
+        regular_row = regular_result.one()
+        regular_income = float(regular_row.income or 0.0)
+        regular_expense = float(regular_row.expense or 0.0)
+        
+        # Query 2: ALL period transactions that overlap with month (income + expense together)
+        period_query = select(Transaction).where(
             and_(
                 Transaction.project_id == project_id,
-                Transaction.type == "Expense",
-                Transaction.tx_date >= month_start,
-                Transaction.tx_date < month_end,
-                Transaction.from_fund == False,  # Exclude fund transactions
-                # Explicitly exclude period transactions
-                or_(
-                    Transaction.period_start_date.is_(None),
-                    Transaction.period_end_date.is_(None)
-                )
-            )
-        )
-        
-        regular_income = float((await self.db.execute(regular_income_query)).scalar_one() or 0.0)
-        regular_expense = float((await self.db.execute(regular_expense_query)).scalar_one() or 0.0)
-        
-        # 3. Period income that overlaps with month
-        period_income_query = select(Transaction).where(
-            and_(
-                Transaction.project_id == project_id,
-                Transaction.type == "Income",
                 Transaction.from_fund == False,  # Exclude fund transactions
                 Transaction.period_start_date.is_not(None),
                 Transaction.period_end_date.is_not(None),
@@ -263,45 +261,14 @@ class TransactionRepository:
             )
         )
         
-        # 4. Period expenses that overlap with month
-        period_expense_query = select(Transaction).where(
-            and_(
-                Transaction.project_id == project_id,
-                Transaction.type == "Expense",
-                Transaction.from_fund == False,  # Exclude fund transactions
-                Transaction.period_start_date.is_not(None),
-                Transaction.period_end_date.is_not(None),
-                # Overlap: (StartA <= EndB) and (EndA >= StartB)
-                Transaction.period_start_date < month_end,
-                Transaction.period_end_date >= month_start
-            )
-        )
+        period_txs = (await self.db.execute(period_query)).scalars().all()
         
-        period_income_txs = (await self.db.execute(period_income_query)).scalars().all()
-        period_expense_txs = (await self.db.execute(period_expense_query)).scalars().all()
-        
-        # Calculate proportional amounts for period income
+        # Calculate proportional amounts for period transactions (income + expense)
         period_income = 0.0
-        for tx in period_income_txs:
-            total_days = (tx.period_end_date - tx.period_start_date).days + 1
-            if total_days <= 0:
-                continue
-            
-            daily_rate = float(tx.amount) / total_days
-            
-            # Calculate overlap with month
-            overlap_start = max(tx.period_start_date, month_start)
-            # month_end is the first day of next month, so subtract 1 day to get last day of current month
-            month_end_date = month_end - timedelta(days=1)
-            overlap_end = min(tx.period_end_date, month_end_date)
-            
-            overlap_days = (overlap_end - overlap_start).days + 1
-            if overlap_days > 0:
-                period_income += daily_rate * overlap_days
-        
-        # Calculate proportional amounts for period expenses
         period_expense = 0.0
-        for tx in period_expense_txs:
+        month_end_date = month_end - timedelta(days=1)
+        
+        for tx in period_txs:
             total_days = (tx.period_end_date - tx.period_start_date).days + 1
             if total_days <= 0:
                 continue
@@ -311,12 +278,15 @@ class TransactionRepository:
             # Calculate overlap with month
             overlap_start = max(tx.period_start_date, month_start)
             # month_end is the first day of next month, so subtract 1 day to get last day of current month
-            month_end_date = month_end - timedelta(days=1)
             overlap_end = min(tx.period_end_date, month_end_date)
             
             overlap_days = (overlap_end - overlap_start).days + 1
             if overlap_days > 0:
-                period_expense += daily_rate * overlap_days
+                proportional_amount = daily_rate * overlap_days
+                if tx.type == "Income":
+                    period_income += proportional_amount
+                else:
+                    period_expense += proportional_amount
         
         total_income = regular_income + period_income
         total_expense = regular_expense + period_expense

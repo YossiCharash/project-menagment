@@ -341,7 +341,7 @@ async def update_task(
                     TaskParticipant(task_id=task.id, user_id=uid, response_status=ParticipantResponse.PENDING)
                 )
     # Persist to DB (e.g. drag & drop new date/time)
-    updated = await repo.update(task)
+    await repo.update(task)
     try:
         if task.outlook_event_id:
             await update_outlook_event(db, task)
@@ -352,6 +352,9 @@ async def update_task(
                 await repo.update(task)
     except Exception:
         pass
+    # Re-fetch with eager loading so _task_to_out can access all relationships
+    # (refresh() doesn't reload selectinload relations → MissingGreenlet in async)
+    updated = await repo.get(task.id)
     return _task_to_out(updated)
 
 

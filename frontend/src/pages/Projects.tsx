@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -38,7 +38,7 @@ interface ProjectCardProps {
   hasSubprojects?: boolean
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({ 
+const ProjectCard: React.FC<ProjectCardProps> = React.memo(({ 
   project, 
   projectChart,
   onProjectClick, 
@@ -270,7 +270,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
       </div>
     </motion.div>
   )
-}
+})
 
 export default function Projects() {
   const dispatch = useAppDispatch()
@@ -327,10 +327,10 @@ export default function Projects() {
     }
   }, [location.key])
 
-  // Auto-refresh financial data every 30 seconds
+  // Auto-refresh financial data every 30 seconds (only when tab is visible)
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!loading) {
+      if (!loading && !document.hidden) {
         loadProjectsData(archiveFilter !== 'active')
       }
     }, 30000) // 30 seconds
@@ -399,11 +399,11 @@ export default function Projects() {
   }
 
   const loadProjectCharts = async (projects: ProjectWithFinance[]) => {
-    const charts: Record<number, CategoryPoint[]> = {}
     const visible = projects.filter((p: any) => p.is_active !== false)
     
-    for (const p of visible) {
-      try {
+    // Load all chart data in parallel instead of sequentially
+    const results = await Promise.allSettled(
+      visible.map(async (p) => {
         const { data } = await api.get(`/transactions/project/${p.id}`)
         const map: Record<string, { income: number; expense: number }> = {}
         for (const t of data as any[]) {
@@ -412,15 +412,27 @@ export default function Projects() {
           if (t.type === 'Income') map[cat].income += Number(t.amount)
           else map[cat].expense += Number(t.amount)
         }
-        charts[p.id] = Object.entries(map).map(([category, v]) => ({ category, income: v.income, expense: v.expense }))
-      } catch { 
-        charts[p.id] = [] 
+        return {
+          id: p.id,
+          points: Object.entries(map).map(([category, v]) => ({ category, income: v.income, expense: v.expense }))
+        }
+      })
+    )
+
+    const charts: Record<number, CategoryPoint[]> = {}
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        charts[r.value.id] = r.value.points
       }
+    }
+    // For visible projects that failed, set empty array
+    for (const p of visible) {
+      if (!(p.id in charts)) charts[p.id] = []
     }
     setProjectCharts(charts)
   }
 
-  const handleProjectClick = (project: ProjectWithFinance) => {
+  const handleProjectClick = useCallback((project: ProjectWithFinance) => {
     // Check if project is a parent project
     // If it's a parent project, always navigate to dashboard (even if no subprojects yet)
     if (project.is_parent_project === true) {
@@ -430,17 +442,17 @@ export default function Projects() {
       // Navigate to regular project detail page
       navigate(`/projects/${project.id}`)
     }
-  }
+  }, [navigate])
 
-  const handleProjectEdit = (project: ProjectWithFinance) => {
+  const handleProjectEdit = useCallback((project: ProjectWithFinance) => {
     setEditingProject(project)
     setShowCreateModal(true)
-  }
+  }, [])
 
-  const handleProjectArchive = async (project: ProjectWithFinance) => {
+  const handleProjectArchive = useCallback(async (project: ProjectWithFinance) => {
     setSelectedProjectForAction(project)
     setShowArchiveDeleteModal(true)
-  }
+  }, [])
 
   const handleArchive = async () => {
     if (!selectedProjectForAction) return
@@ -485,7 +497,7 @@ export default function Projects() {
     }
   }
 
-  const handleProjectRestore = async (project: ProjectWithFinance) => {
+  const handleProjectRestore = useCallback(async (project: ProjectWithFinance) => {
     if (confirm('האם לשחזר את הפרויקט?')) {
       try {
         setArchivingProject(project.id)
@@ -497,7 +509,7 @@ export default function Projects() {
         setArchivingProject(null)
       }
     }
-  }
+  }, [archiveFilter])
 
   const [projectTypeToCreate, setProjectTypeToCreate] = useState<'regular' | 'parent'>('regular')
 
@@ -508,16 +520,16 @@ export default function Projects() {
     setShowCreateModal(true)
   }
 
-  const handleCreateSubproject = (parentProject: ProjectWithFinance) => {
+  const handleCreateSubproject = useCallback((parentProject: ProjectWithFinance) => {
     setEditingProject(null)
     setSelectedParentProject(parentProject)
     setShowCreateModal(true)
-  }
+  }, [])
 
-  const handleAddTransaction = (project: ProjectWithFinance) => {
+  const handleAddTransaction = useCallback((project: ProjectWithFinance) => {
     setTransactionProject(project)
     setShowTransactionModal(true)
-  }
+  }, [])
 
   const handleProjectSuccess = (project?: any) => {
     setShowCreateModal(false)
@@ -561,6 +573,15 @@ export default function Projects() {
     
     return matchesSearch && matchesStatus && matchesCity && matchesType && matchesArchive
   }) || []
+
+  // Pre-compute which projects have subprojects (O(N) Set lookup instead of O(N*M) .some() per card)
+  const parentProjectIds = useMemo(() => {
+    const ids = new Set<number>()
+    dashboardData?.projects?.forEach((p: any) => {
+      if (p.relation_project) ids.add(p.relation_project)
+    })
+    return ids
+  }, [dashboardData?.projects])
 
   const isAdmin = me?.role === 'Admin'
   const canDelete = me?.role === 'Admin' // Only Admin can delete
@@ -753,9 +774,7 @@ export default function Projects() {
             ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' 
             : 'grid-cols-1'
         }`}>
-          {filteredProjects.map((project: any) => {
-            const hasSubprojects = dashboardData?.projects?.some((p: any) => p.relation_project === project.id)
-            return (
+          {filteredProjects.map((project: any) => (
               <ProjectCard
                 key={project.id}
                 project={project}
@@ -766,10 +785,9 @@ export default function Projects() {
                 onProjectRestore={isAdmin ? handleProjectRestore : undefined}
                 onCreateSubproject={isAdmin ? handleCreateSubproject : undefined}
                 onAddTransaction={handleAddTransaction}
-                hasSubprojects={hasSubprojects}
+                hasSubprojects={parentProjectIds.has(project.id)}
               />
-            )
-          })}
+          ))}
         </div>
       )}
 

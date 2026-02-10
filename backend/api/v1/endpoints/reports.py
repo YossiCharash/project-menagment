@@ -232,12 +232,16 @@ async def get_project_expense_categories(project_id: int, db: DBSessionDep, user
 
 
 @router.get("/project/{project_id}/transactions")
-async def get_project_transactions(project_id: int, db: DBSessionDep, user=Depends(get_current_user)):
-    """Get all transactions for a specific project (including recurring ones)"""
+async def get_project_transactions(
+    project_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(0, ge=0, description="Max records to return (0 = all)"),
+):
+    """Get all transactions for a specific project (including recurring ones).
+    Supports optional pagination via skip/limit (default: returns all)."""
     try:
-        import time
-        endpoint_start = time.time()
-        
         # Use the optimized repository method that uses JOIN (no N+1 queries)
         from backend.repositories.transaction_repository import TransactionRepository
         from backend.schemas.transaction import TransactionOut
@@ -247,6 +251,12 @@ async def get_project_transactions(project_id: int, db: DBSessionDep, user=Depen
             project_start_date=None,  # No date filtering for reports endpoint
             project_end_date=None
         )
+
+        # Apply optional pagination
+        if skip > 0:
+            transactions_data = transactions_data[skip:]
+        if limit > 0:
+            transactions_data = transactions_data[:limit]
 
         # Convert to TransactionOut format
         result = []
@@ -262,7 +272,6 @@ async def get_project_transactions(project_id: int, db: DBSessionDep, user=Depen
         return result
     except Exception as e:
         import traceback
-        print(f"❌ [Report API] Error getting transactions for project {project_id}: {str(e)}")
         traceback.print_exc()
         raise
 

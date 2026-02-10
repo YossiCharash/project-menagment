@@ -104,7 +104,7 @@ class Settings(BaseModel):
     
     # Email Configuration
     SMTP_SERVER: str = Field(default=os.getenv("SMTP_SERVER", "smtp.gmail.com"))
-    SMTP_PORT: int = Field(default=int(os.getenv("SMTP_PORT", "587")))
+    SMTP_PORT: int = Field(default=int(os.getenv("SMTP_PORT", "") or "587"))
     SMTP_USERNAME: str = Field(default=os.getenv("SMTP_USERNAME", ""))
     SMTP_PASSWORD: str = Field(default=os.getenv("SMTP_PASSWORD", ""))
     # FROM_EMAIL defaults to SMTP_USERNAME if not set (handled in EmailService)

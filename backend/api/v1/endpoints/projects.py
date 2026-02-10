@@ -50,25 +50,40 @@ def get_uploads_dir() -> str:
         return os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
 
 
-@router.get("/", response_model=list[ProjectOut])
-async def list_projects(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
-    """List projects - accessible to all authenticated users"""
-    from backend.services.fund_service import FundService
-    from backend.repositories.contract_period_repository import ContractPeriodRepository
-    
-    projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
-    fund_service = FundService(db)
-    period_repo = ContractPeriodRepository(db)
-    
-    # Add fund information and first_contract_start_date to each project
+async def _build_projects_list(db, projects) -> list[ProjectOut]:
+    """Shared helper: batch-load funds & earliest contract dates, then build ProjectOut list.
+    Replaces the former N+1 loop (2 queries per project) with 2 batch queries total."""
+    from sqlalchemy import select, func
+    from backend.models.fund import Fund
+    from backend.models.contract_period import ContractPeriod
+
+    if not projects:
+        return []
+
+    project_ids = [p.id for p in projects]
+
+    # Batch query 1: all funds for these projects (single query)
+    funds_result = await db.execute(
+        select(Fund).where(Fund.project_id.in_(project_ids))
+    )
+    funds_by_project = {f.project_id: f for f in funds_result.scalars().all()}
+
+    # Batch query 2: earliest start_date per project (single query)
+    earliest_result = await db.execute(
+        select(ContractPeriod.project_id, func.min(ContractPeriod.start_date))
+        .where(ContractPeriod.project_id.in_(project_ids))
+        .group_by(ContractPeriod.project_id)
+    )
+    earliest_by_project = {row[0]: row[1] for row in earliest_result.all()}
+
     result = []
     for project in projects:
-        fund = await fund_service.get_fund_by_project(project.id)
-        first_start = await period_repo.get_earliest_start_date(project.id)
+        fund = funds_by_project.get(project.id)
+        first_start = earliest_by_project.get(project.id)
         if first_start is None and project.start_date:
             s = project.start_date
             first_start = s.date() if hasattr(s, 'date') else s
-        
+
         # Create ProjectOut instance using model_validate to ensure proper validation
         # Keep dates as date objects (not strings) - Pydantic will serialize them
         project_data = {
@@ -100,61 +115,21 @@ async def list_projects(db: DBSessionDep, include_archived: bool = Query(False),
         }
         project_out = ProjectOut.model_validate(project_data)
         result.append(project_out)
-    
+
     return result
+
+
+@router.get("/", response_model=list[ProjectOut])
+async def list_projects(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
+    """List projects - accessible to all authenticated users"""
+    projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
+    return await _build_projects_list(db, projects)
 
 @router.get("", response_model=list[ProjectOut])
 async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
-    from backend.services.fund_service import FundService
-    from backend.repositories.contract_period_repository import ContractPeriodRepository
-    
     projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
-    fund_service = FundService(db)
-    period_repo = ContractPeriodRepository(db)
-    
-    # Add fund information and first_contract_start_date to each project
-    result = []
-    for project in projects:
-        fund = await fund_service.get_fund_by_project(project.id)
-        first_start = await period_repo.get_earliest_start_date(project.id)
-        if first_start is None and project.start_date:
-            s = project.start_date
-            first_start = s.date() if hasattr(s, 'date') else s
-        
-        # Create ProjectOut instance using model_validate to ensure proper validation
-        # Keep dates as date objects (not strings) - Pydantic will serialize them
-        project_data = {
-            "id": project.id,
-            "name": project.name,
-            "description": project.description,
-            "start_date": project.start_date,
-            "end_date": project.end_date,
-            "contract_duration_months": project.contract_duration_months,
-            "budget_monthly": float(project.budget_monthly) if project.budget_monthly else 0.0,
-            "budget_annual": float(project.budget_annual) if project.budget_annual else 0.0,
-            "manager_id": project.manager_id,
-            "relation_project": project.relation_project,
-            "is_parent_project": project.is_parent_project,
-            "show_in_quotes_tab": getattr(project, 'show_in_quotes_tab', False),
-            "is_active": project.is_active,
-            "num_residents": project.num_residents,
-            "monthly_price_per_apartment": float(project.monthly_price_per_apartment) if project.monthly_price_per_apartment else None,
-            "address": project.address,
-            "city": project.city,
-            "image_url": project.image_url,
-            "contract_file_url": project.contract_file_url,
-            "is_active": project.is_active,
-            "created_at": project.created_at,
-            "total_value": float(getattr(project, 'total_value', 0.0)),
-            "has_fund": fund is not None,
-            "monthly_fund_amount": float(fund.monthly_amount) if fund else None,
-            "first_contract_start_date": first_start.isoformat() if first_start else None,
-        }
-        project_out = ProjectOut.model_validate(project_data)
-        result.append(project_out)
-    
-    return result
+    return await _build_projects_list(db, projects)
 
 @router.get("/check-name")
 async def check_project_name(
@@ -473,10 +448,14 @@ async def get_project_full(
     contract_service = ContractPeriodService(db)
     
     # Ensure project is up to date with current date (catch up if needed)
-    await contract_service.check_and_renew_contract(project_id)
+    # Only run if the project might need renewal (end_date has passed or is today)
+    today = date.today()
+    if project.end_date and project.end_date <= today:
+        await contract_service.check_and_renew_contract(project_id)
     
     # Also ensure all recurring transactions are generated for the current state of the project
     # This is important when new contract periods were just created by check_and_renew_contract
+    # Only run if the project has recurring templates and might have missing transactions
     from backend.services.recurring_transaction_service import RecurringTransactionService
     recurring_service = RecurringTransactionService(db)
     await recurring_service.ensure_project_transactions_generated(project_id)

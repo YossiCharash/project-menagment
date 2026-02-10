@@ -1,5 +1,6 @@
 import os
 from io import BytesIO
+from sqlalchemy import update, delete
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 
 from backend.core.deps import DBSessionDep, get_current_user, require_roles, require_admin
@@ -17,6 +18,7 @@ from backend.models.audit_log import AuditLog
 from backend.models.member_invite import MemberInvite
 from backend.models.admin_invite import AdminInvite
 from backend.models.task import Task
+from backend.models.user_notification import UserNotification
 
 router = APIRouter()
 
@@ -334,6 +336,12 @@ async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(re
     await db.execute(
         delete(Task)
         .where(Task.assigned_to_user_id == user_id)
+    )
+
+    # 9. Delete user notifications (user_id is NOT NULL)
+    await db.execute(
+        delete(UserNotification)
+        .where(UserNotification.user_id == user_id)
     )
 
     await user_repo.delete(user)

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from datetime import datetime, date
 from enum import Enum
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, TypeDecorator
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, TypeDecorator, Index
 from sqlalchemy.dialects.postgresql import ENUM as PgENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,7 @@ class PaymentMethod(str, Enum):
 _PAYMENT_METHOD_DB_VALUES = [e.name for e in PaymentMethod] + [e.value for e in PaymentMethod]
 _PAYMENT_ENGLISH_TO_HEBREW = {e.name: e.value for e in PaymentMethod}
 _PAYMENT_HEBREW_TO_ENGLISH = {e.value: e.name for e in PaymentMethod}
+_PAYMENT_HEBREW_VALUES_SET = frozenset(e.value for e in PaymentMethod)
 
 
 class PaymentMethodType(TypeDecorator):
@@ -83,13 +84,20 @@ class PaymentMethodType(TypeDecorator):
         s = str(value).strip()
         if not s:
             return None
-        if s in (e.value for e in PaymentMethod):
+        if s in _PAYMENT_HEBREW_VALUES_SET:
             return s
         return _PAYMENT_ENGLISH_TO_HEBREW.get(s, s)
 
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        # Composite indexes for common query patterns
+        Index("ix_transactions_project_type_date", "project_id", "type", "tx_date"),
+        Index("ix_transactions_project_category_type_date", "project_id", "category_id", "type", "tx_date"),
+        Index("ix_transactions_project_period", "project_id", "period_start_date", "period_end_date"),
+        Index("ix_transactions_project_fund_date", "project_id", "from_fund", "tx_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
