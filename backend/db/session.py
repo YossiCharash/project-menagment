@@ -9,7 +9,7 @@ engine = create_async_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    pool_recycle=180,  # Recycle before cloud DB closes idle conns (e.g. Render ~5 min)
+    pool_recycle=60,  # Recycle every 60s so connections never hit cloud idle timeout (e.g. Render)
     pool_reset_on_return="commit",
 )
 

@@ -26,12 +26,22 @@ else:
     print("[אזהרה] קובץ .env לא נמצא, משתמש ב-load_dotenv() ברירת מחדל")
 
 
+def _normalize_database_uri(uri: str) -> str:
+    """Ensure async driver is used. Render and others provide postgres://."""
+    if "asyncpg" in uri:
+        return uri
+    if uri.startswith("postgres://"):
+        return "postgresql+asyncpg://" + uri[len("postgres://") :]
+    if uri.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + uri[len("postgresql://") :]
+    return uri
+
+
 class Settings(BaseModel):
     API_V1_STR: str = "/api/v1"
     SQLALCHEMY_DATABASE_URI: str = Field(
-        default=os.getenv(
-            "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/bms",
+        default=_normalize_database_uri(
+            os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms")
         )
     )
     JWT_SECRET_KEY: str = Field(default=os.getenv("JWT_SECRET_KEY", "change_me"))
