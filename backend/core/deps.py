@@ -2,6 +2,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+import sqlalchemy.exc
 
 from backend.db.session import get_db
 from backend.core.security import decode_token
@@ -21,15 +22,26 @@ async def get_current_user(db: DBSessionDep, token: Annotated[str, Depends(oauth
         payload = decode_token(token)
         if not payload or "sub" not in payload:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-        user_id = int(payload["sub"]) 
+        user_id = int(payload["sub"])
         user = await UserRepository(db).get_by_id(user_id)
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
         return user
     except HTTPException:
         raise
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Authentication error: {str(e)}")
+        # DB/connection errors must not return 401 - otherwise frontend clears token and "logs out" the user
+        if isinstance(e, (sqlalchemy.exc.DBAPIError, sqlalchemy.exc.OperationalError, ConnectionError, OSError)):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable. Please try again.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred. Please try again.",
+        ) from e
 
 
 async def get_current_user_with_details(db: DBSessionDep, token: Annotated[str, Depends(oauth2_scheme)]):
