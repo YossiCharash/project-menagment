@@ -4,7 +4,7 @@ const TOKEN_KEY = 'token'
 const REFRESH_TOKEN_KEY = 'refresh_token'
 
 const api = axios.create({
-  baseURL: "http://localhost:8000/api/v1/",
+  baseURL: "https://project-menager-1-1-0.onrender.com/api/v1/",
   timeout: 30000, // avoid ECONNABORTED on heavy endpoints during dev
   withCredentials: false,
 })
