@@ -11,8 +11,7 @@ class AuditRepository:
 
     async def create(self, log: AuditLog) -> AuditLog:
         self.db.add(log)
-        await self.db.commit()
-        await self.db.refresh(log)
+        await self.db.flush()
         return log
 
     async def list(
