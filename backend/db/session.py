@@ -8,9 +8,8 @@ engine = create_async_engine(
     future=True,
     pool_size=10,
     max_overflow=20,
-    # Recycle connections before server closes them (many clouds close idle connections after ~5–10 min).
-    # Using 5 minutes avoids "connection was closed in the middle of operation" / Connection reset by peer.
-    pool_recycle=300,
+    pool_pre_ping=True,
+    pool_recycle=180,  # Recycle before cloud DB closes idle conns (e.g. Render ~5 min)
     pool_reset_on_return="commit",
 )
 
