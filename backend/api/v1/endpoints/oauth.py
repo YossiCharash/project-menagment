@@ -48,8 +48,9 @@ async def google_callback(
         # Get redirect URL from cookie
         redirect_url = request.cookies.get("oauth_redirect", settings.FRONTEND_URL) + "/auth/callback"
         
-        # Create redirect with token
-        redirect_with_token = f"{redirect_url}?token={result['access_token']}&type=bearer"
+        # Create redirect with token and refresh_token (for persistent session)
+        refresh = result.get("refresh_token", "")
+        redirect_with_token = f"{redirect_url}?token={result['access_token']}&type=bearer" + (f"&refresh_token={refresh}" if refresh else "")
         
         response = RedirectResponse(url=redirect_with_token)
         # Clear cookies

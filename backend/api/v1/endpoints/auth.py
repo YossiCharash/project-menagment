@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from backend.core.deps import DBSessionDep, require_admin, get_current_user
-from backend.core.security import create_access_token
+from backend.core.security import create_token_pair
 from backend.schemas.auth import (
     Token, LoginInput, RefreshTokenInput, PasswordResetRequest, 
     PasswordReset, ChangePassword, ResetPasswordWithToken, UserProfile
@@ -47,7 +47,9 @@ async def login(db: DBSessionDep, login_data: LoginInput):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     
-    token = create_access_token(user.id)
+    # Use create_token_pair with remember_me=True for 24h access + 30 day refresh (persistent session)
+    remember_me = getattr(login_data, 'remember_me', True)
+    tokens = create_token_pair(user.id, remember_me=remember_me)
     
     # Check if user needs to change password - handle case where column might not exist yet
     try:
@@ -56,10 +58,10 @@ async def login(db: DBSessionDep, login_data: LoginInput):
         requires_change = False
     
     response_data = {
-        "access_token": token, 
+        "access_token": tokens["access_token"], 
         "token_type": "bearer", 
-        "expires_in": 1440, 
-        "refresh_token": None,
+        "expires_in": tokens["expires_in"], 
+        "refresh_token": tokens["refresh_token"],
         "requires_password_change": requires_change
     }
     
@@ -69,8 +71,17 @@ async def login(db: DBSessionDep, login_data: LoginInput):
 @router.post("/token", response_model=Token)
 async def login_access_token(db: DBSessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
     """OAuth2 compatible login endpoint"""
-    token = await AuthService(db).authenticate(email=form_data.username, password=form_data.password)
-    return {"access_token": token, "token_type": "bearer"}
+    auth_service = AuthService(db)
+    user = await auth_service.authenticate_user(email=form_data.username, password=form_data.password)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    tokens = create_token_pair(user.id, remember_me=True)
+    return {
+        "access_token": tokens["access_token"],
+        "token_type": "bearer",
+        "expires_in": tokens["expires_in"],
+        "refresh_token": tokens["refresh_token"],
+    }
 
 
 @router.post("/register-admin", response_model=UserOut)
@@ -198,7 +209,7 @@ async def refresh_token(db: DBSessionDep, refresh_data: RefreshTokenInput):
             detail="User not found or inactive"
         )
     
-    return create_token_pair(user_id, False)
+    return create_token_pair(user_id, remember_me=True)  # Keep persistent session on refresh
 
 
 @router.post("/logout")

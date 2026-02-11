@@ -4,7 +4,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from typing import Optional
 
 from backend.core.config import settings
-from backend.core.security import create_access_token
+from backend.core.security import create_token_pair
 from backend.repositories.user_repository import UserRepository
 from backend.models.user import User, UserRole
 
@@ -80,8 +80,8 @@ class OAuthService:
                     user.avatar_url = avatar_url
                     user.email_verified = email_verified or user.email_verified
                     await self.users.update(user)
-                    token = create_access_token(user.id)
-                    return {"access_token": token, "token_type": "bearer", "user": user}
+                    tokens = create_token_pair(user.id, remember_me=True)
+                    return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": user}
                 elif user.password_hash:
                     # User exists with password - ask to link accounts
                     raise HTTPException(
@@ -95,8 +95,8 @@ class OAuthService:
                     user.avatar_url = avatar_url
                     user.email_verified = email_verified or user.email_verified
                     await self.users.update(user)
-                    token = create_access_token(user.id)
-                    return {"access_token": token, "token_type": "bearer", "user": user}
+                    tokens = create_token_pair(user.id, remember_me=True)
+                    return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": user}
             else:
                 # New user - create account
                 new_user = User(
@@ -111,8 +111,8 @@ class OAuthService:
                     is_active=True
                 )
                 created_user = await self.users.create(new_user)
-                token = create_access_token(created_user.id)
-                return {"access_token": token, "token_type": "bearer", "user": created_user}
+                tokens = create_token_pair(created_user.id, remember_me=True)
+                return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": created_user}
 
         except HTTPException:
             raise

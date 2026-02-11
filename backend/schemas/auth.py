@@ -15,7 +15,7 @@ class Token(BaseModel):
 class LoginInput(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    remember_me: bool = False
+    remember_me: bool = True  # default True = keep session for 30 days via refresh token
 
 
 class RefreshTokenInput(BaseModel):

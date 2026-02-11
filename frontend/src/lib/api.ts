@@ -1,17 +1,20 @@
 import axios from 'axios'
 
-
+const TOKEN_KEY = 'token'
+const REFRESH_TOKEN_KEY = 'refresh_token'
 
 const api = axios.create({
-  baseURL: "https://project-menager-1-1-0.onrender.com/api/v1/",
+  baseURL: "http://localhost:8000/api/v1/",
   timeout: 30000, // avoid ECONNABORTED on heavy endpoints during dev
   withCredentials: false,
 })
 
+let refreshPromise: Promise<{ access_token: string; refresh_token?: string }> | null = null
+
 api.interceptors.request.use((config) => {
   const isFormData = config.data instanceof FormData
 
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem(TOKEN_KEY)
   if (token) {
     config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
@@ -57,26 +60,52 @@ export function fileAttachmentUrl(path: string | null | undefined): string | nul
 }
 
 api.interceptors.response.use(
-  (res) => {
-    return res      
-  },
-  (error) => {
+  (res) => res,
+  async (error) => {
     const status = error?.response?.status
+    const originalRequest = error.config
 
     if (status === 401) {
-      // Clear token and redirect to login
-      localStorage.removeItem('token')
+      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+      const isAuthEndpoint = originalRequest?.url?.includes('/auth/')
 
-      // Save current location to redirect back after login
+      // Try refresh if we have refresh_token and this isn't a login/refresh request
+      if (refreshToken && !isAuthEndpoint && !originalRequest._retry) {
+        originalRequest._retry = true
+        try {
+          refreshPromise ??= axios
+            .post(api.defaults.baseURL + 'auth/refresh', { refresh_token: refreshToken })
+            .then(({ data }) => {
+              refreshPromise = null
+              return data
+            })
+            .catch((err) => {
+              refreshPromise = null
+              throw err
+            })
+          const data = await refreshPromise
+          localStorage.setItem(TOKEN_KEY, data.access_token)
+          if (data.refresh_token) {
+            localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
+          }
+          originalRequest.headers.Authorization = `Bearer ${data.access_token}`
+          return api(originalRequest)
+        } catch (refreshErr) {
+          refreshPromise = null
+          // Fall through to redirect
+        }
+      }
+
+      // No refresh token or refresh failed - clear and redirect to login
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
       const currentPath = window.location.pathname + window.location.search
       if (currentPath !== '/login' && currentPath !== '/register') {
         localStorage.setItem('redirectAfterLogin', currentPath)
       }
-
-      // Redirect to login page
       window.location.href = '/login'
     } else {
-        console.error("API Error:", error.response?.data || error.message);
+      console.error("API Error:", error.response?.data || error.message)
     }
 
     return Promise.reject(error)
