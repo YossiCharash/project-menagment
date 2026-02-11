@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useAppSelector } from '../utils/hooks'
+import { getToken } from '../lib/authCache'
 import { 
   Plus, 
   Copy, 
@@ -55,7 +56,7 @@ export default function AdminInviteManagement() {
     try {
       const response = await fetch('/admin-invites/', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       })
       if (response.ok) {
@@ -79,7 +80,7 @@ export default function AdminInviteManagement() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify(newInvite)
       })
@@ -113,7 +114,7 @@ export default function AdminInviteManagement() {
       const response = await fetch(`/admin-invites/${inviteId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       })
       

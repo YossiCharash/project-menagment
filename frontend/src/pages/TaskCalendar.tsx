@@ -9,6 +9,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '@fullcalendar/core'
 import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
+import { getToken } from '../lib/authCache'
 import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X } from 'lucide-react'
 import Modal from '../components/Modal'
 import { cn } from '../lib/utils'
@@ -352,7 +353,7 @@ export default function TaskCalendar() {
   }, [fetchOutlookStatus])
 
   const handleOutlookConnect = () => {
-    const token = localStorage.getItem('token')
+    const token = getToken()
     const base = (api.defaults.baseURL || '').replace(/\/$/, '')
     if (token) {
       window.location.href = `${base}/outlook/connect?token=${encodeURIComponent(token)}`

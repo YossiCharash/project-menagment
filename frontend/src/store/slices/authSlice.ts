@@ -1,5 +1,15 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import api from '../../lib/api'
+import {
+  getToken,
+  setToken,
+  setRefreshToken,
+  getCachedUser,
+  setCachedUser,
+  getRequiresPasswordChange,
+  setRequiresPasswordChange,
+  clearAuthCache,
+} from '../../lib/authCache'
 
 export interface CurrentUser {
   id: number
@@ -25,56 +35,22 @@ interface AuthState {
   requiresPasswordChange: boolean
 }
 
-// Helper functions for caching user data
-const CACHE_KEY_USER = 'cached_user'
-const CACHE_KEY_REQUIRES_PASSWORD_CHANGE = 'requires_password_change'
-const TOKEN_KEY = 'token'
-const REFRESH_TOKEN_KEY = 'refresh_token'
-
-const getCachedUser = (): CurrentUser | null => {
+const getCachedUserSafe = (): CurrentUser | null => {
   try {
-    const cached = localStorage.getItem(CACHE_KEY_USER)
-    if (cached) {
-      return JSON.parse(cached) as CurrentUser
-    }
+    return getCachedUser<CurrentUser>()
   } catch (e) {
     console.error('Failed to parse cached user data:', e)
-  }
-  return null
-}
-
-const saveCachedUser = (user: CurrentUser | null) => {
-  if (user) {
-    localStorage.setItem(CACHE_KEY_USER, JSON.stringify(user))
-  } else {
-    localStorage.removeItem(CACHE_KEY_USER)
+    return null
   }
 }
 
-const getCachedRequiresPasswordChange = (): boolean => {
-  try {
-    const cached = localStorage.getItem(CACHE_KEY_REQUIRES_PASSWORD_CHANGE)
-    return cached === 'true'
-  } catch (e) {
-    return false
-  }
-}
-
-const saveCachedRequiresPasswordChange = (requires: boolean) => {
-  if (requires) {
-    localStorage.setItem(CACHE_KEY_REQUIRES_PASSWORD_CHANGE, 'true')
-  } else {
-    localStorage.removeItem(CACHE_KEY_REQUIRES_PASSWORD_CHANGE)
-  }
-}
-
-const initialState: AuthState = { 
-  token: localStorage.getItem(TOKEN_KEY), 
-  loading: false, 
-  error: null, 
-  registered: false, 
-  me: getCachedUser(), // Restore user data from cache
-  requiresPasswordChange: getCachedRequiresPasswordChange()
+const initialState: AuthState = {
+  token: getToken(),
+  loading: false,
+  error: null,
+  registered: false,
+  me: getCachedUserSafe(), // Restore user data from cache
+  requiresPasswordChange: getRequiresPasswordChange(),
 }
 
 export const login = createAsyncThunk(
@@ -189,14 +165,11 @@ const slice = createSlice({
       state.token = null
       state.me = null
       state.requiresPasswordChange = false
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(REFRESH_TOKEN_KEY)
-      saveCachedUser(null) // Clear cached user data
-      saveCachedRequiresPasswordChange(false)
+      clearAuthCache()
     },
     clearPasswordChangeRequirement(state) {
       state.requiresPasswordChange = false
-      saveCachedRequiresPasswordChange(false)
+      setRequiresPasswordChange(false)
     },
     clearAuthState(state){
       state.error = null
@@ -205,14 +178,14 @@ const slice = createSlice({
     updateUser(state, action: { payload: Partial<CurrentUser>; type: string }) {
       if (state.me) {
         state.me = { ...state.me, ...action.payload }
-        saveCachedUser(state.me)
+        setCachedUser(state.me)
       }
     },
     setTokens(state, action: { payload: { token: string; refresh_token?: string }; type: string }) {
       state.token = action.payload.token
-      localStorage.setItem(TOKEN_KEY, action.payload.token)
+      setToken(action.payload.token)
       if (action.payload.refresh_token) {
-        localStorage.setItem(REFRESH_TOKEN_KEY, action.payload.refresh_token)
+        setRefreshToken(action.payload.refresh_token)
       }
     }
   },
@@ -227,15 +200,15 @@ const slice = createSlice({
         if (typeof action.payload === 'string') {
           // Backward compatibility
           state.token = action.payload
-          localStorage.setItem(TOKEN_KEY, action.payload)
+          setToken(action.payload)
         } else {
           state.token = action.payload.token
           state.requiresPasswordChange = action.payload.requires_password_change || false
-          localStorage.setItem(TOKEN_KEY, action.payload.token)
+          setToken(action.payload.token)
           if (action.payload.refresh_token) {
-            localStorage.setItem(REFRESH_TOKEN_KEY, action.payload.refresh_token)
+            setRefreshToken(action.payload.refresh_token)
           }
-          saveCachedRequiresPasswordChange(state.requiresPasswordChange)
+          setRequiresPasswordChange(state.requiresPasswordChange)
         }
       })
       .addCase(login.rejected, (state, action) => {
@@ -263,7 +236,7 @@ const slice = createSlice({
       .addCase(fetchMe.fulfilled, (state, action) => {
         state.loading = false
         state.me = action.payload
-        saveCachedUser(action.payload) // Cache user data
+        setCachedUser(action.payload) // Save to cache (memory + localStorage)
       })
       .addCase(fetchMe.rejected, (state, action) => {
         state.loading = false
