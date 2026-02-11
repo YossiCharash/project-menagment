@@ -23,6 +23,7 @@ const Subprojects = React.lazy(() => import('./pages/Subprojects'))
 const ParentProjectDetail = React.lazy(() => import('./components/ParentProjectDetail'))
 const Reports = React.lazy(() => import('./pages/Reports'))
 const PriceQuotes = React.lazy(() => import('./pages/PriceQuotes'))
+const CreateQuotePage = React.lazy(() => import('./pages/CreateQuotePage'))
 const QuoteDetail = React.lazy(() => import('./pages/QuoteDetail'))
 const Suppliers = React.lazy(() => import('./pages/Suppliers'))
 const SupplierDocuments = React.lazy(() => import('./pages/SupplierDocuments'))
@@ -193,6 +194,7 @@ function AppContent() {
               <Route path="/projects/:parentId/subprojects" element={<RequireAuth><Subprojects /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/price-quotes" element={<RequireAuth><PriceQuotes /></RequireAuth>} />
+              <Route path="/price-quotes/new" element={<RequireAuth><CreateQuotePage /></RequireAuth>} />
               <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
               <Route path="/task-calendar" element={<RequireAuth><TaskCalendar /></RequireAuth>} />

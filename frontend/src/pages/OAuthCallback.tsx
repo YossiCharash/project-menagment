@@ -15,8 +15,9 @@ export default function OAuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Get token from URL
+        // Get token and refresh_token from URL
         const token = searchParams.get('token')
+        const refreshToken = searchParams.get('refresh_token')
         const error = searchParams.get('error')
 
         if (error) {
@@ -37,8 +38,11 @@ export default function OAuthCallback() {
           return
         }
 
-        // Save token
+        // Save token and refresh_token (for persistent session)
         localStorage.setItem('token', token)
+        if (refreshToken) {
+          localStorage.setItem('refresh_token', refreshToken)
+        }
 
         // Fetch user data
         await dispatch(fetchMe() as any)

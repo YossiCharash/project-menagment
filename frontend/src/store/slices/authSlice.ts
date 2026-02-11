@@ -28,6 +28,8 @@ interface AuthState {
 // Helper functions for caching user data
 const CACHE_KEY_USER = 'cached_user'
 const CACHE_KEY_REQUIRES_PASSWORD_CHANGE = 'requires_password_change'
+const TOKEN_KEY = 'token'
+const REFRESH_TOKEN_KEY = 'refresh_token'
 
 const getCachedUser = (): CurrentUser | null => {
   try {
@@ -67,7 +69,7 @@ const saveCachedRequiresPasswordChange = (requires: boolean) => {
 }
 
 const initialState: AuthState = { 
-  token: localStorage.getItem('token'), 
+  token: localStorage.getItem(TOKEN_KEY), 
   loading: false, 
   error: null, 
   registered: false, 
@@ -77,14 +79,16 @@ const initialState: AuthState = {
 
 export const login = createAsyncThunk(
   'auth/login',
-  async (payload: { email: string; password: string }, { rejectWithValue }) => {
+  async (payload: { email: string; password: string; remember_me?: boolean }, { rejectWithValue }) => {
     try {
       const { data } = await api.post('/auth/login', {
         email: payload.email,
-        password: payload.password
+        password: payload.password,
+        remember_me: payload.remember_me !== false
       })
       return {
         token: data.access_token as string,
+        refresh_token: data.refresh_token as string | null,
         requires_password_change: data.requires_password_change || false
       }
     } catch (e: any) {
@@ -185,7 +189,8 @@ const slice = createSlice({
       state.token = null
       state.me = null
       state.requiresPasswordChange = false
-      localStorage.removeItem('token')
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
       saveCachedUser(null) // Clear cached user data
       saveCachedRequiresPasswordChange(false)
     },
@@ -202,6 +207,13 @@ const slice = createSlice({
         state.me = { ...state.me, ...action.payload }
         saveCachedUser(state.me)
       }
+    },
+    setTokens(state, action: { payload: { token: string; refresh_token?: string }; type: string }) {
+      state.token = action.payload.token
+      localStorage.setItem(TOKEN_KEY, action.payload.token)
+      if (action.payload.refresh_token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, action.payload.refresh_token)
+      }
     }
   },
   extraReducers: (builder) => {
@@ -215,11 +227,14 @@ const slice = createSlice({
         if (typeof action.payload === 'string') {
           // Backward compatibility
           state.token = action.payload
-          localStorage.setItem('token', action.payload)
+          localStorage.setItem(TOKEN_KEY, action.payload)
         } else {
           state.token = action.payload.token
           state.requiresPasswordChange = action.payload.requires_password_change || false
-          localStorage.setItem('token', action.payload.token)
+          localStorage.setItem(TOKEN_KEY, action.payload.token)
+          if (action.payload.refresh_token) {
+            localStorage.setItem(REFRESH_TOKEN_KEY, action.payload.refresh_token)
+          }
           saveCachedRequiresPasswordChange(state.requiresPasswordChange)
         }
       })
@@ -286,5 +301,5 @@ const slice = createSlice({
   },
 })
 
-export const { logout, clearAuthState, clearPasswordChangeRequirement, updateUser } = slice.actions
+export const { logout, clearAuthState, clearPasswordChangeRequirement, updateUser, setTokens } = slice.actions
 export default slice.reducer

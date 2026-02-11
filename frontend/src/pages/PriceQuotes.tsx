@@ -19,7 +19,6 @@ import {
   Pencil,
 } from 'lucide-react'
 import { QuoteProjectsAPI, QuoteSubjectsAPI, QuoteProject, type QuoteSubject } from '../lib/apiClient'
-import QuoteViewModal, { type CreateSubjectInput } from '../components/QuoteViewModal'
 import CreateQuoteSubjectModal from '../components/CreateQuoteSubjectModal'
 import EditQuoteSubjectModal from '../components/EditQuoteSubjectModal'
 import DeleteQuoteSubjectModal from '../components/DeleteQuoteSubjectModal'
@@ -318,19 +317,6 @@ export default function PriceQuotes() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | ''>('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  // Create (handled inside QuoteViewModal – רק לפרויקט)
-  const [createForProjectId, setCreateForProjectId] = useState<number | null>(null)
-  const [quoteSubjects, setQuoteSubjects] = useState<QuoteSubject[]>([])
-  const [createSubjectMode, setCreateSubjectMode] = useState<'existing' | 'new'>('new')
-  const [createSubjectId, setCreateSubjectId] = useState<number | null>(null)
-  const [createAddress, setCreateAddress] = useState('')
-  const [createNumApartments, setCreateNumApartments] = useState('')
-  const [createNumBuildings, setCreateNumBuildings] = useState('')
-  const [createNotes, setCreateNotes] = useState('')
-  const [newName, setNewName] = useState('')
-  const [newDescription, setNewDescription] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
 
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [approvingId, setApprovingId] = useState<number | null>(null)
@@ -344,8 +330,6 @@ export default function PriceQuotes() {
   const [createSubprojectForParentId, setCreateSubprojectForParentId] = useState<number | null>(null)
   const [showSelectParentForSubproject, setShowSelectParentForSubproject] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [viewQuoteId, setViewQuoteId] = useState<number | null>(null)
-  const [showCreateInViewModal, setShowCreateInViewModal] = useState(false)
   const [projectQuotesModal, setProjectQuotesModal] = useState<ProjectWithQuotes | null>(null)
   const [standaloneQuotes, setStandaloneQuotes] = useState<QuoteProject[]>([])
 
@@ -356,7 +340,6 @@ export default function PriceQuotes() {
   const [editingSubject, setEditingSubject] = useState<QuoteSubject | null>(null)
   const [selectedSubjectWithQuotes, setSelectedSubjectWithQuotes] = useState<SubjectWithQuotes | null>(null)
   const [deleteSubjectModal, setDeleteSubjectModal] = useState<{ subject: QuoteSubject; quotesCount: number } | null>(null)
-  const [createForSubjectId, setCreateForSubjectId] = useState<number | null>(null)
 
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true)
@@ -442,7 +425,6 @@ export default function PriceQuotes() {
         })
       )
       setSubjectsWithQuotes(withQuotes)
-      setQuoteSubjects(subjects)
       return withQuotes
     } catch {
       setSubjectsWithQuotes([])
@@ -460,44 +442,18 @@ export default function PriceQuotes() {
     loadSubjectsWithQuotes()
   }, [loadSubjectsWithQuotes])
 
-  useEffect(() => {
-    if (showCreateInViewModal && quoteSubjects.length === 0) {
-      QuoteSubjectsAPI.list().then(setQuoteSubjects).catch(() => setQuoteSubjects([]))
-    }
-  }, [showCreateInViewModal])
-
   const openAddQuoteForProject = (projectId: number) => {
-    setCreateForProjectId(projectId)
-    setCreateForSubjectId(null)
-    setCreateSubjectMode('new')
-    setCreateSubjectId(null)
-    setCreateAddress('')
-    setCreateNumApartments('')
-    setCreateNumBuildings('')
-    setCreateNotes('')
-    setNewName('')
-    setNewDescription('')
-    setCreateError(null)
-    setViewQuoteId(null)
-    setShowCreateInViewModal(true)
+    navigate(`/price-quotes/new?projectId=${projectId}`)
   }
 
   const openAddQuoteForSubject = (subjectId: number) => {
-    setCreateForProjectId(null)
-    setCreateForSubjectId(subjectId)
-    setCreateSubjectMode('existing')
-    setCreateSubjectId(subjectId)
-    setNewName('')
-    setNewDescription('')
-    setCreateError(null)
-    setViewQuoteId(null)
-    setShowCreateInViewModal(true)
+    navigate(`/price-quotes/new?subjectId=${subjectId}`)
   }
 
   const openAddQuote = openAddQuoteForProject
 
   const openEditModal = (q: QuoteProject) => {
-    setViewQuoteId(q.id)
+    navigate(`/price-quotes/${q.id}`)
   }
 
   const handleDeleteQuote = async (q: QuoteProject) => {
@@ -819,7 +775,6 @@ export default function PriceQuotes() {
         onSuccess={() => {
           setShowCreateSubjectModal(false)
           loadSubjectsWithQuotes()
-          QuoteSubjectsAPI.list().then(setQuoteSubjects).catch(() => {})
         }}
       />
 
@@ -833,9 +788,6 @@ export default function PriceQuotes() {
               item.subject.id === updated.id ? { ...item, subject: updated } : item
             )
           )
-          setQuoteSubjects((prev) =>
-            prev.map((s) => (s.id === updated.id ? updated : s))
-          )
           if (selectedSubjectWithQuotes?.subject.id === updated.id) {
             setSelectedSubjectWithQuotes((prev) => prev ? { ...prev, subject: updated } : null)
           }
@@ -845,7 +797,7 @@ export default function PriceQuotes() {
       <SubjectQuotesFloatingModal
         subjectWithQuotes={selectedSubjectWithQuotes}
         onClose={() => setSelectedSubjectWithQuotes(null)}
-        onViewQuote={(quote) => setViewQuoteId(quote.id)}
+        onViewQuote={(quote) => navigate(`/price-quotes/${quote.id}`)}
         onEditQuote={openEditModal}
         onApproveQuote={handleApproveQuote}
         onDeleteQuote={handleDeleteQuote}
@@ -865,107 +817,6 @@ export default function PriceQuotes() {
         }}
       />
 
-      {/* Quote View Modal - יצירה וצפייה בהצעת מחיר */}
-      <QuoteViewModal
-        quoteId={viewQuoteId}
-        isOpen={viewQuoteId != null || showCreateInViewModal}
-        onClose={() => {
-          setViewQuoteId(null)
-          setShowCreateInViewModal(false)
-          setCreateForProjectId(null)
-          setCreateForSubjectId(null)
-          setCreateSubjectId(null)
-          setCreateAddress('')
-          setCreateNumApartments('')
-          setCreateNumBuildings('')
-          setCreateNotes('')
-          setNewName('')
-          setNewDescription('')
-          setCreateError(null)
-          loadProjects()
-          loadSubjectsWithQuotes()
-        }}
-        createContext={
-          showCreateInViewModal
-            ? createForSubjectId != null
-              ? { subjectId: createForSubjectId }
-              : createForProjectId != null
-                ? { projectId: createForProjectId, parentQuoteId: null }
-                : null
-            : null
-        }
-        quoteSubjects={quoteSubjects}
-        createSubjectMode={createSubjectMode}
-        createSubjectId={createSubjectId}
-        createAddress={createAddress}
-        createNumApartments={createNumApartments}
-        createNumBuildings={createNumBuildings}
-        createNotes={createNotes}
-        createName={newName}
-        createDescription={newDescription}
-        onCreateSubjectModeChange={setCreateSubjectMode}
-        onCreateSubjectIdChange={setCreateSubjectId}
-        onCreateAddressChange={setCreateAddress}
-        onCreateNumApartmentsChange={setCreateNumApartments}
-        onCreateNumBuildingsChange={setCreateNumBuildings}
-        onCreateNotesChange={setCreateNotes}
-        onCreateNameChange={setNewName}
-        onCreateDescriptionChange={setNewDescription}
-        createError={createError}
-        creating={creating}
-        onCreateSubmit={async (subject: CreateSubjectInput, nameVal, descVal) => {
-          setCreating(true)
-          setCreateError(null)
-          try {
-            let quoteSubjectId: number
-            if (subject.type === 'existing') {
-              quoteSubjectId = subject.id
-            } else {
-              const sub = await QuoteSubjectsAPI.create({
-                address: subject.address ?? undefined,
-                num_apartments: subject.num_apartments ?? undefined,
-                num_buildings: subject.num_buildings ?? undefined,
-                notes: subject.notes ?? undefined,
-              })
-              quoteSubjectId = sub.id
-            }
-            const pid = createForProjectId ?? undefined
-            const created = await QuoteProjectsAPI.create({
-              quote_subject_id: quoteSubjectId,
-              name: nameVal,
-              description: descVal || null,
-              project_id: pid != null ? pid : undefined,
-            })
-            setCreateForProjectId(null)
-            setCreateForSubjectId(null)
-            setShowCreateInViewModal(false)
-            if (pid != null) {
-              const quotes = await loadQuotesForProject(pid)
-              setProjects((prev) =>
-                prev.map((p) => {
-                  if (p.id === pid) return { ...p, quotes }
-                  if (p.subprojects) {
-                    return {
-                      ...p,
-                      subprojects: p.subprojects.map((sp) => (sp.id === pid ? { ...sp, quotes } : sp)),
-                    }
-                  }
-                  return p
-                })
-              )
-            }
-            await loadSubjectsWithQuotes()
-            setViewQuoteId(created.id)
-            return created.id
-          } catch (err: any) {
-            setCreateError(err.response?.data?.detail || err.message || 'שגיאה ביצירת הצעת מחיר')
-            throw err
-          } finally {
-            setCreating(false)
-          }
-        }}
-      />
-
       {/* קומפוננטה צפה – הצעות שאושרו והצעות אחרות */}
       <ProjectQuotesFloatingModal
         project={
@@ -975,14 +826,11 @@ export default function PriceQuotes() {
         }
         onClose={() => setProjectQuotesModal(null)}
         filterQuotes={filterQuotes}
-        onViewQuote={(q) => setViewQuoteId(q.id)}
+        onViewQuote={(q) => navigate(`/price-quotes/${q.id}`)}
         onEditQuote={openEditModal}
         onApproveQuote={handleApproveQuote}
         onDeleteQuote={handleDeleteQuote}
-        onAddQuote={(pid) => {
-          openAddQuote(pid)
-          setProjectQuotesModal(null)
-        }}
+        onAddQuote={(pid) => navigate(`/price-quotes/new?projectId=${pid}`)}
         onNavigateToParent={(id) => {
           navigate(`/projects/${id}/parent`)
           setProjectQuotesModal(null)
