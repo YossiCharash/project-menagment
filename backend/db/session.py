@@ -31,4 +31,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
         finally:
-            await session.close()
+            try:
+                await session.close()
+            except Exception as close_exc:
+                # Do not raise: response may already have been sent; raising would cause
+                # "RuntimeError: Caught handled exception, but response already started."
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Session close failed (connection may be stale): %s", close_exc
+                )

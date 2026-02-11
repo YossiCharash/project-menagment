@@ -233,6 +233,13 @@ def create_app() -> FastAPI:
             content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
         )
 
+    @app.exception_handler(RuntimeError)
+    async def runtime_error_handler(request: Request, exc: RuntimeError):
+        """Log when response was already started; cannot send new response so re-raise."""
+        if "response already started" in str(exc):
+            print(f"⚠️ {request.url.path}: Exception after response started (session close on dead connection?). Cannot send 503. {exc}")
+        raise exc
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """Handle Pydantic validation errors with cleaner messages"""
