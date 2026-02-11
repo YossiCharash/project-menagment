@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
+import { setToken, setRefreshToken } from '../lib/authCache'
 import { LoadingSpinner } from '../components/ui/Loading'
 import { CheckCircle, XCircle } from 'lucide-react'
 
@@ -38,10 +39,10 @@ export default function OAuthCallback() {
           return
         }
 
-        // Save token and refresh_token (for persistent session)
-        localStorage.setItem('token', token)
+        // Save token and refresh_token to cache (memory + localStorage)
+        setToken(token)
         if (refreshToken) {
-          localStorage.setItem('refresh_token', refreshToken)
+          setRefreshToken(refreshToken)
         }
 
         // Fetch user data
