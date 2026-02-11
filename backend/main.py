@@ -149,7 +149,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    from sqlalchemy.exc import IntegrityError, DataError
+    from sqlalchemy.exc import IntegrityError, DataError, OperationalError, DBAPIError
     from fastapi.exceptions import RequestValidationError
     from pydantic import ValidationError
 
@@ -211,6 +211,26 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=400,
             content={"detail": "הנתונים שהוזנו אינם תקינים (סוג נתונים שגוי או ערך ארוך מדי)."},
+        )
+
+    @app.exception_handler(ConnectionRefusedError)
+    @app.exception_handler(ConnectionError)
+    async def db_connection_refused_handler(request: Request, exc: Exception):
+        """DB unreachable (connection refused) – return 503 so frontend does not treat as auth failure."""
+        print(f"⚠️ Database connection failed at {request.url.path}: {exc}")
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
+        )
+
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(DBAPIError)
+    async def db_unavailable_handler(request: Request, exc: Exception):
+        """DB connection/operation failed – return 503 so frontend does not log user out."""
+        print(f"⚠️ Database error at {request.url.path}: {exc}")
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
         )
 
     @app.exception_handler(RequestValidationError)
