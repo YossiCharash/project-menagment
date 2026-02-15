@@ -47,7 +47,11 @@ function formatDate(s: string) {
   }
 }
 
-export default function Notifications() {
+interface NotificationsProps {
+  embedded?: boolean
+}
+
+export default function Notifications({ embedded }: NotificationsProps = {}) {
   const dispatch = useDispatch<AppDispatch>()
   const me = useAppSelector(s => s.auth.me)
   const isAdmin = me?.role === 'Admin'
@@ -150,6 +154,7 @@ export default function Notifications() {
 
   return (
     <div className="space-y-6" dir="rtl">
+      {!embedded && (
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <Bell className="w-7 h-7" />
@@ -176,6 +181,29 @@ export default function Notifications() {
           )}
         </div>
       </div>
+      )}
+      {embedded && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { fetchList(); fetchUnreadCount(); }}
+            className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            title="רענן"
+          >
+            <RefreshCw className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowSendForm(!showSendForm)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm"
+            >
+              <Send className="w-4 h-4" />
+              שליחת הודעה
+            </button>
+          )}
+        </div>
+      )}
 
       {showSendForm && isAdmin && (
         <motion.div
@@ -326,7 +354,7 @@ export default function Notifications() {
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         {n.task_id && (
                           <Link
-                            to="/task-calendar"
+                            to="/task-management?tab=calendar"
                             className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
                           >
                             <Calendar className="w-4 h-4" />

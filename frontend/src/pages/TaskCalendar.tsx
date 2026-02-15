@@ -173,7 +173,11 @@ function getTaskOccurrences(
   return occurrences
 }
 
-export default function TaskCalendar() {
+interface TaskCalendarProps {
+  embedded?: boolean
+}
+
+export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const dispatch = useDispatch()
   const me = useSelector((state: RootState) => state.auth.me)
   const isAdmin = me?.role === 'Admin'
@@ -1131,9 +1135,9 @@ export default function TaskCalendar() {
   ]
 
   return (
-    <div className="task-calendar-page min-h-screen bg-[#f0f4f8] dark:bg-[#0f1419]">
-      <div className="max-w-[1680px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-        {/* Header */}
+    <div className={cn('task-calendar-page', !embedded && 'min-h-screen bg-[#f0f4f8] dark:bg-[#0f1419]')}>
+      <div className={cn('max-w-[1680px] mx-auto px-4 sm:px-6 space-y-6', !embedded && 'py-6 sm:py-8')}>
+        {!embedded && (
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-500/25 dark:shadow-violet-600/20">
@@ -1224,6 +1228,7 @@ export default function TaskCalendar() {
             )}
           </div>
         </header>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-5">
           {isAdmin && (
