@@ -99,6 +99,9 @@ class Task(Base):
     participants: Mapped[list["TaskParticipant"]] = relationship(
         "TaskParticipant", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
     )
+    messages: Mapped[list["TaskMessage"]] = relationship(
+        "TaskMessage", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
+    )
 
 
 class TaskParticipant(Base):
@@ -119,6 +122,24 @@ class TaskParticipant(Base):
 
     task: Mapped["Task"] = relationship("Task", back_populates="participants")
     user: Mapped["User"] = relationship("User", back_populates="task_participations", lazy="selectin")
+
+
+class TaskMessage(Base):
+    """Chat message on a task – visible to assignee and all participants."""
+    __tablename__ = "task_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    task: Mapped["Task"] = relationship("Task", back_populates="messages")
+    user: Mapped["User"] = relationship("User", back_populates="task_messages", lazy="selectin")
 
 
 class TaskAttachment(Base):

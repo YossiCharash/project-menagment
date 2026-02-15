@@ -6,6 +6,7 @@ import { avatarUrl } from '../../lib/api'
 import { RefreshCw, User } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus } from '../../pages/TaskCalendar'
+import TaskDetailModal from './TaskDetailModal'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
@@ -41,6 +42,8 @@ export default function TaskList() {
   const [loading, setLoading] = useState(true)
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('')
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -170,7 +173,11 @@ export default function TaskList() {
                   return (
                     <tr
                       key={task.id}
-                      className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setSelectedTask(task); setSelectedTaskId(task.id) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(task); setSelectedTaskId(task.id) } }}
+                      className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
                     >
                       <td className="py-3 px-4">
                         <span className="font-medium text-gray-900 dark:text-white">
@@ -235,6 +242,21 @@ export default function TaskList() {
           </table>
         </div>
       </div>
+
+      <TaskDetailModal
+        taskId={selectedTaskId}
+        initialTask={selectedTask ?? undefined}
+        onClose={() => { setSelectedTaskId(null); setSelectedTask(null) }}
+        onTaskUpdated={(updated) => {
+          setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+          if (selectedTask?.id === updated.id) setSelectedTask(updated)
+        }}
+        onTaskDeleted={() => {
+          if (selectedTaskId) setTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
+          setSelectedTaskId(null)
+          setSelectedTask(null)
+        }}
+      />
     </div>
   )
 }

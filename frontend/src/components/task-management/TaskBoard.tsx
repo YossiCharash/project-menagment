@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import { motion } from 'framer-motion'
@@ -7,6 +7,7 @@ import { avatarUrl } from '../../lib/api'
 import { User, RefreshCw, GripVertical } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus } from '../../pages/TaskCalendar'
+import TaskDetailModal from './TaskDetailModal'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
@@ -47,6 +48,10 @@ export default function TaskBoard() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [draggedOverStatus, setDraggedOverStatus] = useState<TaskStatus | null>(null)
   const [updatingId, setUpdatingId] = useState<number | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const didDragRef = useRef(false)
+  const justDraggedRef = useRef(false)
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -94,12 +99,15 @@ export default function TaskBoard() {
   }
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
+    didDragRef.current = true
     setDraggedTask(task)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', String(task.id))
   }
 
   const handleDragEnd = () => {
+    if (didDragRef.current) justDraggedRef.current = true
+    didDragRef.current = false
     setDraggedTask(null)
     setDraggedOverStatus(null)
   }
@@ -200,10 +208,19 @@ export default function TaskBoard() {
                     draggable
                     onDragStart={(e) => handleDragStart(e, task)}
                     onDragEnd={handleDragEnd}
+                    onClick={() => {
+                      if (justDraggedRef.current) {
+                        justDraggedRef.current = false
+                        return
+                      }
+                      setSelectedTask(task)
+                      setSelectedTaskId(task.id)
+                    }}
                     className={cn(
                       'group flex items-start gap-2 p-3 rounded-xl border bg-white dark:bg-gray-800 shadow-sm cursor-grab active:cursor-grabbing transition-shadow',
                       isDragging && 'opacity-50 shadow-lg',
-                      isUpdating && 'opacity-70'
+                      isUpdating && 'opacity-70',
+                      'hover:ring-2 hover:ring-blue-400/50'
                     )}
                   >
                     <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -243,6 +260,21 @@ export default function TaskBoard() {
           </div>
         ))}
       </div>
+
+      <TaskDetailModal
+        taskId={selectedTaskId}
+        initialTask={selectedTask ?? undefined}
+        onClose={() => { setSelectedTaskId(null); setSelectedTask(null) }}
+        onTaskUpdated={(updated) => {
+          setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+          if (selectedTask?.id === updated.id) setSelectedTask(updated)
+        }}
+        onTaskDeleted={() => {
+          if (selectedTaskId) setTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
+          setSelectedTaskId(null)
+          setSelectedTask(null)
+        }}
+      />
     </div>
   )
 }

@@ -19,6 +19,20 @@ class TaskParticipantOut(BaseModel):
     avatar_url: str | None = None
 
 
+class TaskMessageOut(BaseModel):
+    id: int
+    task_id: int
+    user_id: int
+    full_name: str
+    avatar_url: str | None = None
+    message: str
+    created_at: datetime
+
+
+class TaskMessageCreate(BaseModel):
+    message: str
+
+
 class TaskAttachmentOut(BaseModel):
     id: int
     file_name: str

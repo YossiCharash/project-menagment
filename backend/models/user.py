@@ -48,6 +48,9 @@ class User(Base):
     task_participations: Mapped[list["TaskParticipant"]] = relationship(
         "TaskParticipant", back_populates="user", lazy="selectin"
     )
+    task_messages: Mapped[list["TaskMessage"]] = relationship(
+        "TaskMessage", back_populates="user", lazy="selectin"
+    )
     notifications: Mapped[list["UserNotification"]] = relationship(
         "UserNotification", back_populates="user", foreign_keys="UserNotification.user_id",
         lazy="selectin"
