@@ -28,7 +28,6 @@ class Project(Base):
     image_url: Mapped[str | None] = mapped_column(String(500), default=None)
     contract_file_url: Mapped[str | None] = mapped_column(String(500), default=None)
     is_parent_project: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    show_in_quotes_tab: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 

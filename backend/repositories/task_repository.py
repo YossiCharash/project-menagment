@@ -29,7 +29,6 @@ class TaskRepository:
             .options(
                 selectinload(Task.assigned_user),
                 selectinload(Task.labels),
-                selectinload(Task.attachments),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
             )
             .order_by(Task.start_time)
