@@ -10,7 +10,7 @@ import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '
 import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { getToken } from '../lib/authCache'
-import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle } from 'lucide-react'
+import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send } from 'lucide-react'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import { cn } from '../lib/utils'
@@ -76,6 +76,16 @@ export interface TaskParticipantType {
   full_name: string
   response_status: ParticipantResponseStatus
   avatar_url?: string | null
+}
+
+export interface TaskMessageType {
+  id: number
+  task_id: number
+  user_id: number
+  full_name: string
+  avatar_url?: string | null
+  message: string
+  created_at: string
 }
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
@@ -221,6 +231,11 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([])
   const createFileInputRef = useRef<HTMLInputElement>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [taskMessages, setTaskMessages] = useState<TaskMessageType[]>([])
+  const [taskMessagesLoading, setTaskMessagesLoading] = useState(false)
+  const [taskMessageInput, setTaskMessageInput] = useState('')
+  const [taskMessageSending, setTaskMessageSending] = useState(false)
+  const taskChatScrollRef = useRef<HTMLDivElement>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [editForm, setEditForm] = useState<{
     title: string
@@ -366,6 +381,47 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     setLoading(true)
     fetchTasks()
   }, [fetchTasks])
+
+  useEffect(() => {
+    if (!selectedTask?.id) {
+      setTaskMessages([])
+      setTaskMessageInput('')
+      return
+    }
+    let cancelled = false
+    setTaskMessagesLoading(true)
+    api.get<TaskMessageType[]>(`/tasks/${selectedTask.id}/messages`)
+      .then(({ data }) => {
+        if (!cancelled) setTaskMessages(data)
+      })
+      .catch(() => {
+        if (!cancelled) setTaskMessages([])
+      })
+      .finally(() => {
+        if (!cancelled) setTaskMessagesLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [selectedTask?.id])
+
+  useEffect(() => {
+    if (!selectedTask?.id || taskMessages.length === 0) return
+    taskChatScrollRef.current?.scrollTo({ top: taskChatScrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [selectedTask?.id, taskMessages])
+
+  const handleSendTaskMessage = useCallback(async () => {
+    if (!selectedTask?.id || !taskMessageInput.trim() || taskMessageSending) return
+    const text = taskMessageInput.trim()
+    setTaskMessageInput('')
+    setTaskMessageSending(true)
+    try {
+      const { data } = await api.post<TaskMessageType>(`/tasks/${selectedTask.id}/messages`, { message: text })
+      setTaskMessages(prev => [...prev, data])
+    } catch {
+      setTaskMessageInput(text)
+    } finally {
+      setTaskMessageSending(false)
+    }
+  }, [selectedTask?.id, taskMessageInput, taskMessageSending])
 
   const fetchOutlookStatus = useCallback(async () => {
     try {
@@ -1731,6 +1787,81 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 ))}
               </div>
             )}
+
+            {/* שיח משימה – צ'אט למשימה, גלוי לכל משתתפי המשימה */}
+            <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
+                <MessageCircle className="w-4 h-4" />
+                שיח משימה
+              </p>
+              <div
+                ref={taskChatScrollRef}
+                className="bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-600 overflow-y-auto min-h-[120px] max-h-[220px] p-2 space-y-2"
+              >
+                {taskMessagesLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">טוען הודעות...</p>
+                ) : taskMessages.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">אין הודעות. התחל שיחה.</p>
+                ) : (
+                  taskMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={cn(
+                        'flex gap-2 p-2 rounded-lg',
+                        msg.user_id === me?.id
+                          ? 'bg-blue-50 dark:bg-blue-900/20 ml-4'
+                          : 'bg-white dark:bg-gray-700/50 mr-4'
+                      )}
+                    >
+                      {avatarUrl(msg.avatar_url) ? (
+                        <img src={avatarUrl(msg.avatar_url)!} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center flex-shrink-0 text-xs text-gray-600 dark:text-gray-300">
+                          {(msg.full_name || '?').charAt(0)}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{msg.full_name}</p>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 break-words whitespace-pre-wrap">{msg.message}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          {new Date(msg.created_at).toLocaleString('he-IL')}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  value={taskMessageInput}
+                  onChange={(e) => setTaskMessageInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendTaskMessage()
+                    }
+                  }}
+                  placeholder="כתוב הודעה..."
+                  className={cn(
+                    "flex-1 px-3 py-2 border rounded-lg text-sm",
+                    "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100",
+                    "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                  )}
+                  disabled={taskMessageSending}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendTaskMessage}
+                  disabled={!taskMessageInput.trim() || taskMessageSending}
+                  className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="שלח"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">לעריכה: לחץ פעמיים על האירוע או השתמש בכפתור עריכה.</p>
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-600 mt-4">
               <button

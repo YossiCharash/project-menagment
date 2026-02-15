@@ -31,6 +31,7 @@ from backend.models import (  # noqa: F401
     QuoteLine,
     Task,
     TaskAttachment,
+    TaskMessage,
     UserNotification,
     GroupTransactionDraft,
     GroupTransactionDraftDocument,
@@ -70,7 +71,8 @@ async def init_database(engine: AsyncEngine):
 
         # Run migration: add assignee_acknowledged_at to tasks (לקוח מאשר קבלת משימה)
         await _add_assignee_acknowledged_at_to_tasks(engine)
-        
+        await _add_task_messages_table(engine)
+
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
     except OSError as e:
@@ -281,3 +283,33 @@ async def _add_assignee_acknowledged_at_to_tasks(engine: AsyncEngine):
                 print("✓ Added assignee_acknowledged_at column to tasks table successfully")
     except Exception as e:
         print(f"Note: Could not add assignee_acknowledged_at (may already exist): {e}")
+
+
+async def _add_task_messages_table(engine: AsyncEngine):
+    """Create task_messages table if it doesn't exist (chat per task)."""
+    try:
+        async with engine.begin() as conn:
+            check = text("""
+                SELECT 1 FROM information_schema.tables WHERE table_name = 'task_messages'
+            """)
+            result = await conn.execute(check)
+            exists = result.scalar_one_or_none() is not None
+            if exists:
+                print("✓ Table task_messages already exists")
+            else:
+                print("Creating task_messages table...")
+                await conn.execute(text("""
+                    CREATE TABLE task_messages (
+                        id SERIAL PRIMARY KEY,
+                        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        message TEXT NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                """))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_task_messages_id ON task_messages(id)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_task_messages_task_id ON task_messages(task_id)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_task_messages_user_id ON task_messages(user_id)"))
+                print("✓ Created task_messages table successfully")
+    except Exception as e:
+        print(f"Note: Could not add task_messages table (may already exist): {e}")

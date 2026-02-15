@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 import os
 import uuid
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile
 
 from backend.core.deps import DBSessionDep, get_current_user
@@ -15,6 +17,8 @@ from backend.schemas.task import (
     RECURRENCE_RULE_VALUES,
     TaskParticipantOut,
     TaskAttachmentOut,
+    TaskMessageOut,
+    TaskMessageCreate,
 )
 from backend.schemas.task_label import TaskLabelOut, TaskLabelCreate, TaskLabelUpdate
 from backend.models.task import (
@@ -22,6 +26,7 @@ from backend.models.task import (
     TaskLabel,
     TaskParticipant,
     TaskAttachment,
+    TaskMessage,
     TaskStatus,
     EventType,
     ParticipantResponse,
@@ -215,6 +220,86 @@ async def delete_task_label(
     return None
 
 
+def _can_access_task(task: Task, user) -> bool:
+    """True if user can view/edit this task (Admin, assignee, or participant)."""
+    if user.role == "Admin":
+        return True
+    if task.assigned_to_user_id == user.id:
+        return True
+    participants = getattr(task, "participants", None) or []
+    return any(getattr(p, "user_id", None) == user.id for p in participants)
+
+
+@router.get("/{task_id}/messages", response_model=list[TaskMessageOut])
+async def list_task_messages(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """List chat messages for a task. Only assignee, participants, or Admin can see."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    result = await db.execute(
+        select(TaskMessage)
+        .options(selectinload(TaskMessage.user))
+        .where(TaskMessage.task_id == task_id)
+        .order_by(TaskMessage.created_at)
+    )
+    messages_sorted = list(result.scalars().unique().all())
+    out = []
+    for m in messages_sorted:
+        author = getattr(m, "user", None)
+        out.append(
+            TaskMessageOut(
+                id=m.id,
+                task_id=m.task_id,
+                user_id=m.user_id,
+                full_name=author.full_name if author else "",
+                avatar_url=getattr(author, "avatar_url", None) if author else None,
+                message=m.message,
+                created_at=m.created_at,
+            )
+        )
+    return out
+
+
+@router.post("/{task_id}/messages", response_model=TaskMessageOut)
+async def create_task_message(
+        task_id: int,
+        data: TaskMessageCreate,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Add a chat message to a task. Only assignee, participants, or Admin can post."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    msg_text = (data.message or "").strip()
+    if not msg_text:
+        raise HTTPException(status_code=400, detail="הודעה לא יכולה להיות ריקה")
+    msg = TaskMessage(task_id=task_id, user_id=user.id, message=msg_text)
+    db.add(msg)
+    await db.flush()
+    await db.refresh(msg)
+    author = getattr(msg, "user", None) or user
+    return TaskMessageOut(
+        id=msg.id,
+        task_id=msg.task_id,
+        user_id=msg.user_id,
+        full_name=getattr(author, "full_name", "") or user.full_name,
+        avatar_url=getattr(author, "avatar_url", None),
+        message=msg.message,
+        created_at=msg.created_at,
+    )
+
+
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(
         task_id: int,
@@ -226,11 +311,8 @@ async def get_task(
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin":
-        if task.assigned_to_user_id != user.id:
-            participants = getattr(task, "participants", None) or []
-            if not any(getattr(p, "user_id", None) == user.id for p in participants):
-                raise HTTPException(status_code=403, detail="Access denied")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
     return _task_to_out(task)
 
 
