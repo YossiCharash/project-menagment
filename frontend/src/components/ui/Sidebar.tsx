@@ -17,7 +17,7 @@ import {
   UserCog,
   Activity,
   Receipt,
-  Calendar,
+  ClipboardList,
   Bell
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -59,16 +59,10 @@ const getNavigationItems = (userRole?: string) => {
       description: 'בניית הצעות מחיר והמרה לפרויקטים'
     },
     {
-      name: 'יומן משימות',
-      href: '/task-calendar',
-      icon: Calendar,
-      description: 'ניהול משימות וקביעת פגישות'
-    },
-    {
-      name: 'הודעות',
-      href: '/notifications',
-      icon: Bell,
-      description: 'הוראות, משימות ותזכורות'
+      name: 'ניהול משימות',
+      href: '/task-management',
+      icon: ClipboardList,
+      description: 'לוח, יומן, משימות והודעות'
     }
   ]
 
@@ -183,7 +177,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                   "w-5 h-5",
                   isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
                 )} />
-                {item.href === '/notifications' && unreadNotifications > 0 && (
+                {item.href === '/task-management' && unreadNotifications > 0 && (
                   <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
                     {unreadNotifications > 99 ? '99+' : unreadNotifications}
                   </span>
@@ -317,7 +311,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                         "w-5 h-5",
                         isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
                       )} />
-                      {item.href === '/notifications' && unreadNotifications > 0 && (
+                      {item.href === '/task-management' && unreadNotifications > 0 && (
                         <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
                           {unreadNotifications > 99 ? '99+' : unreadNotifications}
                         </span>

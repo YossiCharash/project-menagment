@@ -29,6 +29,7 @@ const Suppliers = React.lazy(() => import('./pages/Suppliers'))
 const SupplierDocuments = React.lazy(() => import('./pages/SupplierDocuments'))
 const Settings = React.lazy(() => import('./pages/Settings'))
 const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
+const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 import { logout, fetchMe } from './store/slices/authSlice'
@@ -197,8 +198,9 @@ function AppContent() {
               <Route path="/price-quotes/new" element={<RequireAuth><CreateQuotePage /></RequireAuth>} />
               <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
-              <Route path="/task-calendar" element={<RequireAuth><TaskCalendar /></RequireAuth>} />
-              <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
+              <Route path="/task-management" element={<RequireAuth><TaskManagement /></RequireAuth>} />
+              <Route path="/task-calendar" element={<Navigate to="/task-management" replace />} />
+              <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
               <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
