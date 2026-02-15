@@ -466,13 +466,45 @@ const ConsolidatedTransactionsTable: React.FC<{
   }
 }> = ({ transactions, loading, onFilterChange, filters }) => {
   const filteredTransactions = transactions.filter(transaction => {
-    const txDate = new Date(transaction.tx_date)
-    const transactionMonth = (txDate.getMonth() + 1).toString().padStart(2, '0')
-    const transactionYear = txDate.getFullYear().toString()
-    
+    // For period transactions: check if period overlaps with selected month
+    // For regular transactions: check tx_date
+    let monthMatch = true
+    let yearMatch = true
+    if (filters.month || filters.year) {
+      const filterYear = filters.year ? parseInt(filters.year, 10) : null
+      const filterMonth = filters.month ? parseInt(filters.month, 10) : null
+
+      if (transaction.period_start_date && transaction.period_end_date) {
+        const periodStart = new Date(String(transaction.period_start_date).split('T')[0])
+        const periodEnd = new Date(String(transaction.period_end_date).split('T')[0])
+        let rangeStart: Date
+        let rangeEnd: Date
+        if (filterYear && filterMonth) {
+          rangeStart = new Date(filterYear, filterMonth - 1, 1)
+          rangeEnd = new Date(filterYear, filterMonth, 0, 23, 59, 59)
+        } else if (filterYear) {
+          rangeStart = new Date(filterYear, 0, 1)
+          rangeEnd = new Date(filterYear, 11, 31, 23, 59, 59)
+        } else if (filterMonth) {
+          const y = new Date().getFullYear()
+          rangeStart = new Date(y, filterMonth - 1, 1)
+          rangeEnd = new Date(y, filterMonth, 0, 23, 59, 59)
+        } else {
+          rangeStart = periodStart
+          rangeEnd = periodEnd
+        }
+        monthMatch = periodStart <= rangeEnd && periodEnd >= rangeStart
+        yearMatch = true
+      } else {
+        const txDate = new Date(transaction.tx_date)
+        const transactionMonth = (txDate.getMonth() + 1).toString().padStart(2, '0')
+        const transactionYear = txDate.getFullYear().toString()
+        monthMatch = !filters.month || transactionMonth === filters.month
+        yearMatch = !filters.year || transactionYear === filters.year
+      }
+    }
+
     const typeMatch = filters.type === 'all' || transaction.type === filters.type
-    const monthMatch = !filters.month || transactionMonth === filters.month
-    const yearMatch = !filters.year || transactionYear === filters.year
     
     // Category filter: exact match (consistent with ProjectDetail.tsx)
     // Handle both Hebrew and English categories

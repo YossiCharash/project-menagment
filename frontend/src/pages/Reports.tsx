@@ -170,13 +170,25 @@ export default function Reports() {
             })
             
             // Filter transactions by date range if specified
+            // Regular transactions: check tx_date within range
+            // Period transactions (period_start_date, period_end_date): check if period overlaps with range
             let filteredTransactions = fullData.transactions || []
             if (startDate || endDate) {
               filteredTransactions = filteredTransactions.filter((tx: Transaction) => {
-                const txDate = tx.tx_date
-                if (startDate && txDate < startDate) return false
-                if (endDate && txDate > endDate) return false
-                return true
+                if (tx.period_start_date && tx.period_end_date) {
+                  // Period transaction - check overlap
+                  const periodStart = (typeof tx.period_start_date === 'string' ? tx.period_start_date.split('T')[0] : tx.period_start_date) || ''
+                  const periodEnd = (typeof tx.period_end_date === 'string' ? tx.period_end_date.split('T')[0] : tx.period_end_date) || ''
+                  if (startDate && periodEnd < startDate) return false
+                  if (endDate && periodStart > endDate) return false
+                  return true
+                } else {
+                  // Regular transaction - check tx_date
+                  const txDateStr = typeof tx.tx_date === 'string' ? tx.tx_date.split('T')[0] : ''
+                  if (startDate && txDateStr < startDate) return false
+                  if (endDate && txDateStr > endDate) return false
+                  return true
+                }
               })
             }
             setTransactions(filteredTransactions)
