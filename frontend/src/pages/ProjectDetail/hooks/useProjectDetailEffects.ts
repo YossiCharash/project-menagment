@@ -106,9 +106,12 @@ export function useProjectDetailEffects(
           }
         }
         
+        // Reload full project data when switching to date_range / all_time / selected_month.
+        // Do NOT use /transactions/project/{id} - that endpoint filters by project contract dates
+        // and would hide regular transactions outside that range. getProjectFull returns all
+        // transactions; TransactionsList then filters by the user's chosen date range.
         if (dateFilterMode !== 'current_month') {
-          const { data } = await api.get(`/transactions/project/${id}`)
-          state.setTxs(data || [])
+          await dataLoaders.loadAllProjectData()
         }
       } catch (err) {
         console.log('Could not generate recurring transactions:', err)
