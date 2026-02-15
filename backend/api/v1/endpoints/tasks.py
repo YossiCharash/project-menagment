@@ -32,7 +32,10 @@ from backend.services.outlook_sync_service import (
     update_outlook_event,
     delete_outlook_event,
 )
-from backend.services.notification_service import create_task_assignment_notifications
+from backend.services.notification_service import (
+    create_task_assignment_notifications,
+    create_task_reminder,
+)
 
 router = APIRouter()
 
@@ -125,6 +128,7 @@ def _task_to_out(task: Task) -> dict:
         "recurrence_end_date": recurrence_end_date,
         "created_at": task.created_at,
         "updated_at": task.updated_at,
+        "assignee_acknowledged_at": getattr(task, "assignee_acknowledged_at", None),
         "assigned_user_name": task.assigned_user.full_name if task.assigned_user else None,
         "assigned_user_color": color,
         "assigned_user_avatar": getattr(task.assigned_user, "avatar_url", None) if task.assigned_user else None,
@@ -356,6 +360,50 @@ async def update_task(
     # (refresh() doesn't reload selectinload relations → MissingGreenlet in async)
     updated = await repo.get(task.id)
     return _task_to_out(updated)
+
+
+@router.post("/{task_id}/acknowledge", response_model=TaskOut)
+async def acknowledge_task(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """לקוח/משתמש מוקצה מאשר קבלת המשימה. רק המשתמש המוקצה יכול לאשר."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.assigned_to_user_id != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="רק המשתמש המוקצה למשימה יכול לאשר קבלתה",
+        )
+    task.assignee_acknowledged_at = datetime.utcnow()
+    await db.flush()
+    updated = await repo.get(task_id)
+    return _task_to_out(updated)
+
+
+@router.post("/{task_id}/remind")
+async def remind_task(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Send a reminder for this task to the assignee. Notification appears in הודעות. Only for users who can see the task (Admin, assignee, or participant)."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if user.role != "Admin":
+        if task.assigned_to_user_id != user.id:
+            participants = getattr(task, "participants", None) or []
+            if not any(getattr(p, "user_id", None) == user.id for p in participants):
+                raise HTTPException(status_code=403, detail="Access denied")
+    if not task.assigned_to_user_id:
+        raise HTTPException(status_code=400, detail="למשימה אין משתמש מוקצה")
+    await create_task_reminder(db, task, user.id)
+    return {"message": "תזכורת נשלחה לעובד בהודעות"}
 
 
 @router.post("/{task_id}/respond", response_model=TaskOut)
