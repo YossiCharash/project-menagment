@@ -10,8 +10,9 @@ import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '
 import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { getToken } from '../lib/authCache'
-import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X } from 'lucide-react'
+import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle } from 'lucide-react'
 import Modal from '../components/Modal'
+import ToastNotification, { useToast } from '../components/ToastNotification'
 import { cn } from '../lib/utils'
 import { fetchMe, updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
@@ -58,6 +59,8 @@ export interface Task {
   labels?: TaskLabelType[]
   participants?: TaskParticipantType[]
   attachments?: TaskAttachmentType[]
+  /** תאריך שבו הלקוח/המשתמש המוקצה אישר קבלת המשימה */
+  assignee_acknowledged_at?: string | null
 }
 
 export interface TaskAttachmentType {
@@ -101,6 +104,31 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
   '': 'ללא חזרות',
   weekly: 'כל שבוע',
   monthly: 'כל חודש',
+}
+
+/** Returns overdue info for a task that wasn't completed and has a due date in the past. */
+function getOverdueInfo(task: Task): { delayText: string } | null {
+  if (task.status === 'completed') return null
+  const dueStr = task.end_time ?? task.start_time ?? null
+  if (!dueStr) return null
+  const due = new Date(dueStr)
+  const now = new Date()
+  if (due.getTime() >= now.getTime()) return null
+  const diffMs = now.getTime() - due.getTime()
+  const diffMins = Math.floor(diffMs / (60 * 1000))
+  const diffHours = Math.floor(diffMs / (60 * 60 * 1000))
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+  let delayText: string
+  if (diffDays > 0) {
+    const hours = Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+    delayText = hours > 0 ? `פיגור של ${diffDays} ימים ו-${hours} שעות` : `פיגור של ${diffDays} ימים`
+  } else if (diffHours > 0) {
+    const mins = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000))
+    delayText = mins > 0 ? `פיגור של ${diffHours} שעות ו-${diffMins % 60} דקות` : `פיגור של ${diffHours} שעות`
+  } else {
+    delayText = `פיגור של ${diffMins} דקות`
+  }
+  return { delayText }
 }
 
 /** Expand one task into one or more { start, end } for the calendar (for recurring tasks). */
@@ -230,6 +258,9 @@ export default function TaskCalendar() {
   } | null>(null)
   const [dropConfirmSaving, setDropConfirmSaving] = useState(false)
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
+  const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
+  const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
+  const { toast, showToast, hideToast } = useToast()
 
   const setTaskTypeWithDefaults = useCallback((type: 'meeting' | 'all_day' | 'no_date') => {
     setTaskType(type)
@@ -245,6 +276,11 @@ export default function TaskCalendar() {
         start_time: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`,
         end_time: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`,
       }))
+    } else if (type === 'all_day') {
+      const now = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      setCreateForm(f => ({ ...f, date: dateStr, start_time: '', end_time: '' }))
     }
   }, [])
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -431,6 +467,32 @@ export default function TaskCalendar() {
       console.error('Failed to delete task:', err)
     } finally {
       setDeletingTaskId(null)
+    }
+  }
+
+  const handleRemindTask = async (task: Task) => {
+    setRemindingTaskId(task.id)
+    try {
+      await api.post(`/tasks/${task.id}/remind`)
+      showToast('תזכורת נשלחה לעובד בהודעות', 'success')
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail ?? 'שגיאה בשליחת תזכורת', 'error')
+    } finally {
+      setRemindingTaskId(null)
+    }
+  }
+
+  const handleAcknowledgeTask = async (task: Task) => {
+    setAcknowledgingTaskId(task.id)
+    try {
+      const { data } = await api.post<Task>(`/tasks/${task.id}/acknowledge`)
+      setTasks(prev => prev.map(t => t.id === task.id ? data : t))
+      setSelectedTask(prev => prev?.id === task.id ? data : prev)
+      showToast('אישרת קבלת המשימה', 'success')
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail ?? 'שגיאה באישור קבלת המשימה', 'error')
+    } finally {
+      setAcknowledgingTaskId(null)
     }
   }
 
@@ -1035,7 +1097,10 @@ export default function TaskCalendar() {
             const rangeEnd = dateRange.end
             const occurrences = getTaskOccurrences(t, rangeStart, rangeEnd)
             const eventType = (t.event_type || 'task') as EventType
-            const color = t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
+            const status = (t.status || 'pending') as TaskStatus
+            const color = status === 'completed'
+              ? TASK_STATUS_COLORS.completed
+              : (t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length])
             const icon = eventType === 'meeting' ? '📅 ' : '📋 '
             const labels = t.labels || []
             const isRecurring = (t.recurrence_rule || '') !== ''
@@ -1044,16 +1109,21 @@ export default function TaskCalendar() {
               const end = occ.end
               const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59
               const eventId = occurrences.length > 1 ? `${t.id}-${i}` : String(t.id)
+              // משימות ללא שעה (כל היום): מציגים רק חסימה קטנה בראש היום, לא צביעה של כל היום
+              const displayStart = start
+              const displayEnd = isAllDay && eventType !== 'meeting'
+                ? new Date(start.getTime() + 15 * 60 * 1000) // 15 דקות בראש היום
+                : end
               return {
                 id: eventId,
                 title: icon + t.title + (isRecurring ? ' 🔁' : ''),
-                start: start.toISOString(),
-                end: end.toISOString(),
-                allDay: eventType === 'meeting' ? false : isAllDay,
+                start: displayStart.toISOString(),
+                end: displayEnd.toISOString(),
+                allDay: false,
                 backgroundColor: color,
                 borderColor: color,
-                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task'],
-                extendedProps: { eventType, labels, taskId: t.id },
+                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDay && eventType !== 'meeting' ? 'fc-event-task-no-time' : ''],
+                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask: isAllDay && eventType !== 'meeting' },
               }
             })
           })
@@ -1261,36 +1331,62 @@ export default function TaskCalendar() {
                 </span>
               </div>
             )}
-            {tasks.filter(t => !t.start_time && !t.end_time).length > 0 && (
-              <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
-                <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות בלי תאריך</h3>
-                <ul className="space-y-1.5 text-sm">
-                  {tasks.filter(t => !t.start_time && !t.end_time).map(t => {
-                    const status = (t.status || 'pending') as TaskStatus
-                    const color = TASK_STATUS_COLORS[status] ?? t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
-                    const avatarSrc = avatarUrl(t.assigned_user_avatar)
-                    return (
-                    <li key={t.id} className="flex items-center gap-2">
-                      {avatarSrc ? (
-                        <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
-                      ) : (
-                        <span
-                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: color }}
-                        />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTask(t)}
-                        className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline"
-                      >
-                        {t.title} – {t.assigned_user_name}
-                      </button>
-                    </li>
-                  )})}
-                </ul>
-              </div>
-            )}
+            {(() => {
+              const noDateTasks = tasks.filter(t => !t.start_time && !t.end_time)
+              const tasksWithDateNoTime = tasks.filter(t => (t.event_type || 'task') === 'task' && t.start_time && t.end_time)
+              const hasAny = noDateTasks.length > 0 || tasksWithDateNoTime.length > 0
+              if (!hasAny) return null
+              const taskItem = (t: Task) => {
+                const status = (t.status || 'pending') as TaskStatus
+                const color = TASK_STATUS_COLORS[status] ?? t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
+                const avatarSrc = avatarUrl(t.assigned_user_avatar)
+                return (
+                  <li key={t.id} className="flex items-center gap-2">
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    )}
+                    <button type="button" onClick={() => setSelectedTask(t)} className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline">
+                      {t.title} – {t.assigned_user_name}
+                    </button>
+                  </li>
+                )
+              }
+              const byDate = new Map<string, Task[]>()
+              tasksWithDateNoTime.forEach(t => {
+                const d = t.start_time!.slice(0, 10)
+                if (!byDate.has(d)) byDate.set(d, [])
+                byDate.get(d)!.push(t)
+              })
+              const sortedDates = Array.from(byDate.keys()).sort()
+              return (
+                <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
+                  <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות</h3>
+                  {noDateTasks.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">בלי תאריך</h4>
+                      <ul className="space-y-1.5 text-sm">{noDateTasks.map(taskItem)}</ul>
+                    </div>
+                  )}
+                  {sortedDates.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">עם תאריך (בלי שעה)</h4>
+                      <ul className="space-y-2 text-sm">
+                        {sortedDates.map(dateStr => (
+                          <li key={dateStr}>
+                            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{new Date(dateStr + 'T12:00:00').toLocaleDateString('he-IL')}</span>
+                            <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
+                              {byDate.get(dateStr)!.map(taskItem)}
+                            </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             <div className="flex-1 min-w-0 rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 sm:p-6">
               {loading && tasks.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
@@ -1362,6 +1458,8 @@ export default function TaskCalendar() {
                       `מוקצה: ${t.assigned_user_name || '-'}`,
                       `מצב: ${statusLabel}`,
                     ]
+                    const overdue = getOverdueInfo(t)
+                    if (overdue) parts.push(`משימות בפיגור: ${overdue.delayText}`)
                     if (t.start_time && t.end_time) {
                       const fmt = (s: string) => new Date(s).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })
                       parts.push(`משעה: ${fmt(t.start_time)}`, `עד שעה: ${fmt(t.end_time)}`)
@@ -1525,7 +1623,9 @@ export default function TaskCalendar() {
         </Modal>
       )}
 
-      {selectedTask && (
+      {selectedTask && (() => {
+        const overdueInfo = getOverdueInfo(selectedTask)
+        return (
         <Modal
           isOpen={!!selectedTask}
           onClose={() => setSelectedTask(null)}
@@ -1555,6 +1655,11 @@ export default function TaskCalendar() {
                   <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
                 ))}
               </select>
+              {overdueInfo && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" title={overdueInfo.delayText}>
+                  משימות בפיגור: {overdueInfo.delayText}
+                </span>
+              )}
             </div>
             <p className="text-sm flex items-center gap-2">
               <span className="text-gray-600 dark:text-gray-400">מוקצה למשתמש: </span>
@@ -1567,6 +1672,22 @@ export default function TaskCalendar() {
                 <span className="font-medium">{selectedTask.assigned_user_name}</span>
               )}
             </p>
+            {selectedTask.assignee_acknowledged_at ? (
+              <p className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                <span>הלקוח אימת קבלת המשימה ב־{new Date(selectedTask.assignee_acknowledged_at).toLocaleString('he-IL')}</span>
+              </p>
+            ) : me?.id === selectedTask.assigned_to_user_id && (
+              <button
+                type="button"
+                onClick={() => selectedTask && handleAcknowledgeTask(selectedTask)}
+                disabled={acknowledgingTaskId === selectedTask?.id}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {acknowledgingTaskId === selectedTask?.id ? 'מאשר...' : 'אישרתי קבלת המשימה'}
+              </button>
+            )}
             {selectedTask.start_time && selectedTask.end_time && (
               <p className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">משעה עד שעה: </span>
@@ -1609,6 +1730,16 @@ export default function TaskCalendar() {
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-600 mt-4">
               <button
                 type="button"
+                onClick={() => selectedTask && handleRemindTask(selectedTask)}
+                disabled={remindingTaskId === selectedTask?.id}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50"
+                title="שלח תזכורת לעובד המוקצה – תופיע בהודעות"
+              >
+                <Bell className="w-4 h-4" />
+                {remindingTaskId === selectedTask?.id ? 'שולח...' : 'הזכר'}
+              </button>
+              <button
+                type="button"
                 onClick={() => selectedTask && openEditModal(selectedTask)}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
               >
@@ -1634,7 +1765,8 @@ export default function TaskCalendar() {
             </div>
           </div>
         </Modal>
-      )}
+        )
+      })()}
 
       {editingTask && editForm && (
         <Modal
@@ -1991,12 +2123,12 @@ export default function TaskCalendar() {
                     <span>פגישה</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                    <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskType('all_day')} />
-                    <span>משימה בתאריך</span>
+                    <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskTypeWithDefaults('all_day')} />
+                    <span>משימה (בלי שעה)</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                     <input type="radio" name="taskType" checked={taskType === 'no_date'} onChange={() => setTaskType('no_date')} />
-                    <span>בלי תאריך</span>
+                    <span>משימה (בלי תאריך)</span>
                   </label>
                 </div>
               </div>
@@ -2169,8 +2301,11 @@ export default function TaskCalendar() {
                 )}
               </div>
             )}
+            {taskType === 'all_day' && (
+              <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי שעה – תופיע תחת משימות ביומן (ובלוח החודש בתא הנבחר).</p>
+            )}
             {taskType === 'no_date' && (
-              <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי תאריך – תופיע ברשימת משימות בלי תאריך.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי תאריך – תופיע תחת משימות (רשימת משימות בלי תאריך).</p>
             )}
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
@@ -2236,6 +2371,7 @@ export default function TaskCalendar() {
           </form>
         </Modal>
       )}
+      <ToastNotification toast={toast} onClose={hideToast} />
     </div>
   )
 }

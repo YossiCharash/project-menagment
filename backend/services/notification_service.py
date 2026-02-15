@@ -53,3 +53,32 @@ async def create_task_assignment_notifications(
                 )
                 await repo.create(n)
     await db.flush()
+
+
+async def create_task_reminder(
+    db: AsyncSession,
+    task: Task,
+    from_user_id: int,
+) -> None:
+    """
+    Create a 'task_reminder' notification for the task assignee.
+    Used when someone clicks "הזכר" on a task – the assignee gets a message in הודעות.
+    """
+    if not task.assigned_to_user_id:
+        return
+    repo = NotificationRepository(db)
+    title = f"תזכורת: {task.title}"
+    body = task.description or None
+    if task.start_time:
+        body = (body or "") + f"\nתאריך: {task.start_time.strftime('%d/%m/%Y %H:%M')}" if body else f"תאריך: {task.start_time.strftime('%d/%m/%Y %H:%M')}"
+
+    n = UserNotification(
+        user_id=task.assigned_to_user_id,
+        from_user_id=from_user_id,
+        task_id=task.id,
+        type=NotificationType.TASK_REMINDER,
+        title=title,
+        body=body,
+    )
+    await repo.create(n)
+    await db.flush()

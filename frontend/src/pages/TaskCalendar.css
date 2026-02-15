@@ -358,6 +358,12 @@
   background-clip: padding-box;
 }
 
+/* משימה ללא שעה – מוצגת רק כחסימה קטנה בראש היום */
+.task-calendar-wrap .fc-event-task-no-time {
+  min-height: 28px;
+  font-weight: 500;
+}
+
 .task-calendar-wrap .fc-event-holiday {
   cursor: default;
   opacity: 0.95;

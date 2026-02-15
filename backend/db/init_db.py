@@ -67,6 +67,9 @@ async def init_database(engine: AsyncEngine):
         
         # Run migration: add composite indexes to transactions for performance
         await _add_composite_indexes_to_transactions(engine)
+
+        # Run migration: add assignee_acknowledged_at to tasks (לקוח מאשר קבלת משימה)
+        await _add_assignee_acknowledged_at_to_tasks(engine)
         
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
@@ -253,3 +256,28 @@ async def _add_composite_indexes_to_transactions(engine: AsyncEngine):
             print("✓ Composite indexes on transactions table are up to date")
     except Exception as e:
         print(f"Note: Could not add composite indexes to transactions (may already exist): {e}")
+
+
+async def _add_assignee_acknowledged_at_to_tasks(engine: AsyncEngine):
+    """Add assignee_acknowledged_at column to tasks table if it doesn't exist."""
+    try:
+        async with engine.begin() as conn:
+            check_query = text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'tasks' AND column_name = 'assignee_acknowledged_at'
+            """)
+            result = await conn.execute(check_query)
+            exists = result.scalar_one_or_none() is not None
+            if exists:
+                print("✓ Column assignee_acknowledged_at already exists in tasks table")
+            else:
+                print("Adding assignee_acknowledged_at column to tasks table...")
+                await conn.execute(text("""
+                    ALTER TABLE tasks ADD COLUMN assignee_acknowledged_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+                """))
+                await conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS ix_tasks_assignee_acknowledged_at ON tasks(assignee_acknowledged_at)
+                """))
+                print("✓ Added assignee_acknowledged_at column to tasks table successfully")
+    except Exception as e:
+        print(f"Note: Could not add assignee_acknowledged_at (may already exist): {e}")

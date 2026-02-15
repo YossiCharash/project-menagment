@@ -83,6 +83,9 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    assignee_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
 
     assigned_user: Mapped["User"] = relationship(
         "User", back_populates="tasks", lazy="selectin"

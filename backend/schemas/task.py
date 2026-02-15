@@ -71,6 +71,7 @@ class TaskOut(BaseModel):
     recurrence_end_date: date | None = None
     created_at: datetime
     updated_at: datetime
+    assignee_acknowledged_at: datetime | None = None
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
