@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,5 +17,5 @@ class Fund(Base):
     monthly_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     last_monthly_addition: Mapped[date | None] = mapped_column(Date, default=None)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

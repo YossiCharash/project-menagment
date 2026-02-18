@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Integer, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,8 +18,8 @@ class QuoteBuilding(Base):
     # by_apartment_size = לפי גודל הדירה (split by apartment sizes)
     calculation_method: Mapped[str] = mapped_column(String(30), default="by_residents", index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     quote_project: Mapped["QuoteProject"] = relationship("QuoteProject", back_populates="quote_buildings")
     quote_lines: Mapped[list["QuoteLine"]] = relationship(
@@ -38,6 +38,6 @@ class QuoteApartment(Base):
     quote_building_id: Mapped[int] = mapped_column(ForeignKey("quote_buildings.id"), index=True)
     size_sqm: Mapped[float] = mapped_column(Numeric(10, 2))  # גודל בדירוג מ"ר
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     quote_building: Mapped["QuoteBuilding"] = relationship("QuoteBuilding", back_populates="quote_apartments")

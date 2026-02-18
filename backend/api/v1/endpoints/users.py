@@ -115,7 +115,9 @@ async def _upload_user_avatar_impl(db, target_user_id: int, actor_user_id: int, 
                 content_type=file.content_type,
             )
         except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Upload failed: {e}")
+            import logging
+            logging.getLogger(__name__).exception("Avatar upload to S3 failed")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="העלאת תמונה נכשלה. נסה שוב.")
 
     if not avatar_url:
         import uuid
@@ -166,7 +168,7 @@ async def update_my_calendar_settings(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if data.calendar_color is not None:
-        user.calendar_color = data.calendar_color.strip() or None if isinstance(data.calendar_color, str) else data.calendar_color
+        user.calendar_color = (data.calendar_color.strip() or None) if isinstance(data.calendar_color, str) else data.calendar_color
     if data.calendar_date_display is not None:
         user.calendar_date_display = data.calendar_date_display
     if data.show_jewish_holidays is not None:
@@ -239,7 +241,7 @@ async def update_user(
     if user_data.password is not None:
         user.password_hash = hash_password(user_data.password)
     if user_data.calendar_color is not None:
-        user.calendar_color = user_data.calendar_color.strip() or None if isinstance(user_data.calendar_color, str) else user_data.calendar_color
+        user.calendar_color = (user_data.calendar_color.strip() or None) if isinstance(user_data.calendar_color, str) else user_data.calendar_color
     if user_data.calendar_date_display is not None:
         user.calendar_date_display = user_data.calendar_date_display
     if user_data.show_jewish_holidays is not None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from enum import Enum
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, TypeDecorator, Index
 from sqlalchemy.dialects.postgresql import ENUM as PgENUM
@@ -126,7 +126,7 @@ class Transaction(Base):
     file_path: Mapped[str | None] = mapped_column(String(500), default=None)
 
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow) # לדוגמה, חישוב מתוך שדות קיימים
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)) # לדוגמה, חישוב מתוך שדות קיימים
 
     # Relationship to supplier documents linked to this transaction
     documents: Mapped[list["SupplierDocument"]] = relationship("SupplierDocument", back_populates="transaction", lazy="selectin")

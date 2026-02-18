@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING
 from sqlalchemy import String, Boolean, DateTime
@@ -26,7 +26,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     role: Mapped[str] = mapped_column(String(50), default=UserRole.MEMBER.value, index=True)                                                                    
     group_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     requires_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
     # OAuth fields
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)  # 'google', 'facebook', etc.

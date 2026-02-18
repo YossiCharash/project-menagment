@@ -21,6 +21,12 @@ export default function OAuthCallback() {
         const refreshToken = searchParams.get('refresh_token')
         const error = searchParams.get('error')
 
+        // Immediately clean sensitive tokens from URL to prevent leaks via
+        // browser history, Referrer header, or shoulder surfing
+        if (token || refreshToken) {
+          window.history.replaceState({}, document.title, window.location.pathname)
+        }
+
         if (error) {
           setStatus('error')
           setErrorMessage(decodeURIComponent(error))
@@ -46,7 +52,10 @@ export default function OAuthCallback() {
         }
 
         // Fetch user data
-        await dispatch(fetchMe() as any)
+        const meAction = await dispatch(fetchMe() as any)
+        if (meAction?.error) {
+          throw new Error('Failed to load user data')
+        }
 
         setStatus('success')
 

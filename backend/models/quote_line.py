@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,7 +16,7 @@ class QuoteLine(Base):
     quote_structure_item_id: Mapped[int] = mapped_column(ForeignKey("quote_structure_items.id"), index=True)
     amount: Mapped[float | None] = mapped_column(Numeric(14, 2), default=None)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     quote_project: Mapped["QuoteProject | None"] = relationship("QuoteProject", back_populates="quote_lines")
     quote_building: Mapped["QuoteBuilding | None"] = relationship("QuoteBuilding", back_populates="quote_lines")

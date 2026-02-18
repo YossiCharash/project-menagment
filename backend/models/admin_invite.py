@@ -18,8 +18,8 @@ class AdminInvite(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
     used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     
     # Relationships
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by])
@@ -33,7 +33,7 @@ class AdminInvite(Base):
     def create_invite(cls, email: str, full_name: str, created_by: int, expires_days: int = 7) -> "AdminInvite":
         """Create a new admin invite"""
         invite_code = cls.generate_invite_code()
-        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=expires_days)
         
         return cls(
             invite_code=invite_code,
@@ -45,7 +45,7 @@ class AdminInvite(Base):
 
     def is_expired(self) -> bool:
         """Check if the invite has expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.utcnow() > self.expires_at
 
     def is_valid(self) -> bool:
         """Check if the invite is valid (not used and not expired)"""

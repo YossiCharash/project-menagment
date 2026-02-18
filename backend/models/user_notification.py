@@ -1,7 +1,7 @@
 """User notification model – messages, instructions, and task reminders per user."""
 from __future__ import annotations
-from datetime import datetime
-from sqlalchemy import String, Text, DateTime, ForeignKey
+from datetime import datetime, timezone
+from sqlalchemy import Index, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -17,6 +17,9 @@ class NotificationType:
 
 class UserNotification(Base):
     __tablename__ = "user_notifications"
+    __table_args__ = (
+        Index("ix_user_notifications_user_read", "user_id", "read_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
@@ -34,7 +37,7 @@ class UserNotification(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user: Mapped["User"] = relationship(
         "User", back_populates="notifications", foreign_keys=[user_id]

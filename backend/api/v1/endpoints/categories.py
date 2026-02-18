@@ -52,24 +52,31 @@ async def get_category_suppliers(
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
-    repo = SupplierRepository(db)
-    suppliers = await repo.list()
+    # Get suppliers filtered by category_id directly in the query
+    supplier_query = select(Supplier).where(Supplier.category_id == category_id)
+    supplier_result = await db.execute(supplier_query)
+    category_suppliers = list(supplier_result.scalars().all())
     
-    # Filter suppliers by category_id
-    category_suppliers = [s for s in suppliers if s.category_id == category_id]
+    if not category_suppliers:
+        return []
     
-    # Get transaction counts for each supplier
+    # Batch count transactions for ALL suppliers in one query using GROUP BY
+    supplier_ids = [s.id for s in category_suppliers]
+    count_query = (
+        select(Transaction.supplier_id, func.count(Transaction.id).label("tx_count"))
+        .where(Transaction.supplier_id.in_(supplier_ids))
+        .group_by(Transaction.supplier_id)
+    )
+    count_result = await db.execute(count_query)
+    tx_counts = {row.supplier_id: row.tx_count for row in count_result.all()}
+    
     result = []
     for s in category_suppliers:
-        count_query = select(func.count(Transaction.id)).where(Transaction.supplier_id == s.id)
-        count_result = await db.execute(count_query)
-        transaction_count = count_result.scalar_one() or 0
-        
         result.append({
             "id": s.id, 
             "name": s.name, 
-            "category": s.category.name if s.category else None,
-            "transaction_count": transaction_count
+            "category": category.name,
+            "transaction_count": tx_counts.get(s.id, 0)
         })
     
     return result
@@ -184,9 +191,9 @@ async def delete_category(
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Check if any suppliers in this category have transactions
-    supplier_repo = SupplierRepository(db)
-    all_suppliers = await supplier_repo.list()
-    category_suppliers = [s for s in all_suppliers if s.category_id == category_id]
+    supplier_query = select(Supplier).where(Supplier.category_id == category_id)
+    supplier_result = await db.execute(supplier_query)
+    category_suppliers = list(supplier_result.scalars().all())
     
     # Only prevent deletion if suppliers have transactions
     # If suppliers exist but have no transactions, we'll set their category_id to NULL before deletion
