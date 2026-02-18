@@ -1,4 +1,5 @@
 """Task API endpoints for Task Management Calendar."""
+import logging
 from datetime import datetime, timezone
 import os
 import uuid
@@ -43,6 +44,7 @@ from backend.services.notification_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 EMPLOYEE_COLORS = [
     "#3B82F6", "#10B981", "#F59E0B", "#EF4444",
@@ -83,7 +85,7 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
 
 
 def _task_to_out(task: Task) -> dict:
-    idx = (task.assigned_to_user_id - 1) % len(EMPLOYEE_COLORS)
+    idx = ((task.assigned_to_user_id or 1) - 1) % len(EMPLOYEE_COLORS)
     color = (
         getattr(task.assigned_user, "calendar_color", None)
         if task.assigned_user and getattr(task.assigned_user, "calendar_color", None)
@@ -365,12 +367,12 @@ async def create_task(
             created.outlook_event_id = outlook_id
             await repo.update(created)
     except Exception:
-        pass
+        logger.warning(f"Failed to create Outlook event for task {created.id}", exc_info=True)
     created = await repo.get(created.id)
     try:
         await create_task_assignment_notifications(db, created, user.id)
     except Exception:
-        pass
+        logger.warning(f"Failed to create notifications for task {created.id}", exc_info=True)
     return _task_to_out(created)
 
 
@@ -437,7 +439,7 @@ async def update_task(
                 task.outlook_event_id = outlook_id
                 await repo.update(task)
     except Exception:
-        pass
+        logger.warning(f"Failed to sync Outlook event for task {task.id}", exc_info=True)
     # Re-fetch with eager loading so _task_to_out can access all relationships
     # (refresh() doesn't reload selectinload relations → MissingGreenlet in async)
     updated = await repo.get(task.id)
@@ -460,7 +462,7 @@ async def acknowledge_task(
             status_code=403,
             detail="רק המשתמש המוקצה למשימה יכול לאשר קבלתה",
         )
-    task.assignee_acknowledged_at = datetime.utcnow()
+    task.assignee_acknowledged_at = datetime.now(timezone.utc)
     await db.flush()
     updated = await repo.get(task_id)
     return _task_to_out(updated)
@@ -533,7 +535,7 @@ async def delete_task(
         if outlook_id:
             await delete_outlook_event(db, user_id, outlook_id)
     except Exception:
-        pass
+        logger.warning(f"Failed to delete Outlook event {outlook_id} for task {task_id}", exc_info=True)
     return None
 
 

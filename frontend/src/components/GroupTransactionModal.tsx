@@ -133,13 +133,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const loadProjects = async () => {
     try {
       const data = await ProjectAPI.getProjects()
-      // Filter to show only regular projects (not subprojects) or parent projects
       const filtered = data.filter((p: ProjectWithFinance) => 
         p.is_active && (!p.relation_project || p.is_parent_project)
       )
       setProjects(filtered)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading projects:', err)
+      setError('שגיאה בטעינת פרויקטים. נסה לסגור ולפתוח מחדש.')
     }
   }
 
@@ -147,14 +147,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     try {
       const categories = await CategoryAPI.getCategories()
       setAvailableCategories(categories.filter(cat => cat.is_active))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading categories:', err)
+      // Don't show error for categories - not critical
     }
   }
 
   const loadSubprojects = async (parentProjectId: number) => {
     if (subprojectsMap[parentProjectId]) {
-      return // Already loaded
+      return
     }
     try {
       const { data } = await api.get(`/projects/${parentProjectId}/subprojects`)
@@ -162,14 +163,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         ...prev,
         [parentProjectId]: data || []
       }))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading subprojects:', err)
+      setError('שגיאה בטעינת תתי-פרויקטים.')
     }
   }
 
   const loadContractPeriods = async (projectId: number) => {
     if (contractPeriodsMap[projectId]) {
-      return // Already loaded
+      return
     }
     try {
       const periodsData = await ProjectAPI.getContractPeriods(projectId)
@@ -190,8 +192,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         ...prev,
         [projectId]: periods
       }))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading contract periods:', err)
+      // Don't show error - not critical for form operation
     }
   }
 

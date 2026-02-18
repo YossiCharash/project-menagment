@@ -13,22 +13,22 @@ logger = logging.getLogger(__name__)
 @router.get("/parent-project/{parent_project_id}/financial-summary")
 async def get_parent_project_financial_summary(
     parent_project_id: int,
-    start_date: Optional[date] = Query(None, description="Start date for filtering (YYYY-MM-DD)"),
+        db: DBSessionDep,
+        start_date: Optional[date] = Query(None, description="Start date for filtering (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date for filtering (YYYY-MM-DD)"),
-    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
     Get consolidated financial summary for a parent project including all subprojects
-    
+
     This endpoint provides a comprehensive financial overview of a parent project
     and all its associated subprojects for the specified date range.
     """
     try:
         service = FinancialAggregationService(db)
         summary = service.get_parent_project_financial_summary(
-            parent_project_id, 
-            start_date, 
+            parent_project_id,
+            start_date,
             end_date
         )
         return summary
@@ -44,9 +44,9 @@ async def get_parent_project_financial_summary(
 @router.get("/parent-project/{parent_project_id}/monthly-summary")
 async def get_monthly_financial_summary(
     parent_project_id: int,
+    db: DBSessionDep,
     year: int = Query(..., description="Year (e.g., 2024)"),
     month: int = Query(..., description="Month (1-12)"),
-    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -73,9 +73,9 @@ async def get_monthly_financial_summary(
 
 @router.get("/parent-project/{parent_project_id}/yearly-summary")
 async def get_yearly_financial_summary(
+    db: DBSessionDep,
     parent_project_id: int,
     year: int = Query(..., description="Year (e.g., 2024)"),
-    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -100,9 +100,9 @@ async def get_yearly_financial_summary(
 @router.get("/parent-project/{parent_project_id}/custom-range-summary")
 async def get_custom_range_financial_summary(
     parent_project_id: int,
+    db: DBSessionDep,
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
-    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -134,9 +134,9 @@ async def get_custom_range_financial_summary(
 @router.get("/parent-project/{parent_project_id}/subproject-performance")
 async def get_subproject_performance_comparison(
     parent_project_id: int,
+    db: DBSessionDep,
     start_date: Optional[date] = Query(None, description="Start date for filtering (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date for filtering (YYYY-MM-DD)"),
-    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -170,8 +170,8 @@ async def get_subproject_performance_comparison(
 @router.get("/parent-project/{parent_project_id}/financial-trends")
 async def get_financial_trends(
     parent_project_id: int,
-    years_back: int = Query(5, description="Number of years to look back (default: 5)"),
     db: DBSessionDep,
+    years_back: int = Query(5, description="Number of years to look back (default: 5)"),
     current_user: User = Depends(get_current_user)
 ):
     """

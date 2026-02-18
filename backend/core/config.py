@@ -15,15 +15,8 @@ if not env_path.exists():
 
 if env_path.exists():
     load_dotenv(dotenv_path=env_path, encoding='utf-8')
-    print(f"[OK] קובץ .env נטען מהנתיב: {env_path}")
-    # Debug: Check if SMTP variables are loaded
-    smtp_user = os.getenv("SMTP_USERNAME")
-    smtp_pass = os.getenv("SMTP_PASSWORD")
-    print(f"   SMTP_USERNAME: {'הוגדר' if smtp_user else 'לא הוגדר'}")
-    print(f"   SMTP_PASSWORD: {'הוגדר' if smtp_pass else 'לא הוגדר'}")
 else:
     load_dotenv()  # Try default location
-    print("[אזהרה] קובץ .env לא נמצא, משתמש ב-load_dotenv() ברירת מחדל")
 
 
 def _normalize_database_uri(uri: str) -> str:
@@ -51,11 +44,20 @@ class Settings(BaseModel):
         return os.getenv("ENVIRONMENT", "development").lower() == "production"
 
     def validate_security(self):
+        """Validate that security-critical settings are properly configured."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if self.is_production:
             if self.JWT_SECRET_KEY == "change_me":
                 raise ValueError("CRITICAL: JWT_SECRET_KEY must be changed in production!")
             if self.SUPER_ADMIN_PASSWORD == "c98C98@98":
                 raise ValueError("CRITICAL: Default SUPER_ADMIN_PASSWORD must be changed in production!")
+            if len(self.JWT_SECRET_KEY) < 32:
+                logger.warning("JWT_SECRET_KEY is shorter than 32 characters. Consider using a longer key.")
+        else:
+            if self.JWT_SECRET_KEY == "change_me":
+                logger.warning("Using default JWT_SECRET_KEY. Change this before deploying to production.")
 
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
@@ -88,12 +90,15 @@ class Settings(BaseModel):
 
     @model_validator(mode='after')
     def check_security_settings(self):
-        """Warn if using default insecure settings in production"""
+        """Warn if using default insecure settings"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if self.JWT_SECRET_KEY == "change_me":
-            print("[אזהרה] משתמש ב-JWT_SECRET_KEY ברירת מחדל. זה לא מאובטח לסביבת ייצור!")
+            logger.warning("Using default JWT_SECRET_KEY. This is insecure for production!")
         
         if self.SUPER_ADMIN_PASSWORD == "c98C98@98":
-            print("[אזהרה] משתמש ב-SUPER_ADMIN_PASSWORD ברירת מחדל. יש לשנות זאת בסביבת ייצור!")
+            logger.warning("Using default SUPER_ADMIN_PASSWORD. Change this for production!")
             
         return self
 
