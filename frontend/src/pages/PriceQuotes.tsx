@@ -19,8 +19,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { QuoteProjectsAPI, QuoteSubjectsAPI, QuoteProject, type QuoteSubject } from '../lib/apiClient'
-import CreateQuoteSubjectModal from '../components/CreateQuoteSubjectModal'
-import EditQuoteSubjectModal from '../components/EditQuoteSubjectModal'
+import QuoteSubjectModal from '../components/QuoteSubjectModal'
 import DeleteQuoteSubjectModal from '../components/DeleteQuoteSubjectModal'
 import SubjectQuotesFloatingModal, { type SubjectWithQuotes } from '../components/SubjectQuotesFloatingModal'
 import { ProjectAPI } from '../lib/apiClient'
@@ -769,7 +768,7 @@ export default function PriceQuotes() {
         )}
       </div>
 
-      <CreateQuoteSubjectModal
+      <QuoteSubjectModal
         isOpen={showCreateSubjectModal}
         onClose={() => setShowCreateSubjectModal(false)}
         onSuccess={() => {
@@ -778,7 +777,8 @@ export default function PriceQuotes() {
         }}
       />
 
-      <EditQuoteSubjectModal
+      <QuoteSubjectModal
+        isOpen={!!editingSubject}
         subject={editingSubject}
         onClose={() => setEditingSubject(null)}
         onSuccess={(updated) => {

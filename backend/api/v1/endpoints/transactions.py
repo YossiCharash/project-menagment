@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from datetime import date
+import logging
 import os
 import re
 from uuid import uuid4
@@ -18,6 +19,8 @@ from backend.services.transaction_service import TransactionService, normalize_p
 from backend.services.audit_service import AuditService
 from backend.models.user import UserRole
 from backend.services.s3_service import S3Service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -58,6 +61,7 @@ async def list_transactions(project_id: int, db: DBSessionDep, user=Depends(get_
             tx_dict.setdefault('category', None)
             result.append(TransactionOut.model_validate(tx_dict))
         except Exception:
+            logger.warning("דילוג על עסקה לא תקינה בפרויקט %s", project_id, exc_info=True)
             continue
 
     return result
@@ -184,8 +188,7 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
             # Add to fund for income
             await fund_service.add_to_fund(data.project_id, data.amount)
 
-    # Debug: Print to verify user_id is being set
-    print(f"DEBUG: יוצר עסקה עם created_by_user_id={user.id}, user={user.full_name}")
+    logger.info("יוצר עסקה עם created_by_user_id=%s, user=%s", user.id, user.full_name)
 
     # Create transaction (duplicate check is done inside TransactionService.create)
     try:
@@ -195,10 +198,10 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         error_msg = str(e)
         if "זוהתה עסקה כפולה" in error_msg:
             raise HTTPException(status_code=409, detail=error_msg)
-        raise HTTPException(status_code=400, detail=error_msg)
+        logger.exception("שגיאה ביצירת עסקה")
+        raise HTTPException(status_code=400, detail="שגיאה ביצירת העסקה")
 
-    # Debug: Verify transaction was created with user_id
-    print(f"DEBUG: עסקה נוצרה עם id={transaction.id}, created_by_user_id={transaction.created_by_user_id}")
+    logger.info("עסקה נוצרה עם id=%s, created_by_user_id=%s", transaction.id, transaction.created_by_user_id)
 
     # Get project name for audit log
     project_name = project.name if project else f"פרויקט {transaction.project_id}"
@@ -487,7 +490,7 @@ async def delete_transaction_document(
             await asyncio.to_thread(s3.delete_file, file_path)
         except Exception as e:
             # Log but don't fail - document is already deleted from DB
-            print(f"אזהרה: מחיקת קובץ מ-S3 נכשלה: {e}")
+            logger.warning("מחיקת קובץ מ-S3 נכשלה", exc_info=True)
 
     return {"ok": True}
 

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import date
 from typing import Optional, List
 
@@ -8,6 +9,7 @@ from backend.services.budget_service import BudgetService
 from backend.models.user import User
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=BudgetOut)
@@ -45,11 +47,12 @@ async def create_budget(
         )
         return BudgetOut.model_validate(created_budget)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error creating budget: {str(e)}")
+        logger.exception("Error creating budget")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה ביצירת תקציב. נסה שוב.")
 
 
 @router.get("/project/{project_id}", response_model=List[BudgetWithSpending])
@@ -66,13 +69,11 @@ async def get_project_budgets(
             project_id, 
             contract_period_id=contract_period_id
         )
-        # Convert dict to BudgetWithSpending schema
         budgets = [BudgetWithSpending.model_validate(budget_dict) for budget_dict in budgets_data]
         return budgets
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error retrieving budgets: {str(e)}")
+        logger.exception(f"Error retrieving budgets for project {project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת תקציבים.")
 
 
 @router.get("/{budget_id}", response_model=BudgetWithSpending)
@@ -85,14 +86,12 @@ async def get_budget(
     try:
         service = BudgetService(db)
         budget_data = await service.get_budget_with_spending(budget_id)
-        # Convert dict to BudgetWithSpending schema
         return BudgetWithSpending.model_validate(budget_data)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error retrieving budget: {str(e)}")
+        logger.exception(f"Error retrieving budget {budget_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת תקציב.")
 
 
 @router.put("/{budget_id}", response_model=BudgetOut)
@@ -131,7 +130,8 @@ async def update_budget(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating budget: {str(e)}")
+        logger.exception(f"Error updating budget {budget_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בעדכון תקציב.")
 
 
 @router.delete("/{budget_id}")
@@ -147,14 +147,15 @@ async def delete_budget(
         budget = await repository.get_by_id(budget_id)
         
         if not budget:
-            raise HTTPException(status_code=404, detail="Budget not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="תקציב לא נמצא")
         
         await repository.delete(budget)
         return {"message": "Budget deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting budget: {str(e)}")
+        logger.exception(f"Error deleting budget {budget_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה במחיקת תקציב.")
 
 
 @router.get("/project/{project_id}/alerts")
@@ -169,5 +170,6 @@ async def get_project_budget_alerts(
         alerts = await service.check_category_budget_alerts(project_id)
         return {"alerts": alerts}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving budget alerts: {str(e)}")
+        logger.exception(f"Error retrieving budget alerts for project {project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת התראות תקציב.")
 

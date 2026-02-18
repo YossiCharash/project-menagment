@@ -3,10 +3,13 @@ from datetime import date, timedelta, datetime
 from typing import Optional
 import os
 import asyncio
+import logging
 from uuid import uuid4
 import csv
 import io
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from backend.core.deps import DBSessionDep, require_roles, get_current_user, require_admin
 from backend.core.config import settings
@@ -475,14 +478,10 @@ async def get_project_full(
     
     # Handle exceptions from gather
     if isinstance(current_period, Exception):
-        print(f"❌ [GET PROJECT FULL] Error getting current_period: {current_period}")
-        import traceback
-        traceback.print_exception(type(current_period), current_period, current_period.__traceback__)
+        logger.exception("Failed to get current_period for project %s", project_id, exc_info=current_period)
         current_period = None
     if isinstance(contract_periods_by_year, Exception):
-        print(f"❌ [GET PROJECT FULL] Error getting contract_periods_by_year: {contract_periods_by_year}")
-        import traceback
-        traceback.print_exception(type(contract_periods_by_year), contract_periods_by_year, contract_periods_by_year.__traceback__)
+        logger.exception("Failed to get contract_periods_by_year for project %s", project_id, exc_info=contract_periods_by_year)
         contract_periods_by_year = {}
     
     # Convert contract_periods_by_year to list format
@@ -564,10 +563,10 @@ async def get_project_full(
                     for period in all_periods:
                         if period.start_date == project.start_date:
                             effective_period_id = period.id
-                            print(f"✓ [GET PROJECT FULL] Found current period ID {effective_period_id} from DB for project {project_id}")
+                            logger.debug("Found current period ID %s from DB for project %s", effective_period_id, project_id)
                             break
                 except Exception as e:
-                    print(f"⚠️ [GET PROJECT FULL] Error getting period from DB: {e}")
+                    logger.warning("Error getting period from DB for project %s: %s", project_id, e)
         
         # Debug logging
         total_budgets_before_filter = len(budgets)
@@ -575,7 +574,7 @@ async def get_project_full(
         for b in budgets:
             period_id_val = getattr(b, "contract_period_id", None)
             budgets_by_period[period_id_val] = budgets_by_period.get(period_id_val, 0) + 1
-        print(f"📊 [GET PROJECT FULL] Project {project_id}: {total_budgets_before_filter} total budgets, effective_period_id={effective_period_id}, budgets by period: {budgets_by_period}")
+        logger.debug("Project %s: %d total budgets, effective_period_id=%s, budgets by period: %s", project_id, total_budgets_before_filter, effective_period_id, budgets_by_period)
         
         # Filter to this period's budgets (contract_period_id match)
         # If effective_period_id is set, show budgets for that specific period
@@ -586,16 +585,16 @@ async def get_project_full(
             period_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
             if period_budgets:
                 budgets = period_budgets
-                print(f"✓ [GET PROJECT FULL] Filtered to {len(budgets)} budgets for period_id={effective_period_id}")
+                logger.debug("Filtered to %d budgets for period_id=%s", len(budgets), effective_period_id)
             else:
                 # No budgets for this period, fallback to NULL budgets (old budgets without period assignment)
                 null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
                 if null_budgets:
                     budgets = null_budgets
-                    print(f"⚠️ [GET PROJECT FULL] No budgets for period_id={effective_period_id}, using {len(budgets)} budgets with NULL contract_period_id as fallback")
+                    logger.warning("No budgets for period_id=%s, using %d budgets with NULL contract_period_id as fallback", effective_period_id, len(budgets))
                 else:
                     # If no null budgets either, keep all budgets as last resort
-                    print(f"⚠️ [GET PROJECT FULL] No budgets for period_id={effective_period_id} and no NULL budgets, showing all {len(budgets)} budgets as fallback")
+                    logger.warning("No budgets for period_id=%s and no NULL budgets, showing all %d budgets as fallback", effective_period_id, len(budgets))
         else:
             # When viewing current period but no period_id found:
             # Show budgets with NULL contract_period_id (old budgets)
@@ -603,11 +602,11 @@ async def get_project_full(
             null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
             if null_budgets:
                 budgets = null_budgets
-                print(f"✓ [GET PROJECT FULL] Using {len(budgets)} budgets with NULL contract_period_id (no period_id found)")
+                logger.debug("Using %d budgets with NULL contract_period_id (no period_id found)", len(budgets))
             else:
                 # If no null budgets, keep all budgets (they might all be assigned to periods)
                 # This ensures budgets are visible even if period detection fails
-                print(f"⚠️ [GET PROJECT FULL] No NULL budgets found, showing all {len(budgets)} budgets as fallback")
+                logger.warning("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
         for budget in budgets:
             # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
@@ -921,17 +920,9 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
                     else:
                         end_date = budget_data.end_date
 
-                print(
-                    "📥 [תקציב פרויקט] יוצר תקציב",
-                    {
-                        "project_id": project.id,
-                        "index": idx,
-                        "category_id": budget_data.category_id,
-                        "amount": budget_data.amount,
-                        "period_type": budget_data.period_type,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                    },
+                logger.info(
+                    "Creating budget for project %s: index=%d, category_id=%s, amount=%s, period_type=%s, start_date=%s, end_date=%s",
+                    project.id, idx, budget_data.category_id, budget_data.amount, budget_data.period_type, start_date, end_date,
                 )
 
                 created_budget = await budget_service.create_budget(
@@ -942,26 +933,16 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
                     start_date=start_date,
                     end_date=end_date
                 )
-                print(
-                    "✅ [תקציב פרויקט] תקציב נוצר",
-                    {"budget_id": created_budget.id, "category_id": budget_data.category_id},
+                logger.info(
+                    "Budget created: budget_id=%s, category_id=%s",
+                    created_budget.id, budget_data.category_id,
                 )
             except Exception as e:
-                import traceback
-                print(
-                    "❌ [תקציב פרויקט] יצירת תקציב נכשלה",
-                    {
-                        "project_id": project.id,
-                        "index": idx,
-                        "category_id": budget_data.category_id,
-                        "amount": budget_data.amount,
-                        "period_type": budget_data.period_type,
-                        "error": str(e),
-                    },
+                logger.exception(
+                    "Failed to create budget for project %s: index=%d, category_id=%s, amount=%s, period_type=%s",
+                    project.id, idx, budget_data.category_id, budget_data.amount, budget_data.period_type,
                 )
-                traceback.print_exc()
-                # Log error but don't fail the entire project creation
-                pass
+                # Don't fail the entire project creation
     
     # Log create action with full details
     await AuditService(db).log_project_action(
@@ -1274,17 +1255,9 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                     else:
                         end_date = budget_data.end_date
 
-                print(
-                    "📥 [תקציב פרויקט] מוסיף תקציב בעת עדכון",
-                    {
-                        "project_id": project_id,
-                        "index": idx,
-                        "category_id": budget_data.category_id,
-                        "amount": budget_data.amount,
-                        "period_type": budget_data.period_type,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                    },
+                logger.info(
+                    "Adding budget during update for project %s: index=%d, category_id=%s, amount=%s, period_type=%s, start_date=%s, end_date=%s",
+                    project_id, idx, budget_data.category_id, budget_data.amount, budget_data.period_type, start_date, end_date,
                 )
 
                 created_budget = await budget_service.create_budget(
@@ -1295,24 +1268,15 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                     start_date=start_date,
                     end_date=end_date
                 )
-                print(
-                    "✅ [תקציב פרויקט] תקציב נוסף בעת עדכון",
-                    {"budget_id": created_budget.id, "category_id": budget_data.category_id},
+                logger.info(
+                    "Budget added during update: budget_id=%s, category_id=%s",
+                    created_budget.id, budget_data.category_id,
                 )
             except Exception as e:
-                import traceback
-                print(
-                    "❌ [תקציב פרויקט] הוספת תקציב בעת עדכון נכשלה",
-                    {
-                        "project_id": project_id,
-                        "index": idx,
-                        "category_id": budget_data.category_id,
-                        "amount": budget_data.amount,
-                        "period_type": budget_data.period_type,
-                        "error": str(e),
-                    },
+                logger.exception(
+                    "Failed to add budget during update for project %s: index=%d, category_id=%s, amount=%s, period_type=%s",
+                    project_id, idx, budget_data.category_id, budget_data.amount, budget_data.period_type,
                 )
-                traceback.print_exc()
 
     # Log update action with full details
     update_data = {k: str(v) for k, v in update_payload.items()}
@@ -1514,7 +1478,7 @@ async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep
             s3 = S3Service()
             await asyncio.to_thread(s3.delete_file, file_path)
         except Exception as e:
-            print(f"Warning: Failed to delete file from S3: {e}")
+            logger.warning("Failed to delete file from S3: %s", e)
 
     return {"ok": True}
 
@@ -1604,7 +1568,7 @@ async def hard_delete_project(
                         s3_service.delete_file(tx.file_path)
                     except Exception as e:
                         # Log error but continue deletion
-                        print(f"אזהרה: מחיקת קובץ עסקה {tx.file_path} נכשלה: {e}")
+                        logger.warning("Failed to delete transaction file %s from S3: %s", tx.file_path, e)
             
             # Delete project contract file if exists
             if project.contract_file_url:
@@ -1612,10 +1576,10 @@ async def hard_delete_project(
                     s3_service.delete_file(project.contract_file_url)
                 except Exception as e:
                     # Log error but continue deletion
-                    print(f"אזהרה: מחיקת קובץ חוזה פרויקט {project.contract_file_url} נכשלה: {e}")
+                    logger.warning("Failed to delete project contract file %s from S3: %s", project.contract_file_url, e)
         except (ValueError, Exception) as e:
             # If S3Service initialization fails (e.g., S3 not configured), log but continue with database deletion
-            print(f"אזהרה: שירות S3 לא זמין, מדלג על מחיקת קבצים: {e}")
+            logger.warning("S3 service unavailable, skipping file deletion: %s", e)
     
     # Delete all related records before deleting the project
     # Order matters due to foreign key constraints
@@ -1994,7 +1958,7 @@ async def get_project_fund(
             documents = await doc_repo.get_by_transaction_id(tx.id)
             documents_count = len(documents) if documents else 0
         except Exception:
-            pass
+            logger.warning("Failed to get documents count for transaction %s", tx.id)
         
         transactions_list.append({
             'id': tx.id,
@@ -2799,15 +2763,14 @@ async def export_contract_period_csv(
                         try:
                             if cell.value:
                                 max_length = max(max_length, len(str(cell.value)))
-                        except:
-                            pass
+                        except Exception:
+                            logger.debug("Could not read cell value for column width calculation")
                     adjusted_width = min(max_length + 2, 50)
                     if adjusted_width > 0:
                         ws.column_dimensions[col_letter].width = adjusted_width
                 except Exception as e:
                     # Skip if there's an error adjusting column width
-                    print(f"אזהרה: לא ניתן להתאים רוחב עמודה: {e}")
-                    pass
+                    logger.warning("Could not adjust column width: %s", e)
             
             # Save to BytesIO
             output = io.BytesIO()
@@ -2836,7 +2799,8 @@ async def export_contract_period_csv(
                     else:
                         end_dt = end_date
                     date_range = f"{start_dt.strftime('%Y-%m-%d')}_{end_dt.strftime('%Y-%m-%d')}"
-                except:
+                except (ValueError, AttributeError):
+                    logger.debug("Could not parse date range for filename, using raw values")
                     date_range = f"{start_date}_{end_date}"
             elif start_date:
                 try:
@@ -2845,7 +2809,8 @@ async def export_contract_period_csv(
                     else:
                         start_dt = start_date
                     date_range = f"מ-{start_dt.strftime('%Y-%m-%d')}"
-                except:
+                except (ValueError, AttributeError):
+                    logger.debug("Could not parse start_date for filename, using raw value")
                     date_range = f"מ-{start_date}"
             elif end_date:
                 try:
@@ -2854,7 +2819,8 @@ async def export_contract_period_csv(
                     else:
                         end_dt = end_date
                     date_range = f"עד-{end_dt.strftime('%Y-%m-%d')}"
-                except:
+                except (ValueError, AttributeError):
+                    logger.debug("Could not parse end_date for filename, using raw value")
                     date_range = f"עד-{end_date}"
             else:
                 date_range = "כל-התקופות"
@@ -2998,11 +2964,8 @@ async def export_contract_period_csv(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"❌ שגיאה בייצוא CSV/Excel תקופת חוזה: {e}")
-        print(f"Traceback: {error_details}")
-        raise HTTPException(status_code=500, detail=f"Error exporting CSV: {str(e)}")
+        logger.exception("Error exporting contract period CSV/Excel")
+        raise HTTPException(status_code=500, detail="שגיאה בייצוא הקובץ")
 
 
 @router.post("/{project_id}/check-contract-renewal")
@@ -3439,8 +3402,8 @@ async def export_contract_year_csv(
                     adjusted_width = min(max_length + 2, 50)
                     if adjusted_width > 0:
                         ws.column_dimensions[col_letter].width = adjusted_width
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not adjust column width in year export Excel")
 
             output = io.BytesIO()
             wb.save(output)
@@ -3480,9 +3443,8 @@ async def export_contract_year_csv(
                 }
             )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error exporting year CSV: {str(e)}")
+        logger.exception("Error exporting year CSV")
+        raise HTTPException(status_code=500, detail="שגיאה בייצוא הקובץ")
 
 
 @router.post("/{project_id}/close-year")
@@ -3527,4 +3489,5 @@ async def close_contract_year(
             'periods_by_year': periods_by_year
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("Validation error in close_contract_year for project %s", project_id)
+        raise HTTPException(status_code=400, detail="שגיאה בסגירת שנת חוזה")

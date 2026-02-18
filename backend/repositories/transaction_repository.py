@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from sqlalchemy import select, delete, func, case
+from sqlalchemy import select, delete, func, case, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.transaction import Transaction
 
@@ -53,137 +53,93 @@ class TransactionRepository:
     ) -> list[dict]:
         """
         List transactions for a project with user info loaded via JOIN (no N+1 queries).
-        Optionally filters by project contract period dates in SQL.
+        Optionally filters by project contract period dates using parameterized SQLAlchemy queries.
         Returns list of dicts ready for TransactionOut schema.
         """
-        from sqlalchemy import text, and_, or_
+        from sqlalchemy import and_, or_
+        from sqlalchemy.orm import selectinload
+        from backend.models.user import User
+        from backend.models.category import Category
 
-        # Build WHERE clause with optional date filtering
-        where_conditions = ["t.project_id = :project_id"]
-        params = {"project_id": project_id}
-        
+        # Build query using SQLAlchemy ORM (safe from SQL injection)
+        query = select(Transaction).where(Transaction.project_id == project_id)
+
         # Add date filtering if project has contract period dates
         if project_start_date and project_end_date:
-            # Include:
-            # 1. Fund transactions (COALESCE(t.from_fund, false) = true)
-            # 2. Regular transactions within tx_date range (t.tx_date >= :start_date AND t.tx_date <= :end_date)
-            # 3. Period transactions that overlap with the range (t.period_start_date <= :end_date AND t.period_end_date >= :start_date)
-            where_conditions.append(
-                "(COALESCE(t.from_fund, false) = true OR "
-                "(t.tx_date >= :start_date AND t.tx_date <= :end_date) OR "
-                "(t.period_start_date IS NOT NULL AND t.period_end_date IS NOT NULL AND "
-                "t.period_start_date <= :end_date AND t.period_end_date >= :start_date))"
+            query = query.where(
+                or_(
+                    # Fund transactions always included
+                    Transaction.from_fund == True,
+                    # Regular transactions within tx_date range
+                    and_(
+                        Transaction.tx_date >= project_start_date,
+                        Transaction.tx_date <= project_end_date
+                    ),
+                    # Period transactions that overlap with the range
+                    and_(
+                        Transaction.period_start_date.is_not(None),
+                        Transaction.period_end_date.is_not(None),
+                        Transaction.period_start_date <= project_end_date,
+                        Transaction.period_end_date >= project_start_date
+                    )
+                )
             )
-            params["start_date"] = project_start_date
-            params["end_date"] = project_end_date
-        
-        where_clause = " AND ".join(where_conditions)
-        
-        # Query with JOIN to users to avoid N+1 queries
-        # Use separate fields for user data (SQLite compatible) instead of json_build_object
-        query = text(f"""
-            SELECT t.id,
-                   t.project_id,
-                   t.tx_date,
-                   t.type,
-                   t.amount,
-                   t.description,
-                   t.category_id,
-                   c.name as category_name,
-                   t.payment_method,
-                   t.notes,
-                   t.is_exceptional,
-                   t.is_generated,
-                   t.file_path,
-                   t.supplier_id,
-                   t.created_by_user_id,
-                   t.created_at,
-                   COALESCE(t.from_fund, false) as from_fund,
-                   t.recurring_template_id,
-                   t.period_start_date,
-                   t.period_end_date,
-                   u.id as user_id,
-                   u.full_name as user_full_name,
-                   u.email as user_email
-            FROM transactions t
-            LEFT JOIN users u ON u.id = t.created_by_user_id
-            LEFT JOIN categories c ON c.id = t.category_id
-            WHERE {where_clause}
-            ORDER BY t.tx_date DESC
-        """)
-        
-        result = await self.db.execute(query, params)
-        rows = result.fetchall()
 
-        
-        # Convert rows to dicts
+        query = query.order_by(Transaction.tx_date.desc())
+
+        # Execute with eager loading of relationships
+        result = await self.db.execute(query)
+        tx_list = result.scalars().all()
+
+        # Convert ORM objects to dicts
         transactions = []
-        for row in rows:
+        for tx in tx_list:
             try:
-                # Convert row to dict
-                if hasattr(row, '_mapping'):
-                    row_dict = dict(row._mapping)
-                elif hasattr(row, '_asdict'):
-                    row_dict = row._asdict()
-                elif isinstance(row, dict):
-                    row_dict = row
-                else:
-                    # Fallback: create dict from row tuple
-                    row_dict = {
-                        'id': row[0], 'project_id': row[1], 'tx_date': row[2],
-                        'type': row[3], 'amount': row[4], 'description': row[5],
-                        'category_id': row[6], 'category': row[7], 'payment_method': row[8],
-                        'notes': row[9], 'is_exceptional': row[10], 'is_generated': row[11],
-                        'file_path': row[12], 'supplier_id': row[13], 'created_by_user_id': row[14],
-                        'created_at': row[15], 'from_fund': row[16], 'recurring_template_id': row[17],
-                        'period_start_date': row[18], 'period_end_date': row[19],
-                        'user_id': row[20], 'user_full_name': row[21], 'user_email': row[22]
-                    }
-                
-                # Build created_by_user object from separate fields (SQLite compatible)
-                user_id = row_dict.get('user_id')
-                if user_id:
+                # Build created_by_user object
+                created_by_user = None
+                if tx.created_by_user:
                     created_by_user = {
-                        'id': user_id,
-                        'full_name': row_dict.get('user_full_name'),
-                        'email': row_dict.get('user_email')
+                        'id': tx.created_by_user.id,
+                        'full_name': tx.created_by_user.full_name,
+                        'email': tx.created_by_user.email
                     }
-                else:
-                    created_by_user = None
-                
-                # Remove temporary user fields from row_dict
-                row_dict.pop('user_id', None)
-                row_dict.pop('user_full_name', None)
-                row_dict.pop('user_email', None)
-                
-                # Handle is_generated logic: if recurring_template_id exists but is_generated is False, set to True
-                is_generated_value = row_dict.get('is_generated', False)
-                recurring_template_id = row_dict.get('recurring_template_id')
-                if recurring_template_id and not is_generated_value:
+
+                # Handle is_generated logic
+                is_generated_value = tx.is_generated
+                if tx.recurring_template_id and not is_generated_value:
                     is_generated_value = True
-                
-                row_dict['is_generated'] = is_generated_value
-                row_dict['created_by_user'] = created_by_user
-                
-                # Convert payment_method from DB format (English) to app format (Hebrew)
-                # Raw SQL bypasses the PaymentMethodType TypeDecorator
-                pm = row_dict.get('payment_method')
-                if pm:
-                    from backend.models.transaction import PaymentMethodType
-                    row_dict['payment_method'] = PaymentMethodType._to_hebrew(pm)
-                
-                # Add category name to row_dict (it may be named 'category_name' in the result)
-                # If category_name exists, use it as category; otherwise set category to None
-                if 'category_name' in row_dict:
-                    row_dict['category'] = row_dict.get('category_name')
-                else:
-                    row_dict['category'] = None
-                
+
+                # Get category name from relationship
+                category_name = tx.category.name if tx.category else None
+
+                row_dict = {
+                    'id': tx.id,
+                    'project_id': tx.project_id,
+                    'tx_date': tx.tx_date,
+                    'type': tx.type,
+                    'amount': float(tx.amount),
+                    'description': tx.description,
+                    'category_id': tx.category_id,
+                    'category': category_name,
+                    'payment_method': tx.payment_method,  # TypeDecorator handles conversion
+                    'notes': tx.notes,
+                    'is_exceptional': tx.is_exceptional,
+                    'is_generated': is_generated_value,
+                    'file_path': tx.file_path,
+                    'supplier_id': tx.supplier_id,
+                    'created_by_user_id': tx.created_by_user_id,
+                    'created_at': tx.created_at,
+                    'from_fund': tx.from_fund or False,
+                    'recurring_template_id': tx.recurring_template_id,
+                    'period_start_date': tx.period_start_date,
+                    'period_end_date': tx.period_end_date,
+                    'created_by_user': created_by_user,
+                }
+
                 transactions.append(row_dict)
             except Exception:
                 # Skip malformed rows
                 continue
-        
 
         return transactions
 

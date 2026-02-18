@@ -3,10 +3,13 @@ from datetime import date, datetime
 from typing import Optional, Dict
 import io
 import base64
+import logging
 
 from backend.core.deps import DBSessionDep, require_roles, get_current_user
 from backend.services.report_service import ReportService
 from backend.models.user import UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -41,7 +44,7 @@ async def generate_custom_report(
                     # Decode base64 to bytes
                     processed_images[key] = base64.b64decode(base64_data)
                 except Exception as img_error:
-                    print(f"⚠️ Failed to process image {key}: {str(img_error)}")
+                    logger.warning("עיבוד תמונת תרשים %s נכשל", key, exc_info=True)
                     continue
 
         # Generate report with images
@@ -89,9 +92,7 @@ async def generate_custom_report(
         }
         return Response(content=content, media_type=media_type, headers=headers)
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error generating custom report: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה ביצירת דוח מותאם אישית")
         raise
 
 
@@ -117,9 +118,10 @@ async def export_project_excel(
                             base64_data = base64_data.split(',', 1)[1]
                         processed_images[key] = base64.b64decode(base64_data)
                     except Exception:
+                        logger.warning("עיבוד תמונת תרשים %s נכשל (Excel)", key, exc_info=True)
                         continue
             except Exception as e:
-                print(f"⚠️ Failed to process chart images: {str(e)}")
+                logger.warning("עיבוד תמונות תרשים נכשל", exc_info=True)
 
         report_content = await ReportService(db).generate_excel_report(project_id, chart_images=processed_images)
 
@@ -142,9 +144,7 @@ async def export_project_excel(
         return Response(content=report_content,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error generating Excel report: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה ביצירת דוח Excel")
         raise
 
 
@@ -170,9 +170,10 @@ async def export_project_zip(
                             base64_data = base64_data.split(',', 1)[1]
                         processed_images[key] = base64.b64decode(base64_data)
                     except Exception:
+                        logger.warning("עיבוד תמונת תרשים %s נכשל (ZIP)", key, exc_info=True)
                         continue
             except Exception as e:
-                print(f"⚠️ Failed to process chart images: {str(e)}")
+                logger.warning("עיבוד תמונות תרשים נכשל", exc_info=True)
 
         zip_content = await ReportService(db).generate_zip_export(project_id, chart_images=processed_images)
 
@@ -194,9 +195,7 @@ async def export_project_zip(
         }
         return Response(content=zip_content, media_type="application/zip", headers=headers)
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error generating ZIP export: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה ביצירת ייצוא ZIP")
         raise
 
 
@@ -225,9 +224,7 @@ async def get_project_expense_categories(project_id: int, db: DBSessionDep, user
         result = await ReportService(db).get_project_expense_categories(project_id)
         return result
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error getting expense categories for project {project_id}: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה בקבלת קטגוריות הוצאות לפרויקט %s", project_id)
         raise
 
 
@@ -266,13 +263,12 @@ async def get_project_transactions(
                 tx_dict.setdefault('category', None)
                 result.append(TransactionOut.model_validate(tx_dict))
             except Exception:
-                # Skip malformed transactions
+                logger.warning("דילוג על עסקה לא תקינה בפרויקט %s", project_id, exc_info=True)
                 continue
         
         return result
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("שגיאה בקבלת עסקאות לפרויקט")
         raise
 
 
@@ -306,6 +302,7 @@ async def generate_supplier_report(
                         base64_data = base64_data.split(',', 1)[1]
                     processed_images[key] = base64.b64decode(base64_data)
                 except Exception:
+                    logger.warning("עיבוד תמונת תרשים %s נכשל (דוח ספק)", key, exc_info=True)
                     continue
 
         content = await report_service.generate_supplier_report(request, chart_images=processed_images)
@@ -338,9 +335,7 @@ async def generate_supplier_report(
         }
         return Response(content=content, media_type=media_type, headers=headers)
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error generating supplier report: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה ביצירת דוח ספק")
         raise
 
 
@@ -365,7 +360,5 @@ async def get_expenses_by_transaction_date(
         )
         return result
     except Exception as e:
-        import traceback
-        print(f"❌ [Report API] Error getting expenses by date: {str(e)}")
-        traceback.print_exc()
+        logger.exception("שגיאה בקבלת הוצאות לפי תאריך")
         raise
