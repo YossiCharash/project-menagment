@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timezone
 from sqlalchemy import String, Date, DateTime, Boolean, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,8 +27,8 @@ class QuoteProject(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)  # draft, approved
     converted_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     parent: Mapped["QuoteProject | None"] = relationship("QuoteProject", remote_side=[id], back_populates="children")
     children: Mapped[list["QuoteProject"]] = relationship("QuoteProject", back_populates="parent", cascade="all, delete-orphan")

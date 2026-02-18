@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timezone
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,7 +24,7 @@ class Project(Base):
     monthly_price_per_apartment: Mapped[float | None] = mapped_column(Numeric(10, 2), default=None)
     address: Mapped[str | None] = mapped_column(String(255), default=None)
     city: Mapped[str | None] = mapped_column(String(120), default=None)
-    relation_project: Mapped[int | None] = mapped_column(Integer, default=None)
+    relation_project: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), default=None)
     image_url: Mapped[str | None] = mapped_column(String(500), default=None)
     contract_file_url: Mapped[str | None] = mapped_column(String(500), default=None)
     is_parent_project: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -42,4 +42,4 @@ class Project(Base):
     contract_periods: Mapped[list["ContractPeriod"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     unforeseen_transactions: Mapped[list["UnforeseenTransaction"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

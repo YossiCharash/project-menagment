@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -26,6 +26,6 @@ class Budget(Base):
     end_date: Mapped[date | None] = mapped_column(Date, default=None)  # When budget period ends (for annual budgets)
     
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 

@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from backend.core.deps import DBSessionDep, require_admin, get_current_user
 from backend.core.security import create_token_pair
+from backend.core.rate_limit import rate_limit
 from backend.schemas.auth import (
     Token, LoginInput, RefreshTokenInput, PasswordResetRequest, 
     PasswordReset, ChangePassword, ResetPasswordWithToken, UserProfile
@@ -26,19 +29,17 @@ async def check_admin(db: DBSessionDep):
     auth_service = AuthService(db)
     admin_exists = await auth_service.check_admin_exists()
     
-    # Also check if super admin from settings exists
-    super_admin_email = settings.SUPER_ADMIN_EMAIL
-    super_admin_user = await auth_service.get_user_by_email(super_admin_email)
+    # Check if super admin exists without exposing the email address
+    super_admin_user = await auth_service.get_user_by_email(settings.SUPER_ADMIN_EMAIL)
     
     return {
         "admin_exists": admin_exists,
-        "super_admin_email": super_admin_email,
         "super_admin_exists": super_admin_user is not None,
         "super_admin_active": super_admin_user.is_active if super_admin_user else False
     }
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
 async def login(db: DBSessionDep, login_data: LoginInput):
     """Login endpoint - accepts email and password"""
     auth_service = AuthService(db)
@@ -68,7 +69,7 @@ async def login(db: DBSessionDep, login_data: LoginInput):
     return response_data
 
 
-@router.post("/token", response_model=Token)
+@router.post("/token", response_model=Token, dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
 async def login_access_token(db: DBSessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
     """OAuth2 compatible login endpoint"""
     auth_service = AuthService(db)
@@ -95,7 +96,7 @@ async def register_admin(db: DBSessionDep, admin_data: AdminRegister, current_ad
     return user
 
 
-@router.post("/register-super-admin", response_model=UserOut)
+@router.post("/register-super-admin", response_model=UserOut, dependencies=[Depends(rate_limit(max_requests=3, window_seconds=60))])
 async def register_super_admin(db: DBSessionDep, admin_data: AdminRegister):
     """Register super admin - Only allowed if no admin exists (initial setup)"""
     # Check if any admin exists
@@ -154,18 +155,15 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
         user.requires_password_change = True
         await auth_service.users.update(user)
     except Exception as e:
-        # If column doesn't exist yet, log warning but continue
-        import logging
-        logging.warning(f"לא ניתן להגדיר דגל requires_password_change: {e}")
-        # The column will be added on next database migration
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Could not set requires_password_change flag: {e}")
     
     # Create password reset token for initial password setup
     from backend.core.security import create_initial_password_reset_token
     reset_token = create_initial_password_reset_token(user.id, expires_days=7)
     
-    # Send credentials via email with reset link
+    logger = logging.getLogger(__name__)
     email_service = EmailService()
-    print(f"📧 מכין לשליחת אימייל פרטי התחברות ל-{user_data.email}")
     email_sent = await email_service.send_user_credentials_email(
         email=user_data.email,
         full_name=user_data.full_name,
@@ -175,14 +173,7 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
     )
     
     if not email_sent:
-        # Log warning but don't fail the request - user is created
-        # In production, you might want to handle this differently
-        import logging
-        logging.warning(f"שליחת אימייל ל-{user_data.email} נכשלה, אך המשתמש נוצר")
-        print(f"⚠️  שליחת אימייל פרטי התחברות ל-{user_data.email} נכשלה")
-        print(f"   המשתמש נוצר אך האימייל לא נשלח. אנא בדוק את הגדרות SMTP.")
-    else:
-        print(f"✅ אימייל פרטי התחברות נשלח בהצלחה ל-{user_data.email}")
+        logger.warning(f"Failed to send credentials email to {user_data.email}. User was created but email was not sent.")
     
     return user
 
@@ -199,10 +190,13 @@ async def refresh_token(db: DBSessionDep, refresh_data: RefreshTokenInput):
             detail="Invalid refresh token"
         )
     
-    user_id = int(payload.get("sub"))
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user_id = int(sub)
     auth_service = AuthService(db)
     user = await auth_service.get_user_by_id(user_id)
-    
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -218,7 +212,7 @@ async def logout():
     return {"message": "Successfully logged out"}
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", dependencies=[Depends(rate_limit(max_requests=3, window_seconds=60))])
 async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
     """Request password reset"""
     auth_service = AuthService(db)
@@ -234,7 +228,7 @@ async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
     return {"message": "If the email exists, a reset link has been sent"}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
 async def reset_password(db: DBSessionDep, reset_data: PasswordReset):
     """Reset password using reset token"""
     from backend.core.security import verify_password_reset_token

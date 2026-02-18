@@ -344,6 +344,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     } catch (err) {
       console.error('Failed to fetch tasks:', err)
       setTasks([])
+      showToast('שגיאה בטעינת משימות. נסה לרענן את הדף.', 'error')
     } finally {
       setLoading(false)
     }
@@ -865,7 +866,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       }
       const { data } = await api.get<Task>(`/tasks/${editingTask.id}`)
       setEditingTask(data)
-      editFileInputRef.current?.setAttribute('value', '')
+      if (editFileInputRef.current) editFileInputRef.current.value = ''
     } catch (err) {
       console.error('Failed to upload attachment:', err)
     } finally {
@@ -1003,7 +1004,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       setShowCreateModal(false)
       setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_end_date: '' })
       setCreatePendingFiles([])
-      createFileInputRef.current?.setAttribute('value', '')
+      if (createFileInputRef.current) createFileInputRef.current.value = ''
       await fetchTasks()
     } catch (err: any) {
       setCreateError(err.response?.data?.detail ?? 'שגיאה ביצירת משימה')
@@ -1119,8 +1120,8 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   // (no key change). We use the API to re-evaluate the view so Hebrew month boundaries,
   // day-cell rendering, and the toolbar update correctly – without losing the current date.
   useEffect(() => {
-    const api = calendarRef.current?.getApi()
-    if (!api) return
+    const calApi = calendarRef.current?.getApi()
+    if (!calApi) return
     // Skip the very first render – nothing to transition from
     if (prevIsHebrewModeRef.current === null) {
       prevIsHebrewModeRef.current = isHebrewMode
@@ -1129,13 +1130,13 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     const hebrewModeChanged = prevIsHebrewModeRef.current !== isHebrewMode
     prevIsHebrewModeRef.current = isHebrewMode
 
-    if (hebrewModeChanged && api.view.type === 'dayGridMonth') {
+    if (hebrewModeChanged && calApi.view.type === 'dayGridMonth') {
       // Re-initialize month view so FullCalendar picks up the new visibleRange config
-      const currentDate = api.getDate()
-      api.changeView('dayGridMonth', currentDate)
+      const currentDate = calApi.getDate()
+      calApi.changeView('dayGridMonth', currentDate)
     } else {
       // For non-month views or same-mode switches (hebrew ↔ both), just re-render cells
-      api.render()
+      calApi.render()
     }
   }, [calendarDateDisplay, isHebrewMode])
 

@@ -1,14 +1,13 @@
-from datetime import datetime, date
+import logging
+from datetime import datetime, date, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-
-from backend.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from backend.services.financial_aggregation_service import FinancialAggregationService
-from backend.core.deps import get_current_user
+from backend.core.deps import DBSessionDep, get_current_user
 from backend.models.user import User
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/parent-project/{parent_project_id}/financial-summary")
@@ -16,7 +15,7 @@ async def get_parent_project_financial_summary(
     parent_project_id: int,
     start_date: Optional[date] = Query(None, description="Start date for filtering (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date for filtering (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -34,9 +33,12 @@ async def get_parent_project_financial_summary(
         )
         return summary
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving financial summary: {str(e)}")
+        logger.exception(f"Error retrieving financial summary for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת סיכום פיננסי.")
 
 
 @router.get("/parent-project/{parent_project_id}/monthly-summary")
@@ -44,7 +46,7 @@ async def get_monthly_financial_summary(
     parent_project_id: int,
     year: int = Query(..., description="Year (e.g., 2024)"),
     month: int = Query(..., description="Month (1-12)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -61,16 +63,19 @@ async def get_monthly_financial_summary(
         summary = service.get_monthly_financial_summary(parent_project_id, year, month)
         return summary
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving monthly summary: {str(e)}")
+        logger.exception(f"Error retrieving monthly summary for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת סיכום חודשי.")
 
 
 @router.get("/parent-project/{parent_project_id}/yearly-summary")
 async def get_yearly_financial_summary(
     parent_project_id: int,
     year: int = Query(..., description="Year (e.g., 2024)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -84,9 +89,12 @@ async def get_yearly_financial_summary(
         summary = service.get_yearly_financial_summary(parent_project_id, year)
         return summary
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving yearly summary: {str(e)}")
+        logger.exception(f"Error retrieving yearly summary for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת סיכום שנתי.")
 
 
 @router.get("/parent-project/{parent_project_id}/custom-range-summary")
@@ -94,7 +102,7 @@ async def get_custom_range_financial_summary(
     parent_project_id: int,
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -115,9 +123,12 @@ async def get_custom_range_financial_summary(
         )
         return summary
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving custom range summary: {str(e)}")
+        logger.exception(f"Error retrieving custom range summary for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת סיכום טווח מותאם.")
 
 
 @router.get("/parent-project/{parent_project_id}/subproject-performance")
@@ -125,7 +136,7 @@ async def get_subproject_performance_comparison(
     parent_project_id: int,
     start_date: Optional[date] = Query(None, description="Start date for filtering (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date for filtering (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -148,16 +159,19 @@ async def get_subproject_performance_comparison(
             }
         }
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving subproject performance: {str(e)}")
+        logger.exception(f"Error retrieving subproject performance for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת ביצועי תתי-פרויקטים.")
 
 
 @router.get("/parent-project/{parent_project_id}/financial-trends")
 async def get_financial_trends(
     parent_project_id: int,
     years_back: int = Query(5, description="Number of years to look back (default: 5)"),
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -173,15 +187,18 @@ async def get_financial_trends(
         trends = service.get_financial_trends(parent_project_id, years_back)
         return trends
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving financial trends: {str(e)}")
+        logger.exception(f"Error retrieving financial trends for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת מגמות פיננסיות.")
 
 
 @router.get("/parent-project/{parent_project_id}/dashboard-overview")
 async def get_parent_project_dashboard_overview(
     parent_project_id: int,
-    db: Session = Depends(get_db),
+    db: DBSessionDep,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -194,7 +211,7 @@ async def get_parent_project_dashboard_overview(
         service = FinancialAggregationService(db)
         
         # Get current year summary
-        current_date = datetime.now().date()
+        current_date = datetime.now(timezone.utc).date()
         current_summary = service.get_yearly_financial_summary(
             parent_project_id, 
             current_date.year
@@ -210,9 +227,12 @@ async def get_parent_project_dashboard_overview(
             "current_summary": current_summary,
             "trends": trends,
             "subproject_performance": performance,
-            "generated_at": datetime.now().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving dashboard overview: {str(e)}")
+        logger.exception(f"Error retrieving dashboard overview for parent project {parent_project_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="שגיאה בטעינת סקירת דשבורד.")

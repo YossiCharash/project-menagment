@@ -1,6 +1,6 @@
 """Task model for Task Management Calendar with unique tagging logic."""
 from __future__ import annotations
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import uuid
 from sqlalchemy import String, DateTime, Date, Text, ForeignKey, Table, Column, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +18,7 @@ task_task_labels = Table(
 
 def generate_unique_tag() -> str:
     """Generate a unique tag: timestamp (YYYYMMDDHHMMSS) + short UUID (8 chars)."""
-    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     short_uuid = uuid.uuid4().hex[:8]
     return f"{ts}-{short_uuid}"
 
@@ -79,9 +79,9 @@ class Task(Base):
     outlook_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     recurrence_rule: Mapped[str] = mapped_column(String(32), default="", nullable=False, index=True)
     recurrence_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc)
     )
     assignee_acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
@@ -136,7 +136,7 @@ class TaskMessage(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     task: Mapped["Task"] = relationship("Task", back_populates="messages")
     user: Mapped["User"] = relationship("User", back_populates="task_messages", lazy="selectin")
@@ -155,6 +155,6 @@ class TaskAttachment(Base):
     unique_tag: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, default=generate_unique_tag
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     task: Mapped["Task"] = relationship("Task", back_populates="attachments")

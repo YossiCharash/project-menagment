@@ -130,12 +130,15 @@ def create_app() -> FastAPI:
         {"name": "reports", "description": "דוחות רווחיות והשוואה לתקציב"},
     ]
 
-    # Initialize database - creates all tables, enums, indexes, and foreign keys
+    # Validate security settings - block startup in production with insecure defaults
     try:
         settings.validate_security()
     except ValueError as e:
-        print(f"\n[אזהרת אבטחה] {str(e)}\n")
-        # In production, you might want to exit: exit(1)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.critical(f"Security validation failed: {str(e)}")
+        if settings.is_production:
+            raise SystemExit(f"SECURITY ERROR: {str(e)}")
 
     app = FastAPI(
         title="BMS Backend",
@@ -199,7 +202,8 @@ def create_app() -> FastAPI:
             detail = "שגיאת מסד נתונים."
             status_code = 400
 
-        print(f"⚠️ Integrity Error at {request.url.path}: {detail} - {error_msg}")
+        import logging
+        logging.getLogger(__name__).warning(f"Integrity Error at {request.url.path}: {detail}")
         return JSONResponse(
             status_code=status_code,
             content={"detail": detail},
@@ -217,7 +221,8 @@ def create_app() -> FastAPI:
     @app.exception_handler(ConnectionError)
     async def db_connection_refused_handler(request: Request, exc: Exception):
         """DB unreachable (connection refused) – return 503 so frontend does not treat as auth failure."""
-        print(f"⚠️ Database connection failed at {request.url.path}: {exc}")
+        import logging
+        logging.getLogger(__name__).error(f"Database connection failed at {request.url.path}: {exc}")
         return JSONResponse(
             status_code=503,
             content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
@@ -227,7 +232,8 @@ def create_app() -> FastAPI:
     @app.exception_handler(DBAPIError)
     async def db_unavailable_handler(request: Request, exc: Exception):
         """DB connection/operation failed – return 503 so frontend does not log user out."""
-        print(f"⚠️ Database error at {request.url.path}: {exc}")
+        import logging
+        logging.getLogger(__name__).error(f"Database error at {request.url.path}: {exc}")
         return JSONResponse(
             status_code=503,
             content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
@@ -237,7 +243,8 @@ def create_app() -> FastAPI:
     async def runtime_error_handler(request: Request, exc: RuntimeError):
         """Log when response was already started; cannot send new response so re-raise."""
         if "response already started" in str(exc):
-            print(f"⚠️ {request.url.path}: Exception after response started (session close on dead connection?). Cannot send 503. {exc}")
+            import logging
+            logging.getLogger(__name__).warning(f"{request.url.path}: Exception after response already started: {exc}")
         raise exc
 
     @app.exception_handler(RequestValidationError)
@@ -256,9 +263,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        import traceback
-        error_details = traceback.format_exc()
-        print(error_details)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception(f"Unhandled exception at {request.url.path}")
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal Server Error. Please contact support."},
@@ -271,8 +278,11 @@ def create_app() -> FastAPI:
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-        allow_headers=["*"],
-        expose_headers=["*"],
+        allow_headers=[
+            "Authorization", "Content-Type", "Accept", "Origin",
+            "X-Requested-With", "Cache-Control", "Pragma",
+        ],
+        expose_headers=["Content-Disposition"],
         max_age=3600,
     )
 
@@ -302,14 +312,19 @@ def create_app() -> FastAPI:
     _localhost_regex = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
 
     @app.middleware("http")
-    async def add_cors_debug_headers(request, call_next):
+    async def add_security_headers(request, call_next):
         """
-        Debug middleware to log CORS-related information and ensure CORS headers are set
+        Add security headers and ensure CORS headers for allowed origins.
         """
         origin = request.headers.get("origin")
-        method = request.method
 
         response = await call_next(request)
+
+        # Security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
         # Ensure CORS headers are set for allowed origins
         if origin:
@@ -325,23 +340,10 @@ def create_app() -> FastAPI:
             )
 
             if is_allowed:
-                # Ensure CORS headers are present
                 if "Access-Control-Allow-Origin" not in response.headers:
                     response.headers["Access-Control-Allow-Origin"] = origin_normalized
                 if "Access-Control-Allow-Credentials" not in response.headers:
                     response.headers["Access-Control-Allow-Credentials"] = "true"
-                if "Access-Control-Allow-Methods" not in response.headers:
-                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
-                if "Access-Control-Allow-Headers" not in response.headers:
-                    response.headers["Access-Control-Allow-Headers"] = "*"
-        
-        # Log response headers for debugging
-        if origin and method == "OPTIONS":
-            cors_headers = {
-                "Access-Control-Allow-Origin": response.headers.get("Access-Control-Allow-Origin"),
-                "Access-Control-Allow-Methods": response.headers.get("Access-Control-Allow-Methods"),
-                "Access-Control-Allow-Headers": response.headers.get("Access-Control-Allow-Headers"),
-            }
 
         return response
 
@@ -455,78 +457,66 @@ async def run_recurring_transactions_scheduler():
     Checks every day if there are any recurring templates that need to generate transactions.
     Runs immediately on startup, then every 24 hours.
     """
+    import logging
+    logger = logging.getLogger(__name__)
     from backend.db.session import AsyncSessionLocal
     from backend.services.recurring_transaction_service import RecurringTransactionService
     
-    # Run immediately on startup
     first_run = True
     
     while True:
         try:
             if not first_run:
-                # Wait 24 hours before next run
                 await asyncio.sleep(60 * 60 * 24)
             else:
                 first_run = False
-                # Wait 5 seconds after startup to let the app fully initialize
                 await asyncio.sleep(5)
             
-            # Get today's date
             today = date.today()
             
-            # Create a new database session for this task
             async with AsyncSessionLocal() as db:
                 try:
                     service = RecurringTransactionService(db)
-                    # Generate transactions for today
-                    transactions = await service.generate_transactions_for_date(today)
-
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                    await service.generate_transactions_for_date(today)
+                except Exception:
+                    logger.exception("Error generating recurring transactions")
                 finally:
                     await db.close()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            # Wait a bit before retrying
-            await asyncio.sleep(60 * 60)  # Wait 1 hour before retrying
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Error in recurring transactions scheduler")
+            await asyncio.sleep(60 * 60)
 
 
 async def run_contract_renewal_scheduler():
     """
     Background task that runs daily to check if any contracts have ended
-    and need to be renewed. Checks every day at midnight.
-    Runs immediately on startup, then every 24 hours.
+    and need to be renewed. Runs immediately on startup, then every 24 hours.
     """
+    import logging
+    logger = logging.getLogger(__name__)
     from backend.db.session import AsyncSessionLocal
     from backend.services.contract_period_service import ContractPeriodService
     from backend.services.recurring_transaction_service import RecurringTransactionService
-    from backend.repositories.project_repository import ProjectRepository
     from sqlalchemy import select
     from backend.models.project import Project
     
-    # Run immediately on startup
     first_run = True
     
     while True:
         try:
             if not first_run:
-                # Wait 24 hours before next run
                 await asyncio.sleep(60 * 60 * 24)
             else:
                 first_run = False
-                # Wait 10 seconds after startup to let the app fully initialize
                 await asyncio.sleep(10)
             
-            # Create a new database session for this task
             async with AsyncSessionLocal() as db:
                 try:
                     service = ContractPeriodService(db)
-                    project_repo = ProjectRepository(db)
                     recurring_service = RecurringTransactionService(db)
                     
-                    # Get all active projects with end dates
                     result = await db.execute(
                         select(Project).where(
                             Project.is_active == True,
@@ -535,27 +525,22 @@ async def run_contract_renewal_scheduler():
                     )
                     projects = result.scalars().all()
                     
-                    renewed_count = 0
                     for project in projects:
                         try:
                             renewed_period = await service.check_and_renew_contract(project.id)
                             if renewed_period:
-                                renewed_count += 1
-                                # If contract was renewed, also ensure recurring transactions are generated
                                 await recurring_service.ensure_project_transactions_generated(project.id)
-                        except Exception as e:
-                            import traceback
-                            traceback.print_exc()
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                        except Exception:
+                            logger.exception(f"Error renewing contract for project {project.id}")
+                except Exception:
+                    logger.exception("Error in contract renewal scheduler")
                 finally:
                     await db.close()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            # Wait a bit before retrying
-            await asyncio.sleep(60 * 60)  # Wait 1 hour before retrying
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Error in contract renewal scheduler outer loop")
+            await asyncio.sleep(60 * 60)
 
 
 app = create_app()

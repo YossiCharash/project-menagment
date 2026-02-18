@@ -1,6 +1,6 @@
 from __future__ import annotations
-from datetime import date, datetime
-from sqlalchemy import Date, DateTime, ForeignKey, Integer
+from datetime import date, datetime, timezone
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -9,11 +9,14 @@ from backend.db.base import Base
 class DeletedRecurringInstance(Base):
     """Track manually deleted recurring transaction instances to prevent regeneration"""
     __tablename__ = "deleted_recurring_instances"
+    __table_args__ = (
+        UniqueConstraint("recurring_template_id", "tx_date", name="uq_deleted_recurring_template_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     recurring_template_id: Mapped[int] = mapped_column(ForeignKey("recurring_transaction_templates.id"), index=True)
     tx_date: Mapped[date] = mapped_column(Date, index=True)
-    deleted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     
     # Relationship to template
     recurring_template: Mapped["RecurringTransactionTemplate"] = relationship()

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,7 +39,7 @@ class ArchivedContract(Base):
     transaction_count: Mapped[int] = mapped_column(Integer, default=0)
     
     # Metadata
-    archived_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
     archived_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     
     # Read-only flag (enforced at application level)

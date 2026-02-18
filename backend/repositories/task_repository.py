@@ -28,6 +28,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
             )

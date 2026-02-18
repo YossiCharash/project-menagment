@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, Boolean, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -25,7 +25,7 @@ class Supplier(Base):
     
     annual_budget: Mapped[float | None] = mapped_column(Numeric(14, 2), default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     documents: Mapped[list["SupplierDocument"]] = relationship(back_populates="supplier", cascade="all, delete-orphan")
     transactions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="supplier", lazy="selectin")

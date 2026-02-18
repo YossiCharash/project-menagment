@@ -18,8 +18,8 @@ class EmailVerification(Base):
     verification_type: Mapped[str] = mapped_column(String(50))  # 'admin_register', 'member_register', 'password_reset'                                         
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verified_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)      
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))                                                                             
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))                                                                             
 
     # Additional data for registration
     full_name: Mapped[str] = mapped_column(String(255), nullable=True)
@@ -48,7 +48,7 @@ class EmailVerification(Base):
     ) -> "EmailVerification":
         """Create a new email verification"""
         verification_code = cls.generate_verification_code()
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=expires_minutes)
         
         return cls(
             email=email,
@@ -62,7 +62,7 @@ class EmailVerification(Base):
 
     def is_expired(self) -> bool:
         """Check if the verification code has expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.utcnow() > self.expires_at
 
     def is_valid(self) -> bool:
         """Check if the verification code is valid (not used and not expired)"""

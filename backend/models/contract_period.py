@@ -1,6 +1,6 @@
 from __future__ import annotations
-from datetime import datetime, date
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
+from datetime import datetime, date, timezone
+from sqlalchemy import Index, String, Date, DateTime, ForeignKey, Numeric, Text, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -12,6 +12,9 @@ class ContractPeriod(Base):
     the data is archived here and a new contract period starts in the main project.
     """
     __tablename__ = "contract_periods"
+    __table_args__ = (
+        Index("ix_contract_periods_project_dates", "project_id", "start_date", "end_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     
@@ -41,7 +44,7 @@ class ContractPeriod(Base):
     budgets: Mapped[list["Budget"]] = relationship(back_populates="contract_period", cascade="all, delete-orphan")
     
     # Metadata
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     
     # Note: Transactions are not stored here - they remain linked to the project
     # but we filter them by date range when viewing contract periods
