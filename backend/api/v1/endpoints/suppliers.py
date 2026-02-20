@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from backend.core.deps import DBSessionDep, require_roles, get_current_user, require_admin
+from backend.core.deps import DBSessionDep, require_roles, get_current_user
+from backend.iam.decorators import require_permission
 from backend.models.user import UserRole
 from backend.models.supplier import Supplier
 from backend.models.supplier_document import SupplierDocument
@@ -64,7 +65,7 @@ async def get_supplier(supplier_id: int, db: DBSessionDep, user = Depends(get_cu
 
 
 @router.post("/", response_model=SupplierOut)
-async def create_supplier(db: DBSessionDep, data: SupplierCreate, user = Depends(get_current_user)):
+async def create_supplier(db: DBSessionDep, data: SupplierCreate, user = Depends(require_permission("create", "supplier", project_id_param=None))):
     """Create supplier - accessible to all authenticated users"""
     service = SupplierService(db)
     
@@ -96,7 +97,7 @@ async def create_supplier(db: DBSessionDep, data: SupplierCreate, user = Depends
 
 
 @router.put("/{supplier_id}", response_model=SupplierOut)
-async def update_supplier(supplier_id: int, db: DBSessionDep, data: SupplierUpdate, user = Depends(get_current_user)):
+async def update_supplier(supplier_id: int, db: DBSessionDep, data: SupplierUpdate, user = Depends(require_permission("update", "supplier", resource_id_param="supplier_id", project_id_param=None))):
     """Update supplier - accessible to all authenticated users"""
     service = SupplierService(db)
     repo = SupplierRepository(db)
@@ -146,9 +147,9 @@ async def delete_supplier(
     supplier_id: int, 
     db: DBSessionDep, 
     transfer_to_supplier_id: int | None = Query(None, description="Supplier ID to transfer transactions to"),
-    user = Depends(require_admin())
+    user = Depends(require_permission("delete", "supplier", resource_id_param="supplier_id", project_id_param=None))
 ):
-    """Delete supplier - Admin only. If transfer_to_supplier_id is provided, transfers all transactions to that supplier before deletion."""
+    """Delete supplier. If transfer_to_supplier_id is provided, transfers all transactions to that supplier before deletion."""
     repo = SupplierRepository(db)
     supplier = await repo.get(supplier_id)
     if not supplier:

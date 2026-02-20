@@ -4,6 +4,7 @@ from datetime import date
 from typing import Optional, List
 
 from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.schemas.budget import BudgetCreate, BudgetUpdate, BudgetOut, BudgetWithSpending
 from backend.services.budget_service import BudgetService
 from backend.models.user import User
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def create_budget(
     budget: BudgetCreate,
     db: DBSessionDep,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("create", "budget", project_id_param=None))
 ):
     """Create a new budget for a project category, optionally linked to a contract period"""
     try:
@@ -99,7 +100,7 @@ async def update_budget(
     budget_id: int,
     budget_update: BudgetUpdate,
     db: DBSessionDep,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("update", "budget", resource_id_param="budget_id", project_id_param=None))
 ):
     """Update a budget"""
     try:
@@ -138,7 +139,7 @@ async def update_budget(
 async def delete_budget(
     budget_id: int,
     db: DBSessionDep,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("delete", "budget", resource_id_param="budget_id", project_id_param=None))
 ):
     """Delete a budget"""
     try:

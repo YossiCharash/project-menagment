@@ -1,31 +1,11 @@
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.project import Project
+from backend.repositories.base import BaseRepository
 
 
-class ProjectRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def get_by_id(self, project_id: int) -> Project | None:
-        res = await self.db.execute(select(Project).where(Project.id == project_id))
-        return res.scalar_one_or_none()
-
-    async def create(self, project: Project) -> Project:
-        self.db.add(project)
-        await self.db.commit()
-        await self.db.refresh(project)
-        return project
-
-    async def update(self, project: Project) -> Project:
-        self.db.add(project)
-        await self.db.commit()
-        await self.db.refresh(project)
-        return project
-
-    async def delete(self, project: Project) -> None:
-        await self.db.delete(project)
-        await self.db.commit()
+class ProjectRepository(BaseRepository[Project]):
+    model = Project
 
     async def list(self, include_archived: bool = False, only_archived: bool = False) -> list[Project]:
         stmt = select(Project)
@@ -44,7 +24,7 @@ class ProjectRepository:
         project.is_active = True
         return await self.update(project)
 
-    async def get_payments_of_monthly_tenants(self, project_id):
+    async def get_payments_of_monthly_tenants(self, project_id: int) -> float:
         res = await self.db.execute(
             select(func.sum(Project.budget_monthly)).where(Project.id == project_id)
         )

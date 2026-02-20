@@ -29,6 +29,7 @@ from backend.models.user_notification import UserNotification
 from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
 from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
+from backend.iam.models import ProjectRoleAssignment, ResourcePolicy, PermissionAuditLog
 
 __all__ = [
     "User",
@@ -70,4 +71,7 @@ __all__ = [
     "OutlookSync",
     "GroupTransactionDraft",
     "GroupTransactionDraftDocument",
+    "ProjectRoleAssignment",
+    "ResourcePolicy",
+    "PermissionAuditLog",
 ]

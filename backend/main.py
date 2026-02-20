@@ -1,5 +1,19 @@
+"""
+Application entry point.
+
+Responsibilities (SRP):
+  - Assemble the FastAPI application
+  - Wire middleware, routers, and static file serving
+  - Start the lifespan context (DB init, seed, background schedulers)
+
+All other concerns are delegated:
+  - Exception handlers  -> core.exception_handlers
+  - Background jobs     -> core.schedulers
+  - CORS origin checks  -> core.cors
+"""
+
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -7,61 +21,47 @@ from fastapi.openapi.utils import get_openapi
 import re
 import os
 import asyncio
-from datetime import date
 from contextlib import asynccontextmanager
 
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 # Import all models to ensure Base.metadata is populated
-# This import ensures all models are registered before create_all is called
 from backend.models import (  # noqa: F401
     User, Project, Subproject, Transaction, AuditLog,
     Supplier, SupplierDocument, AdminInvite, EmailVerification,
     RecurringTransactionTemplate, MemberInvite, Task, TaskAttachment, TaskMessage,
     UserNotification,
 )
-# Also import base_models to ensure all models are loaded
 from backend.db import base_models  # noqa: F401
-
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend.api.v1.router import api_router
 from backend.core.config import settings
+from backend.core.cors import is_origin_allowed
+from backend.core.exception_handlers import register_exception_handlers
+from backend.core.schedulers import (
+    run_recurring_transactions_scheduler,
+    run_contract_renewal_scheduler,
+)
 from backend.db.session import engine
 from backend.db.base import Base
 from backend.db.init_db import init_database
 
-# Regex: allow http(s)://localhost or 127.0.0.1 with optional port
-_CORS_LOCALHOST_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", re.IGNORECASE)
-
 
 class PreflightCORSMiddleware:
-    """
-    ASGI middleware that runs first (add it last) and responds to CORS preflight
-    (OPTIONS) with valid headers. Fixes 'Access-Control-Allow-Origin Missing Header'
-    when the request might not reach FastAPI (e.g. proxy) or when other middleware order varies.
+    """ASGI middleware that handles CORS preflight (OPTIONS) requests.
+
+    Must be added last so it runs first (outermost). Delegates origin
+    validation to the shared ``is_origin_allowed`` function.
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    @staticmethod
-    def _origin_allowed(origin: str | None) -> bool:
-        if not origin or not origin.strip():
-            return False
-        o = origin.strip().rstrip("/")
-        if _CORS_LOCALHOST_RE.match(o):
-            return True
-        if o in settings.CORS_ORIGINS:
-            return True
-        if o.replace("https://ziposystem.co.il", "https://www.ziposystem.co.il") in settings.CORS_ORIGINS:
-            return True
-        if o.replace("https://www.ziposystem.co.il", "https://ziposystem.co.il") in settings.CORS_ORIGINS:
-            return True
-        return False
-
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
+
         method = scope.get("method", "")
         headers = scope.get("headers") or []
         headers_dict = {k.decode().lower(): v.decode() for k, v in headers}
@@ -71,7 +71,7 @@ class PreflightCORSMiddleware:
         acrh = headers_dict.get("access-control-request-headers", "")
 
         if method == "OPTIONS" and acrm:
-            if not self._origin_allowed(raw_origin or origin_normalized):
+            if not is_origin_allowed(raw_origin or origin_normalized):
                 await self._send_response(send, 403, [], b"CORS origin not allowed")
                 return
             allow_origin = origin_normalized or raw_origin
@@ -102,23 +102,15 @@ class PreflightCORSMiddleware:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
-    # Startup
-    # Initialize database - creates all tables, enums, indexes, and foreign keys
     await init_database(engine)
 
-    # Create super admin from environment variables
     from backend.core.seed import create_super_admin
     await create_super_admin()
-    
-    # Start background task for recurring transactions
+
     asyncio.create_task(run_recurring_transactions_scheduler())
-    
-    # Start background task for contract renewal checks
     asyncio.create_task(run_contract_renewal_scheduler())
-    
+
     yield
-    
-    # Shutdown (if needed)
 
 
 def create_app() -> FastAPI:
@@ -130,15 +122,15 @@ def create_app() -> FastAPI:
         {"name": "reports", "description": "דוחות רווחיות והשוואה לתקציב"},
     ]
 
-    # Validate security settings - block startup in production with insecure defaults
+    # Validate security settings
     try:
         settings.validate_security()
     except ValueError as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.critical(f"Security validation failed: {str(e)}")
+        logger.critical("Security validation failed: %s", e)
         if settings.is_production:
-            raise SystemExit(f"SECURITY ERROR: {str(e)}")
+            raise SystemExit(f"SECURITY ERROR: {e}")
 
     app = FastAPI(
         title="BMS Backend",
@@ -148,130 +140,14 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_tags=tags_metadata,
-        redirect_slashes=False,  # Disable automatic 307 redirects between /route and /route/
+        redirect_slashes=False,
         lifespan=lifespan,
     )
 
-    from sqlalchemy.exc import IntegrityError, DataError, OperationalError, DBAPIError
-    from fastapi.exceptions import RequestValidationError
-    from pydantic import ValidationError
+    # --- Exception handlers (delegated to dedicated module) ---
+    register_exception_handlers(app)
 
-    @app.exception_handler(IntegrityError)
-    async def integrity_error_handler(request: Request, exc: IntegrityError):
-        """Handle database integrity errors (unique constraints, foreign keys)"""
-        import re
-        error_msg = str(exc.orig) if exc.orig else str(exc)
-        error_lower = error_msg.lower()
-        
-        if "unique constraint" in error_lower or "duplicate key" in error_lower:
-            # Try to extract field name and value from error message
-            # Format: duplicate key value violates unique constraint "ix_projects_name"
-            # DETAIL:  Key (name)=(בדיקה4) already exists.
-            detail = "הפעולה נכשלה: הרשומה כבר קיימת במערכת."
-            
-            # Extract constraint name (e.g., "ix_projects_name")
-            constraint_match = re.search(r'constraint\s+"([^"]+)"', error_msg, re.IGNORECASE)
-            if constraint_match:
-                constraint_name = constraint_match.group(1)
-                # Extract field name from constraint (e.g., "ix_projects_name" -> "name")
-                # Common patterns: ix_tablename_fieldname or ix_tablename_fieldname
-                field_match = re.search(r'ix_\w+_(.+)$', constraint_name)
-                if field_match:
-                    field_name = field_match.group(1)
-                    # Map field names to Hebrew labels
-                    field_labels = {
-                        'name': 'שם',
-                        'email': 'אימייל',
-                        'username': 'שם משתמש',
-                    }
-                    field_label = field_labels.get(field_name, field_name)
-                    
-                    # Try to extract duplicate value
-                    value_match = re.search(r'Key\s+\([^)]+\)=\(([^)]+)\)', error_msg, re.IGNORECASE)
-                    if value_match:
-                        duplicate_value = value_match.group(1)
-                        detail = f"הפעולה נכשלה: {field_label} '{duplicate_value}' כבר קיים במערכת."
-                    else:
-                        detail = f"הפעולה נכשלה: {field_label} כבר קיים במערכת."
-            
-            status_code = 409
-        elif "foreign key constraint" in error_lower:
-            detail = "הפעולה נכשלה: קיימת תלות ברשומות אחרות המונעת את הפעולה."
-            status_code = 400
-        else:
-            detail = "שגיאת מסד נתונים."
-            status_code = 400
-
-        import logging
-        logging.getLogger(__name__).warning(f"Integrity Error at {request.url.path}: {detail}")
-        return JSONResponse(
-            status_code=status_code,
-            content={"detail": detail},
-        )
-
-    @app.exception_handler(DataError)
-    async def data_error_handler(request: Request, exc: DataError):
-        """Handle database data errors (invalid types, values too long)"""
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "הנתונים שהוזנו אינם תקינים (סוג נתונים שגוי או ערך ארוך מדי)."},
-        )
-
-    @app.exception_handler(ConnectionRefusedError)
-    @app.exception_handler(ConnectionError)
-    async def db_connection_refused_handler(request: Request, exc: Exception):
-        """DB unreachable (connection refused) – return 503 so frontend does not treat as auth failure."""
-        import logging
-        logging.getLogger(__name__).error(f"Database connection failed at {request.url.path}: {exc}")
-        return JSONResponse(
-            status_code=503,
-            content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
-        )
-
-    @app.exception_handler(OperationalError)
-    @app.exception_handler(DBAPIError)
-    async def db_unavailable_handler(request: Request, exc: Exception):
-        """DB connection/operation failed – return 503 so frontend does not log user out."""
-        import logging
-        logging.getLogger(__name__).error(f"Database error at {request.url.path}: {exc}")
-        return JSONResponse(
-            status_code=503,
-            content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
-        )
-
-    @app.exception_handler(RuntimeError)
-    async def runtime_error_handler(request: Request, exc: RuntimeError):
-        """Log when response was already started; cannot send new response so re-raise."""
-        if "response already started" in str(exc):
-            import logging
-            logging.getLogger(__name__).warning(f"{request.url.path}: Exception after response already started: {exc}")
-        raise exc
-
-    @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        """Handle Pydantic validation errors with cleaner messages"""
-        errors = []
-        for error in exc.errors():
-            field = ".".join(str(x) for x in error["loc"] if x != "body")
-            msg = error["msg"]
-            errors.append(f"{field}: {msg}")
-            
-        return JSONResponse(
-            status_code=422,
-            content={"detail": "שגיאת אימות נתונים", "errors": errors},
-        )
-
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.exception(f"Unhandled exception at {request.url.path}")
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal Server Error. Please contact support."},
-        )
-
-    # Standard CORS middleware (runs after PreflightCORSMiddleware).
+    # --- CORS middleware ---
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
@@ -285,17 +161,12 @@ def create_app() -> FastAPI:
         expose_headers=["Content-Disposition"],
         max_age=3600,
     )
-
-    # CORS preflight: add LAST so it runs FIRST (outermost). Handles OPTIONS and returns
-    # 204 with valid Access-Control-* headers so the browser never sees "Missing Header".
     app.add_middleware(PreflightCORSMiddleware)
 
+    # --- HTTP middleware ---
     @app.middleware("http")
     async def resolve_trailing_slash(request, call_next):
-        """
-        Ensure routes defined with a trailing slash still work without it,
-        without issuing an HTTP redirect (prevents 307 -> HTTP/port 10000).
-        """
+        """Ensure routes defined with a trailing slash still work without one."""
         path = request.scope.get("path", "")
         if path and not path.endswith("/"):
             alt_path = f"{path}/"
@@ -306,47 +177,29 @@ def create_app() -> FastAPI:
             }
             if alt_path in available_paths:
                 request.scope["path"] = alt_path
-        response = await call_next(request)
-        return response
-    
-    _localhost_regex = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+        return await call_next(request)
 
     @app.middleware("http")
     async def add_security_headers(request, call_next):
-        """
-        Add security headers and ensure CORS headers for allowed origins.
-        """
+        """Add security headers and ensure CORS headers for allowed origins."""
         origin = request.headers.get("origin")
-
         response = await call_next(request)
 
-        # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Ensure CORS headers are set for allowed origins
-        if origin:
-            origin_normalized = origin.rstrip("/")
-            origin_with_www = origin_normalized.replace("https://ziposystem.co.il", "https://www.ziposystem.co.il")
-            origin_without_www = origin_normalized.replace("https://www.ziposystem.co.il", "https://ziposystem.co.il")
-            is_localhost = bool(_localhost_regex.match(origin_normalized))
-            is_allowed = (
-                is_localhost
-                or origin_normalized in settings.CORS_ORIGINS
-                or origin_with_www in settings.CORS_ORIGINS
-                or origin_without_www in settings.CORS_ORIGINS
-            )
-
-            if is_allowed:
-                if "Access-Control-Allow-Origin" not in response.headers:
-                    response.headers["Access-Control-Allow-Origin"] = origin_normalized
-                if "Access-Control-Allow-Credentials" not in response.headers:
-                    response.headers["Access-Control-Allow-Credentials"] = "true"
+        if origin and is_origin_allowed(origin):
+            origin_normalized = origin.strip().rstrip("/")
+            if "Access-Control-Allow-Origin" not in response.headers:
+                response.headers["Access-Control-Allow-Origin"] = origin_normalized
+            if "Access-Control-Allow-Credentials" not in response.headers:
+                response.headers["Access-Control-Allow-Credentials"] = "true"
 
         return response
 
+    # --- OpenAPI customization ---
     def custom_openapi():
         if app.openapi_schema:
             return app.openapi_schema
@@ -369,178 +222,65 @@ def create_app() -> FastAPI:
 
     app.openapi = custom_openapi  # type: ignore[assignment]
 
+    # --- IAM exception handlers ---
+    from backend.iam.middleware import register_iam_exception_handlers
+    register_iam_exception_handlers(app)
+
+    # --- Router ---
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
-    # Mount static files for uploads (images, documents, etc.)
-    # Get absolute path to uploads directory
-    # If FILE_UPLOAD_DIR is relative, resolve it relative to backend directory
+    # --- Static files ---
     if os.path.isabs(settings.FILE_UPLOAD_DIR):
         uploads_dir = settings.FILE_UPLOAD_DIR
     else:
-        # Get the directory where this file (main.py) is located
         backend_dir = os.path.dirname(os.path.abspath(__file__))
         uploads_dir = os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
-    
+
     os.makedirs(uploads_dir, exist_ok=True)
-    
-    # Create subdirectories
-    projects_dir = os.path.join(uploads_dir, 'projects')
-    suppliers_dir = os.path.join(uploads_dir, 'suppliers')
-    avatars_dir = os.path.join(uploads_dir, 'avatars')
-    task_attachments_dir = os.path.join(uploads_dir, 'task_attachments')
-    os.makedirs(projects_dir, exist_ok=True)
-    os.makedirs(suppliers_dir, exist_ok=True)
-    os.makedirs(avatars_dir, exist_ok=True)
-    os.makedirs(task_attachments_dir, exist_ok=True)
-    # Note: Supplier-specific subdirectories will be created automatically when needed
-    
-    # Mount static files - this allows serving files from /uploads/{path}
-    # Note: StaticFiles will serve files relative to the directory provided
-    # So /uploads/suppliers/file.txt will look for {uploads_dir}/suppliers/file.txt
+    for subdir in ("projects", "suppliers", "avatars", "task_attachments"):
+        os.makedirs(os.path.join(uploads_dir, subdir), exist_ok=True)
+
     try:
         app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
-    except Exception as e:
+    except Exception:
         raise
 
     @app.get("/health")
     async def health_check():
         return {"status": "healthy", "message": "Project Management System is running"}
 
-    # Serve Frontend (SPA) in Production/Docker
-    # We check multiple possible locations for the frontend build artifacts
+    # --- Serve Frontend SPA in Production/Docker ---
     possible_static_dirs = [
-        "/app/static",  # Docker container path
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"),  # Local dev path
+        "/app/static",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"),
     ]
-    
+
     static_dir = None
     for d in possible_static_dirs:
         if os.path.exists(d) and os.path.exists(os.path.join(d, "index.html")):
             static_dir = d
             break
-            
-    if static_dir:
 
-        
-        # Serve assets (JS/CSS)
-        # We mount /assets to serve files from /app/static/assets
+    if static_dir:
         if os.path.exists(os.path.join(static_dir, "assets")):
             app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
-        
-        # Explicit root handler
+
         @app.get("/")
         async def serve_root():
             return FileResponse(os.path.join(static_dir, "index.html"))
 
-        # Catch-all handler for SPA routing
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
-            # Check if file exists in static_dir
             file_path = os.path.join(static_dir, full_path)
             if os.path.exists(file_path) and os.path.isfile(file_path):
                 return FileResponse(file_path)
-            
-            # For API requests that weren't matched, return 404 instead of index.html
-            if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
-                 return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
-            # Fallback to index.html for SPA
-            index_path = os.path.join(static_dir, "index.html")
-            return FileResponse(index_path)
+            if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+            return FileResponse(os.path.join(static_dir, "index.html"))
 
     return app
-
-
-async def run_recurring_transactions_scheduler():
-    """
-    Background task that runs daily to generate recurring transactions.
-    Checks every day if there are any recurring templates that need to generate transactions.
-    Runs immediately on startup, then every 24 hours.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    from backend.db.session import AsyncSessionLocal
-    from backend.services.recurring_transaction_service import RecurringTransactionService
-    
-    first_run = True
-    
-    while True:
-        try:
-            if not first_run:
-                await asyncio.sleep(60 * 60 * 24)
-            else:
-                first_run = False
-                await asyncio.sleep(5)
-            
-            today = date.today()
-            
-            async with AsyncSessionLocal() as db:
-                try:
-                    service = RecurringTransactionService(db)
-                    await service.generate_transactions_for_date(today)
-                except Exception:
-                    logger.exception("Error generating recurring transactions")
-                finally:
-                    await db.close()
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            logger.exception("Error in recurring transactions scheduler")
-            await asyncio.sleep(60 * 60)
-
-
-async def run_contract_renewal_scheduler():
-    """
-    Background task that runs daily to check if any contracts have ended
-    and need to be renewed. Runs immediately on startup, then every 24 hours.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    from backend.db.session import AsyncSessionLocal
-    from backend.services.contract_period_service import ContractPeriodService
-    from backend.services.recurring_transaction_service import RecurringTransactionService
-    from sqlalchemy import select
-    from backend.models.project import Project
-    
-    first_run = True
-    
-    while True:
-        try:
-            if not first_run:
-                await asyncio.sleep(60 * 60 * 24)
-            else:
-                first_run = False
-                await asyncio.sleep(10)
-            
-            async with AsyncSessionLocal() as db:
-                try:
-                    service = ContractPeriodService(db)
-                    recurring_service = RecurringTransactionService(db)
-                    
-                    result = await db.execute(
-                        select(Project).where(
-                            Project.is_active == True,
-                            Project.end_date.isnot(None)
-                        )
-                    )
-                    projects = result.scalars().all()
-                    
-                    for project in projects:
-                        try:
-                            renewed_period = await service.check_and_renew_contract(project.id)
-                            if renewed_period:
-                                await recurring_service.ensure_project_transactions_generated(project.id)
-                        except Exception:
-                            logger.exception(f"Error renewing contract for project {project.id}")
-                except Exception:
-                    logger.exception("Error in contract renewal scheduler")
-                finally:
-                    await db.close()
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            logger.exception("Error in contract renewal scheduler outer loop")
-            await asyncio.sleep(60 * 60)
 
 
 app = create_app()

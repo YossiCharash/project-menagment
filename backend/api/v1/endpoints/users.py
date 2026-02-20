@@ -3,7 +3,8 @@ from io import BytesIO
 from sqlalchemy import update, delete
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 
-from backend.core.deps import DBSessionDep, get_current_user, require_roles, require_admin
+from backend.core.deps import DBSessionDep, get_current_user, require_roles
+from backend.iam.decorators import require_permission
 from backend.core.config import settings
 from backend.repositories.user_repository import UserRepository
 from backend.schemas.user import UserOut, UserUpdate, CalendarSettingsUpdate, ProfileUpdate
@@ -77,9 +78,9 @@ async def upload_user_avatar(
     user_id: int,
     db: DBSessionDep,
     file: UploadFile = File(...),
-    current_user=Depends(require_admin()),
+    current_user=Depends(require_permission("manage", "user", resource_id_param="user_id", project_id_param=None)),
 ):
-    """Upload profile picture for a user - Admin only."""
+    """Upload profile picture for a user."""
     return await _upload_user_avatar_impl(db, user_id, current_user.id, file, is_self=False)
 
 
@@ -145,8 +146,8 @@ async def _upload_user_avatar_impl(db, target_user_id: int, actor_user_id: int, 
 
 
 @router.get("/", response_model=list[UserOut])
-async def list_users(db: DBSessionDep, user = Depends(require_admin())):
-    """List all users - Admin only"""
+async def list_users(db: DBSessionDep, user = Depends(require_permission("read", "user", project_id_param=None))):
+    """List all users"""
     return await UserRepository(db).list()
 
 
@@ -209,9 +210,9 @@ async def update_user(
     user_id: int, 
     user_data: UserUpdate, 
     db: DBSessionDep, 
-    current_admin = Depends(require_admin())
+    current_admin = Depends(require_permission("manage", "user", resource_id_param="user_id", project_id_param=None))
 ):
-    """Update user - Admin only"""
+    """Update user"""
     user_repo = UserRepository(db)
     
     # Check if user exists
@@ -264,8 +265,8 @@ async def update_user(
 
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(require_admin())):
-    """Delete user - Admin only"""
+async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(require_permission("delete", "user", resource_id_param="user_id", project_id_param=None))):
+    """Delete user"""
     user_repo = UserRepository(db)
     
     # Check if user exists

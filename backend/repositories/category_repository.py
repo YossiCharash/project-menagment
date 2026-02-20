@@ -5,11 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from backend.models import Category
+from backend.repositories.base import BaseRepository
 
 
-class CategoryRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+class CategoryRepository(BaseRepository[Category]):
+    model = Category
 
     async def list(self, include_inactive: bool = False) -> List[Category]:
         """List all categories, optionally including inactive ones"""
@@ -19,7 +19,7 @@ class CategoryRepository:
         query = query.order_by(Category.parent_id.nulls_first(), Category.name)
         result = await self.db.execute(query)
         return list(result.scalars().all())
-    
+
     async def list_tree(self, include_inactive: bool = False) -> List[Category]:
         """List categories as a tree structure (only top-level parents)"""
         query = select(Category).where(Category.parent_id.is_(None)).options(selectinload(Category.children))
@@ -30,7 +30,7 @@ class CategoryRepository:
         return list(result.scalars().all())
 
     async def get(self, category_id: int) -> Category | None:
-        """Get category by ID"""
+        """Get category by ID with children eagerly loaded"""
         result = await self.db.execute(
             select(Category)
             .options(selectinload(Category.children))
@@ -44,7 +44,6 @@ class CategoryRepository:
         if parent_id is not None:
             query = query.where(Category.parent_id == parent_id)
         elif parent_id is None:
-            # If explicitly None, only match categories without parent
             query = query.where(Category.parent_id.is_(None))
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -55,27 +54,18 @@ class CategoryRepository:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def create(self, category: Category) -> Category:
-        """Create a new category"""
-        self.db.add(category)
+    async def create(self, entity: Category) -> Category:
+        """Create a new category and reload with children"""
+        self.db.add(entity)
         await self.db.commit()
-        # Reload with children relationship eagerly loaded to avoid lazy loading issues
-        # This ensures the children list is available for the response model
         result = await self.db.execute(
             select(Category)
             .options(selectinload(Category.children))
-            .where(Category.id == category.id)
+            .where(Category.id == entity.id)
         )
         return result.scalar_one()
 
-    async def update(self, category: Category) -> Category:
+    async def update(self, entity: Category) -> Category:
         """Update an existing category"""
         await self.db.commit()
-        # Re-fetch with children loaded to support response model
-        return await self.get(category.id)
-
-    async def delete(self, category: Category) -> None:
-        """Permanently delete a category"""
-        await self.db.delete(category)
-        await self.db.commit()
-
+        return await self.get(entity.id)

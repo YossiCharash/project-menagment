@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
-from backend.core.deps import DBSessionDep, require_admin, get_current_user
+from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.schemas.member_invite import MemberInviteCreate, MemberInviteOut, MemberInviteUse, MemberInviteList
 from backend.services.member_invite_service import MemberInviteService
 from backend.models.user import User
@@ -14,9 +15,9 @@ router = APIRouter()
 async def create_member_invite(
     db: DBSessionDep, 
     invite_data: MemberInviteCreate, 
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("invite", "member_invite", project_id_param=None))
 ):
-    """Create a new member invite and send registration email - Admin only"""
+    """Create a new member invite and send registration email"""
     service = MemberInviteService(db)
     invite = await service.create_invite(invite_data, current_admin.id)
     return invite
@@ -25,9 +26,9 @@ async def create_member_invite(
 @router.get("/", response_model=List[MemberInviteList])
 async def list_member_invites(
     db: DBSessionDep, 
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("read", "member_invite", project_id_param=None))
 ):
-    """List all member invites - Admin only"""
+    """List all member invites"""
     service = MemberInviteService(db)
     invites = await service.list_invites()
     
@@ -78,9 +79,9 @@ async def use_member_invite(
 async def delete_member_invite(
     invite_id: int,
     db: DBSessionDep,
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("delete", "member_invite", resource_id_param="invite_id", project_id_param=None))
 ):
-    """Delete a member invite - Admin only"""
+    """Delete a member invite"""
     service = MemberInviteService(db)
     await service.delete_invite(invite_id)
     return {"message": "Invite deleted successfully"}

@@ -276,3 +276,6 @@ const slice = createSlice({
 
 export const { logout, clearAuthState, clearPasswordChangeRequirement, updateUser, setTokens } = slice.actions
 export default slice.reducer
+
+// Selectors
+export const selectCurrentUserId = (state: { auth: AuthState }) => state.auth.me?.id ?? null

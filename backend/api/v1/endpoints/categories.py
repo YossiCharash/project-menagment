@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from backend.core.deps import DBSessionDep, get_current_user, require_admin
+from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.models.category import Category
 from backend.repositories.category_repository import CategoryRepository
 from backend.schemas.category import CategoryCreate, CategoryOut, CategoryUpdate
@@ -86,9 +87,9 @@ async def get_category_suppliers(
 async def create_category(
     data: CategoryCreate,
     db: DBSessionDep,
-    user = Depends(require_admin())
+    user = Depends(require_permission("create", "category", project_id_param=None))
 ):
-    """Create a new category - Admin only"""
+    """Create a new category"""
     repo = CategoryRepository(db)
     
     # Validate parent exists if provided
@@ -138,9 +139,9 @@ async def update_category(
     category_id: int,
     data: CategoryUpdate,
     db: DBSessionDep,
-    user = Depends(require_admin())
+    user = Depends(require_permission("update", "category", resource_id_param="category_id", project_id_param=None))
 ):
-    """Update a category - Admin only (only is_active can be updated, name cannot be changed)"""
+    """Update a category (only is_active can be updated, name cannot be changed)"""
     repo = CategoryRepository(db)
     category = await repo.get(category_id)
     if not category:
@@ -177,9 +178,9 @@ async def update_category(
 async def delete_category(
     category_id: int,
     db: DBSessionDep,
-    user = Depends(require_admin())
+    user = Depends(require_permission("delete", "category", resource_id_param="category_id", project_id_param=None))
 ):
-    """Delete a category (hard delete) - Admin only. Cannot delete if suppliers in this category have transactions."""
+    """Delete a category (hard delete). Cannot delete if suppliers in this category have transactions."""
     from sqlalchemy import select, func
     from backend.repositories.supplier_repository import SupplierRepository
     from backend.models.supplier import Supplier
