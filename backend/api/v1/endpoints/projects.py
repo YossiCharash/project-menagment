@@ -11,7 +11,8 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-from backend.core.deps import DBSessionDep, require_roles, get_current_user, require_admin
+from backend.core.deps import DBSessionDep, require_roles, get_current_user
+from backend.iam.decorators import require_permission
 from backend.core.config import settings
 from backend.core.security import verify_password
 from backend.repositories.project_repository import ProjectRepository
@@ -832,8 +833,8 @@ async def get_project_values(project_id: int, db: DBSessionDep, user = Depends(g
     return project_data
 
 @router.post("/", response_model=ProjectOut)
-async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(get_current_user)):
-    """Create project - accessible to all authenticated users"""
+async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("create", "project", project_id_param=None))):
+    """Create project"""
     # Extract recurring transactions, budgets, and fund data from project data
     project_data = data.model_dump(exclude={'recurring_transactions', 'budgets', 'has_fund', 'monthly_fund_amount'})
     recurring_transactions = data.recurring_transactions or []
@@ -964,13 +965,13 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(g
     return project
 
 @router.post("", response_model=ProjectOut)
-async def create_project_no_slash(db: DBSessionDep, data: ProjectCreate, user = Depends(get_current_user)):
+async def create_project_no_slash(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("create", "project", project_id_param=None))):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
     return await create_project(db, data, user)
 
 @router.put("/{project_id}", response_model=ProjectOut)
-async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate, user = Depends(get_current_user)):
-    """Update project - accessible to all authenticated users"""
+async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate, user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))):
+    """Update project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
@@ -1327,8 +1328,8 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
 
 
 @router.post("/{project_id}/upload-image", response_model=ProjectOut)
-async def upload_project_image(project_id: int, db: DBSessionDep, file: UploadFile = File(...), user = Depends(get_current_user)):
-    """Upload project image to S3 - accessible to all authenticated users"""
+async def upload_project_image(project_id: int, db: DBSessionDep, file: UploadFile = File(...), user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))):
+    """Upload project image to S3"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
@@ -1362,7 +1363,7 @@ async def upload_project_image(project_id: int, db: DBSessionDep, file: UploadFi
 
 
 @router.post("/{project_id}/upload-contract", response_model=ProjectOut)
-async def upload_project_contract(project_id: int, db: DBSessionDep, file: UploadFile = File(...), user = Depends(get_current_user)):
+async def upload_project_contract(project_id: int, db: DBSessionDep, file: UploadFile = File(...), user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))):
     """Upload a building contract file for a project."""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
@@ -1402,9 +1403,9 @@ async def upload_project_document(
     db: DBSessionDep, 
     file: UploadFile = File(...),
     description: str | None = Form(None),
-    user = Depends(get_current_user)
+    user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))
 ):
-    """Upload a document for a project - accessible to all authenticated users"""
+    """Upload a document for a project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
@@ -1458,7 +1459,7 @@ async def get_project_documents(project_id: int, db: DBSessionDep, user = Depend
 
 
 @router.delete("/{project_id}/documents/{doc_id}")
-async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep, user = Depends(get_current_user)):
+async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep, user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))):
     """Delete a document from a project"""
     from backend.models.project_document import ProjectDocument
     from sqlalchemy import select
@@ -1484,8 +1485,8 @@ async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep
 
 
 @router.post("/{project_id}/archive", response_model=ProjectOut)
-async def archive_project(project_id: int, db: DBSessionDep, user = Depends(require_admin())):
-    """Archive project - Admin only"""
+async def archive_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("archive", "project", resource_id_param="project_id", project_id_param=None))):
+    """Archive project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
@@ -1505,8 +1506,8 @@ async def archive_project(project_id: int, db: DBSessionDep, user = Depends(requ
 
 
 @router.post("/{project_id}/restore", response_model=ProjectOut)
-async def restore_project(project_id: int, db: DBSessionDep, user = Depends(require_admin())):
-    """Restore project - Admin only"""
+async def restore_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("archive", "project", resource_id_param="project_id", project_id_param=None))):
+    """Restore project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
@@ -1534,9 +1535,9 @@ async def hard_delete_project(
     project_id: int, 
     delete_request: DeleteProjectRequest,
     db: DBSessionDep, 
-    user = Depends(require_admin())
+    user = Depends(require_permission("delete", "project", resource_id_param="project_id", project_id_param=None))
 ):
-    """Hard delete project - Admin only, requires password verification"""
+    """Hard delete project, requires password verification"""
     # Verify password
     user_repo = UserRepository(db)
     db_user = await user_repo.get_by_id(user.id)
@@ -2310,9 +2311,9 @@ async def update_contract_period(
     start_date: Optional[str] = Body(None),
     end_date: Optional[str] = Body(None),
     db: DBSessionDep = None,
-    user = Depends(require_admin())
+    user = Depends(require_permission("manage", "project", resource_id_param="project_id", project_id_param=None))
 ):
-    """Update contract period dates (Admin only)"""
+    """Update contract period dates"""
     service = ContractPeriodService(db)
     
     # Parse dates
@@ -3452,12 +3453,11 @@ async def close_contract_year(
     project_id: int,
     db: DBSessionDep,
     end_date: str = Form(..., description="End date in YYYY-MM-DD format"),
-    user = Depends(require_admin())
+    user = Depends(require_permission("manage", "project", resource_id_param="project_id", project_id_param=None))
 ):
     """
     Manually close a contract year and archive it.
     This creates a read-only archive entry and starts a new contract period.
-    Admin only.
     """
     try:
         # Parse date string to date object
