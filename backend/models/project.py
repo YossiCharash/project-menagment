@@ -15,7 +15,7 @@ class Project(Base):
     start_date: Mapped[date_type | None] = mapped_column(Date, default=None)
     end_date: Mapped[date_type | None] = mapped_column(Date, default=None)
     contract_duration_months: Mapped[int | None] = mapped_column(Integer, default=None)
-    show_in_quotes_tab = Column(Boolean, default=False)
+    show_in_quotes_tab: Mapped[bool] = mapped_column(Boolean, default=False)
 
     budget_monthly: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     budget_annual: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
