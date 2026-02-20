@@ -1,24 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from datetime import date
 import logging
-import os
 import re
-from uuid import uuid4
 
-from backend.core.deps import DBSessionDep, require_roles, get_current_user, require_admin
-from backend.core.config import settings
+from backend.core.deps import DBSessionDep, require_roles, get_current_user
+from backend.iam.decorators import require_permission
 from backend.repositories.transaction_repository import TransactionRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.repositories.supplier_repository import SupplierRepository
 from backend.repositories.supplier_document_repository import SupplierDocumentRepository
 from backend.repositories.category_repository import CategoryRepository
+from backend.repositories.user_repository import UserRepository
 from backend.models.supplier_document import SupplierDocument
 from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate
 from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
-from backend.models.user import UserRole
+from backend.services.mappers import transaction_to_dict, transaction_to_dict_with_user
+from backend.services.validators import get_first_contract_start, validate_date_not_before_contract, resolve_category
 from backend.services.s3_service import S3Service
+from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,28 +28,12 @@ router = APIRouter()
 
 def sanitize_filename(name: str) -> str:
     """Sanitize supplier name to be used as directory name"""
-    # Remove or replace invalid characters for Windows/Linux file paths
     sanitized = re.sub(r'[<>:"/\\|?*]', '_', name)
-    # Remove leading/trailing spaces and dots
     sanitized = sanitized.strip(' .')
-    # Replace multiple spaces/underscores with single underscore
     sanitized = re.sub(r'[\s_]+', '_', sanitized)
-    # If empty after sanitization, use a default
     if not sanitized:
         sanitized = 'supplier'
     return sanitized
-
-
-def get_uploads_dir() -> str:
-    """Get absolute path to uploads directory, resolving relative paths relative to backend directory"""
-    if os.path.isabs(settings.FILE_UPLOAD_DIR):
-        return settings.FILE_UPLOAD_DIR
-    else:
-        # Get the directory where this file is located, then go up to backend directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Go from api/v1/endpoints to backend directory
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-        return os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
 
 
 @router.get("/project/{project_id}", response_model=list[TransactionOut])
@@ -124,7 +109,7 @@ async def check_duplicate_transaction(
 
 
 @router.post("/", response_model=TransactionOut)
-async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(get_current_user)):
+async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(require_permission("create", "transaction", project_id_param=None))):
     """Create transaction - accessible to all authenticated users"""
     project = await ProjectRepository(db).get_by_id(data.project_id)
     if not project:
@@ -152,22 +137,11 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         raise HTTPException(status_code=400, detail="Supplier is required for expense transactions")
 
     # Validate transaction date is not before FIRST contract start (allow old contracts)
-    first_start = None
-    if project and data.project_id:
-        period_repo = ContractPeriodRepository(db)
-        first_start = await period_repo.get_earliest_start_date(data.project_id)
-        if first_start is None and project.start_date:
-            s = project.start_date
-            first_start = s.date() if hasattr(s, 'date') else s
-    if first_start and data.tx_date < first_start:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. "
-                f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
-                f"תאריך העסקה: {data.tx_date.strftime('%d/%m/%Y')}"
-            )
-        )
+    first_start = await get_first_contract_start(db, data.project_id) if project else None
+    try:
+        validate_date_not_before_contract(data.tx_date, first_start)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Add user_id to transaction data
     transaction_data = data.model_dump()
@@ -228,49 +202,18 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         }
     )
 
-    # Convert to dict with user info
-    from backend.repositories.user_repository import UserRepository
+    # Convert to dict with user info using shared mapper
     user_repo = UserRepository(db)
-
-    result = {
-        'id': transaction.id,
-        'project_id': transaction.project_id,
-        'tx_date': transaction.tx_date,
-        'type': transaction.type,
-        'amount': float(transaction.amount),
-        'description': transaction.description,
-        'category': transaction.category or (category_obj.name if category_obj else None),
-        'category_id': transaction.category_id,
-        'payment_method': transaction.payment_method,
-        'notes': transaction.notes,
-        'is_exceptional': transaction.is_exceptional,
-        'is_generated': transaction.is_generated,
-        'file_path': transaction.file_path,
-        'supplier_id': transaction.supplier_id,
-        'created_by_user_id': transaction.created_by_user_id,
-        'created_at': transaction.created_at,
-        'created_by_user': None,
-        'from_fund': transaction.from_fund if hasattr(transaction, 'from_fund') else False,
-        'recurring_template_id': getattr(transaction, 'recurring_template_id', None),
-        'period_start_date': getattr(transaction, 'period_start_date', None),
-        'period_end_date': getattr(transaction, 'period_end_date', None)
-    }
-
-    # Load user info if exists
-    if transaction.created_by_user_id:
-        creator = await user_repo.get_by_id(transaction.created_by_user_id)
-        if creator:
-            result['created_by_user'] = {
-                'id': creator.id,
-                'full_name': creator.full_name,
-                'email': creator.email
-            }
+    result = await transaction_to_dict_with_user(transaction, user_repo)
+    # Fallback category name from the validated category_obj if relationship not loaded
+    if result.get('category') is None and category_obj:
+        result['category'] = category_obj.name
 
     return result
 
 
 @router.post("/{tx_id}/upload", response_model=TransactionOut)
-async def upload_receipt(tx_id: int, db: DBSessionDep, file: UploadFile = File(...), user=Depends(get_current_user)):
+async def upload_receipt(tx_id: int, db: DBSessionDep, file: UploadFile = File(...), user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))):
     """Upload receipt for transaction - accessible to all authenticated users"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
@@ -286,44 +229,9 @@ async def upload_receipt(tx_id: int, db: DBSessionDep, file: UploadFile = File(.
         details={'filename': file.filename}
     )
 
-    # Convert to dict with user info
-    from backend.repositories.user_repository import UserRepository
+    # Convert to dict with user info using shared mapper
     user_repo = UserRepository(db)
-
-    transaction_dict = {
-        'id': result.id,
-        'project_id': result.project_id,
-        'tx_date': result.tx_date,
-        'type': result.type,
-        'amount': float(result.amount),
-        'description': result.description,
-        'category': result.category,
-        'category_id': result.category_id,
-        'payment_method': result.payment_method,
-        'notes': result.notes,
-        'is_exceptional': result.is_exceptional,
-        'is_generated': result.is_generated,
-        'file_path': result.file_path,
-        'supplier_id': result.supplier_id,
-        'created_by_user_id': result.created_by_user_id,
-        'created_at': result.created_at,
-        'created_by_user': None,
-        'recurring_template_id': getattr(result, 'recurring_template_id', None),
-        'period_start_date': getattr(result, 'period_start_date', None),
-        'period_end_date': getattr(result, 'period_end_date', None)
-    }
-
-    # Load user info if exists
-    if result.created_by_user_id:
-        creator = await user_repo.get_by_id(result.created_by_user_id)
-        if creator:
-            transaction_dict['created_by_user'] = {
-                'id': creator.id,
-                'full_name': creator.full_name,
-                'email': creator.email
-            }
-
-    return transaction_dict
+    return await transaction_to_dict_with_user(result, user_repo)
 
 
 @router.get("/{tx_id}/documents", response_model=list[dict])
@@ -362,9 +270,9 @@ async def update_transaction_document(
         doc_id: int,
         db: DBSessionDep,
         description: str | None = Form(None),
-        user=Depends(get_current_user)
+        user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))
 ):
-    """Update document description for a transaction - accessible to all authenticated users"""
+    """Update document description for a transaction"""
     from sqlalchemy import select, and_
 
     # Verify transaction exists
@@ -399,7 +307,7 @@ async def update_transaction_document(
 
 @router.post("/{tx_id}/supplier-document", response_model=dict)
 async def upload_supplier_document(tx_id: int, db: DBSessionDep, file: UploadFile = File(...),
-                                   user=Depends(get_current_user)):
+                                   user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))):
     """Upload document for transaction - accessible to all authenticated users"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
@@ -453,9 +361,9 @@ async def delete_transaction_document(
         tx_id: int,
         doc_id: int,
         db: DBSessionDep,
-        user=Depends(get_current_user)
+        user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))
 ):
-    """Delete document from transaction - accessible to all authenticated users"""
+    """Delete document from transaction"""
     from sqlalchemy import select, and_
     import asyncio
 
@@ -496,7 +404,7 @@ async def delete_transaction_document(
 
 
 @router.put("/{tx_id}", response_model=TransactionOut)
-async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpdate, user=Depends(get_current_user)):
+async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpdate, user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))):
     """Update transaction - accessible to all authenticated users"""
     repo = TransactionRepository(db)
     tx = await repo.get_by_id(tx_id)
@@ -509,20 +417,11 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
 
     # Validate transaction date is not before FIRST contract start (if updating tx_date)
     if data.tx_date is not None and project:
-        period_repo = ContractPeriodRepository(db)
-        first_start = await period_repo.get_earliest_start_date(tx.project_id)
-        if first_start is None and project.start_date:
-            s = project.start_date
-            first_start = s.date() if hasattr(s, 'date') else s
-        if first_start and data.tx_date < first_start:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"לא ניתן לעדכן עסקה לתאריך לפני תאריך תחילת החוזה הראשון. "
-                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
-                    f"תאריך העסקה: {data.tx_date.strftime('%d/%m/%Y')}"
-                )
-            )
+        first_start = await get_first_contract_start(db, tx.project_id)
+        try:
+            validate_date_not_before_contract(data.tx_date, first_start)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     # Store old values for audit log
     old_values = {
@@ -580,8 +479,8 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
     category_id = update_data.get('category_id') if 'category_id' in update_data else None
 
     if category_id is not None or category_name is not None:
-        service = TransactionService(db)
-        resolved_category = await service._resolve_category(
+        resolved_category = await resolve_category(
+            db,
             category_id=category_id,
             category_name=category_name,
             allow_missing=from_fund
@@ -618,48 +517,13 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
         }
     )
 
-    # Convert to dict with user info
-    from backend.repositories.user_repository import UserRepository
+    # Convert to dict with user info using shared mapper
     user_repo = UserRepository(db)
-
-    result = {
-        'id': updated_tx.id,
-        'project_id': updated_tx.project_id,
-        'tx_date': updated_tx.tx_date,
-        'type': updated_tx.type,
-        'amount': float(updated_tx.amount),
-        'description': updated_tx.description,
-        'category': updated_tx.category.name if updated_tx.category else None,
-        'category_id': updated_tx.category_id,
-        'payment_method': updated_tx.payment_method,
-        'notes': updated_tx.notes,
-        'is_exceptional': updated_tx.is_exceptional,
-        'is_generated': updated_tx.is_generated,
-        'file_path': updated_tx.file_path,
-        'supplier_id': updated_tx.supplier_id,
-        'created_by_user_id': updated_tx.created_by_user_id,
-        'created_at': updated_tx.created_at,
-        'created_by_user': None,
-        'recurring_template_id': getattr(updated_tx, 'recurring_template_id', None),
-        'period_start_date': getattr(updated_tx, 'period_start_date', None),
-        'period_end_date': getattr(updated_tx, 'period_end_date', None)
-    }
-
-    # Load user info if exists
-    if updated_tx.created_by_user_id:
-        creator = await user_repo.get_by_id(updated_tx.created_by_user_id)
-        if creator:
-            result['created_by_user'] = {
-                'id': creator.id,
-                'full_name': creator.full_name,
-                'email': creator.email
-            }
-
-    return result
+    return await transaction_to_dict_with_user(updated_tx, user_repo)
 
 
 @router.post("/{tx_id}/rollback")
-async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(get_current_user)):
+async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_permission("delete", "transaction", resource_id_param="tx_id"))):
     """Rollback a transaction created by the current user with no documents (e.g. group transaction when document upload failed)."""
     repo = TransactionRepository(db)
     tx = await repo.get_by_id(tx_id)
@@ -686,7 +550,7 @@ async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(get_cu
 
 
 @router.delete("/{tx_id}")
-async def delete_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_admin())):
+async def delete_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_permission("delete", "transaction", resource_id_param="tx_id"))):
     """Delete transaction - Admin only"""
     repo = TransactionRepository(db)
     tx = await repo.get_by_id(tx_id)

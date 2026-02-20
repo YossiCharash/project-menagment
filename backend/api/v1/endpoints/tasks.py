@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile
 
 from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.repositories.task_repository import TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
 from backend.repositories.user_repository import UserRepository
@@ -174,7 +175,7 @@ async def list_task_labels(db: DBSessionDep, user=Depends(get_current_user)):
 
 @router.post("/labels", response_model=TaskLabelOut)
 async def create_task_label(
-        data: TaskLabelCreate, db: DBSessionDep, user=Depends(get_current_user)
+        data: TaskLabelCreate, db: DBSessionDep, user=Depends(require_permission("create", "task", project_id_param=None))
 ):
     """Create a new task label."""
     color = (data.color or "#3B82F6").strip()
@@ -191,7 +192,7 @@ async def update_task_label(
         label_id: int,
         data: TaskLabelUpdate,
         db: DBSessionDep,
-        user=Depends(get_current_user),
+        user=Depends(require_permission("update", "task", project_id_param=None)),
 ):
     """Update a task label."""
     repo = TaskLabelRepository(db)
@@ -211,7 +212,7 @@ async def update_task_label(
 
 @router.delete("/labels/{label_id}", status_code=204)
 async def delete_task_label(
-        label_id: int, db: DBSessionDep, user=Depends(get_current_user)
+        label_id: int, db: DBSessionDep, user=Depends(require_permission("delete", "task", project_id_param=None))
 ):
     """Delete a task label (removes it from all tasks)."""
     repo = TaskLabelRepository(db)
@@ -320,7 +321,7 @@ async def get_task(
 
 @router.post("/", response_model=TaskOut)
 async def create_task(
-        data: TaskCreate, db: DBSessionDep, user=Depends(get_current_user)
+        data: TaskCreate, db: DBSessionDep, user=Depends(require_permission("create", "task", project_id_param=None))
 ):
     """Create a new task and generate the unique tag."""
     if not data.start_time and not data.end_time:
@@ -381,7 +382,7 @@ async def update_task(
         task_id: int,
         data: TaskUpdate,
         db: DBSessionDep,
-        user=Depends(get_current_user),
+        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
 ):
     """Update task time/date (used by drag & drop), status, or other fields. Member can only update own tasks."""
     repo = TaskRepository(db)
@@ -519,7 +520,7 @@ async def respond_to_invitation(
 async def delete_task(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(get_current_user),
+        user=Depends(require_permission("delete", "task", resource_id_param="task_id", project_id_param=None)),
 ):
     """Delete a task or meeting. Member can only delete own tasks."""
     repo = TaskRepository(db)
@@ -543,7 +544,7 @@ async def delete_task(
 async def upload_task_attachment(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(get_current_user),
+        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
         file: UploadFile = File(...),
 ):
     """Upload a file or image attachment to a task. Only task owner or Admin can add attachments."""
@@ -595,7 +596,7 @@ async def delete_task_attachment(
         task_id: int,
         attachment_id: int,
         db: DBSessionDep,
-        user=Depends(get_current_user),
+        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
 ):
     """Remove an attachment from a task. Only task owner or Admin."""
     repo = TaskRepository(db)

@@ -27,3 +27,7 @@ api_router.include_router(quote_projects.router, prefix="/quote-projects", tags=
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(outlook.router, prefix="/outlook", tags=["outlook"])
 api_router.include_router(group_transaction_drafts.router, prefix="/group-transaction-drafts", tags=["group-transaction-drafts"])
+
+# IAM - Identity & Access Management
+from backend.iam.endpoints import router as iam_router
+api_router.include_router(iam_router, prefix="/iam", tags=["iam"])

@@ -22,7 +22,7 @@ class TestAuthAPI:
         assert response.status_code == 200
         data = response.json()
         assert "admin_exists" in data
-        assert "super_admin_email" in data
+        assert "super_admin_exists" in data
     
     async def test_login_success(self, test_client: AsyncClient, admin_user):
         """Test successful login"""

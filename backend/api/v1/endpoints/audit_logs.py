@@ -3,7 +3,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.deps import DBSessionDep, get_current_user, require_admin
+from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.repositories.audit_repository import AuditRepository
 from backend.repositories.user_repository import UserRepository
 from backend.schemas.audit_log import AuditLogOut
@@ -24,10 +25,10 @@ async def list_audit_logs(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_admin())
+    user = Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
     """
-    List audit logs - Admin only
+    List audit logs.
     Supports filtering by user, entity, action, and date range
     """
     repo = AuditRepository(db)
@@ -53,10 +54,10 @@ async def count_audit_logs(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_admin())
+    user = Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
     """
-    Count audit logs with filters - Admin only
+    Count audit logs with filters.
     """
     repo = AuditRepository(db)
     count = await repo.count(
@@ -81,10 +82,10 @@ async def list_audit_logs_with_users(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_admin())
+    user = Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
     """
-    List audit logs with user information - Admin only
+    List audit logs with user information.
     Returns logs with user details (name, email) for better display
     """
     repo = AuditRepository(db)

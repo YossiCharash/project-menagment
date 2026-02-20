@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
-from backend.core.deps import DBSessionDep, require_admin, get_current_user
+from backend.core.deps import DBSessionDep, get_current_user
+from backend.iam.decorators import require_permission
 from backend.schemas.admin_invite import AdminInviteCreate, AdminInviteOut, AdminInviteUse, AdminInviteList
 from backend.services.admin_invite_service import AdminInviteService
 from backend.models.user import User
@@ -14,9 +15,9 @@ router = APIRouter()
 async def create_admin_invite(
     db: DBSessionDep, 
     invite_data: AdminInviteCreate, 
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("invite", "admin_invite", project_id_param=None))
 ):
-    """Create a new admin invite - Admin only"""
+    """Create a new admin invite"""
     service = AdminInviteService(db)
     invite = await service.create_invite(invite_data, current_admin.id)
     return invite
@@ -25,9 +26,9 @@ async def create_admin_invite(
 @router.get("/", response_model=List[AdminInviteList])
 async def list_admin_invites(
     db: DBSessionDep, 
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None))
 ):
-    """List all admin invites - Admin only"""
+    """List all admin invites"""
     service = AdminInviteService(db)
     invites = await service.list_invites(current_admin.id)
     
@@ -54,9 +55,9 @@ async def list_admin_invites(
 async def get_admin_invite(
     invite_code: str,
     db: DBSessionDep,
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None))
 ):
-    """Get admin invite by code - Admin only"""
+    """Get admin invite by code"""
     service = AdminInviteService(db)
     invite = await service.get_invite_by_code(invite_code)
     return invite
@@ -66,9 +67,9 @@ async def get_admin_invite(
 async def delete_admin_invite(
     invite_id: int,
     db: DBSessionDep,
-    current_admin: User = Depends(require_admin())
+    current_admin: User = Depends(require_permission("delete", "admin_invite", resource_id_param="invite_id", project_id_param=None))
 ):
-    """Delete admin invite - Admin only"""
+    """Delete admin invite"""
     service = AdminInviteService(db)
     await service.delete_invite(invite_id, current_admin.id)
     return {"message": "Invite deleted successfully"}

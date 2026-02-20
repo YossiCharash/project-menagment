@@ -1,86 +1,114 @@
 """
-Pytest configuration and fixtures for backend tests
+Pytest configuration and fixtures for backend tests.
+Uses in-memory SQLite so no real PostgreSQL connection is needed.
 """
 import pytest
-import asyncio
+import pytest_asyncio
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock, patch
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 from httpx import AsyncClient, ASGITransport
 
-from backend.main import create_app
 from backend.db.base import Base
-from backend.models.user import User
+from backend.models.user import User, UserRole
 from backend.models.category import Category
-from backend.repositories.user_repository import UserRepository
+from backend.models.supplier import Supplier
 from backend.core.security import hash_password
 
+# ── SQLite compatibility ────────────────────────────────────────────────────────
+# PostgreSQL-specific JSONB has no native SQLite equivalent.
+# Teach SQLite's DDL compiler to render it as TEXT so create_all() works.
+from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler as _SQLiteTC
 
-# Test database URL - use in-memory SQLite for tests
+if not hasattr(_SQLiteTC, "visit_JSONB"):
+    _SQLiteTC.visit_JSONB = lambda self, type_, **kw: "TEXT"
+
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="function")
-async def test_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Create a test database session with in-memory SQLite.
-    Each test gets a fresh database.
-    """
-    # Create test engine
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Clear the in-memory rate limiter before and after every test so
+    repeated login calls in different tests don't trigger 429."""
+    from backend.core.rate_limit import _limiter
+    _limiter._requests.clear()
+    yield
+    _limiter._requests.clear()
+
+
+@pytest_asyncio.fixture
+async def test_engine():
+    """Create in-memory SQLite engine with all tables."""
     engine = create_async_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
         echo=False,
     )
-    
-    # Create all tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
-    # Create session
-    async_session = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    
-    async with async_session() as session:
-        yield session
-        await session.rollback()
-    
-    # Drop all tables
+    yield engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    
     await engine.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
+async def test_db(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    """Provide a fresh async session for each test."""
+    async_session = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with async_session() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest_asyncio.fixture
 async def test_client(test_db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """
-    Create a test client with dependency override for database.
+    HTTP test client with:
+    - DB dependency overridden to use in-memory SQLite session
+    - Startup hooks (init_database, create_super_admin, schedulers) mocked out
     """
+    from backend.main import create_app
+    from backend.db.session import get_db
+
     app = create_app()
-    
-    # Override database dependency
+
     async def override_get_db():
         yield test_db
-    
-    from backend.db.session import get_db
+
     app.dependency_overrides[get_db] = override_get_db
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        yield client
-    
+
+    with (
+        patch("backend.main.init_database", new=AsyncMock(return_value=None)),
+        patch("backend.core.seed.create_super_admin", new=AsyncMock(return_value=None)),
+        patch(
+            "backend.main.run_recurring_transactions_scheduler",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "backend.main.run_contract_renewal_scheduler",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            yield client
+
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
+# ── Users ──────────────────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
 async def admin_user(test_db: AsyncSession) -> User:
-    """Create an admin user for testing."""
-    from backend.models.user import User, UserRole
+    """Create and persist an admin user."""
     user = User(
         email="admin@test.com",
         password_hash=hash_password("testpass123"),
@@ -95,10 +123,9 @@ async def admin_user(test_db: AsyncSession) -> User:
     return user
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def member_user(test_db: AsyncSession) -> User:
-    """Create a member user for testing."""
-    from backend.models.user import User, UserRole
+    """Create and persist a member user."""
     user = User(
         email="member@test.com",
         password_hash=hash_password("testpass123"),
@@ -113,51 +140,68 @@ async def member_user(test_db: AsyncSession) -> User:
     return user
 
 
-@pytest.fixture
+# ── Auth tokens ────────────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
 async def admin_token(test_client: AsyncClient, admin_user: User) -> str:
-    """Get authentication token for admin user."""
+    """JWT access token for the admin user."""
     response = await test_client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@test.com", "password": "testpass123"}
+        json={"email": "admin@test.com", "password": "testpass123"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, f"Admin login failed: {response.text}"
     return response.json()["access_token"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def member_token(test_client: AsyncClient, member_user: User) -> str:
-    """Get authentication token for member user."""
+    """JWT access token for the member user."""
     response = await test_client.post(
         "/api/v1/auth/login",
-        json={"email": "member@test.com", "password": "testpass123"}
+        json={"email": "member@test.com", "password": "testpass123"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, f"Member login failed: {response.text}"
     return response.json()["access_token"]
 
 
-@pytest.fixture
+# ── Supporting data ────────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
 async def default_category(test_db: AsyncSession) -> int:
-    """Create a default category for transactions. Returns the category ID."""
-    category = Category(
-        name="Test Category",
-        is_active=True,
-        parent_id=None
-    )
+    """Create a default Category and return its ID."""
+    category = Category(name="Test Category", is_active=True, parent_id=None)
     test_db.add(category)
     await test_db.commit()
     await test_db.refresh(category)
     return category.id
 
 
-@pytest.fixture
-async def test_supplier(test_db: AsyncSession) -> "Supplier":
-    """Create a test supplier for transactions."""
-    from backend.models.supplier import Supplier
-    supplier = Supplier(
-        name="Test Supplier",
-        is_active=True
-    )
+@pytest_asyncio.fixture
+async def test_supplier(test_db: AsyncSession) -> Supplier:
+    """Create a test Supplier."""
+    supplier = Supplier(name="Test Supplier", is_active=True)
     test_db.add(supplier)
     await test_db.commit()
     await test_db.refresh(supplier)
     return supplier
+
+
+# ── Convenience fixture: project ───────────────────────────────────────────────
+
+@pytest_asyncio.fixture
+async def test_project(test_client: AsyncClient, admin_token: str) -> dict:
+    """Create a project via the API and return the response JSON."""
+    response = await test_client.post(
+        "/api/v1/projects",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "name": "Fixture Project",
+            "description": "Created by conftest fixture",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "budget_monthly": 0.0,
+            "budget_annual": 50000.0,
+        },
+    )
+    assert response.status_code == 200, f"Fixture project creation failed: {response.text}"
+    return response.json()

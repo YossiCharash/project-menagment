@@ -8,13 +8,17 @@ from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.models.transaction import Transaction, TransactionType, ExpenseCategory
 from backend.repositories.recurring_transaction_repository import RecurringTransactionRepository
 from backend.repositories.transaction_repository import TransactionRepository
-from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.schemas.recurring_transaction import (
     RecurringTransactionTemplateCreate,
     RecurringTransactionTemplateUpdate,
     RecurringTransactionInstanceUpdate
+)
+from backend.services.validators import (
+    get_first_contract_start,
+    validate_date_not_before_contract,
+    resolve_category,
 )
 
 
@@ -23,48 +27,18 @@ class RecurringTransactionService:
         self.db = db
         self.recurring_repo = RecurringTransactionRepository(db)
         self.transaction_repo = TransactionRepository(db)
-        self.category_repository = CategoryRepository(db)
-
-    async def _resolve_category(
-        self,
-        *,
-        category_id: int | None = None,
-        allow_missing: bool = True
-    ):
-        if category_id is not None:
-            category = await self.category_repository.get(category_id)
-            if not category and not allow_missing:
-                raise ValueError("קטגוריה שנבחרה לא קיימת יותר במערכת.")
-        else:
-            category = None
-
-        if category and not category.is_active:
-            raise ValueError(f"קטגוריה '{category.name}' לא פעילה. יש להפעיל את הקטגוריה בהגדרות לפני יצירת העסקה.")
-        return category
 
     async def create_template(self, data: RecurringTransactionTemplateCreate, user_id: Optional[int] = None) -> RecurringTransactionTemplate:
         """Create a new recurring transaction template"""
         template_data = data.model_dump()
-        
-        # Validate template start_date is not before FIRST contract start (allow old contracts)
+
+        # Validate template start_date is not before FIRST contract start
         project_id = template_data.get('project_id')
         start_date = template_data.get('start_date')
-        
+
         if project_id and start_date:
-            period_repo = ContractPeriodRepository(self.db)
-            first_start = await period_repo.get_earliest_start_date(project_id)
-            if first_start is None:
-                project_repo = ProjectRepository(self.db)
-                project = await project_repo.get_by_id(project_id)
-                if project and project.start_date:
-                    s = project.start_date
-                    first_start = s.date() if hasattr(s, 'date') else s
-            if first_start and start_date < first_start:
-                raise ValueError(
-                    f"לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. "
-                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
-                    f"תאריך התחלה של התבנית: {start_date.strftime('%d/%m/%Y')}"
-                )
+            first_start = await get_first_contract_start(self.db, project_id)
+            validate_date_not_before_contract(start_date, first_start, "תבנית מחזורית")
         
         # Set the user who created the template
         if user_id:
@@ -85,7 +59,8 @@ class RecurringTransactionService:
         if template_data.get('category_id') is None:
              raise ValueError("קטגוריה היא שדה חובה לעסקאות מחזוריות.")
 
-        resolved_category = await self._resolve_category(
+        resolved_category = await resolve_category(
+            self.db,
             category_id=template_data.get('category_id'),
             allow_missing=False
         )
@@ -111,26 +86,15 @@ class RecurringTransactionService:
 
         # Validate start_date is not before FIRST contract start (if updating start_date)
         if 'start_date' in update_data:
-            period_repo = ContractPeriodRepository(self.db)
-            first_start = await period_repo.get_earliest_start_date(template.project_id)
-            if first_start is None:
-                project_repo = ProjectRepository(self.db)
-                project = await project_repo.get_by_id(template.project_id)
-                if project and project.start_date:
-                    s = project.start_date
-                    first_start = s.date() if hasattr(s, 'date') else s
-            if first_start and update_data['start_date'] < first_start:
-                raise ValueError(
-                    f"לא ניתן לעדכן תבנית מחזורית לתאריך התחלה לפני תאריך תחילת החוזה הראשון. "
-                    f"תאריך תחילת החוזה הראשון: {first_start.strftime('%d/%m/%Y')}, "
-                    f"תאריך התחלה של התבנית: {update_data['start_date'].strftime('%d/%m/%Y')}"
-                )
+            first_start = await get_first_contract_start(self.db, template.project_id)
+            validate_date_not_before_contract(update_data['start_date'], first_start, "תבנית מחזורית")
 
         if 'category_id' in update_data:
             if update_data['category_id'] is None:
                 raise ValueError("לא ניתן להסיר קטגוריה מעסקה מחזורית.")
-                
-            resolved_category = await self._resolve_category(
+
+            resolved_category = await resolve_category(
+                self.db,
                 category_id=update_data.get('category_id'),
                 allow_missing=False
             )
