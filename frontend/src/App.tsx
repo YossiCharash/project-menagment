@@ -31,6 +31,7 @@ const Settings = React.lazy(() => import('./pages/Settings'))
 const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
 const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
+const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
@@ -203,6 +204,7 @@ function AppContent() {
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
+              <Route path="/users/:userId/permissions" element={<RequireAuth><UserPermissions /></RequireAuth>} />
               <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
               <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />

@@ -296,6 +296,13 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
                 if resource_result is not None:
                     return resource_result
 
+            # 1b. Check wildcard resource policy ("*" applies to all instances)
+            wildcard_result = await self._check_resource_policy(
+                user_id, action, resource_type, "*"
+            )
+            if wildcard_result is not None:
+                return wildcard_result
+
             # 2. Check project-level role policies
             project_id = self._resolve_project_id(domain, resource_id)
             if project_id is not None:

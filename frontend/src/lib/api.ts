@@ -101,6 +101,10 @@ api.interceptors.response.use(
         localStorage.setItem('redirectAfterLogin', currentPath)
       }
       window.location.href = '/login'
+    } else if (status === 403) {
+      window.dispatchEvent(new CustomEvent('permission-denied', {
+        detail: { message: error.response?.data?.detail || 'אין לך הרשאה לבצע פעולה זו' }
+      }))
     } else {
       console.error("API Error:", error.response?.data || error.message)
     }
