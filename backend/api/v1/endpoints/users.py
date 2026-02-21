@@ -205,6 +205,19 @@ async def update_my_profile(
     return await user_repo.update(user)
 
 
+@router.get("/{user_id}", response_model=UserOut)
+async def get_user_by_id(
+    user_id: int,
+    db: DBSessionDep,
+    _=Depends(require_permission("read", "user", project_id_param=None)),
+):
+    """Get a single user by ID. Admin only."""
+    user = await UserRepository(db).get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
 @router.put("/{user_id}", response_model=UserOut)
 async def update_user(
     user_id: int, 
