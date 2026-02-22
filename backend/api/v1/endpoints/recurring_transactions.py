@@ -35,7 +35,7 @@ async def list_recurring_templates(
 async def create_recurring_template(
     db: DBSessionDep, 
     data: RecurringTransactionTemplateCreate, 
-    user = Depends(require_permission("create", "recurring_transaction", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", project_id_param=None))
 ):
     """Create a new recurring transaction template"""
     # Validate supplier - required only for Expense transactions (not when category is "אחר")
@@ -162,7 +162,7 @@ async def update_recurring_template(
     template_id: int, 
     db: DBSessionDep, 
     data: RecurringTransactionTemplateUpdate, 
-    user = Depends(require_permission("update", "recurring_transaction", resource_id_param="template_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="template_id", project_id_param=None))
 ):
     """Update a recurring transaction template"""
     # Validate start_date is not before FIRST contract start (if updating start_date)
@@ -203,7 +203,7 @@ async def update_recurring_template(
 async def delete_recurring_template(
     template_id: int, 
     db: DBSessionDep, 
-    user = Depends(require_permission("delete", "recurring_transaction", resource_id_param="template_id", project_id_param=None))
+    user = Depends(require_permission("delete", "transaction", resource_id_param="template_id", project_id_param=None))
 ):
     """Delete a recurring transaction template"""
     success = await RecurringTransactionService(db).delete_template(template_id)
@@ -216,7 +216,7 @@ async def delete_recurring_template(
 async def deactivate_recurring_template(
     template_id: int, 
     db: DBSessionDep, 
-    user = Depends(require_permission("update", "recurring_transaction", resource_id_param="template_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="template_id", project_id_param=None))
 ):
     """Deactivate a recurring transaction template"""
     template = await RecurringTransactionService(db).deactivate_template(template_id)
@@ -255,7 +255,7 @@ async def update_transaction_instance(
     transaction_id: int, 
     db: DBSessionDep, 
     data: RecurringTransactionInstanceUpdate, 
-    user = Depends(require_permission("update", "recurring_transaction", resource_id_param="transaction_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="transaction_id", project_id_param=None))
 ):
     """Update a specific instance of a recurring transaction"""
     transaction = await RecurringTransactionService(db).update_transaction_instance(transaction_id, data)
@@ -269,7 +269,7 @@ async def update_transaction_instance(
 async def delete_transaction_instance(
     transaction_id: int, 
     db: DBSessionDep, 
-    user = Depends(require_permission("delete", "recurring_transaction", resource_id_param="transaction_id", project_id_param=None))
+    user = Depends(require_permission("delete", "transaction", resource_id_param="transaction_id", project_id_param=None))
 ):
     """Delete a specific instance of a recurring transaction"""
     success = await RecurringTransactionService(db).delete_transaction_instance(transaction_id)
@@ -281,7 +281,7 @@ async def delete_transaction_instance(
 @router.post("/generate-all-active")
 async def generate_all_active_transactions(
     db: DBSessionDep,
-    user = Depends(require_permission("create", "recurring_transaction", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", project_id_param=None))
 ):
     """Generate all recurring transactions for all active templates - useful for debugging"""
     try:
@@ -314,7 +314,7 @@ async def generate_all_active_transactions(
 async def ensure_project_transactions_generated(
     project_id: int,
     db: DBSessionDep,
-    user = Depends(require_permission("create", "recurring_transaction"))
+    user = Depends(require_permission("write", "transaction"))
 ):
     """
     Ensure all recurring transactions for a project are generated up to current month.
@@ -350,7 +350,7 @@ async def generate_monthly_transactions(
     year: int,
     month: int,
     db: DBSessionDep,
-    user = Depends(require_permission("create", "recurring_transaction", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", project_id_param=None))
 ):
     """Generate all recurring transactions for a specific month"""
     try:

@@ -31,6 +31,8 @@ from backend.models.project import Project
 # Extension point: add entries here when new roles or resources are created.
 # ---------------------------------------------------------------------------
 
+_ALL_ACTIONS: set[str] = {a.value for a in Action}
+
 _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
     GlobalRole.SUPER_ADMIN.value: {
         # SuperAdmin can do everything on every resource type
@@ -38,29 +40,24 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         for rt in ResourceType
     },
     GlobalRole.ADMIN.value: {
-        ResourceType.PROJECT.value: {a.value for a in Action},
-        ResourceType.TRANSACTION.value: {a.value for a in Action},
-        ResourceType.RECURRING_TRANSACTION.value: {a.value for a in Action},
-        ResourceType.BUDGET.value: {a.value for a in Action},
-        ResourceType.REPORT.value: {Action.READ.value, Action.EXPORT.value},
-        ResourceType.USER.value: {a.value for a in Action},
-        ResourceType.SUPPLIER.value: {a.value for a in Action},
-        ResourceType.TASK.value: {a.value for a in Action},
-        ResourceType.CATEGORY.value: {a.value for a in Action},
-        ResourceType.AUDIT_LOG.value: {Action.READ.value},
-        ResourceType.FUND.value: {a.value for a in Action},
-        ResourceType.CONTRACT.value: {a.value for a in Action},
-        ResourceType.QUOTE.value: {a.value for a in Action},
-        ResourceType.UNFORESEEN_TRANSACTION.value: {a.value for a in Action},
-        ResourceType.MEMBER_INVITE.value: {a.value for a in Action},
-        ResourceType.ADMIN_INVITE.value: {a.value for a in Action},
-        ResourceType.NOTIFICATION.value: {Action.READ.value, Action.CREATE.value},
-        ResourceType.SYSTEM.value: {Action.READ.value, Action.MANAGE.value},
+        ResourceType.PROJECT.value: _ALL_ACTIONS,
+        ResourceType.TRANSACTION.value: _ALL_ACTIONS,
+        ResourceType.BUDGET.value: _ALL_ACTIONS,
+        ResourceType.REPORT.value: {Action.READ.value, Action.WRITE.value},
+        ResourceType.USER.value: _ALL_ACTIONS,
+        ResourceType.SUPPLIER.value: _ALL_ACTIONS,
+        ResourceType.TASK.value: _ALL_ACTIONS,
+        ResourceType.CATEGORY.value: _ALL_ACTIONS,
+        ResourceType.AUDIT_LOG.value: {Action.READ.value, Action.WRITE.value},
+        ResourceType.CONTRACT.value: _ALL_ACTIONS,
+        ResourceType.QUOTE.value: _ALL_ACTIONS,
+        ResourceType.MEMBER_INVITE.value: _ALL_ACTIONS,
+        ResourceType.ADMIN_INVITE.value: _ALL_ACTIONS,
+        ResourceType.NOTIFICATION.value: {Action.READ.value},
     },
     GlobalRole.MEMBER.value: {
         ResourceType.PROJECT.value: {Action.READ.value},
         ResourceType.TRANSACTION.value: {Action.READ.value},
-        ResourceType.RECURRING_TRANSACTION.value: {Action.READ.value},
         ResourceType.BUDGET.value: {Action.READ.value},
         ResourceType.REPORT.value: {Action.READ.value},
         ResourceType.USER.value: {Action.READ.value},
@@ -68,56 +65,44 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.TASK.value: {Action.READ.value, Action.UPDATE.value},
         ResourceType.CATEGORY.value: {Action.READ.value},
         ResourceType.AUDIT_LOG.value: set(),  # no access
-        ResourceType.FUND.value: {Action.READ.value},
         ResourceType.CONTRACT.value: {Action.READ.value},
         ResourceType.QUOTE.value: {Action.READ.value},
-        ResourceType.UNFORESEEN_TRANSACTION.value: {Action.READ.value},
-        ResourceType.MEMBER_INVITE.value: set(),
-        ResourceType.ADMIN_INVITE.value: set(),
+        ResourceType.MEMBER_INVITE.value: set(),  # no access
+        ResourceType.ADMIN_INVITE.value: set(),  # no access
         ResourceType.NOTIFICATION.value: {Action.READ.value},
-        ResourceType.SYSTEM.value: set(),
     },
 }
 
 _PROJECT_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
     ProjectRole.MANAGER.value: {
-        ResourceType.PROJECT.value: {a.value for a in Action},
-        ResourceType.TRANSACTION.value: {a.value for a in Action},
-        ResourceType.RECURRING_TRANSACTION.value: {a.value for a in Action},
-        ResourceType.BUDGET.value: {a.value for a in Action},
-        ResourceType.REPORT.value: {Action.READ.value, Action.EXPORT.value},
-        ResourceType.SUPPLIER.value: {a.value for a in Action},
-        ResourceType.TASK.value: {a.value for a in Action},
-        ResourceType.CATEGORY.value: {Action.READ.value, Action.CREATE.value},
-        ResourceType.FUND.value: {a.value for a in Action},
-        ResourceType.CONTRACT.value: {a.value for a in Action},
-        ResourceType.UNFORESEEN_TRANSACTION.value: {a.value for a in Action},
+        ResourceType.PROJECT.value: _ALL_ACTIONS,
+        ResourceType.TRANSACTION.value: _ALL_ACTIONS,
+        ResourceType.BUDGET.value: _ALL_ACTIONS,
+        ResourceType.SUPPLIER.value: _ALL_ACTIONS,
+        ResourceType.TASK.value: _ALL_ACTIONS,
+        ResourceType.CONTRACT.value: _ALL_ACTIONS,
+        ResourceType.CATEGORY.value: {Action.READ.value, Action.WRITE.value},
+        ResourceType.REPORT.value: {Action.READ.value, Action.WRITE.value},
     },
     ProjectRole.CONTRIBUTOR.value: {
         ResourceType.PROJECT.value: {Action.READ.value},
-        ResourceType.TRANSACTION.value: {Action.READ.value, Action.CREATE.value, Action.UPDATE.value},
-        ResourceType.RECURRING_TRANSACTION.value: {Action.READ.value},
+        ResourceType.TRANSACTION.value: {Action.READ.value, Action.WRITE.value, Action.UPDATE.value},
         ResourceType.BUDGET.value: {Action.READ.value},
         ResourceType.REPORT.value: {Action.READ.value},
         ResourceType.SUPPLIER.value: {Action.READ.value},
-        ResourceType.TASK.value: {Action.READ.value, Action.CREATE.value, Action.UPDATE.value},
+        ResourceType.TASK.value: {Action.READ.value, Action.WRITE.value, Action.UPDATE.value},
         ResourceType.CATEGORY.value: {Action.READ.value},
-        ResourceType.FUND.value: {Action.READ.value},
         ResourceType.CONTRACT.value: {Action.READ.value},
-        ResourceType.UNFORESEEN_TRANSACTION.value: {Action.READ.value, Action.CREATE.value},
     },
     ProjectRole.VIEWER.value: {
         ResourceType.PROJECT.value: {Action.READ.value},
         ResourceType.TRANSACTION.value: {Action.READ.value},
-        ResourceType.RECURRING_TRANSACTION.value: {Action.READ.value},
         ResourceType.BUDGET.value: {Action.READ.value},
         ResourceType.REPORT.value: {Action.READ.value},
         ResourceType.SUPPLIER.value: {Action.READ.value},
         ResourceType.TASK.value: {Action.READ.value},
         ResourceType.CATEGORY.value: {Action.READ.value},
-        ResourceType.FUND.value: {Action.READ.value},
         ResourceType.CONTRACT.value: {Action.READ.value},
-        ResourceType.UNFORESEEN_TRANSACTION.value: {Action.READ.value},
     },
 }
 

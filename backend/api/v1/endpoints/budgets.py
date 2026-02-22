@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def create_budget(
     budget: BudgetCreate,
     db: DBSessionDep,
-    current_user: User = Depends(require_permission("create", "budget", project_id_param=None))
+    current_user: User = Depends(require_permission("write", "budget", project_id_param=None))
 ):
     """Create a new budget for a project category, optionally linked to a contract period"""
     try:

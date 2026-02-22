@@ -18,21 +18,17 @@ from enum import Enum
 class Action(str, Enum):
     """Actions a subject can perform on a resource.
 
-    The base set covers CRUD. Custom domain actions can be added here
-    without modifying the engine or decorator logic.
+    Four canonical actions covering all operations:
+    - READ:   view / list / export / download
+    - WRITE:  create / add new items / invite
+    - UPDATE: modify existing items
+    - DELETE: delete / manage / approve / archive
     """
 
     READ = "read"
     WRITE = "write"
-    DELETE = "delete"
-    CREATE = "create"
     UPDATE = "update"
-    MANAGE = "manage"          # administrative actions (settings, roles)
-    EXPORT = "export"          # export / download reports
-    APPROVE = "approve"        # approve transactions, budgets, etc.
-    ASSIGN = "assign"          # assign tasks, set manager, etc.
-    INVITE = "invite"          # invite members to project / system
-    ARCHIVE = "archive"        # archive a project or contract
+    DELETE = "delete"
 
 
 class ResourceType(str, Enum):
@@ -44,7 +40,6 @@ class ResourceType(str, Enum):
 
     PROJECT = "project"
     TRANSACTION = "transaction"
-    RECURRING_TRANSACTION = "recurring_transaction"
     BUDGET = "budget"
     REPORT = "report"
     USER = "user"
@@ -52,14 +47,11 @@ class ResourceType(str, Enum):
     TASK = "task"
     CATEGORY = "category"
     AUDIT_LOG = "audit_log"
-    FUND = "fund"
     CONTRACT = "contract"
     QUOTE = "quote"
-    UNFORESEEN_TRANSACTION = "unforeseen_transaction"
     MEMBER_INVITE = "member_invite"
     ADMIN_INVITE = "admin_invite"
     NOTIFICATION = "notification"
-    SYSTEM = "system"            # system-wide settings / configuration
 
 
 class GlobalRole(str, Enum):

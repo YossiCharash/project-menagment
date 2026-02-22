@@ -21,7 +21,7 @@ from backend.schemas.report import ReportOptions, SupplierReportOptions, CustomR
 async def generate_custom_report(
         request: CustomReportRequest,
         db: DBSessionDep,
-        user=Depends(require_permission("export", "report", project_id_param=None))
+        user=Depends(require_permission("read", "report", project_id_param=None))
 ):
     """Generate a custom report based on options with optional chart images"""
     try:
@@ -101,7 +101,7 @@ async def generate_custom_report(
 async def export_project_excel(
         project_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("export", "report")),
+        user=Depends(require_permission("read", "report")),
         chart_images: Optional[str] = Query(None, description="JSON string of chart images in base64 format")
 ):
     """Export project report to Excel with optional charts"""
@@ -153,7 +153,7 @@ async def export_project_excel(
 async def export_project_zip(
         project_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("export", "report")),
+        user=Depends(require_permission("read", "report")),
         chart_images: Optional[str] = Query(None, description="JSON string of chart images in base64 format")
 ):
     """Export project report and documents to ZIP with optional charts"""
@@ -278,7 +278,7 @@ async def generate_supplier_report(
         supplier_id: int,
         request: SupplierReportRequest,
         db: DBSessionDep,
-        user=Depends(require_permission("export", "report", project_id_param=None))
+        user=Depends(require_permission("read", "report", project_id_param=None))
 ):
     """Generate a custom report for a specific supplier with all their transactions"""
     try:

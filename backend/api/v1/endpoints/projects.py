@@ -833,7 +833,7 @@ async def get_project_values(project_id: int, db: DBSessionDep, user = Depends(g
     return project_data
 
 @router.post("/", response_model=ProjectOut)
-async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("create", "project", project_id_param=None))):
+async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("write", "project", project_id_param=None))):
     """Create project"""
     # Extract recurring transactions, budgets, and fund data from project data
     project_data = data.model_dump(exclude={'recurring_transactions', 'budgets', 'has_fund', 'monthly_fund_amount'})
@@ -965,7 +965,7 @@ async def create_project(db: DBSessionDep, data: ProjectCreate, user = Depends(r
     return project
 
 @router.post("", response_model=ProjectOut)
-async def create_project_no_slash(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("create", "project", project_id_param=None))):
+async def create_project_no_slash(db: DBSessionDep, data: ProjectCreate, user = Depends(require_permission("write", "project", project_id_param=None))):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
     return await create_project(db, data, user)
 
@@ -1485,7 +1485,7 @@ async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep
 
 
 @router.post("/{project_id}/archive", response_model=ProjectOut)
-async def archive_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("archive", "project", resource_id_param="project_id", project_id_param=None))):
+async def archive_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("delete", "project", resource_id_param="project_id", project_id_param=None))):
     """Archive project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
@@ -1506,7 +1506,7 @@ async def archive_project(project_id: int, db: DBSessionDep, user = Depends(requ
 
 
 @router.post("/{project_id}/restore", response_model=ProjectOut)
-async def restore_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("archive", "project", resource_id_param="project_id", project_id_param=None))):
+async def restore_project(project_id: int, db: DBSessionDep, user = Depends(require_permission("delete", "project", resource_id_param="project_id", project_id_param=None))):
     """Restore project"""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
@@ -2311,7 +2311,7 @@ async def update_contract_period(
     start_date: Optional[str] = Body(None),
     end_date: Optional[str] = Body(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("manage", "project", resource_id_param="project_id", project_id_param=None))
+    user = Depends(require_permission("delete", "project", resource_id_param="project_id", project_id_param=None))
 ):
     """Update contract period dates"""
     service = ContractPeriodService(db)
@@ -3453,7 +3453,7 @@ async def close_contract_year(
     project_id: int,
     db: DBSessionDep,
     end_date: str = Form(..., description="End date in YYYY-MM-DD format"),
-    user = Depends(require_permission("manage", "project", resource_id_param="project_id", project_id_param=None))
+    user = Depends(require_permission("delete", "project", resource_id_param="project_id", project_id_param=None))
 ):
     """
     Manually close a contract year and archive it.

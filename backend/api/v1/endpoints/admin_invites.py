@@ -15,7 +15,7 @@ router = APIRouter()
 async def create_admin_invite(
     db: DBSessionDep, 
     invite_data: AdminInviteCreate, 
-    current_admin: User = Depends(require_permission("invite", "admin_invite", project_id_param=None))
+    current_admin: User = Depends(require_permission("write", "admin_invite", project_id_param=None))
 ):
     """Create a new admin invite"""
     service = AdminInviteService(db)

@@ -65,7 +65,7 @@ async def get_supplier(supplier_id: int, db: DBSessionDep, user = Depends(get_cu
 
 
 @router.post("/", response_model=SupplierOut)
-async def create_supplier(db: DBSessionDep, data: SupplierCreate, user = Depends(require_permission("create", "supplier", project_id_param=None))):
+async def create_supplier(db: DBSessionDep, data: SupplierCreate, user = Depends(require_permission("write", "supplier", project_id_param=None))):
     """Create supplier - accessible to all authenticated users"""
     service = SupplierService(db)
     
