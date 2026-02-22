@@ -175,7 +175,7 @@ async def list_task_labels(db: DBSessionDep, user=Depends(get_current_user)):
 
 @router.post("/labels", response_model=TaskLabelOut)
 async def create_task_label(
-        data: TaskLabelCreate, db: DBSessionDep, user=Depends(require_permission("create", "task", project_id_param=None))
+        data: TaskLabelCreate, db: DBSessionDep, user=Depends(require_permission("write", "task", project_id_param=None))
 ):
     """Create a new task label."""
     color = (data.color or "#3B82F6").strip()
@@ -321,7 +321,7 @@ async def get_task(
 
 @router.post("/", response_model=TaskOut)
 async def create_task(
-        data: TaskCreate, db: DBSessionDep, user=Depends(require_permission("create", "task", project_id_param=None))
+        data: TaskCreate, db: DBSessionDep, user=Depends(require_permission("write", "task", project_id_param=None))
 ):
     """Create a new task and generate the unique tag."""
     if not data.start_time and not data.end_time:

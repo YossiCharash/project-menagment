@@ -78,7 +78,7 @@ async def upload_user_avatar(
     user_id: int,
     db: DBSessionDep,
     file: UploadFile = File(...),
-    current_user=Depends(require_permission("manage", "user", resource_id_param="user_id", project_id_param=None)),
+    current_user=Depends(require_permission("delete", "user", resource_id_param="user_id", project_id_param=None)),
 ):
     """Upload profile picture for a user."""
     return await _upload_user_avatar_impl(db, user_id, current_user.id, file, is_self=False)
@@ -223,7 +223,7 @@ async def update_user(
     user_id: int, 
     user_data: UserUpdate, 
     db: DBSessionDep, 
-    current_admin = Depends(require_permission("manage", "user", resource_id_param="user_id", project_id_param=None))
+    current_admin = Depends(require_permission("delete", "user", resource_id_param="user_id", project_id_param=None))
 ):
     """Update user"""
     user_repo = UserRepository(db)

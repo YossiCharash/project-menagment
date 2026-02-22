@@ -87,7 +87,7 @@ async def get_category_suppliers(
 async def create_category(
     data: CategoryCreate,
     db: DBSessionDep,
-    user = Depends(require_permission("create", "category", project_id_param=None))
+    user = Depends(require_permission("write", "category", project_id_param=None))
 ):
     """Create a new category"""
     repo = CategoryRepository(db)

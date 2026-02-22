@@ -109,7 +109,7 @@ async def check_duplicate_transaction(
 
 
 @router.post("/", response_model=TransactionOut)
-async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(require_permission("create", "transaction", project_id_param=None))):
+async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(require_permission("write", "transaction", project_id_param=None))):
     """Create transaction - accessible to all authenticated users"""
     project = await ProjectRepository(db).get_by_id(data.project_id)
     if not project:

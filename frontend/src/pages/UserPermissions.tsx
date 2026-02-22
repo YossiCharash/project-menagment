@@ -45,7 +45,6 @@ interface RolesData {
 const RESOURCE_TYPE_LABELS: Record<string, string> = {
   project: 'פרויקט',
   transaction: 'עסקה',
-  recurring_transaction: 'עסקה חוזרת',
   budget: 'תקציב',
   report: 'דוח',
   user: 'משתמש',
@@ -53,28 +52,18 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   task: 'משימה',
   category: 'קטגוריה',
   audit_log: 'יומן פעילות',
-  fund: 'קרן',
   contract: 'חוזה',
   quote: 'הצעת מחיר',
-  unforeseen_transaction: 'עסקה בלתי צפויה',
   member_invite: 'הזמנת חבר',
   admin_invite: 'הזמנת מנהל',
   notification: 'התראה',
-  system: 'מערכת',
 }
 
 const ACTION_LABELS: Record<string, string> = {
   read: 'קריאה',
   write: 'כתיבה',
-  delete: 'מחיקה',
-  create: 'יצירה',
   update: 'עדכון',
-  manage: 'ניהול',
-  export: 'ייצוא',
-  approve: 'אישור',
-  assign: 'שיבוץ',
-  invite: 'הזמנה',
-  archive: 'ארכיון',
+  delete: 'מחיקה',
 }
 
 const PROJECT_ROLE_LABELS: Record<string, string> = {

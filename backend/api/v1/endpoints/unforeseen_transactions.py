@@ -26,7 +26,7 @@ router = APIRouter()
 async def create_unforeseen_transaction(
     data: UnforeseenTransactionCreate,
     db: DBSessionDep,
-    user = Depends(require_permission("create", "unforeseen_transaction", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", project_id_param=None))
 ):
     """Create a new unforeseen transaction"""
     service = UnforeseenTransactionService(db)
@@ -133,7 +133,7 @@ async def update_unforeseen_transaction(
     tx_id: int,
     data: UnforeseenTransactionUpdate,
     db: DBSessionDep,
-    user = Depends(require_permission("update", "unforeseen_transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Update an unforeseen transaction"""
     service = UnforeseenTransactionService(db)
@@ -150,7 +150,7 @@ async def update_unforeseen_transaction(
 async def delete_unforeseen_transaction(
     tx_id: int,
     db: DBSessionDep,
-    user = Depends(require_permission("delete", "unforeseen_transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("delete", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Delete an unforeseen transaction"""
     service = UnforeseenTransactionService(db)
@@ -167,7 +167,7 @@ async def delete_unforeseen_transaction(
 async def execute_unforeseen_transaction(
     tx_id: int,
     db: DBSessionDep,
-    user = Depends(require_permission("approve", "unforeseen_transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("delete", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Execute an unforeseen transaction and create resulting transaction"""
     service = UnforeseenTransactionService(db)
@@ -206,7 +206,7 @@ async def upload_expense_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("update", "unforeseen_transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Upload a document for an expense"""
     import asyncio
@@ -262,7 +262,7 @@ async def upload_income_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("update", "unforeseen_transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Upload a document for an income"""
     import asyncio

@@ -50,12 +50,12 @@ def require_permission(
         async def create_transaction(
             project_id: int,
             db: DBSessionDep,
-            user = Depends(require_permission("create", "transaction")),
+            user = Depends(require_permission("write", "transaction")),
         ):
             ...
 
     Args:
-        action: The action to check (e.g. ``"create"``, ``"read"``).
+        action: The action to check (e.g. ``"write"``, ``"read"``).
         resource_type: The resource type (e.g. ``"transaction"``).
         resource_id_param: Name of the path/query parameter holding the
             specific resource ID. If None, no resource-level check is done.
