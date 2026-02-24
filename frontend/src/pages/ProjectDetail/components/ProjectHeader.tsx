@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { History, Edit, Archive } from 'lucide-react'
 import { formatDate } from '../../../lib/utils'
+import { PermissionGuard } from '../../../components/ui/PermissionGuard'
 
 interface ProjectHeaderProps {
   id: string | undefined
@@ -113,46 +114,54 @@ export default function ProjectHeader({
               תקופות ושנים
             </button>
           )}
-          <button
-            onClick={onShowCreateTransactionModal}
-            className="project-detail-header-button px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            צור עסקה חדשה
-          </button>
-          <button
-            type="button"
-            onClick={onShowAddBudgetForm}
-            className="project-detail-header-button px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            + הוסף תקציב
-          </button>
-          {!hasFund && !fundData && (
+          <PermissionGuard action="write" resource="transaction">
             <button
-              onClick={onShowCreateFundModal}
-              className="project-detail-header-button px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
+              onClick={onShowCreateTransactionModal}
+              className="project-detail-header-button px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              הוסף קופה
+              צור עסקה חדשה
             </button>
+          </PermissionGuard>
+          <PermissionGuard action="write" resource="budget">
+            <button
+              type="button"
+              onClick={onShowAddBudgetForm}
+              className="project-detail-header-button px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              + הוסף תקציב
+            </button>
+          </PermissionGuard>
+          {!hasFund && !fundData && (
+            <PermissionGuard action="write" resource="budget">
+              <button
+                onClick={onShowCreateFundModal}
+                className="project-detail-header-button px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                הוסף קופה
+              </button>
+            </PermissionGuard>
           )}
         </div>
         <div className="flex flex-wrap gap-3 justify-end">
-          <button
-            onClick={onEditProject}
-            className="project-detail-header-button px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
-          >
-            <Edit className="w-4 h-4 shrink-0" />
-            ערוך פרויקט
-          </button>
-          {isAdmin && (
+          <PermissionGuard action="update" resource="project">
+            <button
+              onClick={onEditProject}
+              className="project-detail-header-button px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
+            >
+              <Edit className="w-4 h-4 shrink-0" />
+              ערוך פרויקט
+            </button>
+          </PermissionGuard>
+          <PermissionGuard action="delete" resource="project">
             <button
               onClick={onArchiveDeleteClick}
               className="project-detail-header-button px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 text-fluid-sm whitespace-nowrap flex-shrink-0"
@@ -160,7 +169,7 @@ export default function ProjectHeader({
               <Archive className="w-4 h-4 shrink-0" />
               ארכב / מחק
             </button>
-          )}
+          </PermissionGuard>
           <button
             onClick={() => onNavigate('/dashboard')}
             className="project-detail-header-button px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-fluid-sm whitespace-nowrap flex-shrink-0"

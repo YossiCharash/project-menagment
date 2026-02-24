@@ -3,6 +3,32 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal, List, Optional
 
 
+# ── Line schemas (replaces separate Expense/Income schemas) ──────────────────
+
+class UnforeseenTransactionLineBase(BaseModel):
+    amount: float = Field(gt=0)
+    description: str | None = None
+
+
+class UnforeseenTransactionLineCreate(UnforeseenTransactionLineBase):
+    pass
+
+
+class UnforeseenTransactionLineOut(BaseModel):
+    id: int
+    unforeseen_transaction_id: int
+    line_type: str  # 'expense' or 'income'
+    amount: float
+    description: str | None = None
+    documents: List[dict] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Backward-compat aliases ──────────────────────────────────────────────────
+
 class UnforeseenTransactionExpenseBase(BaseModel):
     amount: float = Field(gt=0, description="Amount of the expense")
     description: str | None = None
@@ -50,6 +76,8 @@ class UnforeseenTransactionIncomeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ── Main transaction schemas ─────────────────────────────────────────────────
+
 class UnforeseenTransactionBase(BaseModel):
     project_id: int
     contract_period_id: int | None = None
@@ -83,7 +111,7 @@ class UnforeseenTransactionOut(BaseModel):
     income_amount: float
     total_incomes: float = 0
     total_expenses: float
-    profit_loss: float  # total_incomes - total_expenses
+    profit_loss: float
     status: str
     description: str | None = None
     notes: str | None = None

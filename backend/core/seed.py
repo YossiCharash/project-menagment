@@ -11,7 +11,7 @@ from backend.core.config import settings
 # Import all models to ensure SQLAlchemy relationships are properly configured
 from backend.models import (  # noqa: F401
     Project, Subproject, Transaction, AuditLog, 
-    Supplier, SupplierDocument, AdminInvite, EmailVerification, 
+    Supplier, Document, Invite, EmailVerification,
     RecurringTransactionTemplate
 )
 

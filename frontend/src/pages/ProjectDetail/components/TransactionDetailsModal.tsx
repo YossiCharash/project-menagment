@@ -5,6 +5,7 @@ import { getCategoryName, formatCurrency } from '../utils'
 import { PAYMENT_METHOD_LABELS } from '../constants'
 import { formatDate } from '../../../lib/utils'
 import { CATEGORY_LABELS } from '../../../utils/calculations'
+import { PermissionGuard } from '../../../components/ui/PermissionGuard'
 
 interface TransactionDetailsModalProps {
   isOpen: boolean
@@ -190,24 +191,28 @@ export default function TransactionDetailsModal({
               </button>
               {!transaction.is_unforeseen && (
                 <>
-                  <button
-                    onClick={() => {
-                      onEditTransaction(transaction)
-                      onClose()
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    ערוך
-                  </button>
-                  <button
-                    onClick={() => {
-                      onDeleteTransaction(transaction.id, transaction)
-                      onClose()
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    מחק
-                  </button>
+                  <PermissionGuard action="update" resource="transaction">
+                    <button
+                      onClick={() => {
+                        onEditTransaction(transaction)
+                        onClose()
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      ערוך
+                    </button>
+                  </PermissionGuard>
+                  <PermissionGuard action="delete" resource="transaction">
+                    <button
+                      onClick={() => {
+                        onDeleteTransaction(transaction.id, transaction)
+                        onClose()
+                      }}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      מחק
+                    </button>
+                  </PermissionGuard>
                 </>
               )}
               {transaction.is_unforeseen && (

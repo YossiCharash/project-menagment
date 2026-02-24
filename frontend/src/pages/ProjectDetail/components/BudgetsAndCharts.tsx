@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import BudgetCard from '../../../components/charts/BudgetCard'
 import { BudgetWithSpending } from '../../../types/api'
+import { usePermission } from '../../../hooks/usePermission'
 
 interface BudgetsAndChartsProps {
   chartsLoading: boolean
@@ -17,6 +18,9 @@ export default function BudgetsAndCharts({
   onDeleteBudget,
   onEditBudget
 }: BudgetsAndChartsProps) {
+  const canEditBudget = usePermission('update', 'budget')
+  const canDeleteBudget = usePermission('delete', 'budget')
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -45,8 +49,8 @@ export default function BudgetsAndCharts({
             <BudgetCard
               key={budget.id}
               budget={budget}
-              onDelete={() => onDeleteBudget(budget.id)}
-              onEdit={() => onEditBudget(budget)}
+              onDelete={canDeleteBudget ? () => onDeleteBudget(budget.id) : undefined}
+              onEdit={canEditBudget ? () => onEditBudget(budget) : undefined}
               deleting={budgetDeleteLoading === budget.id}
             />
           ))}

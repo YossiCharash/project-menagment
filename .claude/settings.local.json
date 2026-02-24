@@ -7,7 +7,14 @@
       "Bash(venv/Scripts/python.exe -m pytest:*)",
       "Bash(python -m pytest:*)",
       "Bash(pip install:*)",
-      "Bash(ls -la \"C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\backend\\\\migrations\"\" 2>/dev/null || ls -la /c/Users/c0548/Projects/project-menagment/backend/migrations 2>/dev/null || echo \"Migrations folder not found \")"
+      "Bash(ls -la \"C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\backend\\\\migrations\"\" 2>/dev/null || ls -la /c/Users/c0548/Projects/project-menagment/backend/migrations 2>/dev/null || echo \"Migrations folder not found \")",
+      "Bash(del \"C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\backend\\\\models\\\\archived_contract.py\")",
+      "Bash(git -C C:/Users/c0548/Projects/project-menagment ls-files \"frontend/src/**/*.tsx\")",
+      "Bash(git -C C:/Users/c0548/Projects/project-menagment ls-files)",
+      "Bash(dir \"C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\")"
     ]
+  },
+  "enabledPlugins": {
+    "dependency-management@claude-code-workflows": true
   }
 }

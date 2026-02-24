@@ -39,13 +39,19 @@ class ContractPeriod(Base):
     
     # Budgets snapshot (JSON stored as text)
     budgets_snapshot: Mapped[str | None] = mapped_column(Text, default=None)
-    
+
+    # Archive columns (migration 04 — replaces archived_contracts table)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    transaction_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
     # Relationship to budgets for this contract period
     budgets: Mapped[list["Budget"]] = relationship(back_populates="contract_period", cascade="all, delete-orphan")
-    
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
-    
+
     # Note: Transactions are not stored here - they remain linked to the project
     # but we filter them by date range when viewing contract periods
 

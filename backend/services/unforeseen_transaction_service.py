@@ -13,7 +13,6 @@ from backend.schemas.unforeseen_transaction import (
     UnforeseenTransactionCreate,
     UnforeseenTransactionUpdate,
     UnforeseenTransactionOut,
-    UnforeseenTransactionExpenseOut
 )
 
 

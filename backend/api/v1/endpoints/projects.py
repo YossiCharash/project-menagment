@@ -30,7 +30,6 @@ from backend.services.audit_service import AuditService
 from backend.services.contract_period_service import ContractPeriodService
 from backend.models.user import UserRole
 from backend.models.project import Project
-from backend.models.archived_contract import ArchivedContract
 from backend.models.subproject import Subproject
 from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.models.fund import Fund
@@ -1141,20 +1140,14 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                     
                     # Archive if period has ended
                     if current_end <= today:
+                        from datetime import timezone as _tz
                         summary = await contract_period_service._get_period_financials(new_period)
-                        archived = ArchivedContract(
-                            contract_period_id=new_period.id,
-                            project_id=project_id,
-                            start_date=new_period.start_date,
-                            end_date=new_period.end_date,
-                            contract_year=new_period.contract_year,
-                            year_index=new_period.year_index,
-                            total_income=summary['total_income'],
-                            total_expense=summary['total_expense'],
-                            total_profit=summary['total_profit'],
-                            archived_by_user_id=user.id
-                        )
-                        db.add(archived)
+                        new_period.is_archived = True
+                        new_period.archived_at = datetime.now(_tz.utc).replace(tzinfo=None)
+                        new_period.archived_by_user_id = user.id
+                        new_period.total_income = summary['total_income']
+                        new_period.total_expense = summary['total_expense']
+                        new_period.total_profit = summary['total_profit']
                         await db.commit()
                     
                     current_start = current_end
@@ -1176,12 +1169,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                 periods = await period_repo.get_by_project(project_id)
                 past_periods = [p for p in periods if p.end_date and p.end_date <= today]
                 
-                # Also check archived contracts
-                archived_query = select(ArchivedContract).where(ArchivedContract.project_id == project_id)
-                archived_result = await db.execute(archived_query)
-                archived_contracts = archived_result.scalars().all()
-                
-                if len(past_periods) > 0 or len(archived_contracts) > 0:
+                if len(past_periods) > 0:
                     raise HTTPException(
                         status_code=400, 
                         detail="לא ניתן לשנות את משך החוזה בחודשים לפרויקט שיש לו תקופות חוזה בעבר. יש לבחור תקופה להתחלה או לשנות את משך החוזה רק לפרויקטים חדשים."
@@ -1424,11 +1412,10 @@ async def upload_project_document(
         content_type=file.content_type,
     )
 
-    from backend.models.project_document import ProjectDocument
-    doc = ProjectDocument(project_id=project_id, file_path=file_url, description=description)
-    db.add(doc)
-    await db.commit()
-    await db.refresh(doc)
+    from backend.models.document import Document
+    from backend.repositories.document_repository import DocumentRepository
+    doc = Document(entity_type="project", entity_id=project_id, file_path=file_url, description=description)
+    doc = await DocumentRepository(db).create(doc)
 
     return {
         "id": doc.id,
@@ -1441,12 +1428,8 @@ async def upload_project_document(
 @router.get("/{project_id}/documents", response_model=list[dict])
 async def get_project_documents(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """Get all documents for a project"""
-    from backend.models.project_document import ProjectDocument
-    from sqlalchemy import select
-    
-    docs_query = select(ProjectDocument).where(ProjectDocument.project_id == project_id)
-    docs_result = await db.execute(docs_query)
-    docs = docs_result.scalars().all()
+    from backend.repositories.document_repository import DocumentRepository
+    docs = await DocumentRepository(db).list_by_project(project_id)
 
     return [
         {
@@ -1461,17 +1444,15 @@ async def get_project_documents(project_id: int, db: DBSessionDep, user = Depend
 @router.delete("/{project_id}/documents/{doc_id}")
 async def delete_project_document(project_id: int, doc_id: int, db: DBSessionDep, user = Depends(require_permission("update", "project", resource_id_param="project_id", project_id_param=None))):
     """Delete a document from a project"""
-    from backend.models.project_document import ProjectDocument
-    from sqlalchemy import select
     import asyncio
-    
-    doc = await db.get(ProjectDocument, doc_id)
-    if not doc or doc.project_id != project_id:
+    from backend.repositories.document_repository import DocumentRepository
+    doc_repo = DocumentRepository(db)
+    doc = await doc_repo.get_by_id(doc_id)
+    if not doc or doc.entity_type != "project" or doc.entity_id != project_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
     file_path = doc.file_path
-    await db.delete(doc)
-    await db.commit()
+    await doc_repo.delete(doc)
 
     # Try to delete from S3
     if file_path and ("s3" in file_path.lower() or "amazonaws.com" in file_path):
@@ -1585,10 +1566,7 @@ async def hard_delete_project(
     # Delete all related records before deleting the project
     # Order matters due to foreign key constraints
     
-    # 1. Delete archived contracts
-    await db.execute(delete(ArchivedContract).where(ArchivedContract.project_id == project_id))
-    
-    # 2. Delete contract periods
+    # 1. Delete contract periods (cascades; archived info is now stored on the period itself)
     await db.execute(delete(ContractPeriod).where(ContractPeriod.project_id == project_id))
     
     # 3. Delete budgets
@@ -1935,9 +1913,9 @@ async def get_project_fund(
 
     # Load user repository for created_by_user
     from backend.repositories.user_repository import UserRepository
-    from backend.repositories.supplier_document_repository import SupplierDocumentRepository
+    from backend.repositories.document_repository import DocumentRepository
     user_repo = UserRepository(db)
-    doc_repo = SupplierDocumentRepository(db)
+    doc_repo = DocumentRepository(db)
     
     # Convert transactions to dict with additional info
     transactions_list = []

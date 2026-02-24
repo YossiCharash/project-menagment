@@ -2,24 +2,22 @@
 # Import models with dependencies first to ensure proper relationship configuration
 # RecurringTransactionTemplate must be imported before Project since Project references it
 from backend.models.user import User, UserRole
+from backend.models.user_preference import UserPreference
 from backend.models.transaction import Transaction, TransactionType, ExpenseCategory
 from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.models.project import Project
 from backend.models.subproject import Subproject
 from backend.models.audit_log import AuditLog
 from backend.models.supplier import Supplier
-from backend.models.supplier_document import SupplierDocument
-from backend.models.admin_invite import AdminInvite
+from backend.models.document import Document
+from backend.models.invite import Invite
 from backend.models.email_verification import EmailVerification
-from backend.models.member_invite import MemberInvite
 from backend.models.budget import Budget
 from backend.models.fund import Fund
 from backend.models.category import Category
 from backend.models.contract_period import ContractPeriod
-from backend.models.archived_contract import ArchivedContract
 from backend.models.deleted_recurring_instance import DeletedRecurringInstance
-from backend.models.project_document import ProjectDocument
-from backend.models.unforeseen_transaction import UnforeseenTransaction, UnforeseenTransactionExpense, UnforeseenTransactionStatus
+from backend.models.unforeseen_transaction import UnforeseenTransaction, UnforeseenTransactionLine, UnforeseenTransactionStatus
 from backend.models.quote_structure_item import QuoteStructureItem
 from backend.models.quote_subject import QuoteSubject
 from backend.models.quote_project import QuoteProject
@@ -33,7 +31,8 @@ from backend.iam.models import ProjectRoleAssignment, ResourcePolicy, Permission
 
 __all__ = [
     "User",
-    "UserRole", 
+    "UserRole",
+    "UserPreference", 
     "Project",
     "Subproject",
     "Transaction",
@@ -41,20 +40,17 @@ __all__ = [
     "ExpenseCategory",
     "AuditLog",
     "Supplier",
-    "SupplierDocument",
-    "ProjectDocument",
-    "AdminInvite",
+    "Document",
+    "Invite",
     "EmailVerification",
     "RecurringTransactionTemplate",
-    "MemberInvite",
     "Budget",
     "Fund",
     "Category",
     "ContractPeriod",
-    "ArchivedContract",
     "DeletedRecurringInstance",
     "UnforeseenTransaction",
-    "UnforeseenTransactionExpense",
+    "UnforeseenTransactionLine",
     "UnforeseenTransactionStatus",
     "QuoteStructureItem",
     "QuoteSubject",

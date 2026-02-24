@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from typing import Optional, Any
 from datetime import datetime
 import re
 
@@ -78,3 +78,17 @@ class UserProfile(BaseModel):
     calendar_date_display: str = "gregorian"
     show_jewish_holidays: bool = True
     show_islamic_holidays: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pull_calendar_from_preferences(cls, data: Any) -> Any:
+        if not hasattr(data, "preferences"):
+            return data
+        pref = getattr(data, "preferences", None)
+        if pref is None:
+            return data
+        data.__dict__["calendar_color"] = pref.calendar_color
+        data.__dict__["calendar_date_display"] = pref.calendar_date_display
+        data.__dict__["show_jewish_holidays"] = pref.show_jewish_holidays
+        data.__dict__["show_islamic_holidays"] = pref.show_islamic_holidays
+        return data

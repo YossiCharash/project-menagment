@@ -37,7 +37,7 @@ async def list_admin_invites(
     for invite in invites:
         invite_dict = {
             "id": invite.id,
-            "invite_code": invite.invite_code,
+            "invite_code": invite.invite_token,
             "email": invite.email,
             "full_name": invite.full_name,
             "is_used": invite.is_used,

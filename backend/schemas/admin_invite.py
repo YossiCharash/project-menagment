@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field
 from typing import Optional
 
 
@@ -11,10 +11,10 @@ class AdminInviteCreate(BaseModel):
 
 class AdminInviteOut(BaseModel):
     id: int
-    invite_code: str
+    invite_code: str  # alias for invite_token on the unified Invite model
     email: str
     full_name: str
-    created_by: int
+    created_by: Optional[int]
     is_used: bool
     used_at: Optional[datetime] = None
     expires_at: datetime
@@ -22,9 +22,16 @@ class AdminInviteOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        # Map invite_token → invite_code transparently
+        if hasattr(obj, "invite_token") and not hasattr(obj, "invite_code"):
+            obj.__dict__["invite_code"] = obj.invite_token
+        return super().model_validate(obj, *args, **kwargs)
+
 
 class AdminInviteUse(BaseModel):
-    invite_code: str = Field(min_length=8, max_length=8)
+    invite_code: str = Field(min_length=8, max_length=64)
     password: str = Field(min_length=8, max_length=128)
 
 

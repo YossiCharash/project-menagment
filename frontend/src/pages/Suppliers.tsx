@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { createSupplier, deleteSupplier, fetchSuppliers, updateSupplier } from '../store/slices/suppliersSlice'
 import { CategoryAPI } from '../lib/apiClient'
 import { Eye } from 'lucide-react'
+import { PermissionGuard } from '../components/ui/PermissionGuard'
 
 export default function Suppliers() {
   const dispatch = useAppDispatch()
@@ -106,6 +107,7 @@ export default function Suppliers() {
 
       <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">ספקים</h1>
 
+      <PermissionGuard action="write" resource="supplier">
       <div className="bg-white dark:bg-gray-800 p-4 rounded shadow border border-gray-200 dark:border-gray-700">
         <h2 className="font-semibold mb-2 text-gray-900 dark:text-white">הוספת ספק</h2>
         <form onSubmit={onCreate} className="grid md:grid-cols-4 gap-2">
@@ -168,6 +170,7 @@ export default function Suppliers() {
           </div>
         </form>
       </div>
+      </PermissionGuard>
 
       <div className="bg-white dark:bg-gray-800 p-4 rounded shadow border border-gray-200 dark:border-gray-700">
         <h2 className="font-semibold mb-2 text-gray-900 dark:text-white">רשימת ספקים</h2>
@@ -222,13 +225,19 @@ export default function Suppliers() {
                   <td className="p-2 text-right">
                     {editId===s.id ? (
                       <>
-                        <button className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition-colors" onClick={()=>onUpdate(s.id)}>שמור</button>
+                        <PermissionGuard action="update" resource="supplier">
+                          <button className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition-colors" onClick={()=>onUpdate(s.id)}>שמור</button>
+                        </PermissionGuard>
                         <button className="ml-2 px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors" onClick={()=>setEditId(null)}>בטל</button>
                       </>
                     ) : (
                       <>
-                        <button className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded transition-colors" onClick={()=>startEdit(s.id)}>ערוך</button>
-                        <button className="ml-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded transition-colors" onClick={()=>onDelete(s.id)}>מחק</button>
+                        <PermissionGuard action="update" resource="supplier">
+                          <button className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded transition-colors" onClick={()=>startEdit(s.id)}>ערוך</button>
+                        </PermissionGuard>
+                        <PermissionGuard action="delete" resource="supplier">
+                          <button className="ml-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded transition-colors" onClick={()=>onDelete(s.id)}>מחק</button>
+                        </PermissionGuard>
                       </>
                     )}
                   </td>

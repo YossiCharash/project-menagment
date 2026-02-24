@@ -9,10 +9,10 @@ from backend.repositories.transaction_repository import TransactionRepository
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.repositories.supplier_repository import SupplierRepository
-from backend.repositories.supplier_document_repository import SupplierDocumentRepository
+from backend.repositories.document_repository import DocumentRepository
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.user_repository import UserRepository
-from backend.models.supplier_document import SupplierDocument
+from backend.models.document import Document
 from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate
 from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
@@ -237,24 +237,19 @@ async def upload_receipt(tx_id: int, db: DBSessionDep, file: UploadFile = File(.
 @router.get("/{tx_id}/documents", response_model=list[dict])
 async def get_transaction_documents(tx_id: int, db: DBSessionDep, user=Depends(get_current_user)):
     """Get all documents for a transaction - accessible to all authenticated users"""
-    from sqlalchemy import select, and_
-
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     # Get all documents for this transaction
-    docs_query = select(SupplierDocument).where(SupplierDocument.transaction_id == tx_id)
-    docs_result = await db.execute(docs_query)
-    docs = docs_result.scalars().all()
+    docs = await DocumentRepository(db).get_by_transaction_id(tx_id)
 
     result = []
 
     for doc in docs:
         result.append({
             "id": doc.id,
-            "supplier_id": doc.supplier_id,
-            "transaction_id": doc.transaction_id,
+            "transaction_id": doc.entity_id,
             # For new documents we store full S3 URL in file_path; for old ones this may still be a relative path
             "file_path": doc.file_path,
             "description": doc.description,
@@ -273,33 +268,25 @@ async def update_transaction_document(
         user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))
 ):
     """Update document description for a transaction"""
-    from sqlalchemy import select, and_
-
     # Verify transaction exists
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     # Get the document
-    docs_query = select(SupplierDocument).where(
-        and_(
-            SupplierDocument.id == doc_id,
-            SupplierDocument.transaction_id == tx_id
-        )
-    )
-    docs_result = await db.execute(docs_query)
-    doc = docs_result.scalar_one_or_none()
+    doc_repo = DocumentRepository(db)
+    doc = await doc_repo.get_by_id(doc_id)
 
-    if not doc:
+    if not doc or doc.entity_type != "transaction" or doc.entity_id != tx_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
     # Update description
     doc.description = description.strip() if description and description.strip() else None
-    await SupplierDocumentRepository(db).update(doc)
+    await doc_repo.update(doc)
 
     return {
         "id": doc.id,
-        "transaction_id": doc.transaction_id,
+        "transaction_id": doc.entity_id,
         "description": doc.description,
         "file_path": doc.file_path
     }
@@ -343,9 +330,9 @@ async def upload_supplier_document(tx_id: int, db: DBSessionDep, file: UploadFil
         content_type=file.content_type,
     )
 
-    # Create supplier document linked to transaction (supplier_id can be None)
-    doc = SupplierDocument(supplier_id=supplier_id, transaction_id=tx_id, file_path=file_url)
-    await SupplierDocumentRepository(db).create(doc)
+    # Create document linked to transaction
+    doc = Document(entity_type="transaction", entity_id=tx_id, file_path=file_url)
+    await DocumentRepository(db).create(doc)
 
     return {
         "id": doc.id,
@@ -364,7 +351,6 @@ async def delete_transaction_document(
         user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))
 ):
     """Delete document from transaction"""
-    from sqlalchemy import select, and_
     import asyncio
 
     # Verify transaction exists
@@ -373,13 +359,13 @@ async def delete_transaction_document(
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     # Get the document
-    doc_repo = SupplierDocumentRepository(db)
+    doc_repo = DocumentRepository(db)
     doc = await doc_repo.get_by_id(doc_id)
 
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if doc.transaction_id != tx_id:
+    if doc.entity_type != "transaction" or doc.entity_id != tx_id:
         raise HTTPException(status_code=400, detail="Document does not belong to this transaction")
 
     # Store file path before deletion

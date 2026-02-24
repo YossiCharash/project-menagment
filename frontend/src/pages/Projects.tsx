@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
+import { PermissionGuard } from '../components/ui/PermissionGuard'
+import { usePermission } from '../hooks/usePermission'
 import { fetchMe } from '../store/slices/authSlice'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -584,7 +586,8 @@ export default function Projects() {
   }, [dashboardData?.projects])
 
   const isAdmin = me?.role === 'Admin'
-  const canDelete = me?.role === 'Admin' // Only Admin can delete
+  const canWriteProject = usePermission('write', 'project')
+  const canDeleteProject = usePermission('delete', 'project')
 
   if (loading && !dashboardData) {
     return (
@@ -614,7 +617,7 @@ export default function Projects() {
             <Plus className="w-5 h-5" />
             <span>עסקה קבוצתית</span>
           </motion.button>
-          {isAdmin && (
+          <PermissionGuard action="write" resource="project">
             <>
               <motion.button
                 whileHover={{ scale: 1.05 }}
@@ -635,7 +638,7 @@ export default function Projects() {
                 <span>צור פרויקט על</span>
               </motion.button>
             </>
-          )}
+          </PermissionGuard>
         </div>
       </div>
 
@@ -781,9 +784,9 @@ export default function Projects() {
                 projectChart={projectCharts[project.id]}
                 onProjectClick={handleProjectClick}
                 onProjectEdit={handleProjectEdit}
-                onProjectArchive={canDelete ? handleProjectArchive : undefined}
-                onProjectRestore={isAdmin ? handleProjectRestore : undefined}
-                onCreateSubproject={isAdmin ? handleCreateSubproject : undefined}
+                onProjectArchive={canDeleteProject ? handleProjectArchive : undefined}
+                onProjectRestore={canWriteProject ? handleProjectRestore : undefined}
+                onCreateSubproject={canWriteProject ? handleCreateSubproject : undefined}
                 onAddTransaction={handleAddTransaction}
                 hasSubprojects={parentProjectIds.has(project.id)}
               />

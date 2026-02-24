@@ -4,8 +4,7 @@ from backend.models.subproject import Subproject
 from backend.models.transaction import Transaction
 from backend.models.audit_log import AuditLog
 from backend.models.supplier import Supplier
-from backend.models.supplier_document import SupplierDocument
-from backend.models.admin_invite import AdminInvite
+from backend.models.document import Document
+from backend.models.invite import Invite
 from backend.models.email_verification import EmailVerification
 from backend.models.recurring_transaction import RecurringTransactionTemplate
-from backend.models.member_invite import MemberInvite

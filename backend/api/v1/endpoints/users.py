@@ -14,10 +14,9 @@ from backend.services.audit_service import AuditService
 from backend.models.project import Project
 from backend.models.transaction import Transaction
 from backend.models.recurring_transaction import RecurringTransactionTemplate
-from backend.models.archived_contract import ArchivedContract
+from backend.models.contract_period import ContractPeriod
 from backend.models.audit_log import AuditLog
-from backend.models.member_invite import MemberInvite
-from backend.models.admin_invite import AdminInvite
+from backend.models.invite import Invite
 from backend.models.task import Task
 from backend.models.user_notification import UserNotification
 
@@ -33,26 +32,31 @@ async def get_me(current = Depends(get_current_user)):
 async def list_users_for_tasks(db: DBSessionDep, user=Depends(get_current_user)):
     """List users for task assignment: Admin sees all; Member sees only themselves. Includes calendar_color and avatar_url."""
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
     from backend.models.user import User
     if user.role == "Admin":
         res = await db.execute(
-            select(User.id, User.full_name, User.calendar_color, User.avatar_url).where(User.is_active == True).order_by(User.full_name)
+            select(User).where(User.is_active == True).order_by(User.full_name)
+            .options(selectinload(User.preferences))
         )
-        rows = res.all()
-        return [{"id": r.id, "full_name": r.full_name, "calendar_color": getattr(r, "calendar_color", None), "avatar_url": getattr(r, "avatar_url", None)} for r in rows]
-    return [{"id": user.id, "full_name": user.full_name, "calendar_color": getattr(user, "calendar_color", None), "avatar_url": getattr(user, "avatar_url", None)}]
+        rows = res.scalars().all()
+        return [{"id": r.id, "full_name": r.full_name, "calendar_color": r.preferences.calendar_color if r.preferences else None, "avatar_url": r.avatar_url} for r in rows]
+    pref_color = user.preferences.calendar_color if user.preferences else None
+    return [{"id": user.id, "full_name": user.full_name, "calendar_color": pref_color, "avatar_url": user.avatar_url}]
 
 
 @router.get("/for-invite")
 async def list_users_for_invite(db: DBSessionDep, user=Depends(get_current_user)):
     """List users that can be invited to calendar events (like Outlook). All active users for both Admin and Member."""
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
     from backend.models.user import User
     res = await db.execute(
-        select(User.id, User.full_name, User.calendar_color, User.avatar_url).where(User.is_active == True).order_by(User.full_name)
+        select(User).where(User.is_active == True).order_by(User.full_name)
+        .options(selectinload(User.preferences))
     )
-    rows = res.all()
-    return [{"id": r.id, "full_name": r.full_name, "calendar_color": getattr(r, "calendar_color", None), "avatar_url": getattr(r, "avatar_url", None)} for r in rows]
+    rows = res.scalars().all()
+    return [{"id": r.id, "full_name": r.full_name, "calendar_color": r.preferences.calendar_color if r.preferences else None, "avatar_url": r.avatar_url} for r in rows]
 
 
 def _get_uploads_dir() -> str:
@@ -164,19 +168,29 @@ async def update_my_calendar_settings(
     current_user=Depends(get_current_user),
 ):
     """Update current user's calendar settings only. Any authenticated user can update their own."""
+    from backend.models.user_preference import UserPreference
+    from sqlalchemy import select as _select
     user_repo = UserRepository(db)
     user = await user_repo.get_by_id(current_user.id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    # Upsert into user_preferences
+    pref_result = await db.execute(_select(UserPreference).where(UserPreference.user_id == current_user.id))
+    pref = pref_result.scalar_one_or_none()
+    if pref is None:
+        pref = UserPreference(user_id=current_user.id)
+        db.add(pref)
     if data.calendar_color is not None:
-        user.calendar_color = (data.calendar_color.strip() or None) if isinstance(data.calendar_color, str) else data.calendar_color
+        pref.calendar_color = (data.calendar_color.strip() or None) if isinstance(data.calendar_color, str) else data.calendar_color
     if data.calendar_date_display is not None:
-        user.calendar_date_display = data.calendar_date_display
+        pref.calendar_date_display = data.calendar_date_display
     if data.show_jewish_holidays is not None:
-        user.show_jewish_holidays = data.show_jewish_holidays
+        pref.show_jewish_holidays = data.show_jewish_holidays
     if data.show_islamic_holidays is not None:
-        user.show_islamic_holidays = data.show_islamic_holidays
-    return await user_repo.update(user)
+        pref.show_islamic_holidays = data.show_islamic_holidays
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.patch("/me/profile", response_model=UserOut)
@@ -254,14 +268,26 @@ async def update_user(
         user.group_id = user_data.group_id
     if user_data.password is not None:
         user.password_hash = hash_password(user_data.password)
-    if user_data.calendar_color is not None:
-        user.calendar_color = (user_data.calendar_color.strip() or None) if isinstance(user_data.calendar_color, str) else user_data.calendar_color
-    if user_data.calendar_date_display is not None:
-        user.calendar_date_display = user_data.calendar_date_display
-    if user_data.show_jewish_holidays is not None:
-        user.show_jewish_holidays = user_data.show_jewish_holidays
-    if user_data.show_islamic_holidays is not None:
-        user.show_islamic_holidays = user_data.show_islamic_holidays
+    # Delegate calendar fields to user_preferences
+    calendar_fields = {k: v for k, v in {
+        "calendar_color": user_data.calendar_color,
+        "calendar_date_display": user_data.calendar_date_display,
+        "show_jewish_holidays": user_data.show_jewish_holidays,
+        "show_islamic_holidays": user_data.show_islamic_holidays,
+    }.items() if v is not None}
+    if calendar_fields:
+        from backend.models.user_preference import UserPreference
+        from sqlalchemy import select as _select
+        pref_result = await db.execute(_select(UserPreference).where(UserPreference.user_id == user_id))
+        pref = pref_result.scalar_one_or_none()
+        if pref is None:
+            pref = UserPreference(user_id=user_id)
+            db.add(pref)
+        for field, value in calendar_fields.items():
+            if field == "calendar_color" and isinstance(value, str):
+                value = value.strip() or None
+            setattr(pref, field, value)
+        await db.commit()
 
     updated_user = await user_repo.update(user)
     
@@ -322,10 +348,10 @@ async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(re
         .values(created_by_user_id=None)
     )
 
-    # 4. Nullify ArchivedContract archiver
+    # 4. Nullify ContractPeriod archiver
     await db.execute(
-        update(ArchivedContract)
-        .where(ArchivedContract.archived_by_user_id == user_id)
+        update(ContractPeriod)
+        .where(ContractPeriod.archived_by_user_id == user_id)
         .values(archived_by_user_id=None)
     )
 
@@ -336,16 +362,10 @@ async def delete_user(user_id: int, db: DBSessionDep, current_admin = Depends(re
         .values(user_id=None)
     )
 
-    # 6. Delete MemberInvite
+    # 6. Delete invites created by this user (unified table)
     await db.execute(
-        delete(MemberInvite)
-        .where(MemberInvite.created_by == user_id)
-    )
-
-    # 7. Delete AdminInvite
-    await db.execute(
-        delete(AdminInvite)
-        .where(AdminInvite.created_by == user_id)
+        delete(Invite)
+        .where(Invite.created_by == user_id)
     )
 
     # 8. Delete tasks assigned to this user

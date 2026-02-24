@@ -3,9 +3,9 @@ from backend.core.deps import DBSessionDep, require_roles, get_current_user
 from backend.iam.decorators import require_permission
 from backend.models.user import UserRole
 from backend.models.supplier import Supplier
-from backend.models.supplier_document import SupplierDocument
+from backend.models.document import Document
 from backend.repositories.supplier_repository import SupplierRepository
-from backend.repositories.supplier_document_repository import SupplierDocumentRepository
+from backend.repositories.document_repository import DocumentRepository
 from backend.schemas.supplier import SupplierCreate, SupplierOut, SupplierUpdate
 from backend.services.audit_service import AuditService
 from backend.services.supplier_service import SupplierService
@@ -204,17 +204,16 @@ async def delete_supplier(
 async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """List all documents for a supplier (only from transactions) - accessible to all authenticated users"""
     from sqlalchemy import select, and_
-    
+
     supplier = await SupplierRepository(db).get(supplier_id)
     if not supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    
-    # Only get documents that are linked to transactions (transaction_id is not null)
-    docs_query = select(SupplierDocument).where(
-        and_(
-            SupplierDocument.supplier_id == supplier_id,
-            SupplierDocument.transaction_id.isnot(None)
-        )
+
+    # Get documents linked to transactions that belong to this supplier
+    docs_query = (
+        select(Document)
+        .join(Transaction, and_(Document.entity_type == "transaction", Document.entity_id == Transaction.id))
+        .where(Transaction.supplier_id == supplier_id)
     )
     docs_result = await db.execute(docs_query)
     docs = docs_result.scalars().all()
@@ -233,7 +232,19 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
     for doc in docs:
         original_path = doc.file_path
         actual_file_path = None
-        
+
+        # For S3 URLs, return the URL directly without local file resolution
+        if doc.file_path and doc.file_path.startswith("http"):
+            result.append({
+                "id": doc.id,
+                "supplier_id": supplier_id,
+                "transaction_id": doc.entity_id,
+                "file_path": doc.file_path,
+                "description": doc.description,
+                "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+            })
+            continue
+
         # Strategy 1: Check if file exists at stored path (absolute)
         if os.path.exists(doc.file_path):
             actual_file_path = doc.file_path
@@ -259,7 +270,7 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
                     # Update the database record with correct path
                     try:
                         doc.file_path = actual_file_path
-                        await SupplierDocumentRepository(db).update(doc)
+                        await DocumentRepository(db).update(doc)
                     except Exception:
                         pass
                     break
@@ -274,7 +285,7 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
                 # Update the database record
                 try:
                     doc.file_path = actual_file_path
-                    await SupplierDocumentRepository(db).update(doc)
+                    await DocumentRepository(db).update(doc)
                 except Exception:
                     pass
             # Check ID-based directory (old format)
@@ -287,7 +298,7 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
                     os.makedirs(supplier_specific_dir, exist_ok=True)
                     shutil.move(possible_path, new_path)
                     doc.file_path = new_path
-                    await SupplierDocumentRepository(db).update(doc)
+                    await DocumentRepository(db).update(doc)
                     actual_file_path = new_path
                 except Exception:
                     pass
@@ -301,7 +312,7 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
                     os.makedirs(supplier_specific_dir, exist_ok=True)
                     shutil.move(possible_path, new_path)
                     doc.file_path = new_path
-                    await SupplierDocumentRepository(db).update(doc)
+                    await DocumentRepository(db).update(doc)
                     actual_file_path = new_path
                 except Exception:
                     pass
@@ -355,8 +366,8 @@ async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Dep
         
         result.append({
             "id": doc.id,
-            "supplier_id": doc.supplier_id,
-            "transaction_id": doc.transaction_id,
+            "supplier_id": supplier_id,
+            "transaction_id": doc.entity_id,
             "file_path": f"/uploads/{rel_path}",
             "description": doc.description,
             "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
