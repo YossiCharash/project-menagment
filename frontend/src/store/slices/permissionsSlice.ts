@@ -67,3 +67,24 @@ const permissionsSlice = createSlice({
 
 export const { clearPermissions } = permissionsSlice.actions
 export default permissionsSlice.reducer
+
+/**
+ * Factory selector — returns whether the current user has (action, resource) access.
+ * Admin users always return true. Non-admins are checked against the loaded permissions.
+ */
+export const selectCanAccess =
+  (action: string, resource: string) =>
+  (state: { auth: { me: { role: string } | null }; permissions: PermissionsState }): boolean => {
+    if (state.auth.me?.role === 'Admin') return true
+    const perms = state.permissions.permissions
+    const denied = perms.some(
+      p => p.resource_type === resource && p.action === action && p.effect === 'deny'
+    )
+    if (denied) return false
+    return perms.some(
+      p =>
+        p.resource_type === resource &&
+        p.action === action &&
+        (p.effect === 'allow' || !p.effect)
+    )
+  }

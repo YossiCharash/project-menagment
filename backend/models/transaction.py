@@ -10,7 +10,7 @@ from backend.db.base import Base
 
 if TYPE_CHECKING:
     from backend.models.project import Project
-    from backend.models.supplier_document import SupplierDocument
+    from backend.models.document import Document
 
 
 class TransactionType(str, Enum):
@@ -128,8 +128,14 @@ class Transaction(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)) # לדוגמה, חישוב מתוך שדות קיימים
 
-    # Relationship to supplier documents linked to this transaction
-    documents: Mapped[list["SupplierDocument"]] = relationship("SupplierDocument", back_populates="transaction", lazy="selectin")
+    # Relationship to documents linked to this transaction
+    documents: Mapped[list["Document"]] = relationship(
+        "Document",
+        primaryjoin="and_(Document.entity_type == 'transaction', Document.entity_id == Transaction.id)",
+        foreign_keys="Document.entity_id",
+        viewonly=True,
+        lazy="selectin",
+    )
     
     # Relationship to user who created the transaction
     created_by_user: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id], lazy="selectin")

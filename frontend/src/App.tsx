@@ -34,6 +34,7 @@ const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
 const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 import { logout, fetchMe } from './store/slices/authSlice'
+import { fetchUserPermissions, clearPermissions } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { LoadingOverlay } from './components/ui/Loading'
@@ -48,12 +49,19 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   const me = useSelector((s: RootState) => s.auth.me)
   const loading = useSelector((s: RootState) => s.auth.loading)
   const requiresPasswordChange = useSelector((s: RootState) => s.auth.requiresPasswordChange)
+  const permissionsLoaded = useSelector((s: RootState) => s.permissions.loaded)
 
   useEffect(() => {
     if (token && !me && !loading) {
       dispatch(fetchMe() as any)
     }
   }, [token, me, loading, dispatch])
+
+  useEffect(() => {
+    if (me && !permissionsLoaded) {
+      dispatch(fetchUserPermissions(me.id) as any)
+    }
+  }, [me, permissionsLoaded, dispatch])
 
   // If no token, redirect to login
   if (!token) return <Navigate to="/login" replace />
@@ -91,6 +99,7 @@ function AppContent() {
 
   const onLogout = () => {
     dispatch(logout())
+    dispatch(clearPermissions())
     // Soft reload to clear any stale state while keeping UX snappy
     navigate('/login', { replace: true })
   }

@@ -1,4 +1,4 @@
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Dict, List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,6 @@ from backend.repositories.transaction_repository import TransactionRepository
 from backend.repositories.budget_repository import BudgetRepository
 from backend.models.contract_period import ContractPeriod
 from backend.models.project import Project
-from backend.models.archived_contract import ArchivedContract
 from backend.models.transaction import Transaction
 
 class ContractPeriodService:
@@ -974,22 +973,13 @@ class ContractPeriodService:
             periods_created += 1
             
             # Archive this historical period since it's in the past
-            from backend.models.archived_contract import ArchivedContract
             summary = await self._get_period_financials(period)
-            
-            archived = ArchivedContract(
-                contract_period_id=period.id,
-                project_id=project_id,
-                start_date=period.start_date,
-                end_date=period.end_date,
-                contract_year=period.contract_year,
-                year_index=period.year_index,
-                total_income=summary['total_income'],
-                total_expense=summary['total_expense'],
-                total_profit=summary['total_profit'],
-                archived_by_user_id=user_id
-            )
-            self.db.add(archived)
+            period.is_archived = True
+            period.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            period.archived_by_user_id = user_id
+            period.total_income = summary['total_income']
+            period.total_expense = summary['total_expense']
+            period.total_profit = summary['total_profit']
             await self.db.commit()
             
             current_start = current_end
@@ -1080,23 +1070,14 @@ class ContractPeriodService:
             # A period is in the past if its end_date (exclusive) is <= today
             if current_end <= today:
                 summary = await self._get_period_financials(period)
-                
-                # Create archive entry
-                archived = ArchivedContract(
-                    contract_period_id=period.id,
-                    project_id=project_id,
-                    start_date=period.start_date,
-                    end_date=period.end_date,
-                    contract_year=period.contract_year,
-                    year_index=period.year_index,
-                    total_income=summary['total_income'],
-                    total_expense=summary['total_expense'],
-                    total_profit=summary['total_profit'],
-                    archived_by_user_id=user_id
-                )
-                self.db.add(archived)
+                period.is_archived = True
+                period.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                period.archived_by_user_id = user_id
+                period.total_income = summary['total_income']
+                period.total_expense = summary['total_expense']
+                period.total_profit = summary['total_profit']
                 await self.db.commit()
-                
+
                 # Prepare next period dates (add duration_months to current_end)
                 current_start = current_end
             else:
@@ -1187,23 +1168,14 @@ class ContractPeriodService:
             # A period is in the past if its end_date (exclusive) is <= today
             if current_end <= today:
                 summary = await self._get_period_financials(period)
-                
-                # Create archive entry
-                archived = ArchivedContract(
-                    contract_period_id=period.id,
-                    project_id=project_id,
-                    start_date=period.start_date,
-                    end_date=period.end_date,
-                    contract_year=period.contract_year,
-                    year_index=period.year_index,
-                    total_income=summary['total_income'],
-                    total_expense=summary['total_expense'],
-                    total_profit=summary['total_profit'],
-                    archived_by_user_id=user_id
-                )
-                self.db.add(archived)
+                period.is_archived = True
+                period.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                period.archived_by_user_id = user_id
+                period.total_income = summary['total_income']
+                period.total_expense = summary['total_expense']
+                period.total_profit = summary['total_profit']
                 await self.db.commit()
-                
+
                 # Prepare next period dates (1 year from the previous end_date)
                 current_start = current_end
                 current_end = current_start + relativedelta(years=1)
@@ -1325,14 +1297,9 @@ class ContractPeriodService:
         
         # Calculate financial summary for the period being closed
         summary = await self._get_period_financials(current_period)
-        
+
         # Check if this period is already archived (prevent duplicate archives and duplicate period creation)
-        result = await self.db.execute(
-            select(ArchivedContract).where(
-                ArchivedContract.contract_period_id == current_period.id
-            )
-        )
-        existing_archive = result.scalar_one_or_none()
+        existing_archive = current_period.is_archived
         
         # Calculate next period details
         # The next period starts exactly on the provided end_date (the split point)
@@ -1360,20 +1327,13 @@ class ContractPeriodService:
             return next_period
         
         if not existing_archive:
-            # Create archive entry
-            archived = ArchivedContract(
-                contract_period_id=current_period.id,
-                project_id=project_id,
-                start_date=current_period.start_date,
-                end_date=current_period.end_date,
-                contract_year=current_period.contract_year,
-                year_index=current_period.year_index,
-                total_income=summary['total_income'],
-                total_expense=summary['total_expense'],
-                total_profit=summary['total_profit'],
-                archived_by_user_id=archived_by_user_id
-            )
-            self.db.add(archived)
+            # Mark the period as archived directly on contract_periods
+            current_period.is_archived = True
+            current_period.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            current_period.archived_by_user_id = archived_by_user_id
+            current_period.total_income = summary['total_income']
+            current_period.total_expense = summary['total_expense']
+            current_period.total_profit = summary['total_profit']
             await self.db.commit()
         
         # If next period already exists, return it instead of creating duplicate

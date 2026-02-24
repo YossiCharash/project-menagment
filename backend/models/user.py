@@ -35,11 +35,11 @@ class User(Base):
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    calendar_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
-    # לוח שנה: סוג תאריך (gregorian / hebrew / both), חגים
-    calendar_date_display: Mapped[str] = mapped_column(String(20), default="gregorian")
-    show_jewish_holidays: Mapped[bool] = mapped_column(Boolean, default=True)
-    show_islamic_holidays: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    preferences: Mapped["UserPreference"] = relationship(
+        "UserPreference", back_populates="user", uselist=False, lazy="selectin",
+        cascade="all, delete-orphan"
+    )
 
     projects: Mapped[list["Project"]] = relationship(back_populates="manager")
     tasks: Mapped[list["Task"]] = relationship(

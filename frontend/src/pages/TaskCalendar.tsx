@@ -17,6 +17,7 @@ import { cn } from '../lib/utils'
 import { fetchMe, updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
+import { PermissionGuard } from '../components/ui/PermissionGuard'
 
 export interface UserForTask {
   id: number
@@ -1169,22 +1170,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               const start = occ.start
               const end = occ.end
               const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59
+              const isAllDayTask = isAllDay && eventType !== 'meeting'
               const eventId = occurrences.length > 1 ? `${t.id}-${i}` : String(t.id)
-              // משימות ללא שעה (כל היום): מציגים רק חסימה קטנה בראש היום, לא צביעה של כל היום
-              const displayStart = start
-              const displayEnd = isAllDay && eventType !== 'meeting'
-                ? new Date(start.getTime() + 15 * 60 * 1000) // 15 דקות בראש היום
-                : end
               return {
                 id: eventId,
                 title: icon + t.title + (isRecurring ? ' 🔁' : ''),
-                start: displayStart.toISOString(),
-                end: displayEnd.toISOString(),
-                allDay: false,
+                start: start.toISOString(),
+                end: isAllDayTask ? undefined : end.toISOString(),
+                allDay: isAllDayTask,
                 backgroundColor: color,
                 borderColor: color,
-                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDay && eventType !== 'meeting' ? 'fc-event-task-no-time' : ''],
-                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask: isAllDay && eventType !== 'meeting' },
+                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDayTask ? 'fc-event-task-no-time' : ''],
+                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask },
               }
             })
           })
@@ -1232,25 +1229,27 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   <Calendar className="w-4 h-4" />
                   פגישה חדשה
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTaskType('all_day')
-                    const updates: Partial<typeof createForm> = {}
-                    if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
-                    const now = new Date()
-                    const pad = (n: number) => String(n).padStart(2, '0')
-                    updates.date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-                    updates.start_time = ''
-                    updates.end_time = ''
-                    if (Object.keys(updates).length) setCreateForm(f => ({ ...f, ...updates }))
-                    setShowCreateModal(true)
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  משימה חדשה
-                </button>
+                <PermissionGuard action="write" resource="task">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTaskType('all_day')
+                      const updates: Partial<typeof createForm> = {}
+                      if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
+                      const now = new Date()
+                      const pad = (n: number) => String(n).padStart(2, '0')
+                      updates.date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+                      updates.start_time = ''
+                      updates.end_time = ''
+                      if (Object.keys(updates).length) setCreateForm(f => ({ ...f, ...updates }))
+                      setShowCreateModal(true)
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    משימה חדשה
+                  </button>
+                </PermissionGuard>
               </div>
             )}
             {outlookStatus?.configured && (

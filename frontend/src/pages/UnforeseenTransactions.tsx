@@ -7,6 +7,7 @@ import { formatDate } from '../lib/utils'
 import Modal from '../components/Modal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
+import { PermissionGuard } from '../components/ui/PermissionGuard'
 
 export default function UnforeseenTransactions() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -317,16 +318,18 @@ export default function UnforeseenTransactions() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => {
-            resetForm()
-            setShowCreateModal(true)
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5" />
-          עסקה חדשה
-        </button>
+        <PermissionGuard action="write" resource="transaction">
+          <button
+            onClick={() => {
+              resetForm()
+              setShowCreateModal(true)
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5" />
+            עסקה חדשה
+          </button>
+        </PermissionGuard>
       </div>
 
       {error && (
@@ -540,65 +543,73 @@ export default function UnforeseenTransactions() {
                 )}
 
                 <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-2" style={{ minHeight: '50px', display: 'flex', width: '100%' }}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleEdit(tx)
-                    }}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
-                    style={{ display: 'inline-flex' }}
-                  >
-                    <Edit className="w-4 h-4" />
-                    צפה/ערוך
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (tx.status === 'draft') {
-                        handleUpdateStatus(tx, 'waiting_for_approval')
-                      }
-                    }}
-                    disabled={tx.status !== 'draft'}
-                    className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                      tx.status === 'draft'
-                        ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                        : 'bg-gray-400 text-white cursor-not-allowed opacity-50'
-                    }`}
-                    style={{ display: 'inline-flex' }}
-                  >
-                    <Check className="w-4 h-4" />
-                    תעביר לממתין לאישור
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDelete(tx)
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-                    style={{ display: 'inline-flex' }}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    מחק
-                  </button>
-
-                  {tx.status === 'waiting_for_approval' && (
+                  <PermissionGuard action="update" resource="transaction">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleExecute(tx)
+                        handleEdit(tx)
                       }}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+                      style={{ display: 'inline-flex' }}
+                    >
+                      <Edit className="w-4 h-4" />
+                      צפה/ערוך
+                    </button>
+                  </PermissionGuard>
+
+                  <PermissionGuard action="update" resource="transaction">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (tx.status === 'draft') {
+                          handleUpdateStatus(tx, 'waiting_for_approval')
+                        }
+                      }}
+                      disabled={tx.status !== 'draft'}
+                      className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                        tx.status === 'draft'
+                          ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                          : 'bg-gray-400 text-white cursor-not-allowed opacity-50'
+                      }`}
                       style={{ display: 'inline-flex' }}
                     >
                       <Check className="w-4 h-4" />
-                      בצע
+                      תעביר לממתין לאישור
                     </button>
+                  </PermissionGuard>
+
+                  <PermissionGuard action="delete" resource="transaction">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(tx)
+                      }}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                      style={{ display: 'inline-flex' }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      מחק
+                    </button>
+                  </PermissionGuard>
+
+                  {tx.status === 'waiting_for_approval' && (
+                    <PermissionGuard action="update" resource="transaction">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleExecute(tx)
+                        }}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                        style={{ display: 'inline-flex' }}
+                      >
+                        <Check className="w-4 h-4" />
+                        בצע
+                      </button>
+                    </PermissionGuard>
                   )}
                 </div>
               </div>

@@ -20,6 +20,7 @@ import type {
   RecurrenceRule,
   TaskMessageType,
 } from '../../pages/TaskCalendar'
+import { PermissionGuard } from '../ui/PermissionGuard'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
@@ -397,24 +398,28 @@ export default function TaskDetailModal({
               {remindingTaskId === task.id ? 'שולח...' : 'הזכר'}
             </button>
             {showEditButton && (
+              <PermissionGuard action="update" resource="task">
+                <button
+                  type="button"
+                  onClick={() => { onEdit?.(task); onClose() }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  <Pencil className="w-4 h-4" />
+                  עריכה
+                </button>
+              </PermissionGuard>
+            )}
+            <PermissionGuard action="delete" resource="task">
               <button
                 type="button"
-                onClick={() => { onEdit?.(task); onClose() }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                onClick={() => handleDeleteTask(task)}
+                disabled={!!deletingTaskId}
+                className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
               >
-                <Pencil className="w-4 h-4" />
-                עריכה
+                <Trash2 className="w-4 h-4" />
+                {deletingTaskId === task.id ? 'מוחק...' : 'מחק'}
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => handleDeleteTask(task)}
-              disabled={!!deletingTaskId}
-              className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
-            >
-              <Trash2 className="w-4 h-4" />
-              {deletingTaskId === task.id ? 'מוחק...' : 'מחק'}
-            </button>
+            </PermissionGuard>
             <button
               type="button"
               onClick={onClose}

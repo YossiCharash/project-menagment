@@ -463,7 +463,7 @@ async def acknowledge_task(
             status_code=403,
             detail="רק המשתמש המוקצה למשימה יכול לאשר קבלתה",
         )
-    task.assignee_acknowledged_at = datetime.now(timezone.utc)
+    task.assignee_acknowledged_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
     updated = await repo.get(task_id)
     return _task_to_out(updated)

@@ -1,6 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Literal
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
+from typing import Literal, Optional, Any
 
 
 class UserBase(BaseModel):
@@ -38,6 +38,27 @@ class UserOut(UserBase):
     show_islamic_holidays: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pull_calendar_from_preferences(cls, data: Any) -> Any:
+        """Read calendar fields from the nested user_preferences row when present."""
+        if not hasattr(data, "preferences"):
+            return data
+        pref = getattr(data, "preferences", None)
+        if pref is None:
+            return data
+        # Inject preference values so the fields above are populated
+        data.__dict__.setdefault("calendar_color", pref.calendar_color)
+        data.__dict__.setdefault("calendar_date_display", pref.calendar_date_display)
+        data.__dict__.setdefault("show_jewish_holidays", pref.show_jewish_holidays)
+        data.__dict__.setdefault("show_islamic_holidays", pref.show_islamic_holidays)
+        # Override with actual preference values
+        data.__dict__["calendar_color"] = pref.calendar_color
+        data.__dict__["calendar_date_display"] = pref.calendar_date_display
+        data.__dict__["show_jewish_holidays"] = pref.show_jewish_holidays
+        data.__dict__["show_islamic_holidays"] = pref.show_islamic_holidays
+        return data
 
 
 class ProfileUpdate(BaseModel):

@@ -10,13 +10,12 @@ from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
 from backend.services.unforeseen_transaction_service import UnforeseenTransactionService
 from backend.services.s3_service import S3Service
-from backend.repositories.supplier_document_repository import SupplierDocumentRepository
-from backend.models.supplier_document import SupplierDocument
+from backend.repositories.document_repository import DocumentRepository
+from backend.models.document import Document
 from backend.schemas.unforeseen_transaction import (
     UnforeseenTransactionCreate,
     UnforeseenTransactionUpdate,
     UnforeseenTransactionOut,
-    UnforeseenTransactionExpenseOut
 )
 
 router = APIRouter()
@@ -67,12 +66,12 @@ async def view_unforeseen_document(
     db: DBSessionDep,
     user=Depends(get_current_user),
 ):
-    """Stream a document for viewing (for docs linked to unforeseen transaction expense/income). Enables opening documents in the site even when S3 is private."""
-    doc_repo = SupplierDocumentRepository(db)
+    """Stream a document for viewing (for docs linked to unforeseen transaction lines)."""
+    doc_repo = DocumentRepository(db)
     doc = await doc_repo.get_by_id(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="מסמך לא נמצא")
-    if not doc.unforeseen_transaction_expense_id and not doc.unforeseen_transaction_income_id:
+    if doc.entity_type not in ("unforeseen_expense", "unforeseen_income"):
         raise HTTPException(status_code=404, detail="מסמך לא שייך לעסקה לא צפויה")
 
     file_path = doc.file_path
@@ -84,7 +83,6 @@ async def view_unforeseen_document(
     if not content:
         raise HTTPException(status_code=404, detail="לא ניתן לטעון את הקובץ")
 
-    # Infer media type and filename for response
     filename = file_path.split("/")[-1] if "/" in file_path else file_path
     media_type, _ = mimetypes.guess_type(filename)
     if not media_type:
@@ -174,7 +172,6 @@ async def execute_unforeseen_transaction(
     try:
         result_tx = await service.execute(tx_id, user_id=user.id if user else None)
         if result_tx is None:
-            # Transaction was executed but no balance transaction was created
             tx = await service.get_by_id(tx_id)
             if not tx:
                 raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
@@ -182,8 +179,6 @@ async def execute_unforeseen_transaction(
                 "message": "עסקה בוצעה בהצלחה (אין יתרה)",
                 "transaction": await service._format_transaction(tx)
             }
-        
-        # Return the executed transaction info
         tx = await service.get_by_id(tx_id)
         return {
             "message": "עסקה בוצעה בהצלחה",
@@ -199,6 +194,63 @@ async def execute_unforeseen_transaction(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+async def _upload_line_document(
+    tx_id: int,
+    line_id: int,
+    line_type: str,
+    file: UploadFile,
+    description: Optional[str],
+    db,
+    user,
+):
+    service = UnforeseenTransactionService(db)
+    tx = await service.get_by_id(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
+
+    if line_type == "expense":
+        line = await service.repo.get_expense_by_id(line_id)
+        entity_type = "unforeseen_expense"
+    else:
+        line = await service.repo.get_income_by_id(line_id)
+        entity_type = "unforeseen_income"
+
+    if not line or line.unforeseen_transaction_id != tx_id:
+        label = "הוצאה" if line_type == "expense" else "הכנסה"
+        raise HTTPException(status_code=404, detail=f"{label} לא נמצאה")
+
+    if not settings.AWS_S3_BUCKET:
+        raise HTTPException(
+            status_code=503,
+            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר. הגדר AWS_S3_BUCKET ב-.env להעלאת מסמכים."
+        )
+    await file.seek(0)
+    s3 = S3Service()
+    file_url = await asyncio.to_thread(
+        s3.upload_file,
+        prefix="unforeseen-transactions",
+        file_obj=file.file,
+        filename=file.filename or f"{line_type}-document",
+        content_type=file.content_type,
+    )
+
+    doc_repo = DocumentRepository(db)
+    doc = Document(
+        entity_type=entity_type,
+        entity_id=line_id,
+        file_path=file_url,
+        description=description,
+    )
+    doc = await doc_repo.create(doc)
+
+    return {
+        "id": doc.id,
+        "file_path": doc.file_path,
+        "description": doc.description,
+        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+    }
+
+
 @router.post("/{tx_id}/expenses/{expense_id}/document")
 async def upload_expense_document(
     tx_id: int,
@@ -208,51 +260,8 @@ async def upload_expense_document(
     db: DBSessionDep = None,
     user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
-    """Upload a document for an expense"""
-    import asyncio
-    
-    # Verify transaction and expense exist
-    service = UnforeseenTransactionService(db)
-    tx = await service.get_by_id(tx_id)
-    if not tx:
-        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
-    
-    expense = await service.repo.get_expense_by_id(expense_id)
-    if not expense or expense.unforeseen_transaction_id != tx_id:
-        raise HTTPException(status_code=404, detail="הוצאה לא נמצאה")
-    
-    if not settings.AWS_S3_BUCKET:
-        raise HTTPException(
-            status_code=503,
-            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר. הגדר AWS_S3_BUCKET ב-.env להעלאת מסמכים."
-        )
-    # Upload to S3
-    await file.seek(0)
-    s3 = S3Service()
-    file_url = await asyncio.to_thread(
-        s3.upload_file,
-        prefix="unforeseen-transactions",
-        file_obj=file.file,
-        filename=file.filename or "expense-document",
-        content_type=file.content_type,
-    )
-    
-    # Create supplier document
-    doc_repo = SupplierDocumentRepository(db)
-    doc = SupplierDocument(
-        file_path=file_url,
-        description=description,
-        transaction_id=None,
-        unforeseen_transaction_expense_id=expense_id,
-    )
-    doc = await doc_repo.create(doc)
-    
-    return {
-        "id": doc.id,
-        "file_path": doc.file_path,
-        "description": doc.description,
-        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
-    }
+    """Upload a document for an expense line"""
+    return await _upload_line_document(tx_id, expense_id, "expense", file, description, db, user)
 
 
 @router.post("/{tx_id}/incomes/{income_id}/document")
@@ -264,48 +273,21 @@ async def upload_income_document(
     db: DBSessionDep = None,
     user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
-    """Upload a document for an income"""
-    import asyncio
-    
-    # Verify transaction and income exist
-    service = UnforeseenTransactionService(db)
-    tx = await service.get_by_id(tx_id)
-    if not tx:
-        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
-    
-    income = await service.repo.get_income_by_id(income_id)
-    if not income or income.unforeseen_transaction_id != tx_id:
-        raise HTTPException(status_code=404, detail="הכנסה לא נמצאה")
-    
-    if not settings.AWS_S3_BUCKET:
-        raise HTTPException(
-            status_code=503,
-            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר. הגדר AWS_S3_BUCKET ב-.env להעלאת מסמכים."
-        )
-    # Upload to S3
-    await file.seek(0)
-    s3 = S3Service()
-    file_url = await asyncio.to_thread(
-        s3.upload_file,
-        prefix="unforeseen-transactions",
-        file_obj=file.file,
-        filename=file.filename or "income-document",
-        content_type=file.content_type,
-    )
-    
-    # Create supplier document
-    doc_repo = SupplierDocumentRepository(db)
-    doc = SupplierDocument(
-        file_path=file_url,
-        description=description,
-        transaction_id=None,
-        unforeseen_transaction_income_id=income_id,
-    )
-    doc = await doc_repo.create(doc)
-    
-    return {
-        "id": doc.id,
-        "file_path": doc.file_path,
-        "description": doc.description,
-        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
-    }
+    """Upload a document for an income line"""
+    return await _upload_line_document(tx_id, income_id, "income", file, description, db, user)
+
+
+@router.post("/{tx_id}/lines/{line_id}/document")
+async def upload_line_document(
+    tx_id: int,
+    line_id: int,
+    line_type: str = Query(..., description="'expense' or 'income'"),
+    file: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    db: DBSessionDep = None,
+    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
+):
+    """Upload a document for a transaction line (unified endpoint)"""
+    if line_type not in ("expense", "income"):
+        raise HTTPException(status_code=400, detail="line_type must be 'expense' or 'income'")
+    return await _upload_line_document(tx_id, line_id, line_type, file, description, db, user)

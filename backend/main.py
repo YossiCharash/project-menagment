@@ -28,8 +28,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # Import all models to ensure Base.metadata is populated
 from backend.models import (  # noqa: F401
     User, Project, Subproject, Transaction, AuditLog,
-    Supplier, SupplierDocument, AdminInvite, EmailVerification,
-    RecurringTransactionTemplate, MemberInvite, Task, TaskAttachment, TaskMessage,
+    Supplier, Document, Invite, EmailVerification,
+    RecurringTransactionTemplate, Task, TaskAttachment, TaskMessage,
     UserNotification,
 )
 from backend.db import base_models  # noqa: F401

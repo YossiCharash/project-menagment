@@ -68,7 +68,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const PROJECT_ROLE_LABELS: Record<string, string> = {
   ProjectManager: 'מנהל פרויקט',
-  ProjectContributor: 'תורם',
+  ProjectContributor: 'משתמש',
   ProjectViewer: 'צופה',
 }
 
@@ -714,6 +714,10 @@ export default function UserPermissions() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('project-roles')
+  const [editingGlobalRole, setEditingGlobalRole] = useState(false)
+  const [newGlobalRole, setNewGlobalRole] = useState('')
+  const [savingRole, setSavingRole] = useState(false)
+  const [roleError, setRoleError] = useState<string | null>(null)
 
   const uid = Number(userId)
 
@@ -754,6 +758,21 @@ export default function UserPermissions() {
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
+
+  const handleGlobalRoleChange = async () => {
+    if (!newGlobalRole) return
+    setSavingRole(true)
+    setRoleError(null)
+    try {
+      await api.put(`/users/${uid}`, { role: newGlobalRole })
+      setEditingGlobalRole(false)
+      await fetchAll()
+    } catch (err: any) {
+      setRoleError(err.response?.data?.detail || err.message || 'שגיאה בשמירת תפקיד')
+    } finally {
+      setSavingRole(false)
+    }
+  }
 
   // ── Guards ────────────────────────────────────────────────────────────────
 
@@ -835,10 +854,52 @@ export default function UserPermissions() {
                   <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                     {user.full_name}
                   </h1>
-                  {/* Role badge */}
-                  <span className={`px-3 py-0.5 rounded-full text-xs font-bold ${roleBadgeClasses(user.role)}`}>
-                    {labelFor(GLOBAL_ROLE_LABELS, iamData.global_role ?? user.role)}
-                  </span>
+                  {/* Role badge with inline edit */}
+                  {editingGlobalRole ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={newGlobalRole}
+                        onChange={(e) => setNewGlobalRole(e.target.value)}
+                        className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                      >
+                        <option value="Admin">מנהל מערכת</option>
+                        <option value="Member">משתמש</option>
+                        <option value="SuperAdmin">סופר אדמין</option>
+                      </select>
+                      <button
+                        onClick={handleGlobalRoleChange}
+                        disabled={savingRole}
+                        className="px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {savingRole ? <Spinner /> : 'שמור'}
+                      </button>
+                      <button
+                        onClick={() => setEditingGlobalRole(false)}
+                        className="px-2.5 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-bold ${roleBadgeClasses(user.role)}`}>
+                        {labelFor(GLOBAL_ROLE_LABELS, iamData.global_role ?? user.role)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setNewGlobalRole(iamData.global_role ?? user.role)
+                          setEditingGlobalRole(true)
+                        }}
+                        className="px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:border-blue-400 transition-all duration-150"
+                        title="ערוך תפקיד גלובלי"
+                      >
+                        ערוך תפקיד
+                      </button>
+                    </div>
+                  )}
+                  {roleError && (
+                    <span className="text-xs text-red-600 dark:text-red-400">{roleError}</span>
+                  )}
                   {/* Active status */}
                   <span className="flex items-center gap-1.5 text-sm">
                     <span className={`inline-block w-2 h-2 rounded-full ${user.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
