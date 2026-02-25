@@ -346,18 +346,25 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
           }
         }
         
+        // All uploads failed — rollback the transaction so it is never persisted
+        if (successCount === 0 && errorCount > 0) {
+          try {
+            await api.post(`/transactions/${newTransactionId}/rollback`)
+          } catch (_rollbackErr: any) {
+            // Rollback best-effort; transaction may have documents from a race condition
+          }
+          setError('העסקה בוטלה: לא ניתן היה להעלות את המסמכים')
+          return
+        }
+
         if (successCount > 0 && uploadedDocs.length > 0) {
           setUploadedDocuments(uploadedDocs)
           setSelectedTransactionForDocuments({ id: newTransactionId })
           setShowDescriptionModal(true)
         }
-        
+
         if (errorCount > 0) {
-          if (successCount > 0) {
-            alert(`הועלו ${successCount} מסמכים, ${errorCount} נכשלו`)
-          } else {
-            alert(`שגיאה בהעלאת המסמכים`)
-          }
+          alert(`הועלו ${successCount} מסמכים, ${errorCount} נכשלו`)
         }
       } catch (err: any) {
         alert('העסקה נוצרה בהצלחה אך הייתה שגיאה בהעלאת חלק מהמסמכים')
