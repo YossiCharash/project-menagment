@@ -258,7 +258,7 @@ async def upload_expense_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Upload a document for an expense line"""
     return await _upload_line_document(tx_id, expense_id, "expense", file, description, db, user)
@@ -271,7 +271,7 @@ async def upload_income_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Upload a document for an income line"""
     return await _upload_line_document(tx_id, income_id, "income", file, description, db, user)
@@ -285,7 +285,7 @@ async def upload_line_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     db: DBSessionDep = None,
-    user = Depends(require_permission("update", "transaction", resource_id_param="tx_id", project_id_param=None))
+    user = Depends(require_permission("write", "transaction", resource_id_param="tx_id", project_id_param=None))
 ):
     """Upload a document for a transaction line (unified endpoint)"""
     if line_type not in ("expense", "income"):
