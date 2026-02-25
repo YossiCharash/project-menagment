@@ -340,7 +340,7 @@ async def upload_supplier_document(
     )
 
     # Create document linked to transaction
-    doc = Document(entity_type="transaction", entity_id=tx_id, file_path=file_url)
+    doc = Document(entity_type="transaction", entity_id=tx_id, file_path=file_url, source_table="transaction", source_id=tx_id)
     await DocumentRepository(db).create(doc)
 
     return {
@@ -518,7 +518,7 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
 
 
 @router.post("/{tx_id}/rollback")
-async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_permission("delete", "transaction", resource_id_param="tx_id"))):
+async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(get_current_user)):
     """Rollback a transaction created by the current user with no documents (e.g. group transaction when document upload failed)."""
     repo = TransactionRepository(db)
     tx = await repo.get_by_id(tx_id)
