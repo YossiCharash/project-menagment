@@ -213,8 +213,13 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
 
 
 @router.post("/{tx_id}/upload", response_model=TransactionOut)
-async def upload_receipt(tx_id: int, db: DBSessionDep, file: UploadFile = File(...), user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))):
-    """Upload receipt for transaction - accessible to all authenticated users"""
+async def upload_receipt(
+    tx_id: int,
+    db: DBSessionDep,
+    file: UploadFile = File(...),
+    user=Depends(require_permission("write", "transaction", resource_id_param="tx_id")),
+):
+    """Upload receipt for transaction - allowed to anyone who can write transactions"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -293,9 +298,13 @@ async def update_transaction_document(
 
 
 @router.post("/{tx_id}/supplier-document", response_model=dict)
-async def upload_supplier_document(tx_id: int, db: DBSessionDep, file: UploadFile = File(...),
-                                   user=Depends(require_permission("update", "transaction", resource_id_param="tx_id"))):
-    """Upload document for transaction - accessible to all authenticated users"""
+async def upload_supplier_document(
+    tx_id: int,
+    db: DBSessionDep,
+    file: UploadFile = File(...),
+    user=Depends(require_permission("write", "transaction", resource_id_param="tx_id")),
+):
+    """Upload document for transaction - allowed to anyone who can write transactions"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")

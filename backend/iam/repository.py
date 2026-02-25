@@ -289,7 +289,7 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
                 return wildcard_result
 
             # 2. Check project-level role policies
-            project_id = self._resolve_project_id(domain, resource_id)
+            project_id = await self._resolve_project_id(domain, resource_type, resource_id)
             if project_id is not None:
                 project_result = await self._check_project_role(
                     user_id, action, resource_type, project_id
@@ -416,14 +416,37 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
         )
         return action in allowed_actions
 
-    @staticmethod
-    def _resolve_project_id(
-        domain: str | None, resource_id: int | str | None
+    async def _resolve_project_id(
+        self,
+        domain: str | None,
+        resource_type: str,
+        resource_id: int | str | None,
     ) -> int | None:
-        """Extract a project_id from domain string if available."""
+        """Resolve project_id either from explicit domain or by looking up the resource.
+
+        Today we only support resolving from the domain string (when provided)
+        and from a transaction's project_id when the resource_type is "transaction".
+        """
+        # Preferred: explicit domain (usually taken from project_id path/query param)
         if domain is not None:
             try:
                 return int(domain)
             except (ValueError, TypeError):
                 return None
+
+        # Fallback: infer project_id from the resource itself for known resource types
+        if resource_type == ResourceType.TRANSACTION.value and resource_id is not None:
+            from backend.models.transaction import Transaction
+
+            try:
+                tx_id = int(resource_id)
+            except (ValueError, TypeError):
+                return None
+
+            result = await self._db.execute(
+                select(Transaction.project_id).where(Transaction.id == tx_id)
+            )
+            project_id = result.scalar_one_or_none()
+            return project_id
+
         return None
