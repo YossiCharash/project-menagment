@@ -217,9 +217,9 @@ async def upload_receipt(
     tx_id: int,
     db: DBSessionDep,
     file: UploadFile = File(...),
-    user=Depends(require_permission("write", "transaction", resource_id_param="tx_id")),
+    user=Depends(require_permission("read", "transaction", resource_id_param="tx_id")),
 ):
-    """Upload receipt for transaction - allowed to anyone who can write transactions"""
+    """Upload receipt for transaction - allowed to anyone who can read transactions"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -302,9 +302,9 @@ async def upload_supplier_document(
     tx_id: int,
     db: DBSessionDep,
     file: UploadFile = File(...),
-    user=Depends(require_permission("write", "transaction", resource_id_param="tx_id")),
+    user=Depends(require_permission("read", "transaction", resource_id_param="tx_id")),
 ):
-    """Upload document for transaction - allowed to anyone who can write transactions"""
+    """Upload document for transaction - allowed to anyone who can read transactions"""
     tx = await TransactionRepository(db).get_by_id(tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
