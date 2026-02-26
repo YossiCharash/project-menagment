@@ -969,9 +969,42 @@ export class QuoteSubjectsAPI {
 }
 
 // --- Quote Projects (הצעות מחיר) ---
-export interface QuoteLine {
+export type QuoteCalculationMethod = 'by_residents' | 'by_apartment_size'
+
+export interface QuoteApartment {
+  id: number
+  quote_building_id: number
+  size_sqm: number
+  sort_order: number
+  created_at: string
+}
+
+export interface QuoteBuilding {
   id: number
   quote_project_id: number
+  address: string | null
+  num_residents: number | null
+  calculation_method: QuoteCalculationMethod
+  sort_order: number
+  created_at: string
+  updated_at: string
+  quote_lines: QuoteLine[]
+  quote_apartments: QuoteApartment[]
+}
+
+export interface QuoteSubjectInfo {
+  id: number
+  address: string | null
+  num_apartments: number | null
+  num_buildings: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteLine {
+  id: number
+  quote_project_id: number | null
   quote_structure_item_id: number
   quote_structure_item_name: string
   amount: number | null
@@ -985,6 +1018,7 @@ export interface QuoteProject {
   description: string | null
   parent_id: number | null
   project_id: number | null
+  quote_subject_id: number | null
   expected_start_date: string | null
   expected_income: number | null
   expected_expenses: number | null
@@ -994,11 +1028,14 @@ export interface QuoteProject {
   created_at: string
   updated_at: string
   quote_lines: QuoteLine[]
+  quote_buildings: QuoteBuilding[]
+  quote_subject: QuoteSubjectInfo | null
   children_count: number
 }
 
 export interface QuoteProjectCreate {
   name: string
+  quote_subject_id: number
   description?: string | null
   parent_id?: number | null
   project_id?: number | null
@@ -1021,6 +1058,21 @@ export interface QuoteProjectUpdate {
 export interface QuoteLineCreate {
   quote_structure_item_id: number
   amount?: number | null
+  sort_order?: number
+  quote_building_id?: number | null
+}
+
+export interface QuoteBuildingCreate {
+  address?: string | null
+  num_residents?: number | null
+  calculation_method?: QuoteCalculationMethod
+  sort_order?: number
+}
+
+export interface QuoteBuildingUpdate {
+  address?: string | null
+  num_residents?: number | null
+  calculation_method?: QuoteCalculationMethod
   sort_order?: number
 }
 
@@ -1085,5 +1137,28 @@ export class QuoteProjectsAPI {
 
   static async deleteLine(quoteProjectId: number, lineId: number): Promise<void> {
     await api.delete(`/quote-projects/${quoteProjectId}/lines/${lineId}`)
+  }
+
+  static async addBuilding(quoteProjectId: number, payload: QuoteBuildingCreate): Promise<QuoteBuilding> {
+    const { data } = await api.post<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings`, payload)
+    return data
+  }
+
+  static async updateBuilding(quoteProjectId: number, buildingId: number, payload: QuoteBuildingUpdate): Promise<QuoteBuilding> {
+    const { data } = await api.put<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`, payload)
+    return data
+  }
+
+  static async deleteBuilding(quoteProjectId: number, buildingId: number): Promise<void> {
+    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}`)
+  }
+
+  static async addApartmentsBulk(quoteProjectId: number, buildingId: number, payload: { count: number; size_sqm: number }): Promise<QuoteBuilding> {
+    const { data } = await api.post<QuoteBuilding>(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/bulk`, payload)
+    return data
+  }
+
+  static async deleteApartment(quoteProjectId: number, buildingId: number, apartmentId: number): Promise<void> {
+    await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`)
   }
 }

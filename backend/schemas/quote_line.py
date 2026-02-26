@@ -17,6 +17,7 @@ class QuoteLineCreate(BaseModel):
     quote_structure_item_id: int
     amount: float | None = None
     sort_order: int = 0
+    quote_building_id: int | None = None
 
 
 class QuoteLineUpdate(BaseModel):

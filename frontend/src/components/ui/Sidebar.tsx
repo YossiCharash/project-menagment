@@ -64,12 +64,6 @@ const getNavigationItems = (userRole?: string) => {
       href: '/task-management',
       icon: ClipboardList,
       description: 'לוח, יומן, משימות והודעות'
-    },
-    {
-      name: 'מדריך למשתמש',
-      href: '/guide',
-      icon: BookOpen,
-      description: 'הסבר על כל פונקציות המערכת'
     }
   ]
 
@@ -134,8 +128,19 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.2 }}
+                className="flex items-center gap-2"
               >
                 <Logo size="lg" showText={true} />
+                <a
+                  href="/guide"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="פתח מדריך למשתמש"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-colors whitespace-nowrap"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  מדריך
+                </a>
               </motion.div>
             ) : (
               <motion.div
@@ -143,12 +148,22 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
+                className="flex flex-col items-center gap-1"
               >
                 <Logo size="lg" showText={false} collapsed={true} />
+                <a
+                  href="/guide"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="פתח מדריך למשתמש"
+                  className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                </a>
               </motion.div>
             )}
           </AnimatePresence>
-          
+
           <button
             onClick={onToggle}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -286,7 +301,19 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
           >
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
-                <Logo size="lg" showText={true} />
+                <div className="flex items-center gap-2">
+                  <Logo size="lg" showText={true} />
+                  <a
+                    href="/guide"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="פתח מדריך למשתמש"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-colors whitespace-nowrap"
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    מדריך
+                  </a>
+                </div>
                 <button
                   onClick={onClose}
                   className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
