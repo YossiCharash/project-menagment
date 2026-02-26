@@ -87,6 +87,9 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
   const [pendingPayload, setPendingPayload] = useState<TransactionCreate | null>(null)
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{id: number, fileName: string, description: string}>>([])
   const [selectedTransactionForDocuments, setSelectedTransactionForDocuments] = useState<any | null>(null)
+  const [failedUploadNames, setFailedUploadNames] = useState<string[]>([])
+  const [additionalFilesToUpload, setAdditionalFilesToUpload] = useState<File[]>([])
+  const [descriptionError, setDescriptionError] = useState<string | null>(null)
   const [availableCategories, setAvailableCategories] = useState<Category[]>([])
 
   useEffect(() => {
@@ -312,6 +315,9 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
     setPendingPayload(null)
     setUploadedDocuments([])
     setSelectedTransactionForDocuments(null)
+    setFailedUploadNames([])
+    setAdditionalFilesToUpload([])
+    setDescriptionError(null)
   }
 
   const handleTransactionSuccess = async (transactionData: any) => {
@@ -321,9 +327,9 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
     if (filesToUpload.length > 0 && newTransactionId) {
       try {
         let successCount = 0
-        let errorCount = 0
+        const failedNames: string[] = []
         const uploadedDocs: Array<{id: number, fileName: string, description: string}> = []
-        
+
         for (let i = 0; i < filesToUpload.length; i++) {
           const file = filesToUpload[i]
           try {
@@ -332,7 +338,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
             const uploadResponse = await api.post(`/transactions/${newTransactionId}/supplier-document`, formData, {
               headers: { 'Content-Type': 'multipart/form-data' }
             })
-            
             if (uploadResponse.data && uploadResponse.data.id) {
               successCount++
               uploadedDocs.push({
@@ -342,32 +347,30 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
               })
             }
           } catch (err: any) {
-            errorCount++
+            failedNames.push(file.name)
           }
         }
-        
-        // All uploads failed — rollback the transaction so it is never persisted
-        if (successCount === 0 && errorCount > 0) {
+
+        // All uploads failed — rollback transaction so it is never persisted
+        if (successCount === 0 && failedNames.length > 0) {
           try {
             await api.post(`/transactions/${newTransactionId}/rollback`)
           } catch (_rollbackErr: any) {
-            // Rollback best-effort; transaction may have documents from a race condition
+            // Rollback best-effort
           }
-          setError('העסקה בוטלה: לא ניתן היה להעלות את המסמכים')
+          setError('העסקה בוטלה: לא ניתן היה להעלות את המסמכים. אנא נסה שנית.')
           return
         }
 
-        if (successCount > 0 && uploadedDocs.length > 0) {
-          setUploadedDocuments(uploadedDocs)
-          setSelectedTransactionForDocuments({ id: newTransactionId })
-          setShowDescriptionModal(true)
+        // Open description modal (with failed-uploads list if partial)
+        setUploadedDocuments(uploadedDocs)
+        setSelectedTransactionForDocuments({ id: newTransactionId })
+        if (failedNames.length > 0) {
+          setFailedUploadNames(failedNames)
         }
-
-        if (errorCount > 0) {
-          alert(`הועלו ${successCount} מסמכים, ${errorCount} נכשלו`)
-        }
+        setShowDescriptionModal(true)
       } catch (err: any) {
-        alert('העסקה נוצרה בהצלחה אך הייתה שגיאה בהעלאת חלק מהמסמכים')
+        setError('העסקה נוצרה אך הייתה שגיאה בהעלאת המסמכים')
       }
     }
 
@@ -685,11 +688,11 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
           
           if (errorCount > 0) {
             if (successCount === 0) {
-              alert(`העסקה המחזורית נוצרה בהצלחה, אך הייתה שגיאה בהעלאת המסמכים`)
+              setError('העסקה המחזורית נוצרה בהצלחה, אך הייתה שגיאה בהעלאת המסמכים')
             }
           }
         } catch (err: any) {
-          alert('העסקה המחזורית נוצרה בהצלחה אך הייתה שגיאה בהעלאת חלק מהמסמכים')
+          setError('העסקה המחזורית נוצרה אך הייתה שגיאה בהעלאת חלק מהמסמכים')
         }
       }
 
@@ -1405,6 +1408,9 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
           onClick={() => {
             setShowDescriptionModal(false)
             setUploadedDocuments([])
+            setFailedUploadNames([])
+            setAdditionalFilesToUpload([])
+            setDescriptionError(null)
             onSuccess()
             onClose()
             resetForms()
@@ -1417,19 +1423,23 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <div>
                 <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
                   הוסף תיאורים למסמכים
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  עסקה #{selectedTransactionForDocuments.id} - {uploadedDocuments.length} מסמכים
+                  עסקה #{selectedTransactionForDocuments.id} — {uploadedDocuments.length} מסמכים הועלו בהצלחה
                 </p>
               </div>
               <button
                 onClick={() => {
                   setShowDescriptionModal(false)
                   setUploadedDocuments([])
+                  setFailedUploadNames([])
+                  setAdditionalFilesToUpload([])
+                  setDescriptionError(null)
                   onSuccess()
                   onClose()
                   resetForms()
@@ -1443,6 +1453,30 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
             </div>
 
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+              {/* Inline error */}
+              {descriptionError && (
+                <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm p-3 rounded-lg">
+                  {descriptionError}
+                </div>
+              )}
+
+              {/* Failed uploads warning */}
+              {failedUploadNames.length > 0 && (
+                <div className="mb-5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 mb-2">
+                    {failedUploadNames.length === 1
+                      ? 'מסמך אחד לא הצליח להיטען:'
+                      : `${failedUploadNames.length} מסמכים לא הצליחו להיטען:`}
+                  </p>
+                  <ul className="list-disc list-inside space-y-1">
+                    {failedUploadNames.map((name, i) => (
+                      <li key={i} className="text-sm text-amber-600 dark:text-amber-300">{name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Successfully uploaded docs with description inputs */}
               <div className="space-y-4">
                 {uploadedDocuments.map((doc, index) => (
                   <div key={doc.id || index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
@@ -1464,13 +1498,55 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Add more documents */}
+              <div className="mt-5 border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                <label className="flex flex-col items-center gap-2 cursor-pointer text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span className="text-sm font-medium">הוסף מסמכים נוספים</span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || [])
+                      setAdditionalFilesToUpload(prev => [...prev, ...files])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                {additionalFilesToUpload.length > 0 && (
+                  <ul className="mt-3 space-y-1">
+                    {additionalFilesToUpload.map((f, i) => (
+                      <li key={i} className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-3 py-1.5 rounded-md">
+                        <span>{f.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setAdditionalFilesToUpload(prev => prev.filter((_, idx) => idx !== i))}
+                          className="text-gray-400 hover:text-red-500 transition-colors ml-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
 
+            {/* Footer */}
             <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => {
                   setShowDescriptionModal(false)
                   setUploadedDocuments([])
+                  setFailedUploadNames([])
+                  setAdditionalFilesToUpload([])
+                  setDescriptionError(null)
                   onSuccess()
                   onClose()
                   resetForms()
@@ -1481,7 +1557,21 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
               </button>
               <button
                 onClick={async () => {
+                  setDescriptionError(null)
                   try {
+                    // Upload any additional files first
+                    for (const file of additionalFilesToUpload) {
+                      try {
+                        const formData = new FormData()
+                        formData.append('file', file)
+                        await api.post(`/transactions/${selectedTransactionForDocuments.id}/supplier-document`, formData, {
+                          headers: { 'Content-Type': 'multipart/form-data' }
+                        })
+                      } catch (_err: any) {
+                        // Best-effort; continue with remaining files
+                      }
+                    }
+                    // Save descriptions for successfully uploaded docs
                     for (const doc of uploadedDocuments) {
                       if (doc.id > 0) {
                         try {
@@ -1490,24 +1580,26 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                           await api.put(`/transactions/${selectedTransactionForDocuments.id}/documents/${doc.id}`, formData, {
                             headers: { 'Content-Type': 'multipart/form-data' }
                           })
-                        } catch (err: any) {
-                          // Ignore
+                        } catch (_err: any) {
+                          // Ignore individual description save failures
                         }
                       }
                     }
-                    
                     setShowDescriptionModal(false)
                     setUploadedDocuments([])
+                    setFailedUploadNames([])
+                    setAdditionalFilesToUpload([])
+                    setDescriptionError(null)
                     onSuccess()
                     onClose()
                     resetForms()
                   } catch (err: any) {
-                    alert('שגיאה בשמירת התיאורים')
+                    setDescriptionError('שגיאה בשמירת הנתונים, אנא נסה שנית')
                   }
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                שמור תיאורים
+                שמור וסגור
               </button>
             </div>
           </motion.div>

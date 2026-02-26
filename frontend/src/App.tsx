@@ -33,6 +33,7 @@ const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
 const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
+const UserGuide = React.lazy(() => import('./pages/UserGuide'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
@@ -219,6 +220,7 @@ function AppContent() {
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/admin-invites" element={<RequireAuth><AdminInviteManagement /></RequireAuth>} />
               <Route path="/admin-management" element={<RequireAuth><AdminManagement /></RequireAuth>} />
+              <Route path="/guide" element={<RequireAuth><UserGuide /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </Suspense>
