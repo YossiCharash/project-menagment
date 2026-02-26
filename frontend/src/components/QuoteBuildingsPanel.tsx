@@ -88,6 +88,7 @@ export default function QuoteBuildingsPanel({
                     כתובת הבניין
                   </label>
                   <input
+                    key={currentBuilding.id}
                     type="text"
                     defaultValue={currentBuilding.address ?? ''}
                     onBlur={(e) => onSaveAddress(e.target.value.trim() || null)}

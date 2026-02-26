@@ -27,7 +27,10 @@
       "Bash(dir:*)",
       "Bash(node take-missing.js:*)",
       "Bash(node take-final.js:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command \"Select-String -Path ''C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\frontend\\\\src\\\\lib\\\\apiClient.ts'' -Pattern ''addBuilding|QuoteBuilding|quote_buildings'' | Select-Object LineNumber, Line\")",
+      "Bash(powershell -Command \"\\(Get-Content ''C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\frontend\\\\src\\\\lib\\\\apiClient.ts''\\).Length; \\(Get-Content ''C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\frontend\\\\src\\\\lib\\\\apiClient.ts''\\)[-10..-1]\")"
     ]
   },
   "enabledPlugins": {

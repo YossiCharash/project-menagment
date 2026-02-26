@@ -85,6 +85,15 @@ function AppContent() {
   const location = useLocation()
   const dispatch = useDispatch()
   const token = useSelector((s: RootState) => s.auth.token)
+
+  // Guide is a fully standalone page – no sidebar, no header, no auth wrapper
+  if (location.pathname === '/guide') {
+    return (
+      <Suspense fallback={<LoadingOverlay message="טוען..." />}>
+        <UserGuide />
+      </Suspense>
+    )
+  }
   const me = useSelector((s: RootState) => s.auth.me)
   const loading = useSelector((s: RootState) => s.auth.loading)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -220,7 +229,6 @@ function AppContent() {
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/admin-invites" element={<RequireAuth><AdminInviteManagement /></RequireAuth>} />
               <Route path="/admin-management" element={<RequireAuth><AdminManagement /></RequireAuth>} />
-              <Route path="/guide" element={<RequireAuth><UserGuide /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </Suspense>

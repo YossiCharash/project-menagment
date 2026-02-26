@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard,
   FolderOpen,
@@ -177,7 +176,10 @@ function NavPill({ id, label, color }: { id: string; label: string; color: strin
 /* Main page                                                            */
 /* ================================================================== */
 export default function UserGuide() {
-  const navigate = useNavigate()
+  // Standalone page – set document title
+  useEffect(() => {
+    document.title = 'מדריך למשתמש | מערכת ניהול פרויקטים'
+  }, [])
 
   const sections = [
     { id: 'dashboard',      label: 'לוח בקרה',          color: 'bg-blue-500' },
@@ -191,7 +193,8 @@ export default function UserGuide() {
   ]
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-16" dir="rtl">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" dir="rtl">
+    <div className="max-w-4xl mx-auto px-4 py-10 space-y-6 pb-16">
       {/* Hero */}
       <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-8 text-white shadow-xl">
         <div className="flex items-center gap-3 mb-4">
@@ -238,13 +241,13 @@ export default function UserGuide() {
           <Feature icon={Bell}       text="תצוגת התראות ומשימות פתוחות" />
         </div>
 
-        <button
-          onClick={() => navigate('/')}
-          className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור ללוח הבקרה
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -294,13 +297,13 @@ export default function UserGuide() {
           <Feature icon={Calendar}   text="תקופות חוזה ומעקב על פני שנים" />
         </div>
 
-        <button
-          onClick={() => navigate('/projects')}
-          className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/projects"
+          className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור לפרויקטים
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -377,13 +380,13 @@ export default function UserGuide() {
           <Feature icon={Tag}        text="שימוש במבנה הצעה מוגדר מראש מההגדרות" />
         </div>
 
-        <button
-          onClick={() => navigate('/price-quotes')}
-          className="flex items-center gap-2 text-orange-600 dark:text-orange-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/price-quotes"
+          className="inline-flex items-center gap-2 text-orange-600 dark:text-orange-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור להצעות מחיר
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -408,13 +411,13 @@ export default function UserGuide() {
           <Feature icon={Search}     text="סינון לפי תקופה, פרויקט וקטגוריה" />
         </div>
 
-        <button
-          onClick={() => navigate('/reports')}
-          className="flex items-center gap-2 text-pink-600 dark:text-pink-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/reports"
+          className="inline-flex items-center gap-2 text-pink-600 dark:text-pink-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור לדוחות
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -453,13 +456,13 @@ export default function UserGuide() {
           <Step num={4} title="שמור"              desc="המשימה מופיעה בלוח וביומן" />
         </div>
 
-        <button
-          onClick={() => navigate('/task-management')}
-          className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/task-management"
+          className="inline-flex items-center gap-2 text-cyan-600 dark:text-cyan-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור לניהול משימות
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -484,13 +487,13 @@ export default function UserGuide() {
           <Feature icon={Tag}        text="קישור ספקים לקטגוריות ולפרויקטים" />
         </div>
 
-        <button
-          onClick={() => navigate('/suppliers')}
-          className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/suppliers"
+          className="inline-flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור לספקים
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
@@ -517,32 +520,19 @@ export default function UserGuide() {
           <Feature icon={Calendar}  text="הגדרות יומן ו-Google Calendar" />
         </div>
 
-        <button
-          onClick={() => navigate('/settings')}
-          className="flex items-center gap-2 text-gray-600 dark:text-gray-400 text-sm font-medium hover:underline mt-2"
+        <a
+          href="/settings"
+          className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 text-sm font-medium hover:underline mt-2"
         >
           <ExternalLink className="w-4 h-4" />
           עבור להגדרות
-        </button>
+        </a>
       </Section>
 
       {/* ============================================================ */}
       {/* Footer note                                                   */}
       {/* ============================================================ */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-6 text-center">
-        <PlusCircle className="w-8 h-8 text-blue-400 mx-auto mb-3" />
-        <p className="text-sm text-blue-800 dark:text-blue-200 font-medium">
-          להוספת צילומי מסך – הצב קבצי PNG בתיקייה{' '}
-          <code className="bg-blue-100 dark:bg-blue-800 px-2 py-0.5 rounded text-xs">
-            frontend/public/screenshots/
-          </code>
-        </p>
-        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-          שמות הקבצים: dashboard.png, projects-list.png, project-create.png, project-detail.png,
-          transactions-list.png, transaction-create.png, quotes-list.png, quote-detail.png,
-          reports.png, task-kanban.png, task-calendar.png, suppliers.png, settings.png
-        </p>
-      </div>
+    </div>
     </div>
   )
 }
