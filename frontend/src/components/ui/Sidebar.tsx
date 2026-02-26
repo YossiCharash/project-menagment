@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useLocation } from 'react-router-dom'
 import { 
-  LayoutDashboard, 
-  FolderOpen, 
-  BarChart3, 
-  Users, 
-  Settings, 
-  Menu, 
+  LayoutDashboard,
+  FolderOpen,
+  BarChart3,
+  Users,
+  Settings,
+  Menu,
   X,
   ChevronLeft,
   ChevronRight,
@@ -18,7 +18,8 @@ import {
   Activity,
   Receipt,
   ClipboardList,
-  Bell
+  Bell,
+  BookOpen
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { cn } from '../../lib/utils'
@@ -63,6 +64,12 @@ const getNavigationItems = (userRole?: string) => {
       href: '/task-management',
       icon: ClipboardList,
       description: 'לוח, יומן, משימות והודעות'
+    },
+    {
+      name: 'מדריך למשתמש',
+      href: '/guide',
+      icon: BookOpen,
+      description: 'הסבר על כל פונקציות המערכת'
     }
   ]
 
