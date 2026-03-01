@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from backend.db.session import get_db
 from backend.core.security import decode_token
 from backend.repositories.user_repository import UserRepository
 from backend.models.user import UserRole
+from backend.db.tenant_registry import TenantRegistry
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
@@ -116,3 +117,23 @@ async def get_outlook_connect_user_id(
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return int(payload["sub"])
+
+
+async def get_tenant_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency that yields a session bound to the current tenant's database.
+
+    Requires ``TenantMiddleware`` to have set ``request.state.tenant``.
+    """
+    tenant = getattr(request.state, "tenant", None)
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No tenant context",
+        )
+    async with TenantRegistry.get_instance().get_session(tenant.db_name) as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

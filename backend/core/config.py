@@ -37,6 +37,15 @@ class Settings(BaseModel):
             os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms")
         )
     )
+
+    MASTER_DATABASE_URL: str = Field(
+        default=_normalize_database_uri(
+            os.getenv("MASTER_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms_master")
+        )
+    )
+    CEO_EMAIL: str = Field(default=os.getenv("CEO_EMAIL", "ceo@company.com"))
+    CEO_PASSWORD: str = Field(default=os.getenv("CEO_PASSWORD", "CEO_change_me_123!"))
+    CEO_JWT_SECRET: str = Field(default=os.getenv("CEO_JWT_SECRET", "ceo_secret_change_me"))
     JWT_SECRET_KEY: str = Field(default=os.getenv("JWT_SECRET_KEY", "change_me"))
     
     @property
@@ -72,7 +81,7 @@ class Settings(BaseModel):
     @model_validator(mode='after')
     def ensure_dev_origins(self):
         """Ensure localhost dev origins are allowed when using default CORS (e.g. local dev against Render)."""
-        dev_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+        dev_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:5174"]
         for origin in dev_origins:
             if origin not in self.CORS_ORIGINS:
                 self.CORS_ORIGINS.append(origin)

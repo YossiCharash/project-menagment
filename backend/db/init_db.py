@@ -72,6 +72,10 @@ async def init_database(engine: AsyncEngine):
         await _add_assignee_acknowledged_at_to_tasks(engine)
         await _add_task_messages_table(engine)
 
+        # Run migration: drop unique constraint on documents(source_table, source_id)
+        # to allow multiple documents per transaction
+        await _drop_documents_source_unique_constraint(engine)
+
         print("Database initialization completed successfully")
         print("All tables, enums, indexes, and relationships created from SQLAlchemy models")
     except OSError as e:
@@ -312,3 +316,32 @@ async def _add_task_messages_table(engine: AsyncEngine):
                 print("✓ Created task_messages table successfully")
     except Exception as e:
         print(f"Note: Could not add task_messages table (may already exist): {e}")
+
+
+async def _drop_documents_source_unique_constraint(engine: AsyncEngine):
+    """Drop unique constraint on (source_table, source_id) in documents table.
+    Multiple documents per transaction/entity must be allowed."""
+    try:
+        async with engine.begin() as conn:
+            # Find any UNIQUE constraint on the documents table that covers source_table or source_id
+            result = await conn.execute(text("""
+                SELECT DISTINCT tc.constraint_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.constraint_column_usage ccu
+                    ON tc.constraint_name = ccu.constraint_name
+                WHERE tc.table_name = 'documents'
+                  AND tc.constraint_type = 'UNIQUE'
+                  AND ccu.column_name IN ('source_table', 'source_id')
+            """))
+            constraints = result.fetchall()
+            if not constraints:
+                print("✓ No unique constraint on documents(source_table, source_id) — nothing to drop")
+                return
+            for row in constraints:
+                constraint_name = row[0]
+                await conn.execute(text(
+                    f'ALTER TABLE documents DROP CONSTRAINT IF EXISTS "{constraint_name}"'
+                ))
+                print(f"✓ Dropped unique constraint '{constraint_name}' from documents table")
+    except Exception as e:
+        print(f"Note: Could not drop documents unique constraint (may not exist): {e}")

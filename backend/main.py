@@ -45,6 +45,10 @@ from backend.core.schedulers import (
 from backend.db.session import engine
 from backend.db.base import Base
 from backend.db.init_db import init_database
+from backend.db.init_master_db import init_master_database, seed_ceo_credentials
+from backend.db.master_session import master_engine, AsyncMasterSessionLocal
+from backend.core.tenant_middleware import TenantMiddleware
+from backend.api.v1.ceo_router import ceo_router
 
 
 class PreflightCORSMiddleware:
@@ -103,6 +107,10 @@ class PreflightCORSMiddleware:
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     await init_database(engine)
+
+    # Initialize master database (tenants + CEO credentials)
+    await init_master_database(master_engine)
+    await seed_ceo_credentials(AsyncMasterSessionLocal)
 
     from backend.core.seed import create_super_admin
     await create_super_admin()
@@ -226,8 +234,12 @@ def create_app() -> FastAPI:
     from backend.iam.middleware import register_iam_exception_handlers
     register_iam_exception_handlers(app)
 
+    # --- Tenant middleware (after CORS and HTTP middleware) ---
+    app.add_middleware(TenantMiddleware)
+
     # --- Router ---
     app.include_router(api_router, prefix=settings.API_V1_STR)
+    app.include_router(ceo_router, prefix=settings.API_V1_STR)
 
     # --- Static files ---
     if os.path.isabs(settings.FILE_UPLOAD_DIR):

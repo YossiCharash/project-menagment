@@ -1,9 +1,10 @@
 version: '3.9'
 
 services:
-  postgres:
+  # שירות ראשון - גרסה 16
+  postgres-main:
     image: postgres:16-alpine
-    container_name: bms-postgres
+    container_name: bms-postgres-16
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-bms}
@@ -12,13 +13,34 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_16:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # שירות שני - גרסה 15 (Tag שונה)
+  postgres-master:
+    image: postgres:15-alpine
+    container_name: bms-master-15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB_MASTER:-bms-master}
+      POSTGRES_USER: ${POSTGRES_USER_MASTER:-master_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_MASTER:-master_pass}
+    ports:
+      - "5433:5432" # מיפוי פורט חיצוני 5433 לפנימי 5432
+    volumes:
+      - pgdata_15:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER_MASTER:-master_user}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
-  pgdata:
+  pgdata_16:
+    driver: local
+  pgdata_15:
     driver: local
