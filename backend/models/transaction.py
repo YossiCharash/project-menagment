@@ -128,11 +128,11 @@ class Transaction(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)) # לדוגמה, חישוב מתוך שדות קיימים
 
-    # Relationship to documents linked to this transaction
+    # Relationship to documents linked to this transaction via direct FK
     documents: Mapped[list["Document"]] = relationship(
         "Document",
-        primaryjoin="and_(Document.entity_type == 'transaction', Document.entity_id == Transaction.id)",
-        foreign_keys="Document.entity_id",
+        primaryjoin="Document.transaction_id == Transaction.id",
+        foreign_keys="Document.transaction_id",
         viewonly=True,
         lazy="selectin",
     )
