@@ -3,7 +3,7 @@ Database initialization - creates all tables, enums, and indexes.
 All database schema is defined in the SQLAlchemy models in backend/models/
 This file only creates missing tables on first run; it never modifies existing schema.
 
-Schema changes must be applied manually via SQL migration scripts in backend/migrations/.
+Schema changes must be applied via SQL migration scripts in backend/migrations/.
 """
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -47,32 +47,4 @@ async def init_database(engine: AsyncEngine):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # One-time fix: drop UNIQUE constraint on documents(source_table, source_id)
-    # that prevented uploading more than one document per transaction.
-    # Safe to run repeatedly — no-op once the constraint is gone.
-    await _drop_documents_source_unique_constraint(engine)
-
     print("Database initialization completed successfully")
-
-
-async def _drop_documents_source_unique_constraint(engine: AsyncEngine):
-    """Drop the unique index on documents(source_table, source_id) that prevents
-    uploading more than one document per transaction. The index may exist as a
-    UNIQUE INDEX (not a constraint), so we check pg_indexes directly."""
-    try:
-        async with engine.begin() as conn:
-            result = await conn.execute(text("""
-                SELECT indexname FROM pg_indexes
-                WHERE tablename = 'documents'
-                  AND indexdef ILIKE '%UNIQUE%'
-                  AND (indexdef ILIKE '%source_table%' OR indexdef ILIKE '%source_id%')
-            """))
-            indexes = [row[0] for row in result.fetchall()]
-            for name in indexes:
-                await conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
-            if indexes:
-                print(f"✓ Dropped documents unique index(es): {indexes}")
-            else:
-                print("✓ No unique index on documents(source_table, source_id) — already clean")
-    except Exception as e:
-        print(f"Note: could not drop documents unique index: {e}")

@@ -340,7 +340,7 @@ async def upload_supplier_document(
     )
 
     # Create document linked to transaction
-    doc = Document(entity_type="transaction", entity_id=tx_id, file_path=file_url, source_table="transaction", source_id=tx_id)
+    doc = Document(transaction_id=tx_id, entity_type="transaction", entity_id=tx_id, file_path=file_url, source_table="transaction", source_id=tx_id)
     await DocumentRepository(db).create(doc)
 
     return {

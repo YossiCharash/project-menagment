@@ -30,7 +30,10 @@ class DocumentRepository:
         return await self.list_by_entity("supplier", supplier_id)
 
     async def get_by_transaction_id(self, transaction_id: int) -> list[Document]:
-        return await self.list_by_entity("transaction", transaction_id)
+        res = await self.db.execute(
+            select(Document).where(Document.transaction_id == transaction_id)
+        )
+        return list(res.scalars().all())
 
     async def list_by_project(self, project_id: int) -> list[Document]:
         return await self.list_by_entity("project", project_id)
