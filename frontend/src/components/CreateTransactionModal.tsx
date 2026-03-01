@@ -1090,8 +1090,21 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                       </label>
                     </div>
                     {filesToUpload.length > 0 && (
-                      <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                        נבחרו {filesToUpload.length} קבצים
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {filesToUpload.map((file, idx) => (
+                          <div key={idx} className="flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <span className="truncate max-w-[150px]">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFilesToUpload(prev => prev.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 ml-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1350,8 +1363,21 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                       </label>
                     </div>
                     {filesToUpload.length > 0 && (
-                      <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                        נבחרו {filesToUpload.length} קבצים
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {filesToUpload.map((file, idx) => (
+                          <div key={idx} className="flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <span className="truncate max-w-[150px]">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFilesToUpload(prev => prev.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 ml-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">

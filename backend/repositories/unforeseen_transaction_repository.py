@@ -22,7 +22,7 @@ class UnforeseenTransactionRepository:
 
     def _with_lines(self):
         return (
-            selectinload(UnforeseenTransaction.lines),
+            selectinload(UnforeseenTransaction.lines).selectinload(UnforeseenTransactionLine.documents),
             selectinload(UnforeseenTransaction.created_by_user),
         )
 
