@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   QuoteProjectsAPI,
@@ -32,10 +32,8 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [structureItems, setStructureItems] = useState<Array<{ id: number; name: string }>>([])
-  const [selectedStructureId, setSelectedStructureId] = useState<number | null>(null)
-  const [addLineAmount, setAddLineAmount] = useState('')
-  const [editingLineId, setEditingLineId] = useState<number | null>(null)
-  const [editingAmount, setEditingAmount] = useState<string>('')
+  const [selectedStructureIds, setSelectedStructureIds] = useState<Set<number>>(new Set())
+  const [editingAmounts, setEditingAmounts] = useState<Map<number, string>>(new Map())
   const [numResidents, setNumResidents] = useState<string>('')
   const [savingNumResidents, setSavingNumResidents] = useState(false)
   const [approving, setApproving] = useState(false)
@@ -45,7 +43,6 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
   const [editingQuoteName, setEditingQuoteName] = useState(false)
   const [quoteNameInput, setQuoteNameInput] = useState('')
   const [savingQuoteName, setSavingQuoteName] = useState(false)
-  const addLineSelectRef = useRef<HTMLSelectElement>(null)
   /** באותו פרויקט כבר אושרה הצעה אחרת – אז לא להציג כפתור אישור */
   const [projectHasOtherApprovedQuote, setProjectHasOtherApprovedQuote] = useState(false)
   /** טאב בניין נבחר (0-based) */
@@ -126,28 +123,37 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
     }).catch(() => {})
   }, [])
 
-  const handleAddLine = async (structureIdOverride?: number) => {
-    const idToAdd = structureIdOverride ?? selectedStructureId
-    if (!quoteId || idToAdd == null) return
-    const amountVal = addLineAmount.trim() === '' ? null : parseFloat(addLineAmount.trim())
-    const amount = amountVal != null && !isNaN(amountVal) && amountVal >= 0 ? amountVal : null
-    const addedItemName = structureItems.find((i) => i.id === idToAdd)?.name ?? ''
+  const handleAddLines = async () => {
+    const idsToAdd = [...selectedStructureIds]
+    if (!quoteId || idsToAdd.length === 0) return
     try {
-      await QuoteProjectsAPI.addLine(quoteId, {
-        quote_structure_item_id: idToAdd,
-        amount,
-        sort_order: currentLines.length,
-        quote_building_id: currentBuilding?.id ?? undefined,
-      })
+      let sortOrder = currentLines.length
+      for (const id of idsToAdd) {
+        await QuoteProjectsAPI.addLine(quoteId, {
+          quote_structure_item_id: id,
+          amount: null,
+          sort_order: sortOrder++,
+          quote_building_id: currentBuilding?.id ?? undefined,
+        })
+      }
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
-      setSelectedStructureId(null)
-      setAddLineAmount('')
-      setAddSuccessMessage(addedItemName ? `"${addedItemName}" נוסף בהצלחה` : 'הפריט נוסף בהצלחה')
-      setTimeout(() => setAddSuccessMessage(null), 2500)
-      addLineSelectRef.current?.focus()
+      setSelectedStructureIds(new Set())
+      // פתח עריכת סכום לכל שורה שנוספה
+      const addedStructureIds = new Set(idsToAdd)
+      const currentBuildingId = currentBuilding?.id
+      const updatedLines = currentBuildingId
+        ? (updated.quote_buildings?.find((b) => b.id === currentBuildingId)?.quote_lines ?? [])
+        : (updated.quote_lines ?? [])
+      const newAmounts = new Map<number, string>()
+      for (const line of updatedLines) {
+        if (addedStructureIds.has(line.quote_structure_item_id)) {
+          newAmounts.set(line.id, '')
+        }
+      }
+      setEditingAmounts(newAmounts)
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת פריט')
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספת פריטים')
     }
   }
 
@@ -179,7 +185,7 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       await QuoteProjectsAPI.deleteLine(quoteId, lineId)
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
-      setEditingLineId(null)
+      setEditingAmounts(prev => { const next = new Map(prev); next.delete(lineId); return next })
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה במחיקה')
     }
@@ -193,7 +199,7 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
       await QuoteProjectsAPI.updateLine(quoteId, lineId, { amount: amountNum ?? undefined })
       const updated = await QuoteProjectsAPI.get(quoteId)
       setQuote(updated)
-      setEditingLineId(null)
+      setEditingAmounts(prev => { const next = new Map(prev); next.delete(lineId); return next })
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בעדכון')
     }
@@ -481,25 +487,22 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           currentLines={currentLines}
           structureItems={structureItems}
           alreadyAddedIds={alreadyAddedIds}
-          selectedStructureId={selectedStructureId}
-          addLineAmount={addLineAmount}
-          addLineSelectRef={addLineSelectRef}
-          editingLineId={editingLineId}
-          editingAmount={editingAmount}
+          selectedStructureIds={selectedStructureIds}
+          editingAmounts={editingAmounts}
           addSuccessMessage={addSuccessMessage}
           buildingTotal={buildingTotal}
           showNumResidents={currentBuilding?.calculation_method !== 'by_apartment_size'}
           currentNumResidentsStr={currentNumResidentsStr}
           effectiveResidents={effectiveResidents}
           savingNumResidents={savingNumResidents}
-          onAddLine={handleAddLine}
-          onSelectStructureId={setSelectedStructureId}
-          onAddLineAmountChange={setAddLineAmount}
-          onEditLineAmount={(lineId, amount) => {
-            setEditingLineId(lineId)
-            setEditingAmount(amount)
-          }}
-          onCancelEditLine={() => setEditingLineId(null)}
+          onToggleStructureId={(id) => setSelectedStructureIds(prev => {
+            const next = new Set(prev)
+            next.has(id) ? next.delete(id) : next.add(id)
+            return next
+          })}
+          onAddLines={handleAddLines}
+          onEditLineAmount={(lineId, amount) => setEditingAmounts(prev => new Map(prev).set(lineId, amount))}
+          onCancelEditLine={(lineId) => setEditingAmounts(prev => { const next = new Map(prev); next.delete(lineId); return next })}
           onUpdateLineAmount={handleUpdateLineAmount}
           onDeleteLine={handleDeleteLine}
           onNumResidentsChange={setCurrentNumResidentsStr}
