@@ -86,6 +86,9 @@ class TaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     assignee_acknowledged_at: datetime | None = None
+    is_archived: bool = False
+    archived_at: datetime | None = None
+    completed_at: datetime | None = None
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
@@ -94,3 +97,12 @@ class TaskOut(BaseModel):
     attachments: list[TaskAttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+ARCHIVED_PRESET_VALUES = ("last_week", "last_month", "last_3_months")
+
+
+class ArchivedTasksFilter(BaseModel):
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+    preset: str | None = None

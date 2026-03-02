@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import date, datetime, timezone
 import uuid
-from sqlalchemy import String, DateTime, Date, Text, ForeignKey, Table, Column, Integer, UniqueConstraint
+from sqlalchemy import String, DateTime, Date, Text, ForeignKey, Table, Column, Integer, UniqueConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -86,6 +86,9 @@ class Task(Base):
     assignee_acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
     )
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     assigned_user: Mapped["User"] = relationship(
         "User", back_populates="tasks", lazy="selectin"

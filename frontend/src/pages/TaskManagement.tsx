@@ -1,20 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ClipboardList, Calendar, ListTodo, Bell, LayoutGrid } from 'lucide-react'
+import { ClipboardList, Calendar, ListTodo, Bell, LayoutGrid, Archive } from 'lucide-react'
 import { cn } from '../lib/utils'
 import TaskBoard from '../components/task-management/TaskBoard'
 import TaskCalendar from './TaskCalendar'
 import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
+import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
 
-type TabId = 'board' | 'calendar' | 'tasks' | 'messages'
+type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
 
 const TABS: { id: TabId; label: string; icon: typeof LayoutGrid }[] = [
   { id: 'board', label: 'לוח', icon: LayoutGrid },
   { id: 'calendar', label: 'יומן', icon: Calendar },
   { id: 'tasks', label: 'משימות', icon: ListTodo },
   { id: 'messages', label: 'הודעות', icon: Bell },
+  { id: 'archive', label: 'ארכיון', icon: Archive },
 ]
 
 export default function TaskManagement() {
@@ -121,6 +123,17 @@ export default function TaskManagement() {
                 transition={{ duration: 0.2 }}
               >
                 <Notifications embedded />
+              </motion.div>
+            )}
+            {activeTab === 'archive' && (
+              <motion.div
+                key="archive"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ArchivedTasksList />
               </motion.div>
             )}
           </AnimatePresence>
