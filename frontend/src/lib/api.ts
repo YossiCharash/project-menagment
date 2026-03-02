@@ -113,4 +113,23 @@ api.interceptors.response.use(
   }
 )
 
+export type ArchivedTaskPreset = 'last_week' | 'last_month' | 'last_3_months'
+
+export interface ArchivedTasksParams {
+  preset?: ArchivedTaskPreset
+  date_from?: string // ISO string
+  date_to?: string   // ISO string
+  assigned_to_user_id?: number
+}
+
+export async function getArchivedTasks(params: ArchivedTasksParams = {}) {
+  const { data } = await api.get('/tasks/archived', { params })
+  return data
+}
+
+export async function restoreTask(taskId: number) {
+  const { data } = await api.post(`/tasks/${taskId}/restore`)
+  return data
+}
+
 export default api

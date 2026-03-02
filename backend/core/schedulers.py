@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -100,4 +100,48 @@ async def run_contract_renewal_scheduler() -> None:
             return
         except Exception:
             logger.exception("Error in contract renewal scheduler outer loop")
+            await asyncio.sleep(60 * 60)
+
+
+def _seconds_until_midnight() -> float:
+    """Calculate seconds from now until the next midnight (local time)."""
+    now = datetime.now()
+    tomorrow = datetime(now.year, now.month, now.day) + timedelta(days=1)
+    return (tomorrow - now).total_seconds()
+
+
+async def run_task_archive_scheduler() -> None:
+    """Background task that archives completed tasks at midnight each day.
+
+    Tasks with status='completed' whose completed_at is before today
+    are marked as archived. First run after 15s delay, then sleeps
+    until next midnight.
+    """
+    from backend.db.session import AsyncSessionLocal
+    from backend.repositories.task_repository import TaskRepository
+
+    first_run = True
+
+    while True:
+        try:
+            if not first_run:
+                await asyncio.sleep(_seconds_until_midnight())
+            else:
+                first_run = False
+                await asyncio.sleep(15)
+
+            async with AsyncSessionLocal() as db:
+                try:
+                    repo = TaskRepository(db)
+                    count = await repo.archive_completed_tasks()
+                    if count > 0:
+                        logger.info("Archived %d completed tasks", count)
+                except Exception:
+                    logger.exception("Error archiving completed tasks")
+                finally:
+                    await db.close()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Error in task archive scheduler")
             await asyncio.sleep(60 * 60)

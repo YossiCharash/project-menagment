@@ -10,7 +10,7 @@ import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '
 import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { getToken } from '../lib/authCache'
-import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send } from 'lucide-react'
+import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive } from 'lucide-react'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import { cn } from '../lib/utils'
@@ -62,6 +62,9 @@ export interface Task {
   attachments?: TaskAttachmentType[]
   /** תאריך שבו הלקוח/המשתמש המוקצה אישר קבלת המשימה */
   assignee_acknowledged_at?: string | null
+  is_archived?: boolean
+  archived_at?: string | null
+  completed_at?: string | null
 }
 
 export interface TaskAttachmentType {
@@ -197,6 +200,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
   const [loading, setLoading] = useState(true)
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
+  const [includeArchived, setIncludeArchived] = useState(false)
   // On refresh always show today's date in Gregorian (לוח לועזי) — no restore from sessionStorage
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date } | null>(() => {
     const now = new Date()
@@ -330,8 +334,9 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
 
   const fetchTasks = useCallback(async () => {
     try {
-      const params: Record<string, string> = {}
+      const params: Record<string, string | boolean> = {}
       if (filterUserId) params.assigned_to_user_id = String(filterUserId)
+      if (includeArchived) params.include_archived = true
       if (dateRange) {
         // Send local time strings (no timezone) — the backend stores naive datetimes
         // that represent local time. Using toISOString() would send UTC, causing mismatches.
@@ -349,7 +354,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     } finally {
       setLoading(false)
     }
-  }, [filterUserId, dateRange])
+  }, [filterUserId, dateRange, includeArchived])
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -1313,6 +1318,20 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                     אין משתמשים במערכת.
                   </p>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setIncludeArchived(v => !v)}
+                  className={cn(
+                    'mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-all',
+                    includeArchived
+                      ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                      : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
+                  )}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
+                </button>
                 {users.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
                     <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">צבע בלוח לפי עובד</p>
@@ -1390,6 +1409,19 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.completed }} />
                   {TASK_STATUS_LABELS.completed}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setIncludeArchived(v => !v)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border transition-all',
+                    includeArchived
+                      ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                      : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
+                  )}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
+                </button>
               </div>
             )}
             {(() => {

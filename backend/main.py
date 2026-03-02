@@ -41,6 +41,7 @@ from backend.core.exception_handlers import register_exception_handlers
 from backend.core.schedulers import (
     run_recurring_transactions_scheduler,
     run_contract_renewal_scheduler,
+    run_task_archive_scheduler,
 )
 from backend.db.session import engine
 from backend.db.base import Base
@@ -109,6 +110,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(run_recurring_transactions_scheduler())
     asyncio.create_task(run_contract_renewal_scheduler())
+    asyncio.create_task(run_task_archive_scheduler())
 
     yield
 

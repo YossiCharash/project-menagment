@@ -1,6 +1,6 @@
 """Task API endpoints for Task Management Calendar."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 import uuid
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from backend.schemas.task import (
     TaskAttachmentOut,
     TaskMessageOut,
     TaskMessageCreate,
+    ArchivedTasksFilter,
 )
 from backend.schemas.task_label import TaskLabelOut, TaskLabelCreate, TaskLabelUpdate
 from backend.models.task import (
@@ -137,6 +138,9 @@ def _task_to_out(task: Task) -> dict:
         "created_at": task.created_at,
         "updated_at": task.updated_at,
         "assignee_acknowledged_at": getattr(task, "assignee_acknowledged_at", None),
+        "is_archived": getattr(task, "is_archived", False),
+        "archived_at": getattr(task, "archived_at", None),
+        "completed_at": getattr(task, "completed_at", None),
         "assigned_user_name": task.assigned_user.full_name if task.assigned_user else None,
         "assigned_user_color": color,
         "assigned_user_avatar": getattr(task.assigned_user, "avatar_url", None) if task.assigned_user else None,
@@ -153,15 +157,16 @@ async def list_tasks(
         assigned_to_user_id: int | None = Query(None, description="Filter by assigned user ID"),
         start: datetime | None = Query(None, description="Start of date range (ISO)"),
         end: datetime | None = Query(None, description="End of date range (ISO)"),
+        include_archived: bool = Query(False, description="Include archived tasks"),
 ):
     """Fetch tasks. Admin sees all; Member sees tasks they own or are invited to."""
     repo = TaskRepository(db)
     start_naive = _to_naive_utc(start)
     end_naive = _to_naive_utc(end)
     if user.role != "Admin":
-        tasks = await repo.list(for_user_id=user.id, start=start_naive, end=end_naive)
+        tasks = await repo.list(for_user_id=user.id, start=start_naive, end=end_naive, include_archived=include_archived)
     else:
-        tasks = await repo.list(assigned_to_user_id=assigned_to_user_id, start=start_naive, end=end_naive)
+        tasks = await repo.list(assigned_to_user_id=assigned_to_user_id, start=start_naive, end=end_naive, include_archived=include_archived)
     return [_task_to_out(t) for t in tasks]
 
 
@@ -221,6 +226,62 @@ async def delete_task_label(
         raise HTTPException(status_code=404, detail="Label not found")
     await repo.delete(label)
     return None
+
+
+@router.get("/archived", response_model=list[TaskOut])
+async def list_archived_tasks(
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+        date_from: datetime | None = Query(None, description="Start of date range (ISO)"),
+        date_to: datetime | None = Query(None, description="End of date range (ISO)"),
+        preset: str | None = Query(None, description="Preset: last_week, last_month, last_3_months"),
+        assigned_to_user_id: int | None = Query(None, description="Filter by assigned user ID (admin only)"),
+):
+    """List archived tasks with date filters. Admin sees all; Member sees own."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if preset and not date_from:
+        if preset == "last_week":
+            date_from = now - timedelta(days=7)
+        elif preset == "last_month":
+            date_from = now - timedelta(days=30)
+        elif preset == "last_3_months":
+            date_from = now - timedelta(days=90)
+    if date_from and not date_to:
+        date_to = now
+    date_from_naive = _to_naive_utc(date_from)
+    date_to_naive = _to_naive_utc(date_to)
+    repo = TaskRepository(db)
+    if user.role != "Admin":
+        tasks = await repo.list_archived(
+            date_from=date_from_naive, date_to=date_to_naive, for_user_id=user.id
+        )
+    else:
+        tasks = await repo.list_archived(
+            date_from=date_from_naive, date_to=date_to_naive, assigned_to_user_id=assigned_to_user_id
+        )
+    return [_task_to_out(t) for t in tasks]
+
+
+@router.post("/{task_id}/restore", response_model=TaskOut)
+async def restore_task(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+):
+    """Restore an archived task back to active. Admin only."""
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Only admins can restore archived tasks")
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not task.is_archived:
+        raise HTTPException(status_code=400, detail="Task is not archived")
+    task.is_archived = False
+    task.archived_at = None
+    await repo.update(task)
+    updated = await repo.get(task.id)
+    return _task_to_out(updated)
 
 
 def _can_access_task(task: Task, user) -> bool:
@@ -339,17 +400,20 @@ async def create_task(
     if recurrence_rule and recurrence_rule not in ("weekly", "monthly"):
         recurrence_rule = ""
     recurrence_end_date = getattr(data, "recurrence_end_date", None)
+    initial_status = data.status if data.status in ("pending", "in_progress", "completed") else TaskStatus.PENDING
     task = Task(
         title=data.title,
         start_time=start_val,
         end_time=end_val,
         description=data.description,
-        status=(data.status if data.status in ("pending", "in_progress", "completed") else TaskStatus.PENDING),
+        status=initial_status,
         event_type=event_type,
         assigned_to_user_id=data.assigned_to_user_id,
         recurrence_rule=recurrence_rule,
         recurrence_end_date=recurrence_end_date,
     )
+    if initial_status == TaskStatus.COMPLETED:
+        task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     task.unique_tag = generate_unique_tag()
     label_ids = getattr(data, "label_ids", None) or []
     if label_ids:
@@ -409,6 +473,8 @@ async def update_task(
             usr = await user_repo.get_by_id(update_data["assigned_to_user_id"])
             if not usr or not usr.is_active:
                 raise HTTPException(status_code=404, detail="User not found")
+    if "status" in update_data and update_data["status"] == TaskStatus.COMPLETED and task.completed_at is None:
+        task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     label_ids = update_data.pop("label_ids", None)
     participant_ids = update_data.pop("participant_ids", None)
     for k, v in update_data.items():

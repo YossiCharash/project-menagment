@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import api from '../../lib/api'
 import { avatarUrl } from '../../lib/api'
-import { User, RefreshCw, GripVertical, Tag, LayoutGrid } from 'lucide-react'
+import { User, RefreshCw, GripVertical, Tag, LayoutGrid, Archive } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
@@ -50,6 +50,7 @@ export default function TaskBoard() {
   const [loading, setLoading] = useState(true)
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [groupBy, setGroupBy] = useState<'status' | 'label'>('status')
+  const [includeArchived, setIncludeArchived] = useState(false)
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [draggedOverKey, setDraggedOverKey] = useState<string | null>(null)
   const [updatingId, setUpdatingId] = useState<number | null>(null)
@@ -68,8 +69,9 @@ export default function TaskBoard() {
   const fetchTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const params: Record<string, string | number> = {}
+      const params: Record<string, string | number | boolean> = {}
       if (isAdmin && filterUserId) params.assigned_to_user_id = filterUserId
+      if (includeArchived) params.include_archived = true
       const { data } = await api.get<Task[]>('/tasks/', { params })
       setTasks(data)
     } catch {
@@ -77,7 +79,7 @@ export default function TaskBoard() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, filterUserId])
+  }, [isAdmin, filterUserId, includeArchived])
 
   const fetchLabels = useCallback(async () => {
     try {
@@ -259,16 +261,26 @@ export default function TaskBoard() {
           setSelectedTaskId(task.id)
         }}
         className={cn(
-          'group flex items-start gap-2 p-3 rounded-xl border bg-white dark:bg-gray-800 shadow-sm',
-          'cursor-grab active:cursor-grabbing transition-shadow select-none',
+          'group flex items-start gap-2 p-3 rounded-xl border shadow-sm',
+          task.is_archived
+            ? 'bg-amber-50/60 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40 cursor-default opacity-75'
+            : 'bg-white dark:bg-gray-800 cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-blue-400/50',
+          'transition-shadow select-none',
           isDragging && 'opacity-50 shadow-lg',
           isUpdating && 'opacity-70',
-          'hover:ring-2 hover:ring-blue-400/50'
         )}
       >
         <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-gray-900 dark:text-white truncate">{task.title}</p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="font-medium text-gray-900 dark:text-white truncate">{task.title}</p>
+            {task.is_archived && (
+              <span className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-200 dark:bg-amber-800/50 text-amber-800 dark:text-amber-300">
+                <Archive className="w-2.5 h-2.5" />
+                ארכיון
+              </span>
+            )}
+          </div>
           {/* labels pills */}
           {(task.labels?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
@@ -369,6 +381,21 @@ export default function TaskBoard() {
             </select>
           </div>
         )}
+
+        {/* Archive toggle */}
+        <button
+          type="button"
+          onClick={() => setIncludeArchived((v) => !v)}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border transition-all',
+            includeArchived
+              ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+              : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
+          )}
+        >
+          <Archive className="w-3.5 h-3.5" />
+          {includeArchived ? 'מוסתר ארכיון' : 'הצג ארכיון'}
+        </button>
       </div>
 
       {/* ── Status board ────────────────────────────────────────────────────── */}
