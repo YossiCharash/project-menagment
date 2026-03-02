@@ -236,6 +236,7 @@ async def _upload_line_document(
 
     doc_repo = DocumentRepository(db)
     doc = Document(
+        unforeseen_transaction_line_id=line_id,
         entity_type=entity_type,
         entity_id=line_id,
         file_path=file_url,
