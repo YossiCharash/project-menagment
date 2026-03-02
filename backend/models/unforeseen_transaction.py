@@ -78,12 +78,11 @@ class UnforeseenTransactionLine(Base):
     amount: Mapped[float] = mapped_column(Numeric(14, 2))
     description: Mapped[str | None] = mapped_column(Text, default=None)
 
-    # Documents for this line (link is on documents.entity_id + entity_type='unforeseen_expense'/'unforeseen_income')
+    # Documents for this line via direct FK
     documents: Mapped[list["Document"]] = relationship(
         "Document",
-        primaryjoin="and_(Document.entity_id == UnforeseenTransactionLine.id, "
-                    "Document.entity_type.in_(['unforeseen_expense', 'unforeseen_income']))",
-        foreign_keys="Document.entity_id",
+        primaryjoin="Document.unforeseen_transaction_line_id == UnforeseenTransactionLine.id",
+        foreign_keys="Document.unforeseen_transaction_line_id",
         lazy="selectin",
         viewonly=True,
     )

@@ -28,3 +28,11 @@ class Document(Base):
         index=True,
         default=None,
     )
+
+    # Direct FK to unforeseen_transaction_lines table (nullable for non-unforeseen documents)
+    unforeseen_transaction_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("unforeseen_transaction_lines.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        default=None,
+    )
