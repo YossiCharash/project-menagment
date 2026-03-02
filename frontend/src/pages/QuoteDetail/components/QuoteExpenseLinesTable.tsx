@@ -1,5 +1,5 @@
-import React, { RefObject } from 'react'
-import { CheckCircle, Pencil, Trash2, X } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { CheckCircle, ChevronDown, Pencil, Trash2, X } from 'lucide-react'
 import type { QuoteLine } from '../../../lib/apiClient'
 
 export interface QuoteExpenseLinesTableProps {
@@ -7,22 +7,18 @@ export interface QuoteExpenseLinesTableProps {
   currentLines: QuoteLine[]
   structureItems: Array<{ id: number; name: string }>
   alreadyAddedIds: Set<number>
-  selectedStructureId: number | null
-  addLineAmount: string
-  addLineSelectRef: RefObject<HTMLSelectElement | null>
-  editingLineId: number | null
-  editingAmount: string
+  selectedStructureIds: Set<number>
+  editingAmounts: Map<number, string>
   addSuccessMessage: string | null
   buildingTotal: number
   showNumResidents: boolean
   currentNumResidentsStr: string
   effectiveResidents: number
   savingNumResidents: boolean
-  onAddLine: (structureIdOverride?: number) => void
-  onSelectStructureId: (id: number | null) => void
-  onAddLineAmountChange: (value: string) => void
+  onToggleStructureId: (id: number) => void
+  onAddLines: () => void
   onEditLineAmount: (lineId: number, amount: string) => void
-  onCancelEditLine: () => void
+  onCancelEditLine: (lineId: number) => void
   onUpdateLineAmount: (lineId: number, amountStr: string) => void
   onDeleteLine: (lineId: number) => void
   onNumResidentsChange: (value: string) => void
@@ -34,20 +30,16 @@ export default function QuoteExpenseLinesTable({
   currentLines,
   structureItems,
   alreadyAddedIds,
-  selectedStructureId,
-  addLineAmount,
-  addLineSelectRef,
-  editingLineId,
-  editingAmount,
+  selectedStructureIds,
+  editingAmounts,
   addSuccessMessage,
   buildingTotal,
   showNumResidents,
   currentNumResidentsStr,
   effectiveResidents,
   savingNumResidents,
-  onAddLine,
-  onSelectStructureId,
-  onAddLineAmountChange,
+  onToggleStructureId,
+  onAddLines,
   onEditLineAmount,
   onCancelEditLine,
   onUpdateLineAmount,
@@ -55,7 +47,23 @@ export default function QuoteExpenseLinesTable({
   onNumResidentsChange,
   onNumResidentsBlur,
 }: QuoteExpenseLinesTableProps) {
+  const availableItems = structureItems.filter((item) => !alreadyAddedIds.has(item.id))
   const colSpan = isDraft ? 3 : 2
+
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [dropdownOpen])
+
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
       <table className="w-full text-sm">
@@ -70,45 +78,54 @@ export default function QuoteExpenseLinesTable({
           {isDraft && (
             <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
               <td colSpan={colSpan} className="py-3 px-4">
-                <div className="flex flex-wrap items-end gap-3">
-                  <select
-                    ref={addLineSelectRef}
-                    value={selectedStructureId ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      if (val) {
-                        onAddLine(parseInt(val, 10))
-                      } else {
-                        onSelectStructureId(null)
-                      }
-                    }}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="">בחר פריט להוספה...</option>
-                    {structureItems
-                      .filter((item) => !alreadyAddedIds.has(item.id))
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                  </select>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={addLineAmount}
-                      onChange={(e) => onAddLineAmountChange(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          selectedStructureId != null && onAddLine()
-                        }
-                      }}
-                      placeholder="סכום לחיוב (₪) – אופציונלי"
-                      className="w-40 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <span className="text-xs text-gray-500">בחר קטגוריה ותווסף מיד. סכום ריק = ניתן לערוך אחר כך</span>
+                <div className="flex items-center gap-2" ref={dropdownRef} style={{position: 'relative'}}>
+                  {availableItems.length > 0 ? (
+                    <>
+                      {/* Trigger button */}
+                      <button
+                        type="button"
+                        onClick={() => setDropdownOpen(o => !o)}
+                        className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-[180px] justify-between"
+                      >
+                        <span>
+                          {selectedStructureIds.size > 0 ? `${selectedStructureIds.size} קטגוריות נבחרו` : 'בחר קטגוריות'}
+                        </span>
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      </button>
+
+                      {/* Add button — always visible */}
+                      <button
+                        type="button"
+                        onClick={onAddLines}
+                        disabled={selectedStructureIds.size === 0}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                      >
+                        {selectedStructureIds.size > 0 ? `הוסף ${selectedStructureIds.size} קטגוריות` : 'הוסף'}
+                      </button>
+
+                      {/* Dropdown panel */}
+                      {dropdownOpen && (
+                        <div className="absolute top-full mt-1 right-0 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl shadow-lg min-w-[220px] py-1 max-h-56 overflow-y-auto">
+                          {availableItems.map((item) => (
+                            <label
+                              key={item.id}
+                              className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedStructureIds.has(item.id)}
+                                onChange={() => onToggleStructureId(item.id)}
+                                className="accent-blue-600"
+                              />
+                              <span className="text-sm text-gray-900 dark:text-white">{item.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">כל הקטגוריות כבר נוספו</span>
+                  )}
                 </div>
               </td>
             </tr>
@@ -135,19 +152,20 @@ export default function QuoteExpenseLinesTable({
                   {line.quote_structure_item_name}
                 </td>
                 <td className="py-2.5 px-4 text-right tabular-nums text-gray-900 dark:text-white">
-                  {isDraft && editingLineId === line.id ? (
+                  {isDraft && editingAmounts.has(line.id) ? (
                     <div className="flex items-center justify-end gap-1">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={editingAmount}
+                        autoFocus
+                        value={editingAmounts.get(line.id) ?? ''}
                         onChange={(e) => onEditLineAmount(line.id, e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && onUpdateLineAmount(line.id, editingAmount)}
+                        onKeyDown={(e) => e.key === 'Enter' && onUpdateLineAmount(line.id, editingAmounts.get(line.id) ?? '')}
                         className="w-24 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
-                      <button type="button" onClick={() => onUpdateLineAmount(line.id, editingAmount)} className="p-1 text-green-600"><CheckCircle className="w-4 h-4" /></button>
-                      <button type="button" onClick={onCancelEditLine} className="p-1 text-gray-500"><X className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => onUpdateLineAmount(line.id, editingAmounts.get(line.id) ?? '')} className="p-1 text-green-600"><CheckCircle className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => onCancelEditLine(line.id)} className="p-1 text-gray-500"><X className="w-4 h-4" /></button>
                     </div>
                   ) : (
                     <span
@@ -160,7 +178,7 @@ export default function QuoteExpenseLinesTable({
                 </td>
                 {isDraft && (
                   <td className="py-2.5 px-2">
-                    {editingLineId !== line.id && (
+                    {!editingAmounts.has(line.id) && (
                       <div className="flex gap-0.5">
                         <button type="button" onClick={() => onEditLineAmount(line.id, line.amount != null ? String(line.amount) : '')} className="p-1.5 text-gray-400 hover:text-gray-600 rounded" title="ערוך"><Pencil className="w-4 h-4" /></button>
                         <button type="button" onClick={() => onDeleteLine(line.id)} className="p-1.5 text-red-500 hover:text-red-600 rounded" title="מחק"><Trash2 className="w-4 h-4" /></button>

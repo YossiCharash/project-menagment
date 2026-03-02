@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowRight, ArrowLeft, Plus, Trash2, Building2 } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Plus, Trash2, Building2, ChevronDown } from 'lucide-react'
 import { QuoteProjectsAPI, QuoteSubjectsAPI, QuoteStructureAPI } from '../lib/apiClient'
 import type { QuoteSubject, QuoteCalculationMethod } from '../lib/apiClient'
 import type { CreateSubjectInput } from '../components/QuoteViewModal'
@@ -79,8 +79,9 @@ export default function CreateQuotePage() {
   const [structureItems, setStructureItems] = useState<{ id: number; name: string }[]>([])
   const [buildingLines, setBuildingLines] = useState<LineInput[][]>([[]])
   const [activeBuildingTab, setActiveBuildingTab] = useState(0)
-  const [addLineItemId, setAddLineItemId] = useState<number | null>(null)
-  const [addLineAmount, setAddLineAmount] = useState('')
+  const [addLineItemIds, setAddLineItemIds] = useState<Set<number>>(new Set())
+  const [addLineDropdownOpen, setAddLineDropdownOpen] = useState(false)
+  const addLineDropdownRef = useRef<HTMLDivElement>(null)
 
   // ── global ──
   const [createError, setCreateError] = useState<string | null>(null)
@@ -109,6 +110,17 @@ export default function CreateQuotePage() {
       return Array.from({ length: buildings.length }, (_, i) => prev[i] ?? [])
     })
   }, [step])
+
+  useEffect(() => {
+    if (!addLineDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (addLineDropdownRef.current && !addLineDropdownRef.current.contains(e.target as Node)) {
+        setAddLineDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [addLineDropdownOpen])
 
   // ── step 1 validation ──
   const canGoToStep2 =
@@ -142,23 +154,22 @@ export default function CreateQuotePage() {
     } : b))
 
   // ── step 3 handlers ──
-  const handleAddLine = () => {
-    if (addLineItemId == null) return
-    const item = structureItems.find(s => s.id === addLineItemId)
-    if (!item) return
-    const alreadyAdded = (buildingLines[activeBuildingTab] ?? []).some(l => l.structure_item_id === addLineItemId)
-    if (alreadyAdded) return
+  const handleAddLines = () => {
+    const idsToAdd = [...addLineItemIds]
+    if (idsToAdd.length === 0) return
     setBuildingLines(prev => {
       const next = [...prev]
-      next[activeBuildingTab] = [...(next[activeBuildingTab] ?? []), {
-        structure_item_id: item.id,
-        structure_item_name: item.name,
-        amount: addLineAmount,
-      }]
+      const existingIds = new Set((next[activeBuildingTab] ?? []).map(l => l.structure_item_id))
+      const newLines = idsToAdd
+        .filter(id => !existingIds.has(id))
+        .map(id => {
+          const item = structureItems.find(s => s.id === id)!
+          return { structure_item_id: item.id, structure_item_name: item.name, amount: '' }
+        })
+      next[activeBuildingTab] = [...(next[activeBuildingTab] ?? []), ...newLines]
       return next
     })
-    setAddLineItemId(null)
-    setAddLineAmount('')
+    setAddLineItemIds(new Set())
   }
 
   const handleRemoveLine = (lineIdx: number) => {
@@ -566,7 +577,7 @@ export default function CreateQuotePage() {
               {buildings.length > 1 && (
                 <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-700 pb-3">
                   {buildings.map((b, i) => (
-                    <button key={i} type="button" onClick={() => { setActiveBuildingTab(i); setAddLineItemId(null); setAddLineAmount('') }}
+                    <button key={i} type="button" onClick={() => { setActiveBuildingTab(i); setAddLineItemIds(new Set()); setAddLineDropdownOpen(false) }}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                         i === activeBuildingTab
                           ? 'bg-blue-600 text-white shadow-sm'
@@ -671,27 +682,59 @@ export default function CreateQuotePage() {
                 </p>
               )}
 
-              {/* Add line */}
-              {availableItems.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <select
-                    value={addLineItemId ?? ''}
-                    onChange={e => setAddLineItemId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-                    className="flex-1 min-w-[160px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  >
-                    <option value="">בחר שירות / סעיף...</option>
-                    {availableItems.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  <input
-                    type="number" min="0" step="0.01" value={addLineAmount}
-                    onChange={e => setAddLineAmount(e.target.value)}
-                    placeholder="סכום ₪"
-                    className="w-28 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                  <button type="button" onClick={handleAddLine} disabled={addLineItemId == null}
-                    className="inline-flex items-center gap-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
-                    <Plus className="w-4 h-4" /> הוסף
-                  </button>
+              {/* Add categories */}
+              {structureItems.length > 0 && (
+                <div ref={addLineDropdownRef} style={{position: 'relative'}} className="flex items-center gap-2">
+                  {availableItems.length > 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAddLineDropdownOpen(o => !o)}
+                        className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-[180px] justify-between"
+                      >
+                        <span>
+                          {addLineItemIds.size > 0 ? `${addLineItemIds.size} קטגוריות נבחרו` : 'בחר קטגוריות'}
+                        </span>
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      </button>
+
+                      {/* Add button — always visible */}
+                      <button
+                        type="button"
+                        onClick={handleAddLines}
+                        disabled={addLineItemIds.size === 0}
+                        className="inline-flex items-center gap-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {addLineItemIds.size > 0 ? `הוסף ${addLineItemIds.size} קטגוריות` : 'הוסף'}
+                      </button>
+
+                      {addLineDropdownOpen && (
+                        <div className="absolute top-full mt-1 right-0 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl shadow-lg min-w-[220px] py-1 max-h-56 overflow-y-auto">
+                          {availableItems.map(item => (
+                            <label
+                              key={item.id}
+                              className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={addLineItemIds.has(item.id)}
+                                onChange={() => setAddLineItemIds(prev => {
+                                  const next = new Set(prev)
+                                  next.has(item.id) ? next.delete(item.id) : next.add(item.id)
+                                  return next
+                                })}
+                                className="accent-blue-600"
+                              />
+                              <span className="text-sm text-gray-900 dark:text-white">{item.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">כל הקטגוריות כבר נוספו</p>
+                  )}
                 </div>
               )}
 
