@@ -37,6 +37,16 @@ class Settings(BaseModel):
             os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms")
         )
     )
+    # Master DB is the super-admin database (= the current SQLALCHEMY_DATABASE_URI by default)
+    MASTER_DATABASE_URL: str = Field(
+        default_factory=lambda: _normalize_database_uri(
+            os.getenv("MASTER_DATABASE_URL") or os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms")
+        )
+    )
+    # Admin DSN used for CREATE DATABASE operations (plain psycopg2-style, no async driver)
+    POSTGRES_ADMIN_DSN: str = Field(
+        default=os.getenv("POSTGRES_ADMIN_DSN", "postgresql://postgres:postgres@localhost:5432/postgres")
+    )
     JWT_SECRET_KEY: str = Field(default=os.getenv("JWT_SECRET_KEY", "change_me"))
     
     @property

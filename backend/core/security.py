@@ -18,26 +18,38 @@ def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
 
-def create_access_token(subject: str | int, expires_minutes: int | None = None) -> str:
+def create_access_token(
+    subject: str | int,
+    expires_minutes: int | None = None,
+    tenant_id: int | None = None,
+) -> str:
     expire_minutes = expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
     expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
-    to_encode = {
-        "sub": str(subject), 
+    to_encode: dict = {
+        "sub": str(subject),
         "exp": expire,
         "type": "access",
-        "iat": datetime.now(timezone.utc)
+        "iat": datetime.now(timezone.utc),
     }
+    if tenant_id is not None:
+        to_encode["tenant_id"] = tenant_id
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: str | int, expires_days: int = 30) -> str:
+def create_refresh_token(
+    subject: str | int,
+    expires_days: int = 30,
+    tenant_id: int | None = None,
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=expires_days)
-    to_encode = {
+    to_encode: dict = {
         "sub": str(subject),
         "exp": expire,
         "type": "refresh",
-        "iat": datetime.now(timezone.utc)
+        "iat": datetime.now(timezone.utc),
     }
+    if tenant_id is not None:
+        to_encode["tenant_id"] = tenant_id
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -99,19 +111,23 @@ def verify_password_reset_token(token: str) -> Optional[str]:
     return None
 
 
-def create_token_pair(user_id: int, remember_me: bool = False) -> Dict[str, Any]:
-    """Create both access and refresh tokens"""
-    access_expires = 60 * 24 if remember_me else 60 * 8  # 24 hours if remember me, 8 hours otherwise
-    refresh_expires = 30 if remember_me else 7  # 30 days if remember me, 7 days otherwise
-    
-    access_token = create_access_token(user_id, access_expires)
-    refresh_token = create_refresh_token(user_id, refresh_expires)
-    
+def create_token_pair(
+    user_id: int,
+    remember_me: bool = False,
+    tenant_id: int | None = None,
+) -> Dict[str, Any]:
+    """Create both access and refresh tokens, optionally embedding tenant_id."""
+    access_expires = 60 * 24 if remember_me else 60 * 8
+    refresh_expires = 30 if remember_me else 7
+
+    access_token = create_access_token(user_id, access_expires, tenant_id=tenant_id)
+    refresh_token = create_refresh_token(user_id, refresh_expires, tenant_id=tenant_id)
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expires_in": access_expires * 60,  # in seconds
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 

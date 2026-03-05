@@ -1,13 +1,14 @@
 import logging
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from backend.core.deps import DBSessionDep, require_admin, get_current_user
+from backend.core.deps import DBSessionDep, MasterDBSessionDep, require_admin, get_current_user
 from backend.core.security import create_token_pair
 from backend.core.rate_limit import rate_limit
 from backend.schemas.auth import (
-    Token, LoginInput, RefreshTokenInput, PasswordResetRequest, 
+    Token, LoginInput, RefreshTokenInput, PasswordResetRequest,
     PasswordReset, ChangePassword, ResetPasswordWithToken, UserProfile
 )
 from backend.schemas.user import UserOut, AdminRegister, MemberRegister, AdminCreateUser
@@ -24,55 +25,116 @@ def health() -> dict[str, str]:
 
 
 @router.get("/check-admin")
-async def check_admin(db: DBSessionDep):
+async def check_admin(db: MasterDBSessionDep):
     """Check if any admin user exists in the system - public endpoint for initial setup"""
     auth_service = AuthService(db)
     admin_exists = await auth_service.check_admin_exists()
-    
+
     # Check if super admin exists without exposing the email address
     super_admin_user = await auth_service.get_user_by_email(settings.SUPER_ADMIN_EMAIL)
-    
+
     return {
         "admin_exists": admin_exists,
         "super_admin_exists": super_admin_user is not None,
-        "super_admin_active": super_admin_user.is_active if super_admin_user else False
+        "super_admin_active": super_admin_user.is_active if super_admin_user else False,
     }
 
 
 @router.post("/login", response_model=Token, dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
-async def login(db: DBSessionDep, login_data: LoginInput):
-    """Login endpoint - accepts email and password"""
-    auth_service = AuthService(db)
-    user = await auth_service.authenticate_user(email=login_data.email, password=login_data.password)
-    
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    # Use create_token_pair with remember_me=True for 24h access + 30 day refresh (persistent session)
-    remember_me = getattr(login_data, 'remember_me', True)
-    tokens = create_token_pair(user.id, remember_me=remember_me)
-    
-    # Check if user needs to change password - handle case where column might not exist yet
+async def login(
+    master_db: MasterDBSessionDep,
+    login_data: LoginInput,
+    x_tenant_id: Annotated[Optional[int], Header(alias="X-Tenant-ID")] = None,
+):
+    """
+    Login endpoint.
+
+    • Without X-Tenant-ID header → super-admin login (authenticates against master DB).
+    • With X-Tenant-ID: <id> header → tenant login (authenticates against that tenant's DB).
+      The returned JWT will carry a tenant_id claim so subsequent requests are routed correctly.
+    """
+    remember_me = getattr(login_data, "remember_me", True)
+
+    if x_tenant_id is None:
+        # ── Super-admin path ────────────────────────────────────────────
+        auth_service = AuthService(master_db)
+        user = await auth_service.authenticate_user(
+            email=login_data.email, password=login_data.password
+        )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            )
+        tokens = create_token_pair(user.id, remember_me=remember_me)
+    else:
+        # ── Tenant path ─────────────────────────────────────────────────
+        from sqlalchemy import select
+        from backend.master.models import Tenant
+        from backend.db.tenant_registry import tenant_registry
+
+        result = await master_db.execute(
+            select(Tenant).where(Tenant.id == x_tenant_id)
+        )
+        tenant = result.scalar_one_or_none()
+        if not tenant or tenant.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tenant not found or inactive",
+            )
+
+        session_maker = tenant_registry.get_session_maker(x_tenant_id)
+        if session_maker is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Tenant service not available",
+            )
+
+        async with session_maker() as tenant_db:
+            try:
+                auth_service = AuthService(tenant_db)
+                user = await auth_service.authenticate_user(
+                    email=login_data.email, password=login_data.password
+                )
+                if not user:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid credentials",
+                    )
+                tokens = create_token_pair(
+                    user.id, remember_me=remember_me, tenant_id=x_tenant_id
+                )
+                await tenant_db.commit()
+            except HTTPException:
+                raise
+            except Exception:
+                await tenant_db.rollback()
+                raise
+
     try:
-        requires_change = user.requires_password_change if hasattr(user, 'requires_password_change') else False
+        requires_change = (
+            user.requires_password_change
+            if hasattr(user, "requires_password_change")
+            else False
+        )
     except (AttributeError, KeyError):
         requires_change = False
-    
-    response_data = {
-        "access_token": tokens["access_token"], 
-        "token_type": "bearer", 
-        "expires_in": tokens["expires_in"], 
+
+    return {
+        "access_token": tokens["access_token"],
+        "token_type": "bearer",
+        "expires_in": tokens["expires_in"],
         "refresh_token": tokens["refresh_token"],
-        "requires_password_change": requires_change
+        "requires_password_change": requires_change,
     }
-    
-    return response_data
 
 
 @router.post("/token", response_model=Token, dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
-async def login_access_token(db: DBSessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
-    """OAuth2 compatible login endpoint"""
-    auth_service = AuthService(db)
+async def login_access_token(
+    master_db: MasterDBSessionDep,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+):
+    """OAuth2 compatible login endpoint (authenticates against master DB)"""
+    auth_service = AuthService(master_db)
     user = await auth_service.authenticate_user(email=form_data.username, password=form_data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -97,23 +159,21 @@ async def register_admin(db: DBSessionDep, admin_data: AdminRegister, current_ad
 
 
 @router.post("/register-super-admin", response_model=UserOut, dependencies=[Depends(rate_limit(max_requests=3, window_seconds=60))])
-async def register_super_admin(db: DBSessionDep, admin_data: AdminRegister):
+async def register_super_admin(master_db: MasterDBSessionDep, admin_data: AdminRegister):
     """Register super admin - Only allowed if no admin exists (initial setup)"""
-    # Check if any admin exists
-    auth_service = AuthService(db)
+    auth_service = AuthService(master_db)
     admin_exists = await auth_service.check_admin_exists()
-    
-    # Only allow if no admin exists (initial setup)
+
     if admin_exists:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Super admin registration is only allowed for initial setup."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin registration is only allowed for initial setup.",
         )
-    
+
     user = await auth_service.register_admin(
         email=admin_data.email,
         full_name=admin_data.full_name,
-        password=admin_data.password
+        password=admin_data.password,
     )
     return user
 
@@ -179,31 +239,53 @@ async def admin_create_user(db: DBSessionDep, user_data: AdminCreateUser, curren
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(db: DBSessionDep, refresh_data: RefreshTokenInput):
-    """Refresh access token using refresh token"""
+async def refresh_token(master_db: MasterDBSessionDep, refresh_data: RefreshTokenInput):
+    """Refresh access token using refresh token — preserves tenant_id from the original token."""
     from backend.core.security import decode_token, create_token_pair
-    
+
     payload = decode_token(refresh_data.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
+            detail="Invalid refresh token",
         )
-    
+
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user_id = int(sub)
-    auth_service = AuthService(db)
-    user = await auth_service.get_user_by_id(user_id)
 
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive"
-        )
-    
-    return create_token_pair(user_id, remember_me=True)  # Keep persistent session on refresh
+    user_id = int(sub)
+    tenant_id: Optional[int] = payload.get("tenant_id")
+
+    if tenant_id is None:
+        # Super admin — verify against master DB
+        auth_service = AuthService(master_db)
+        user = await auth_service.get_user_by_id(user_id)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive",
+            )
+    else:
+        # Tenant user — verify against tenant DB
+        from backend.db.tenant_registry import tenant_registry
+
+        session_maker = tenant_registry.get_session_maker(tenant_id)
+        if session_maker is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Tenant service not available",
+            )
+        async with session_maker() as tenant_db:
+            auth_service = AuthService(tenant_db)
+            user = await auth_service.get_user_by_id(user_id)
+            if not user or not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found or inactive",
+                )
+
+    return create_token_pair(user_id, remember_me=True, tenant_id=tenant_id)
 
 
 @router.post("/logout")
@@ -213,9 +295,9 @@ async def logout():
 
 
 @router.post("/forgot-password", dependencies=[Depends(rate_limit(max_requests=3, window_seconds=60))])
-async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
+async def forgot_password(master_db: MasterDBSessionDep, request: PasswordResetRequest):
     """Request password reset"""
-    auth_service = AuthService(db)
+    auth_service = AuthService(master_db)
     user = await auth_service.get_user_by_email(request.email)
     
     if user:
@@ -229,18 +311,18 @@ async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
 
 
 @router.post("/reset-password", dependencies=[Depends(rate_limit(max_requests=5, window_seconds=60))])
-async def reset_password(db: DBSessionDep, reset_data: PasswordReset):
+async def reset_password(master_db: MasterDBSessionDep, reset_data: PasswordReset):
     """Reset password using reset token"""
     from backend.core.security import verify_password_reset_token
-    
+
     email = verify_password_reset_token(reset_data.token)
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset token"
+            detail="Invalid or expired reset token",
         )
-    
-    auth_service = AuthService(db)
+
+    auth_service = AuthService(master_db)
     user = await auth_service.get_user_by_email(email)
     
     if not user:
@@ -255,14 +337,14 @@ async def reset_password(db: DBSessionDep, reset_data: PasswordReset):
 
 @router.post("/reset-password-with-token")
 async def reset_password_with_token(
-    db: DBSessionDep,
-    reset_data: ResetPasswordWithToken
+    master_db: MasterDBSessionDep,
+    reset_data: ResetPasswordWithToken,
 ):
     """Reset password using token and temporary password verification"""
     from backend.core.security import verify_initial_password_reset_token, verify_password
-    
-    auth_service = AuthService(db)
-    
+
+    auth_service = AuthService(master_db)
+
     # Verify token
     user_id = verify_initial_password_reset_token(reset_data.token)
     if not user_id:

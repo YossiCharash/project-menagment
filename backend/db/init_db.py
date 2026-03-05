@@ -39,7 +39,7 @@ from backend.models import (  # noqa: F401
 
 async def init_database(engine: AsyncEngine):
     """
-    Initialize database — create all tables, enums, and indexes from SQLAlchemy models.
+    Initialize a *tenant* database — creates all tenant tables from SQLAlchemy models.
     Only creates tables/columns that do not yet exist; never alters existing schema.
 
     To apply schema changes, run the relevant SQL script from backend/migrations/ manually.
@@ -48,3 +48,16 @@ async def init_database(engine: AsyncEngine):
         await conn.run_sync(Base.metadata.create_all)
 
     print("Database initialization completed successfully")
+
+
+async def init_master_database(engine: AsyncEngine):
+    """
+    Initialize the *master* database — creates the tenants table (MasterBase metadata).
+    Called once on startup against the master engine, after init_database().
+    """
+    from backend.master.models import MasterBase  # local import to avoid circular deps
+
+    async with engine.begin() as conn:
+        await conn.run_sync(MasterBase.metadata.create_all)
+
+    print("Master database initialization completed successfully")

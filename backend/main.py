@@ -43,9 +43,9 @@ from backend.core.schedulers import (
     run_contract_renewal_scheduler,
     run_task_archive_scheduler,
 )
-from backend.db.session import engine
+from backend.db.session import engine, master_engine
 from backend.db.base import Base
-from backend.db.init_db import init_database
+from backend.db.init_db import init_database, init_master_database
 
 
 class PreflightCORSMiddleware:
@@ -103,10 +103,21 @@ class PreflightCORSMiddleware:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
-    await init_database(engine)
+    # 1. Create tenant tables (existing schema) on master DB
+    await init_database(master_engine)
 
+    # 2. Create master-only tables (tenants table)
+    await init_master_database(master_engine)
+
+    # 3. Seed super admin in master DB
     from backend.core.seed import create_super_admin
     await create_super_admin()
+
+    # 4. Load all active tenants into the registry
+    from backend.db.tenant_registry import tenant_registry
+    from backend.db.session import MasterAsyncSessionLocal
+    async with MasterAsyncSessionLocal() as master_db:
+        await tenant_registry.load_all_tenants(master_db)
 
     asyncio.create_task(run_recurring_transactions_scheduler())
     asyncio.create_task(run_contract_renewal_scheduler())
@@ -158,7 +169,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
         allow_headers=[
             "Authorization", "Content-Type", "Accept", "Origin",
-            "X-Requested-With", "Cache-Control", "Pragma",
+            "X-Requested-With", "Cache-Control", "Pragma", "X-Tenant-ID",
         ],
         expose_headers=["Content-Disposition"],
         max_age=3600,
@@ -228,8 +239,12 @@ def create_app() -> FastAPI:
     from backend.iam.middleware import register_iam_exception_handlers
     register_iam_exception_handlers(app)
 
-    # --- Router ---
+    # --- Routers ---
     app.include_router(api_router, prefix=settings.API_V1_STR)
+
+    # Super-Admin master router
+    from backend.master.router import router as master_router
+    app.include_router(master_router, prefix=settings.API_V1_STR)
 
     # --- Static files ---
     if os.path.isabs(settings.FILE_UPLOAD_DIR):
