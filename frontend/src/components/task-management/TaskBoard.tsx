@@ -3,10 +3,11 @@ import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import api from '../../lib/api'
 import { avatarUrl } from '../../lib/api'
-import { User, RefreshCw, GripVertical, Tag, LayoutGrid, Archive } from 'lucide-react'
+import { User, RefreshCw, GripVertical, Tag, LayoutGrid, Archive, Plus, ChevronDown, Calendar, ListTodo } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
+import CreateEventModal from './CreateEventModal'
 import ToastNotification, { useToast } from '../ToastNotification'
 import { usePermissionDenied } from '../../lib/usePermissionDenied'
 
@@ -67,6 +68,23 @@ export default function TaskBoard() {
   usePermissionDenied((message) => {
     showToast(message, 'error')
   })
+
+  // -- Add-event dropdown --
+  const [showEventMenu, setShowEventMenu] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createEventType, setCreateEventType] = useState<'meeting' | 'task'>('task')
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showEventMenu) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowEventMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showEventMenu])
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -398,6 +416,39 @@ export default function TaskBoard() {
           <Archive className="w-3.5 h-3.5" />
           {includeArchived ? 'מוסתר ארכיון' : 'הצג ארכיון'}
         </button>
+
+        {/* Add Event dropdown button */}
+        <div className="relative ml-auto" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setShowEventMenu(v => !v)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all duration-200 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            אירוע חדש
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          {showEventMenu && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden min-w-[140px]">
+              <button
+                type="button"
+                onClick={() => { setCreateEventType('task'); setShowEventMenu(false); setShowCreateModal(true) }}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+              >
+                <ListTodo className="w-4 h-4" />
+                אירוע
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreateEventType('meeting'); setShowEventMenu(false); setShowCreateModal(true) }}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+              >
+                <Calendar className="w-4 h-4" />
+                פגישה
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Status board ────────────────────────────────────────────────────── */}
@@ -488,6 +539,13 @@ export default function TaskBoard() {
           setSelectedTaskId(null)
           setSelectedTask(null)
         }}
+      />
+
+      <CreateEventModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        initialEventType={createEventType}
+        onCreated={fetchTasks}
       />
     </div>
   )

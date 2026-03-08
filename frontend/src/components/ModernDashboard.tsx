@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchMe } from '../store/slices/authSlice'
@@ -57,8 +57,7 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects, onProjectCl
   const sortPinnedFirst = <T,>(list: T[], getKey: (item: T) => string): T[] =>
     [...list].sort((a, b) => (isPinned(getKey(b)) ? 1 : 0) - (isPinned(getKey(a)) ? 1 : 0))
 
-  // Helper to flatten projects with children
-  const getAllProjectsFlat = (projects: ProjectWithFinance[]): ProjectWithFinance[] => {
+  const allProjectsFlat = useMemo(() => {
     const result: ProjectWithFinance[] = []
     const flatten = (projs: ProjectWithFinance[]) => {
       projs.forEach(project => {
@@ -70,9 +69,7 @@ const AlertsStrip: React.FC<AlertsStripProps> = ({ alerts, projects, onProjectCl
     }
     flatten(projects)
     return result
-  }
-
-  const allProjectsFlat = getAllProjectsFlat(projects)
+  }, [projects])
 
   // Filter out dismissed projects
   const budgetOverrunProjects = allProjectsFlat.filter(p => {
