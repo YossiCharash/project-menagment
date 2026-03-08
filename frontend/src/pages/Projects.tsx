@@ -121,8 +121,8 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
       }`}
       dir="rtl"
     >
-      <div className="p-6">
-        <div className="mb-3 rounded-lg overflow-hidden h-36 bg-gray-100 dark:bg-gray-700 w-full relative">
+      <div className="p-4">
+        <div className="mb-2 rounded-lg overflow-hidden h-24 bg-gray-100 dark:bg-gray-700 w-full relative">
           {imageUrl && !imgError ? (
             <img
               src={imageUrl}
@@ -137,7 +137,7 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
           )}
         </div>
 
-        <div className="flex justify-between items-start mb-4">
+        <div className="flex justify-between items-start mb-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center flex-wrap gap-2 mb-1.5">
               <h3 className={`${
@@ -183,7 +183,7 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
         {/* Removed all financial numbers - only showing name and image */}
 
 
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
           <div className="flex flex-col gap-2">
             <div className="flex gap-1.5">
               <button
@@ -772,9 +772,9 @@ export default function Projects() {
           </div>
         </div>
       ) : (
-        <div className={`grid gap-4 max-w-6xl mx-auto ${
+        <div className={`grid gap-3 max-w-6xl mx-auto ${
           viewMode === 'grid' 
-            ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' 
+            ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' 
             : 'grid-cols-1'
         }`}>
           {filteredProjects.map((project: any) => (
