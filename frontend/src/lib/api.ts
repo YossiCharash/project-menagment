@@ -132,4 +132,9 @@ export async function restoreTask(taskId: number) {
   return data
 }
 
+export async function getSuperTasks(): Promise<import('../pages/TaskCalendar').Task[]> {
+  const { data } = await api.get('/tasks/super')
+  return data
+}
+
 export default api
