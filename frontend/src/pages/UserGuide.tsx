@@ -265,6 +265,21 @@ export default function UserGuide() {
           caption="רשימת כל הפרויקטים עם תצוגת תקציב וסטטוס"
         />
 
+        <h3 className="font-bold text-gray-900 dark:text-white mt-4">מקרא צבעי מסגרת</h3>
+        <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+          כרטיסי הפרויקטים מקבלים מסגרת צבעונית לפי סוג הפרויקט:
+        </p>
+        <div className="flex flex-col gap-2 mt-2 pr-1" dir="rtl">
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded border-2 border-blue-400 bg-white dark:bg-gray-800 flex-shrink-0" />
+            <span className="text-sm text-gray-700 dark:text-gray-300"><strong>מסגרת כחולה</strong> — פרויקט אב עם תתי-פרויקטים</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 flex-shrink-0" />
+            <span className="text-sm text-gray-700 dark:text-gray-300"><strong>מסגרת אפורה</strong> — פרויקט רגיל</span>
+          </div>
+        </div>
+
         <h3 className="font-bold text-gray-900 dark:text-white mt-2">יצירת פרויקט חדש</h3>
         <div className="space-y-3">
           <Step num={1} title="לחץ על 'פרויקט חדש'" desc="כפתור + בפינה הימנית העליונה של עמוד הפרויקטים" />

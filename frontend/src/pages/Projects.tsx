@@ -5,18 +5,18 @@ import { usePermission } from '../hooks/usePermission'
 import { fetchMe } from '../store/slices/authSlice'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Grid, 
+import {
+  Plus,
+  Search,
+  Filter,
+  Grid,
   List,
   Edit,
   Archive,
-  Eye,
   RefreshCw,
   RotateCcw,
-  ImageOff
+  ImageOff,
+  MoreVertical
 } from 'lucide-react'
 import { ProjectWithFinance, DashboardSnapshot } from '../types/api'
 import { DashboardAPI, ProjectAPI } from '../lib/apiClient'
@@ -52,6 +52,20 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
   hasSubprojects = false
 }) => {
   const [imgError, setImgError] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuOpen])
+
   // Check if this is a parent project using the is_parent_project field
   const isParentProject = project.is_parent_project === true
   const getStatusColor = (status: 'green' | 'yellow' | 'red') => {
@@ -114,15 +128,17 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -2 }}
       onClick={handleCardClick}
-      className={`bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 border cursor-pointer ${
-        project.is_active === false 
-          ? 'border-gray-300 dark:border-gray-600 opacity-75' 
-          : 'border-gray-200 dark:border-gray-700'
+      className={`relative bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 border-2 cursor-pointer ${menuOpen ? 'z-50' : ''} ${
+        project.is_active === false
+          ? 'border-gray-300 dark:border-gray-600 opacity-75'
+          : hasSubprojects
+            ? 'border-blue-400 dark:border-blue-500'
+            : 'border-gray-200 dark:border-gray-600'
       }`}
       dir="rtl"
     >
-      <div className="p-4">
-        <div className="mb-2 rounded-lg overflow-hidden h-24 bg-gray-100 dark:bg-gray-700 w-full relative">
+      <div className="p-3">
+        <div className="mb-1.5 rounded-lg overflow-hidden h-16 bg-gray-100 dark:bg-gray-700 w-full relative">
           {imageUrl && !imgError ? (
             <img
               src={imageUrl}
@@ -132,30 +148,18 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
-              <ImageOff className="w-8 h-8 mb-2 opacity-50" />
+              <ImageOff className="w-6 h-6 mb-1 opacity-50" />
             </div>
           )}
         </div>
 
-        <div className="flex justify-between items-start mb-2">
+        <div className="flex justify-between items-start mb-1">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center flex-wrap gap-2 mb-1.5">
-              <h3 className={`${
-                project.name.length > 25 ? 'text-sm' : project.name.length > 15 ? 'text-base' : 'text-lg'
-              } font-semibold text-gray-900 dark:text-white leading-tight break-words`}>
+            <div className="flex items-center flex-wrap gap-1.5 mb-1">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white leading-tight break-words">
                 {project.name}
               </h3>
-              {hasSubprojects && (
-                <span className="flex-shrink-0 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-[11px] font-medium rounded-full whitespace-nowrap">
-                  יש תת-פרויקטים
-                </span>
-              )}
             </div>
-            {project.description && (
-              <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2">
-                {project.description}
-              </p>
-            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(project.status_color)}`}>
@@ -169,105 +173,90 @@ const ProjectCard: React.FC<ProjectCardProps> = React.memo(({
           </div>
         </div>
 
-        <div className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
-          {project.address && (
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400">📍</span>
-              <span>{project.address}, {project.city}</span>
-            </div>
-          )}
-          
-          {/* Removed num_residents and monthly_price_per_apartment display */}
-        </div>
-
-        {/* Removed all financial numbers - only showing name and image */}
 
 
-        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-          <div className="flex flex-col gap-2">
-            <div className="flex gap-1.5">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onProjectClick?.(project)
-                }}
-                className="px-2.5 py-1.5 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/40 transition-colors flex items-center justify-center gap-1.5"
-                title={hasSubprojects ? 'צפה בתת-פרויקטים' : 'צפה'}
-              >
-                <Eye className="w-4 h-4" />
-                {hasSubprojects && <span className="hidden sm:inline">צפה</span>}
-              </button>
+        {/* Kebab menu - positioned top-left in RTL (visually top-right) */}
+        <div className="absolute top-2 left-2 z-10" ref={menuRef}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen(prev => !prev)
+            }}
+            className="p-1.5 rounded-lg bg-white/80 dark:bg-gray-800/80 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors shadow-sm"
+            title="אפשרויות"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
 
-              {/* Add Transaction Button - Next to View button for regular projects */}
+          {menuOpen && (
+            <div className="absolute left-0 mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20" dir="rtl">
               {onAddTransaction && project.is_active !== false && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    setMenuOpen(false)
                     onAddTransaction(project)
                   }}
-                  className="flex-1 px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-                  title="הוסף עסקה"
+                  className="w-full text-right px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>הוסף עסקה</span>
+                  <Plus className="w-4 h-4 text-blue-500" />
+                  הוסף עסקה
                 </button>
               )}
-
-              {/* View button expanded if no transaction button */}
-              {(!onAddTransaction || project.is_active === false) && (
-                <div className="flex-1" />
+              {isParentProject && onCreateSubproject && project.is_active !== false && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenuOpen(false)
+                    onCreateSubproject(project)
+                  }}
+                  className="w-full text-right px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4 text-purple-500" />
+                  צור תת-פרויקט
+                </button>
               )}
-
               {onProjectEdit && project.is_active !== false && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    setMenuOpen(false)
                     onProjectEdit(project)
                   }}
-                  className="px-2.5 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  className="w-full text-right px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Edit className="w-4 h-4" />
+                  <Edit className="w-4 h-4 text-gray-500" />
+                  ערוך
                 </button>
               )}
               {onProjectArchive && project.is_active !== false && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    setMenuOpen(false)
                     onProjectArchive(project)
                   }}
-                  className="px-2.5 py-1.5 text-xs bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors"
-                  title="ארכב פרויקט"
+                  className="w-full text-right px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
                 >
                   <Archive className="w-4 h-4" />
+                  ארכב
                 </button>
               )}
               {onProjectRestore && project.is_active === false && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    setMenuOpen(false)
                     onProjectRestore(project)
                   }}
-                  className="px-2.5 py-1.5 text-xs bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/40 transition-colors"
-                  title="שחזר פרויקט"
+                  className="w-full text-right px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-2"
                 >
                   <RotateCcw className="w-4 h-4" />
+                  שחזר
                 </button>
               )}
             </div>
-            {/* Show "Create Subproject" button for parent projects */}
-            {isParentProject && onCreateSubproject && project.is_active !== false && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCreateSubproject(project)
-                }}
-                className="w-full px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                צור תת-פרויקט
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -773,8 +762,8 @@ export default function Projects() {
         </div>
       ) : (
         <div className={`grid gap-3 max-w-6xl mx-auto ${
-          viewMode === 'grid' 
-            ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' 
+          viewMode === 'grid'
+            ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5'
             : 'grid-cols-1'
         }`}>
           {filteredProjects.map((project: any) => (
