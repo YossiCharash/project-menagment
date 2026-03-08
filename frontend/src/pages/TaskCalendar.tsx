@@ -26,7 +26,7 @@ export interface UserForTask {
   avatar_url?: string | null
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'pending_closure'
 
 export type EventType = 'meeting' | 'task'
 
@@ -65,6 +65,8 @@ export interface Task {
   is_archived?: boolean
   archived_at?: string | null
   completed_at?: string | null
+  requires_closure_approval?: boolean
+  is_super_task?: boolean
 }
 
 export interface TaskAttachmentType {
@@ -96,12 +98,14 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
   in_progress: 'בטיפול',
   completed: 'טופלה',
+  pending_closure: 'ממתין לאישור סגירה',
 }
 
 const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: '#6B7280',
   in_progress: '#3B82F6',
   completed: '#10B981',
+  pending_closure: '#F59E0B',
 }
 
 const USER_COLORS = [
@@ -230,6 +234,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     participant_ids: [] as number[],
     recurrence_rule: '' as RecurrenceRule,
     recurrence_end_date: '',
+    requires_closure_approval: false,
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -255,6 +260,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     recurrence_end_date: string
     label_ids: number[]
     participant_ids: number[]
+    requires_closure_approval: boolean
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -855,6 +861,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       recurrence_end_date: recEnd,
       label_ids: task.labels?.map(l => l.id) ?? [],
       participant_ids: task.participants?.map(p => p.user_id) ?? [],
+      requires_closure_approval: task.requires_closure_approval ?? false,
     })
     setEditError(null)
   }, [])
@@ -937,6 +944,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         participant_ids: editForm.participant_ids,
         recurrence_rule: editForm.recurrence_rule || '',
         recurrence_end_date: editForm.recurrence_end_date?.trim() || null,
+        requires_closure_approval: editForm.requires_closure_approval,
       })
       setEditingTask(null)
       setEditForm(null)
@@ -999,6 +1007,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         participant_ids: createForm.participant_ids,
         recurrence_rule: recurrence_rule || '',
         recurrence_end_date: recurrence_end_date || undefined,
+        requires_closure_approval: createForm.requires_closure_approval,
       })
       for (const file of createPendingFiles) {
         const fd = new FormData()
@@ -1008,7 +1017,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         })
       }
       setShowCreateModal(false)
-      setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_end_date: '' })
+      setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_end_date: '', requires_closure_approval: false })
       setCreatePendingFiles([])
       if (createFileInputRef.current) createFileInputRef.current.value = ''
       await fetchTasks()
@@ -2237,6 +2246,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 )}
               />
             </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="edit-requires-closure"
+                checked={editForm.requires_closure_approval}
+                onChange={(e) => setEditForm(f => f ? { ...f, requires_closure_approval: e.target.checked } : f)}
+                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
+              />
+              <label htmlFor="edit-requires-closure" className="text-sm text-gray-700 dark:text-gray-300">
+                דורש אישור מנהל לסגירה
+              </label>
+            </div>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -2519,6 +2540,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 )}
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="create-requires-closure"
+                checked={createForm.requires_closure_approval}
+                onChange={(e) => setCreateForm(f => ({ ...f, requires_closure_approval: e.target.checked }))}
+                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
+              />
+              <label htmlFor="create-requires-closure" className="text-sm text-gray-700 dark:text-gray-300">
+                דורש אישור מנהל לסגירה
+              </label>
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <button

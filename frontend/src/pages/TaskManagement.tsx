@@ -8,6 +8,7 @@ import TaskCalendar from './TaskCalendar'
 import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
 import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
+import SuperTasksPanel from '../components/task-management/SuperTasksPanel'
 
 type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
 
@@ -51,6 +52,9 @@ export default function TaskManagement() {
             </div>
           </div>
         </header>
+
+        {/* Super Tasks Panel — always visible above tabs */}
+        <SuperTasksPanel />
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">

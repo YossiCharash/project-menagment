@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.schemas.task_label import TaskLabelOut
 
 
-TASK_STATUS_VALUES = ("pending", "in_progress", "completed")
+TASK_STATUS_VALUES = ("pending", "in_progress", "completed", "pending_closure")
 
 PARTICIPANT_RESPONSE_VALUES = ("pending", "accepted", "declined")
 
@@ -40,6 +40,43 @@ class TaskAttachmentOut(BaseModel):
     file_url: str
 
 
+class TaskChecklistItemCreate(BaseModel):
+    text: str
+
+
+class TaskChecklistItemUpdate(BaseModel):
+    is_completed: bool | None = None
+    text: str | None = None
+    assigned_to_user_id: int | None = None
+    clear_assignment: bool = False
+
+
+class TaskChecklistItemOut(BaseModel):
+    id: int
+    task_id: int
+    text: str
+    is_completed: bool
+    sort_order: int
+    created_at: datetime
+    assigned_to_user_id: int | None = None
+    assigned_user_name: str | None = None
+    assigned_user_avatar: str | None = None
+    assigned_user_color: str | None = None
+    handled_by_user_id: int | None = None
+    handled_by_user_name: str | None = None
+    handled_by_user_avatar: str | None = None
+    handled_by_user_color: str | None = None
+    handled_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TaskChecklistSummary(BaseModel):
+    total: int
+    completed: int
+    progress_pct: float
+
+
 class TaskBase(BaseModel):
     title: str
     start_time: datetime | None = None
@@ -50,6 +87,8 @@ class TaskBase(BaseModel):
     assigned_to_user_id: int
     recurrence_rule: str = ""
     recurrence_end_date: date | None = None
+    requires_closure_approval: bool = False
+    is_super_task: bool = False
 
 
 class TaskCreate(TaskBase):
@@ -69,6 +108,8 @@ class TaskUpdate(BaseModel):
     recurrence_rule: str | None = None
     recurrence_end_date: date | None = None
     participant_ids: list[int] | None = None
+    requires_closure_approval: bool | None = None
+    is_super_task: bool | None = None
 
 
 class TaskOut(BaseModel):
@@ -89,12 +130,15 @@ class TaskOut(BaseModel):
     is_archived: bool = False
     archived_at: datetime | None = None
     completed_at: datetime | None = None
+    requires_closure_approval: bool = False
+    is_super_task: bool = False
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
     labels: list[TaskLabelOut] = []
     participants: list[TaskParticipantOut] = []
     attachments: list[TaskAttachmentOut] = []
+    checklist_summary: TaskChecklistSummary | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

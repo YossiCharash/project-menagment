@@ -1,6 +1,8 @@
 """Service for creating user notifications (e.g. on task assignment)."""
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.user import User
 from backend.models.user_notification import UserNotification, NotificationType
 from backend.models.task import Task
 from backend.repositories.notification_repository import NotificationRepository
@@ -81,4 +83,37 @@ async def create_task_reminder(
         body=body,
     )
     await repo.create(n)
+    await db.flush()
+
+
+async def create_closure_approval_notification(
+    db: AsyncSession,
+    task: Task,
+    requesting_user_id: int,
+) -> None:
+    """
+    Notify all active admin users that a non-admin requested closure of a task.
+    Called when a non-admin tries to complete a task with requires_closure_approval=True.
+    """
+    result = await db.execute(
+        select(User).where(User.role == "Admin", User.is_active == True)
+    )
+    admins = list(result.scalars().all())
+    if not admins:
+        return
+
+    requester = await db.get(User, requesting_user_id)
+    requester_name = requester.full_name if requester else f"משתמש #{requesting_user_id}"
+
+    repo = NotificationRepository(db)
+    for admin in admins:
+        n = UserNotification(
+            user_id=admin.id,
+            from_user_id=requesting_user_id,
+            task_id=task.id,
+            type=NotificationType.TASK_ASSIGNMENT,
+            title=f"בקשת סגירת משימה: {task.title}",
+            body=f"העובד {requester_name} ביקש לסגור את המשימה. ממתין לאישורך.",
+        )
+        await repo.create(n)
     await db.flush()

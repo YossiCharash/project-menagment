@@ -11,17 +11,23 @@ from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
 from backend.repositories.task_repository import TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
+from backend.repositories.task_checklist_repository import TaskChecklistRepository
 from backend.repositories.user_repository import UserRepository
 from backend.schemas.task import (
     TaskCreate,
     TaskOut,
     TaskUpdate,
     RECURRENCE_RULE_VALUES,
+    TASK_STATUS_VALUES,
     TaskParticipantOut,
     TaskAttachmentOut,
     TaskMessageOut,
     TaskMessageCreate,
     ArchivedTasksFilter,
+    TaskChecklistItemCreate,
+    TaskChecklistItemUpdate,
+    TaskChecklistItemOut,
+    TaskChecklistSummary,
 )
 from backend.schemas.task_label import TaskLabelOut, TaskLabelCreate, TaskLabelUpdate
 from backend.models.task import (
@@ -30,6 +36,7 @@ from backend.models.task import (
     TaskParticipant,
     TaskAttachment,
     TaskMessage,
+    TaskChecklistItem,
     TaskStatus,
     EventType,
     ParticipantResponse,
@@ -43,6 +50,7 @@ from backend.services.outlook_sync_service import (
 from backend.services.notification_service import (
     create_task_assignment_notifications,
     create_task_reminder,
+    create_closure_approval_notification,
 )
 
 router = APIRouter()
@@ -141,6 +149,8 @@ def _task_to_out(task: Task) -> dict:
         "is_archived": getattr(task, "is_archived", False),
         "archived_at": getattr(task, "archived_at", None),
         "completed_at": getattr(task, "completed_at", None),
+        "requires_closure_approval": getattr(task, "requires_closure_approval", False),
+        "is_super_task": getattr(task, "is_super_task", False),
         "assigned_user_name": task.assigned_user.full_name if task.assigned_user else None,
         "assigned_user_color": color,
         "assigned_user_avatar": getattr(task.assigned_user, "avatar_url", None) if task.assigned_user else None,
@@ -262,6 +272,14 @@ async def list_archived_tasks(
     return [_task_to_out(t) for t in tasks]
 
 
+@router.get("/super", response_model=list[TaskOut])
+async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
+    """Return all active super tasks (not completed, not archived). All authenticated users can see."""
+    repo = TaskRepository(db)
+    tasks = await repo.list_super_tasks()
+    return [_task_to_out(t) for t in tasks]
+
+
 @router.post("/{task_id}/restore", response_model=TaskOut)
 async def restore_task(
         task_id: int,
@@ -377,7 +395,14 @@ async def get_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if not _can_access_task(task, user):
         raise HTTPException(status_code=403, detail="Access denied")
-    return _task_to_out(task)
+    out = _task_to_out(task)
+    checklist_repo = TaskChecklistRepository(db)
+    summary = await checklist_repo.get_summary(task_id)
+    total = summary["total"]
+    completed = summary["completed"]
+    pct = round(completed / total * 100, 1) if total else 0.0
+    out["checklist_summary"] = TaskChecklistSummary(total=total, completed=completed, progress_pct=pct)
+    return out
 
 
 @router.post("/", response_model=TaskOut)
@@ -400,7 +425,7 @@ async def create_task(
     if recurrence_rule and recurrence_rule not in ("weekly", "monthly"):
         recurrence_rule = ""
     recurrence_end_date = getattr(data, "recurrence_end_date", None)
-    initial_status = data.status if data.status in ("pending", "in_progress", "completed") else TaskStatus.PENDING
+    initial_status = data.status if data.status in TASK_STATUS_VALUES else TaskStatus.PENDING
     task = Task(
         title=data.title,
         start_time=start_val,
@@ -411,6 +436,8 @@ async def create_task(
         assigned_to_user_id=data.assigned_to_user_id,
         recurrence_rule=recurrence_rule,
         recurrence_end_date=recurrence_end_date,
+        requires_closure_approval=getattr(data, "requires_closure_approval", False),
+        is_super_task=getattr(data, "is_super_task", False),
     )
     if initial_status == TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -457,8 +484,22 @@ async def update_task(
         raise HTTPException(status_code=403,
                             detail="Access denied. Only the organizer can edit. Use respond to accept/decline.")
     update_data = data.model_dump(exclude_unset=True)
-    if "status" in update_data and update_data["status"] not in ("pending", "in_progress", "completed"):
+    # Only admins can toggle super task flag
+    if "is_super_task" in update_data and user.role != "Admin":
+        update_data.pop("is_super_task", None)
+    if "status" in update_data and update_data["status"] not in TASK_STATUS_VALUES:
         update_data.pop("status", None)
+    # Intercept: non-admin trying to complete a task that requires closure approval
+    if (
+        update_data.get("status") == TaskStatus.COMPLETED
+        and getattr(task, "requires_closure_approval", False)
+        and user.role != "Admin"
+    ):
+        update_data["status"] = TaskStatus.PENDING_CLOSURE
+        try:
+            await create_closure_approval_notification(db, task, user.id)
+        except Exception:
+            logger.warning(f"Failed to create closure approval notification for task {task.id}", exc_info=True)
     if "event_type" in update_data and update_data["event_type"] not in (EventType.MEETING, EventType.TASK):
         update_data.pop("event_type", None)
     if "recurrence_rule" in update_data:
@@ -655,6 +696,151 @@ async def upload_task_attachment(
         file_name=attachment.file_name,
         file_url=f"/uploads/{relative_path}",
     )
+
+
+def _checklist_item_to_out(item: TaskChecklistItem) -> TaskChecklistItemOut:
+    """Build a TaskChecklistItemOut from a TaskChecklistItem with loaded user relationships."""
+    assigned_user = getattr(item, "assigned_user", None)
+    handled_by_user = getattr(item, "handled_by_user", None)
+
+    # Compute a color for the assigned user (same palette logic as _task_to_out)
+    assigned_user_color = None
+    if assigned_user:
+        idx = ((assigned_user.id or 1) - 1) % len(EMPLOYEE_COLORS)
+        assigned_user_color = getattr(assigned_user, "calendar_color", None) or EMPLOYEE_COLORS[idx]
+
+    handled_by_user_color = None
+    if handled_by_user:
+        idx = ((handled_by_user.id or 1) - 1) % len(EMPLOYEE_COLORS)
+        handled_by_user_color = getattr(handled_by_user, "calendar_color", None) or EMPLOYEE_COLORS[idx]
+
+    return TaskChecklistItemOut(
+        id=item.id,
+        task_id=item.task_id,
+        text=item.text,
+        is_completed=item.is_completed,
+        sort_order=item.sort_order,
+        created_at=item.created_at,
+        assigned_to_user_id=item.assigned_to_user_id,
+        assigned_user_name=assigned_user.full_name if assigned_user else None,
+        assigned_user_avatar=getattr(assigned_user, "avatar_url", None) if assigned_user else None,
+        assigned_user_color=assigned_user_color,
+        handled_by_user_id=item.handled_by_user_id,
+        handled_by_user_name=handled_by_user.full_name if handled_by_user else None,
+        handled_by_user_avatar=getattr(handled_by_user, "avatar_url", None) if handled_by_user else None,
+        handled_by_user_color=handled_by_user_color,
+        handled_at=item.handled_at,
+    )
+
+
+@router.get("/{task_id}/checklist", response_model=list[TaskChecklistItemOut])
+async def list_checklist_items(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """List checklist items for a task, ordered by sort_order."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    checklist_repo = TaskChecklistRepository(db)
+    items = await checklist_repo.list_for_task(task_id)
+    return [_checklist_item_to_out(item) for item in items]
+
+
+@router.post("/{task_id}/checklist", response_model=TaskChecklistItemOut, status_code=201)
+async def create_checklist_item(
+        task_id: int,
+        body: TaskChecklistItemCreate,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Add a checklist item to a task."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="הפריט לא יכול להיות ריק")
+    checklist_repo = TaskChecklistRepository(db)
+    sort_order = await checklist_repo.get_next_sort_order(task_id)
+    item = TaskChecklistItem(task_id=task_id, text=text, sort_order=sort_order)
+    created = await checklist_repo.create(item)
+    return _checklist_item_to_out(created)
+
+
+@router.patch("/{task_id}/checklist/{item_id}", response_model=TaskChecklistItemOut)
+async def update_checklist_item(
+        task_id: int,
+        item_id: int,
+        body: TaskChecklistItemUpdate,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Toggle is_completed, update text, or assign a user to a checklist item."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    checklist_repo = TaskChecklistRepository(db)
+    item = await checklist_repo.get_by_id(item_id)
+    if not item or item.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+    if body.is_completed is not None:
+        item.is_completed = body.is_completed
+        if body.is_completed:
+            item.handled_by_user_id = user.id
+            item.handled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            item.handled_by_user_id = None
+            item.handled_at = None
+    if body.text is not None:
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="הפריט לא יכול להיות ריק")
+        item.text = text
+    if body.clear_assignment:
+        item.assigned_to_user_id = None
+    elif body.assigned_to_user_id is not None:
+        user_repo = UserRepository(db)
+        target_user = await user_repo.get_by_id(body.assigned_to_user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        item.assigned_to_user_id = body.assigned_to_user_id
+    updated = await checklist_repo.update(item)
+    # Re-fetch to ensure relationships are loaded after update
+    refreshed = await checklist_repo.get_by_id(updated.id)
+    return _checklist_item_to_out(refreshed)
+
+
+@router.delete("/{task_id}/checklist/{item_id}", status_code=204)
+async def delete_checklist_item(
+        task_id: int,
+        item_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Delete a checklist item from a task."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    checklist_repo = TaskChecklistRepository(db)
+    item = await checklist_repo.get_by_id(item_id)
+    if not item or item.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+    await checklist_repo.delete(item)
+    return None
 
 
 @router.delete("/{task_id}/attachments/{attachment_id}", status_code=204)

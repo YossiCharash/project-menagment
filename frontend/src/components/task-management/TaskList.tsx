@@ -12,12 +12,14 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
   in_progress: 'בטיפול',
   completed: 'טופלה',
+  pending_closure: 'ממתין לאישור סגירה',
 }
 
 const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: '#6B7280',
   in_progress: '#3B82F6',
   completed: '#10B981',
+  pending_closure: '#F59E0B',
 }
 
 function formatDate(s: string | null): string {
@@ -197,6 +199,8 @@ export default function TaskList() {
                               ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200'
                               : status === 'in_progress'
                               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200'
+                              : status === 'pending_closure'
+                              ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200'
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           )}
                           style={{

@@ -14,12 +14,14 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
   in_progress: 'בטיפול',
   completed: 'טופלה',
+  pending_closure: 'ממתין לאישור סגירה',
 }
 
 const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: '#6B7280',
   in_progress: '#3B82F6',
   completed: '#10B981',
+  pending_closure: '#F59E0B',
 }
 
 const USER_COLORS = [
@@ -27,7 +29,7 @@ const USER_COLORS = [
   '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16',
 ]
 
-const STATUS_ORDER: TaskStatus[] = ['pending', 'in_progress', 'completed']
+const STATUS_ORDER: TaskStatus[] = ['pending', 'in_progress', 'pending_closure', 'completed']
 
 const UNLABELED_ID = -1
 
@@ -400,7 +402,7 @@ export default function TaskBoard() {
 
       {/* ── Status board ────────────────────────────────────────────────────── */}
       {groupBy === 'status' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {STATUS_ORDER.map((status) => (
             <div
               key={status}

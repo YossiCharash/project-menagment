@@ -28,6 +28,7 @@ class TaskStatus:
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    PENDING_CLOSURE = "pending_closure"
 
 
 class EventType:
@@ -89,6 +90,8 @@ class Task(Base):
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    requires_closure_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_super_task: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     assigned_user: Mapped["User"] = relationship(
         "User", back_populates="tasks", lazy="selectin"
@@ -104,6 +107,9 @@ class Task(Base):
     )
     messages: Mapped[list["TaskMessage"]] = relationship(
         "TaskMessage", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
+    )
+    checklist_items: Mapped[list["TaskChecklistItem"]] = relationship(
+        "TaskChecklistItem", back_populates="task", cascade="all, delete-orphan"
     )
 
 
@@ -161,3 +167,34 @@ class TaskAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     task: Mapped["Task"] = relationship("Task", back_populates="attachments")
+
+
+class TaskChecklistItem(Base):
+    """Individual checklist item for a task."""
+    __tablename__ = "task_checklist_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    assigned_to_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    handled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    task: Mapped["Task"] = relationship("Task", back_populates="checklist_items")
+    assigned_user: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[assigned_to_user_id], lazy="selectin"
+    )
+    handled_by_user: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[handled_by_user_id], lazy="selectin"
+    )
