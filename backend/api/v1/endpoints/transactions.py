@@ -83,25 +83,28 @@ async def check_duplicate_transaction(
     if not duplicates:
         return {"has_duplicate": False, "duplicates": []}
     
-    # Format duplicate details
-    from backend.repositories.supplier_repository import SupplierRepository
-    supplier_repo = SupplierRepository(db)
-    
-    duplicate_details = []
-    for dup in duplicates:
-        dup_info = {
+    # Format duplicate details - batch load all suppliers at once
+    supplier_ids = [dup.supplier_id for dup in duplicates if dup.supplier_id]
+    suppliers_map: dict[int, str] = {}
+    if supplier_ids:
+        from sqlalchemy import select as sa_select
+        from backend.models.supplier import Supplier
+        result = await db.execute(
+            sa_select(Supplier.id, Supplier.name).where(Supplier.id.in_(supplier_ids))
+        )
+        suppliers_map = {row.id: row.name for row in result}
+
+    duplicate_details = [
+        {
             "id": dup.id,
             "tx_date": str(dup.tx_date),
             "amount": float(dup.amount),
             "supplier_id": dup.supplier_id,
-            "supplier_name": None
+            "supplier_name": suppliers_map.get(dup.supplier_id) if dup.supplier_id else None,
         }
-        if dup.supplier_id:
-            supplier = await supplier_repo.get(dup.supplier_id)
-            if supplier:
-                dup_info["supplier_name"] = supplier.name
-        duplicate_details.append(dup_info)
-    
+        for dup in duplicates
+    ]
+
     return {
         "has_duplicate": True,
         "duplicates": duplicate_details

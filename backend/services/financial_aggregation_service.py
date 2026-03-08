@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, extract
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, or_, select
 
 from backend.models.project import Project
 from backend.models.transaction import Transaction
@@ -12,10 +12,10 @@ from backend.services.project_service import calculate_monthly_income_amount
 class FinancialAggregationService:
     """Service for aggregating financial data across parent projects and subprojects"""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
-    
-    def get_parent_project_financial_summary(
+
+    async def get_parent_project_financial_summary(
         self, 
         parent_project_id: int, 
         start_date: Optional[date] = None, 
@@ -33,26 +33,32 @@ class FinancialAggregationService:
             Dictionary containing consolidated financial data
         """
         # Get parent project
-        parent_project = self.db.query(Project).filter(
-            Project.id == parent_project_id,
-            Project.is_active == True
-        ).first()
+        result = await self.db.execute(
+            select(Project).where(
+                Project.id == parent_project_id,
+                Project.is_active == True
+            )
+        )
+        parent_project = result.scalar_one_or_none()
         
         if not parent_project:
             raise ValueError(f"Parent project with ID {parent_project_id} not found")
         
         # Get all subprojects
-        subprojects = self.db.query(Project).filter(
-            Project.relation_project == parent_project_id,
-            Project.is_active == True
-        ).all()
+        result = await self.db.execute(
+            select(Project).where(
+                Project.relation_project == parent_project_id,
+                Project.is_active == True
+            )
+        )
+        subprojects = list(result.scalars().all())
         
         # Get all transactions for parent project (including period transactions that overlap)
-        parent_transactions_query = self.db.query(Transaction).filter(
+        parent_transactions_query = select(Transaction).where(
             Transaction.project_id == parent_project_id,
             Transaction.from_fund == False
         )
-        
+
         # For regular transactions, filter by tx_date
         # For period transactions, check if period overlaps with date range
         if start_date or end_date:
@@ -97,11 +103,11 @@ class FinancialAggregationService:
                             )
                         )
                     )
-            
+
             if date_conditions:
-                parent_transactions_query = parent_transactions_query.filter(and_(*date_conditions))
-        
-        parent_transactions = parent_transactions_query.all()
+                parent_transactions_query = parent_transactions_query.where(and_(*date_conditions))
+
+        parent_transactions = list((await self.db.execute(parent_transactions_query)).scalars().all())
         
         # Calculate parent project financials with proportional amounts for period transactions
         parent_transaction_income = 0.0
@@ -176,11 +182,11 @@ class FinancialAggregationService:
         
         for subproject in subprojects:
             # Get all transactions for subproject (including period transactions that overlap)
-            subproject_transactions_query = self.db.query(Transaction).filter(
+            subproject_query = select(Transaction).where(
                 Transaction.project_id == subproject.id,
                 Transaction.from_fund == False
             )
-            
+
             # For regular transactions, filter by tx_date
             # For period transactions, check if period overlaps with date range
             if start_date or end_date:
@@ -221,11 +227,11 @@ class FinancialAggregationService:
                             )
                         )
                     )
-                
+
                 if date_conditions:
-                    subproject_transactions_query = subproject_transactions_query.filter(and_(*date_conditions))
-            
-            subproject_transactions = subproject_transactions_query.all()
+                    subproject_query = subproject_query.where(and_(*date_conditions))
+
+            subproject_transactions = list((await self.db.execute(subproject_query)).scalars().all())
             
             # Calculate subproject financials with proportional amounts for period transactions
             subproject_transaction_income = 0.0
@@ -350,10 +356,10 @@ class FinancialAggregationService:
             }
         }
     
-    def get_monthly_financial_summary(
-        self, 
-        parent_project_id: int, 
-        year: int, 
+    async def get_monthly_financial_summary(
+        self,
+        parent_project_id: int,
+        year: int,
         month: int
     ) -> Dict[str, Any]:
         """Get financial summary for a specific month"""
@@ -362,56 +368,56 @@ class FinancialAggregationService:
             end_date = date(year + 1, 1, 1)
         else:
             end_date = date(year, month + 1, 1)
-        
-        return self.get_parent_project_financial_summary(
-            parent_project_id, 
-            start_date, 
+
+        return await self.get_parent_project_financial_summary(
+            parent_project_id,
+            start_date,
             end_date
         )
     
-    def get_yearly_financial_summary(
-        self, 
-        parent_project_id: int, 
+    async def get_yearly_financial_summary(
+        self,
+        parent_project_id: int,
         year: int
     ) -> Dict[str, Any]:
         """Get financial summary for a specific year"""
         start_date = date(year, 1, 1)
         end_date = date(year, 12, 31)
-        
-        return self.get_parent_project_financial_summary(
-            parent_project_id, 
-            start_date, 
+
+        return await self.get_parent_project_financial_summary(
+            parent_project_id,
+            start_date,
             end_date
         )
     
-    def get_custom_range_financial_summary(
-        self, 
-        parent_project_id: int, 
-        start_date: date, 
+    async def get_custom_range_financial_summary(
+        self,
+        parent_project_id: int,
+        start_date: date,
         end_date: date
     ) -> Dict[str, Any]:
         """Get financial summary for a custom date range"""
-        return self.get_parent_project_financial_summary(
-            parent_project_id, 
-            start_date, 
+        return await self.get_parent_project_financial_summary(
+            parent_project_id,
+            start_date,
             end_date
         )
     
-    def get_subproject_performance_comparison(
-        self, 
-        parent_project_id: int, 
-        start_date: Optional[date] = None, 
+    async def get_subproject_performance_comparison(
+        self,
+        parent_project_id: int,
+        start_date: Optional[date] = None,
         end_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
         """
         Get performance comparison of all subprojects
-        
+
         Returns:
             List of subproject performance data sorted by profitability
         """
-        summary = self.get_parent_project_financial_summary(
-            parent_project_id, 
-            start_date, 
+        summary = await self.get_parent_project_financial_summary(
+            parent_project_id,
+            start_date,
             end_date
         )
         
@@ -422,30 +428,30 @@ class FinancialAggregationService:
         
         return subprojects
     
-    def get_financial_trends(
-        self, 
-        parent_project_id: int, 
+    async def get_financial_trends(
+        self,
+        parent_project_id: int,
         years_back: int = 5
     ) -> Dict[str, Any]:
         """
         Get financial trends over the last N years
-        
+
         Args:
             parent_project_id: ID of the parent project
             years_back: Number of years to look back
-            
+
         Returns:
             Dictionary containing yearly trends
         """
         trends = []
         current_year = datetime.now().year
-        
+
         for i in range(years_back):
             year = current_year - i
-            
+
             # Get yearly summary
-            yearly_summary = self.get_yearly_financial_summary(
-                parent_project_id, 
+            yearly_summary = await self.get_yearly_financial_summary(
+                parent_project_id,
                 year
             )
             

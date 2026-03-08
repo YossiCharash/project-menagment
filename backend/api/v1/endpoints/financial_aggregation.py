@@ -26,7 +26,7 @@ async def get_parent_project_financial_summary(
     """
     try:
         service = FinancialAggregationService(db)
-        summary = service.get_parent_project_financial_summary(
+        summary = await service.get_parent_project_financial_summary(
             parent_project_id,
             start_date,
             end_date
@@ -60,7 +60,7 @@ async def get_monthly_financial_summary(
             raise HTTPException(status_code=400, detail="Month must be between 1 and 12")
         
         service = FinancialAggregationService(db)
-        summary = service.get_monthly_financial_summary(parent_project_id, year, month)
+        summary = await service.get_monthly_financial_summary(parent_project_id, year, month)
         return summary
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -86,7 +86,7 @@ async def get_yearly_financial_summary(
     """
     try:
         service = FinancialAggregationService(db)
-        summary = service.get_yearly_financial_summary(parent_project_id, year)
+        summary = await service.get_yearly_financial_summary(parent_project_id, year)
         return summary
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -116,9 +116,9 @@ async def get_custom_range_financial_summary(
             raise HTTPException(status_code=400, detail="Start date must be before end date")
         
         service = FinancialAggregationService(db)
-        summary = service.get_custom_range_financial_summary(
-            parent_project_id, 
-            start_date, 
+        summary = await service.get_custom_range_financial_summary(
+            parent_project_id,
+            start_date,
             end_date
         )
         return summary
@@ -146,9 +146,9 @@ async def get_subproject_performance_comparison(
     """
     try:
         service = FinancialAggregationService(db)
-        performance = service.get_subproject_performance_comparison(
-            parent_project_id, 
-            start_date, 
+        performance = await service.get_subproject_performance_comparison(
+            parent_project_id,
+            start_date,
             end_date
         )
         return {
@@ -184,7 +184,7 @@ async def get_financial_trends(
             raise HTTPException(status_code=400, detail="Years back must be between 1 and 20")
         
         service = FinancialAggregationService(db)
-        trends = service.get_financial_trends(parent_project_id, years_back)
+        trends = await service.get_financial_trends(parent_project_id, years_back)
         return trends
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -212,16 +212,16 @@ async def get_parent_project_dashboard_overview(
         
         # Get current year summary
         current_date = datetime.now(timezone.utc).date()
-        current_summary = service.get_yearly_financial_summary(
-            parent_project_id, 
+        current_summary = await service.get_yearly_financial_summary(
+            parent_project_id,
             current_date.year
         )
-        
+
         # Get trends for last 5 years
-        trends = service.get_financial_trends(parent_project_id, 5)
-        
+        trends = await service.get_financial_trends(parent_project_id, 5)
+
         # Get subproject performance
-        performance = service.get_subproject_performance_comparison(parent_project_id)
+        performance = await service.get_subproject_performance_comparison(parent_project_id)
         
         return {
             "current_summary": current_summary,

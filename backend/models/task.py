@@ -106,7 +106,7 @@ class Task(Base):
         "TaskParticipant", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
     )
     messages: Mapped[list["TaskMessage"]] = relationship(
-        "TaskMessage", back_populates="task", cascade="all, delete-orphan", lazy="selectin"
+        "TaskMessage", back_populates="task", cascade="all, delete-orphan", lazy="noload"
     )
     checklist_items: Mapped[list["TaskChecklistItem"]] = relationship(
         "TaskChecklistItem", back_populates="task", cascade="all, delete-orphan"
