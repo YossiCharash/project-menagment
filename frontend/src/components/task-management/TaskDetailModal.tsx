@@ -11,6 +11,7 @@ import {
   Pencil,
   Send,
   Trash2,
+  Zap,
 } from 'lucide-react'
 import type {
   Task,
@@ -21,11 +22,13 @@ import type {
   TaskMessageType,
 } from '../../pages/TaskCalendar'
 import { PermissionGuard } from '../ui/PermissionGuard'
+import TaskChecklist from './TaskChecklist'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
   in_progress: 'בטיפול',
   completed: 'טופלה',
+  pending_closure: 'ממתין לאישור סגירה',
 }
 
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
@@ -91,6 +94,7 @@ export default function TaskDetailModal({
   const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
+  const [togglingSuper, setTogglingSuper] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
 
   const fetchTask = useCallback(async (id: number) => {
@@ -186,6 +190,17 @@ export default function TaskDetailModal({
     }
   }, [onClose, onTaskDeleted])
 
+  const handleToggleSuperTask = useCallback(async (t: Task) => {
+    setTogglingSuper(true)
+    try {
+      const { data } = await api.put<Task>(`/tasks/${t.id}`, { is_super_task: !t.is_super_task })
+      setTask(data)
+      onTaskUpdated?.(data)
+    } finally {
+      setTogglingSuper(false)
+    }
+  }, [onTaskUpdated])
+
   const handleSendMessage = useCallback(async () => {
     if (!taskId || !taskMessageInput.trim() || taskMessageSending) return
     const text = taskMessageInput.trim()
@@ -220,24 +235,49 @@ export default function TaskDetailModal({
           </p>
           {(() => {
             const overdueInfo = getOverdueInfo(task)
+            const isAdmin = me?.role === 'Admin'
+            const isPendingClosure = task.status === 'pending_closure'
+
             return (
               <div className="flex flex-wrap items-center gap-2">
                 <label htmlFor="detail-status" className="text-sm text-gray-600 dark:text-gray-400">מצב: </label>
-                <select
-                  id="detail-status"
-                  value={task.status || 'pending'}
-                  onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
-                  disabled={updatingStatus}
-                  className={cn(
-                    'px-3 py-1.5 border rounded-lg text-sm',
-                    'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100',
-                    'disabled:opacity-50'
-                  )}
-                >
-                  {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[]).map((s) => (
-                    <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
-                  ))}
-                </select>
+                {isPendingClosure && !isAdmin ? (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                    ממתין לאישור סגירה
+                  </span>
+                ) : (
+                  <select
+                    id="detail-status"
+                    value={task.status || 'pending'}
+                    onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
+                    disabled={updatingStatus}
+                    className={cn(
+                      'px-3 py-1.5 border rounded-lg text-sm',
+                      'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100',
+                      'disabled:opacity-50'
+                    )}
+                  >
+                    {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[])
+                      .filter((s) => {
+                        if (isAdmin) return true
+                        return s === 'pending' || s === 'in_progress' || s === 'completed'
+                      })
+                      .map((s) => (
+                        <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
+                      ))}
+                  </select>
+                )}
+                {isAdmin && isPendingClosure && (
+                  <button
+                    type="button"
+                    onClick={() => handleStatusChange(task.id, 'completed')}
+                    disabled={updatingStatus}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    {updatingStatus ? 'מאשר...' : 'אשר סגירה'}
+                  </button>
+                )}
                 {overdueInfo && (
                   <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" title={overdueInfo.delayText}>
                     משימות בפיגור: {overdueInfo.delayText}
@@ -246,6 +286,40 @@ export default function TaskDetailModal({
               </div>
             )
           })()}
+          {task.requires_closure_approval && (
+            <p className="text-sm flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+              <span>🔒</span>
+              <span>דורש אישור סגירה</span>
+            </p>
+          )}
+              <PermissionGuard action="update" resource="task">
+                <div className="flex items-center gap-3 py-1">
+                  <Zap className={cn('w-4 h-4', task.is_super_task ? 'text-red-600' : 'text-gray-400')} />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">משימת על:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSuperTask(task)}
+                    disabled={togglingSuper}
+                    className={cn(
+                      'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                      task.is_super_task ? 'bg-red-600' : 'bg-gray-300 dark:bg-gray-600',
+                      'disabled:opacity-50'
+                    )}
+                    role="switch"
+                    aria-checked={!!task.is_super_task}
+                  >
+                    <span
+                      className={cn(
+                        'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                        task.is_super_task ? 'translate-x-6' : 'translate-x-1'
+                      )}
+                    />
+                  </button>
+                  <span className={cn('text-sm font-medium', task.is_super_task ? 'text-red-600' : 'text-gray-500')}>
+                    {togglingSuper ? '...' : task.is_super_task ? 'כן' : 'לא'}
+                  </span>
+                </div>
+              </PermissionGuard>
           <p className="text-sm flex items-center gap-2">
             <span className="text-gray-600 dark:text-gray-400">מוקצה למשתמש: </span>
             {avatarUrl(task.assigned_user_avatar) ? (
@@ -311,6 +385,19 @@ export default function TaskDetailModal({
               ))}
             </div>
           )}
+
+          {/* רשימת משימות */}
+          <TaskChecklist
+            taskId={task.id}
+            canEdit={me?.role === 'Admin' || me?.id === task.assigned_to_user_id}
+            participants={(task.participants || []).map((p) => ({
+              id: p.user_id,
+              name: p.full_name,
+              avatar: p.avatar_url ?? null,
+              color: null,
+            }))}
+            currentUserId={me?.id}
+          />
 
           {/* שיח משימה */}
           <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">

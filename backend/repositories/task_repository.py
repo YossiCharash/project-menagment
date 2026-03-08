@@ -118,6 +118,24 @@ class TaskRepository:
         result = await self.db.execute(q)
         return list(result.unique().scalars().all())
 
+    async def list_super_tasks(self) -> list[Task]:
+        """Return non-archived, non-completed super tasks, oldest first."""
+        q = (
+            select(Task)
+            .options(
+                selectinload(Task.assigned_user),
+                selectinload(Task.attachments),
+                selectinload(Task.labels),
+                selectinload(Task.participants).selectinload(TaskParticipant.user),
+            )
+            .where(Task.is_super_task == True)   # noqa: E712
+            .where(Task.is_archived == False)     # noqa: E712
+            .where(Task.status != TaskStatus.COMPLETED)
+            .order_by(Task.created_at.asc())
+        )
+        result = await self.db.execute(q)
+        return list(result.unique().scalars().all())
+
     async def archive_completed_tasks(self) -> int:
         today_midnight = datetime.combine(date.today(), datetime.min.time())
         now = datetime.now(timezone.utc).replace(tzinfo=None)

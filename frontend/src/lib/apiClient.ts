@@ -1164,3 +1164,49 @@ export class QuoteProjectsAPI {
     await api.delete(`/quote-projects/${quoteProjectId}/buildings/${buildingId}/apartments/${apartmentId}`)
   }
 }
+
+export interface TaskChecklistItem {
+  id: number
+  task_id: number
+  text: string
+  is_completed: boolean
+  sort_order: number
+  created_at: string
+  assigned_to_user_id: number | null
+  assigned_user_name: string | null
+  assigned_user_avatar: string | null
+  assigned_user_color: string | null
+  handled_by_user_id: number | null
+  handled_by_user_name: string | null
+  handled_by_user_avatar: string | null
+  handled_by_user_color: string | null
+  handled_at: string | null
+}
+
+export class TaskChecklistAPI {
+  static async list(taskId: number): Promise<TaskChecklistItem[]> {
+    const { data } = await api.get<TaskChecklistItem[]>(`/tasks/${taskId}/checklist`)
+    return data
+  }
+
+  static async create(taskId: number, text: string): Promise<TaskChecklistItem> {
+    const { data } = await api.post<TaskChecklistItem>(`/tasks/${taskId}/checklist`, { text })
+    return data
+  }
+
+  static async update(
+    taskId: number,
+    itemId: number,
+    payload: { is_completed?: boolean; text?: string; assigned_to_user_id?: number | null; clear_assignment?: boolean }
+  ): Promise<TaskChecklistItem> {
+    const { data } = await api.patch<TaskChecklistItem>(
+      `/tasks/${taskId}/checklist/${itemId}`,
+      payload
+    )
+    return data
+  }
+
+  static async delete(taskId: number, itemId: number): Promise<void> {
+    await api.delete(`/tasks/${taskId}/checklist/${itemId}`)
+  }
+}

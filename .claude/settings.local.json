@@ -33,7 +33,9 @@
       "Bash(powershell -Command \"\\(Get-Content ''C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\frontend\\\\src\\\\lib\\\\apiClient.ts''\\).Length; \\(Get-Content ''C:\\\\Users\\\\c0548\\\\Projects\\\\project-menagment\\\\frontend\\\\src\\\\lib\\\\apiClient.ts''\\)[-10..-1]\")",
       "Bash(python:*)",
       "Bash(npx tsc:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ls:*)",
+      "Bash(migrations \")"
     ]
   },
   "enabledPlugins": {
