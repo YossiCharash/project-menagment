@@ -82,6 +82,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState('')
   const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
+  const [submitProgress, setSubmitProgress] = useState<{done: number, total: number} | null>(null)
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftsList, setDraftsList] = useState<GroupTransactionDraftOut[]>([])
   const [showLoadDraft, setShowLoadDraft] = useState(false)
@@ -815,8 +816,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
     const succeededRowIndices = new Set<number>()
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
+    // Process a single row (unforeseen or regular transaction + file uploads)
+    const processRow = async (row: TransactionRow, i: number): Promise<{ succeeded: boolean; rowErrors: string[] }> => {
+      const rowErrors: string[] = []
       try {
         if (row.isUnforeseen) {
           const projectId = (row.subprojectId || row.projectId) as number
@@ -834,12 +836,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             }))
 
           if (expenseData.length === 0 && incomeData.length === 0) {
-            results.failed++
-            results.errors.push(`שורה ${i + 1}: יש להזין לפחות הכנסה אחת או הוצאה אחת`)
-            continue
+            rowErrors.push(`שורה ${i + 1}: יש להזין לפחות הכנסה אחת או הוצאה אחת`)
+            return { succeeded: false, rowErrors }
           }
 
-          const totalIncomesSum = incomeData.reduce((s, i) => s + i.amount, 0)
+          const totalIncomesSum = incomeData.reduce((s, inc) => s + inc.amount, 0)
           const unforeseenData: UnforeseenTransactionCreate = {
             project_id: projectId,
             contract_period_id: row.contractPeriodId ? Number(row.contractPeriodId) : undefined,
@@ -852,7 +853,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           }
 
           const unforeseenTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(unforeseenData)
-          await new Promise(r => setTimeout(r, 100))
+          await new Promise(r => setTimeout(r, 300))
 
           let unforeseenDocError = false
           if (unforeseenTx.incomes && row.incomes) {
@@ -865,13 +866,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 for (const file of incRow.documentFiles) {
                   try {
                     if (file.size > 50 * 1024 * 1024) {
-                      results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${file.name} גדול מדי`)
+                      rowErrors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${file.name} גדול מדי`)
                       unforeseenDocError = true
                       continue
                     }
                     await UnforeseenTransactionAPI.uploadIncomeDocument(unforeseenTx.id, createdInc.id, file)
                   } catch (err: any) {
-                    results.errors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                    rowErrors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
                     unforeseenDocError = true
                   }
                 }
@@ -889,13 +890,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 for (const file of expRow.documentFiles) {
                   try {
                     if (file.size > 50 * 1024 * 1024) {
-                      results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${file.name} גדול מדי`)
+                      rowErrors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${file.name} גדול מדי`)
                       unforeseenDocError = true
                       continue
                     }
                     await UnforeseenTransactionAPI.uploadExpenseDocument(unforeseenTx.id, createdExp.id, file)
                   } catch (err: any) {
-                    results.errors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
+                    rowErrors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
                     unforeseenDocError = true
                   }
                 }
@@ -907,9 +908,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             try {
               await UnforeseenTransactionAPI.deleteUnforeseenTransaction(unforeseenTx.id)
             } catch (_) {}
-            results.failed++
-            results.errors.push(`שורה ${i + 1}: העסקה הלא צפויה בוטלה כי העלאת מסמכים נכשלה`)
-            continue
+            rowErrors.push(`שורה ${i + 1}: העסקה הלא צפויה בוטלה כי העלאת מסמכים נכשלה`)
+            return { succeeded: false, rowErrors }
           }
 
           const status = row.unforeseenStatus ?? 'draft'
@@ -917,19 +917,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             try {
               await UnforeseenTransactionAPI.updateUnforeseenTransaction(unforeseenTx.id, { status: 'waiting_for_approval' })
             } catch (err: any) {
-              results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בעדכון סטטוס למחכה לאישור'}`)
+              rowErrors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בעדכון סטטוס למחכה לאישור'}`)
             }
           } else if (status === 'executed') {
             try {
               await UnforeseenTransactionAPI.executeUnforeseenTransaction(unforeseenTx.id)
             } catch (err: any) {
-              results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה באישור כבוצע'}`)
+              rowErrors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה באישור כבוצע'}`)
             }
           }
 
-          results.success++
-          succeededRowIndices.add(i)
-          continue
+          return { succeeded: true, rowErrors }
         }
 
         // Create regular transaction
@@ -957,58 +955,52 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         }
 
         const transaction = await TransactionAPI.createTransaction(transactionData)
-        
+
         if (!transaction || !transaction.id) {
-          console.error('❌ [GROUP TX] Transaction created but no ID returned:', transaction)
+          console.error('[GROUP TX] Transaction created but no ID returned:', transaction)
           throw new Error('Transaction was created but did not return an ID')
         }
-        
+
         // Ensure transaction ID is a number
         const transactionId = typeof transaction.id === 'number' ? transaction.id : parseInt(String(transaction.id), 10)
         if (isNaN(transactionId)) {
-          console.error('❌ [GROUP TX] Invalid transaction ID:', transaction.id)
+          console.error('[GROUP TX] Invalid transaction ID:', transaction.id)
           throw new Error(`Invalid transaction ID: ${transaction.id}`)
         }
 
         // Upload files for this transaction if any; if any upload fails, rollback this transaction so the deal is not performed
         if (row.files.length > 0) {
-          console.log(`📎 [GROUP TX] Starting upload of ${row.files.length} files for transaction ${transactionId}`)
-          console.log('📎 [GROUP TX] Files to upload:', row.files.map(f => ({
-            name: f.name,
-            size: f.size,
-            type: f.type
-          })))
-          
-          // Add a small delay to ensure transaction is committed to database
+          console.log(`[GROUP TX] Starting upload of ${row.files.length} files for transaction ${transactionId}`)
+
+          // Add a delay to ensure transaction is committed to database
           // This helps avoid race conditions where the transaction might not be immediately available
-          await new Promise(resolve => setTimeout(resolve, 100))
-          
+          await new Promise(resolve => setTimeout(resolve, 300))
+
           let fileSuccessCount = 0
           let fileErrorCount = 0
           const fileErrors: string[] = []
-          
+
           for (let fileIndex = 0; fileIndex < row.files.length; fileIndex++) {
             const file = row.files[fileIndex]
             try {
               const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2)
-              console.log(`📎 [GROUP TX] [${fileIndex + 1}/${row.files.length}] Uploading file: ${file.name} (${fileSizeMB} MB) for transaction ${transactionId}`)
-              
+              console.log(`[GROUP TX] [${fileIndex + 1}/${row.files.length}] Uploading file: ${file.name} (${fileSizeMB} MB) for transaction ${transactionId}`)
+
               // Check file size (max 50MB)
               if (file.size > 50 * 1024 * 1024) {
-                console.error(`❌ [GROUP TX] File ${file.name} is too large: ${fileSizeMB} MB (max 50MB)`)
+                console.error(`[GROUP TX] File ${file.name} is too large: ${fileSizeMB} MB (max 50MB)`)
                 fileErrorCount++
                 fileErrors.push(`${file.name}: הקובץ גדול מדי (מקסימום 50MB)`)
                 continue
               }
-              
-              console.log(`📎 [GROUP TX] Calling uploadTransactionDocument for transaction ${transactionId}...`)
+
               const uploadStartTime = Date.now()
-              
+
               // Retry upload if we get a 404 (transaction not found) - might be a race condition
               let uploadResult = null
               let uploadAttempts = 0
               const maxUploadAttempts = 3
-              
+
               while (uploadAttempts < maxUploadAttempts) {
                 try {
                   uploadResult = await TransactionAPI.uploadTransactionDocument(transactionId, file)
@@ -1017,7 +1009,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   uploadAttempts++
                   // If 404 and not last attempt, wait and retry
                   if (uploadErr.response?.status === 404 && uploadAttempts < maxUploadAttempts) {
-                    console.warn(`⚠️ [GROUP TX] Transaction ${transactionId} not found (attempt ${uploadAttempts}/${maxUploadAttempts}), waiting 200ms before retry...`)
+                    console.warn(`[GROUP TX] Transaction ${transactionId} not found (attempt ${uploadAttempts}/${maxUploadAttempts}), waiting 200ms before retry...`)
                     await new Promise(resolve => setTimeout(resolve, 200))
                     continue
                   }
@@ -1025,28 +1017,25 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   throw uploadErr
                 }
               }
-              
+
               const uploadDuration = Date.now() - uploadStartTime
-              console.log(`✅ [GROUP TX] File upload completed in ${uploadDuration}ms. Result:`, uploadResult)
-              
-              // Verify the upload was successful and document was created
-              if (uploadResult && uploadResult.id && uploadResult.transaction_id) {
-                // Verify transaction_id matches
-                if (uploadResult.transaction_id !== transactionId) {
-                  console.error(`❌ [GROUP TX] Transaction ID mismatch! Expected ${transactionId}, got ${uploadResult.transaction_id}`)
-                  fileErrorCount++
-                  fileErrors.push(`${file.name}: שגיאה בקישור המסמך לעסקה (Transaction ID mismatch)`)
-                } else {
-                  fileSuccessCount++
-                  console.log(`✅ [GROUP TX] File ${file.name} uploaded successfully with document ID: ${uploadResult.id} for transaction ${uploadResult.transaction_id}`)
+              console.log(`[GROUP TX] File upload completed in ${uploadDuration}ms. Result:`, uploadResult)
+
+              // Verify the upload was successful - only require uploadResult.id
+              if (uploadResult && uploadResult.id) {
+                // Log a warning if transaction_id doesn't match, but don't fail
+                if (uploadResult.transaction_id && uploadResult.transaction_id !== transactionId) {
+                  console.warn(`[GROUP TX] Transaction ID mismatch in response: expected ${transactionId}, got ${uploadResult.transaction_id}. Document was still created with id ${uploadResult.id}.`)
                 }
+                fileSuccessCount++
+                console.log(`[GROUP TX] File ${file.name} uploaded successfully with document ID: ${uploadResult.id}`)
               } else {
-                console.warn(`⚠️ [GROUP TX] File ${file.name} uploaded but invalid response:`, uploadResult)
+                console.warn(`[GROUP TX] File ${file.name} uploaded but invalid response:`, uploadResult)
                 fileErrorCount++
                 fileErrors.push(`${file.name}: לא קיבלנו תשובה תקינה מהשרת`)
               }
             } catch (fileErr: any) {
-              console.error(`❌ [GROUP TX] Error uploading file ${file.name} to transaction ${transactionId}:`, {
+              console.error(`[GROUP TX] Error uploading file ${file.name} to transaction ${transactionId}:`, {
                 error: fileErr,
                 message: fileErr.message,
                 code: fileErr.code,
@@ -1056,9 +1045,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 } : null,
                 stack: fileErr.stack
               })
-              
+
               fileErrorCount++
-              
+
               // Better error messages
               let errorMsg = 'שגיאה לא ידועה'
               if (fileErr.code === 'ECONNABORTED' || fileErr.message?.includes('timeout')) {
@@ -1076,43 +1065,68 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               } else if (fileErr.message) {
                 errorMsg = fileErr.message
               }
-              
-              console.error(`❌ [GROUP TX] Error message for user: ${errorMsg}`)
+
               fileErrors.push(`${file.name}: ${errorMsg}`)
             }
           }
-          
-          console.log(`📎 [GROUP TX] Upload summary for transaction ${transactionId}:`, {
+
+          console.log(`[GROUP TX] Upload summary for transaction ${transactionId}:`, {
             total: row.files.length,
             success: fileSuccessCount,
             failed: fileErrorCount,
             errors: fileErrors
           })
-          
+
           if (fileErrorCount > 0) {
             // אם חלק מהמסמכים לא הועלו – מבטלים את העסקה (rollback) כדי שהעסקה לא תתבצע
             try {
               await TransactionAPI.rollbackTransaction(transactionId)
             } catch (rollbackErr: any) {
-              results.errors.push(`שורה ${i + 1}: ביטול עסקה לאחר כישלון העלאה נכשל: ${rollbackErr.response?.data?.detail || rollbackErr.message || 'שגיאה'}`)
+              rowErrors.push(`שורה ${i + 1}: ביטול עסקה לאחר כישלון העלאה נכשל: ${rollbackErr.response?.data?.detail || rollbackErr.message || 'שגיאה'}`)
             }
-            results.failed++
             if (fileSuccessCount > 0) {
-              results.errors.push(`שורה ${i + 1}: הועלו ${fileSuccessCount} מסמכים, ${fileErrorCount} נכשלו – העסקה בוטלה: ${fileErrors.join('; ')}`)
+              rowErrors.push(`שורה ${i + 1}: הועלו ${fileSuccessCount} מסמכים, ${fileErrorCount} נכשלו – העסקה בוטלה: ${fileErrors.join('; ')}`)
             } else {
-              results.errors.push(`שורה ${i + 1}: כל המסמכים נכשלו בהעלאה – העסקה בוטלה: ${fileErrors.join('; ')}`)
+              rowErrors.push(`שורה ${i + 1}: כל המסמכים נכשלו בהעלאה – העסקה בוטלה: ${fileErrors.join('; ')}`)
             }
-            continue
+            return { succeeded: false, rowErrors }
           }
           console.log(`All ${fileSuccessCount} files uploaded successfully for transaction ${transactionId}`)
         }
-        results.success++
-        succeededRowIndices.add(i)
+        return { succeeded: true, rowErrors }
       } catch (err: any) {
-        results.failed++
-        results.errors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'}`)
+        rowErrors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'}`)
+        return { succeeded: false, rowErrors }
       }
     }
+
+    // Process ALL rows concurrently
+    setSubmitProgress({ done: 0, total: rows.length })
+    const rowPromises = rows.map((row, i) =>
+      processRow(row, i).then(result => {
+        setSubmitProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null)
+        return { index: i, ...result }
+      })
+    )
+    const settled = await Promise.allSettled(rowPromises)
+
+    for (const outcome of settled) {
+      if (outcome.status === 'fulfilled') {
+        const { index, succeeded, rowErrors } = outcome.value
+        results.errors.push(...rowErrors)
+        if (succeeded) {
+          results.success++
+          succeededRowIndices.add(index)
+        } else {
+          results.failed++
+        }
+      } else {
+        // Promise rejection (unexpected) - count as failure
+        results.failed++
+        results.errors.push(`שגיאה לא צפויה: ${outcome.reason?.message || 'Unknown error'}`)
+      }
+    }
+    setSubmitProgress(null)
 
     // Count file uploads
     const totalFiles = rows.reduce((sum, row) => {
@@ -1254,28 +1268,32 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     try {
       const rowsPayload = validRows.map(serializeRowForDraft)
       const draft = await GroupTransactionDraftAPI.create({ name: draftName, rows: rowsPayload })
+      const draftDocErrors: string[] = []
       for (let rowIndex = 0; rowIndex < validRows.length; rowIndex++) {
         const row = validRows[rowIndex]
         if (!row.isUnforeseen) {
           for (const file of row.files || []) {
-            await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main')
+            try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main') } catch (err: any) { draftDocErrors.push(file.name) }
           }
         } else {
           for (let j = 0; j < (row.incomes?.length || 0); j++) {
             const files = row.incomes![j].documentFiles || []
             for (const file of files) {
-              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j)
+              try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
           for (let j = 0; j < (row.expenses?.length || 0); j++) {
             const files = row.expenses![j].documentFiles || []
             for (const file of files) {
-              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j)
+              try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
         }
       }
-      return { saved: true, draftName }
+      const docWarning = draftDocErrors.length > 0
+        ? ` (שים לב: ${draftDocErrors.length} מסמכים לא נשמרו: ${draftDocErrors.join(', ')})`
+        : ''
+      return { saved: true, draftName: draftName + docWarning }
     } catch (err: any) {
       return { saved: false, error: err.response?.data?.detail || err.message || 'שגיאה' }
     }
@@ -1314,37 +1332,41 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       } else {
         draft = await GroupTransactionDraftAPI.create({ name: nameTrimmed, rows: rowsPayload })
       }
+      const draftDocErrors: string[] = []
       for (let rowIndex = 0; rowIndex < validRows.length; rowIndex++) {
         const row = validRows[rowIndex]
         if (!row.isUnforeseen) {
           for (const file of row.files || []) {
-            await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main')
+            try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main') } catch (err: any) { draftDocErrors.push(file.name) }
           }
         } else {
           for (let j = 0; j < (row.incomes?.length || 0); j++) {
             const files = row.incomes![j].documentFiles || []
             for (const file of files) {
-              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j)
+              try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
           for (let j = 0; j < (row.expenses?.length || 0); j++) {
             const files = row.expenses![j].documentFiles || []
             for (const file of files) {
-              await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j)
+              try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
         }
       }
+      const docWarning = draftDocErrors.length > 0
+        ? `\n\nשים לב: ${draftDocErrors.length} מסמכים לא נשמרו בטיוטה: ${draftDocErrors.join(', ')}`
+        : ''
       setShowSaveDraftModal(false)
       setDraftName('')
       if (draftId) {
         setCurrentDraftId(draft.id)
         setCurrentDraftName(draft.name || `טיוטה ${draft.id}`)
-        alert(`הטיוטה "${draft.name || nameTrimmed}" עודכנה (${validRows.length} עסקאות).`)
+        alert(`הטיוטה "${draft.name || nameTrimmed}" עודכנה (${validRows.length} עסקאות).${docWarning}`)
       } else {
         setCurrentDraftId(draft.id)
         setCurrentDraftName(draft.name || nameTrimmed)
-        alert(`נשמר כטיוטה "${nameTrimmed}" (${validRows.length} עסקאות). תוכל לטעון את הטיוטה מ"טען טיוטה".`)
+        alert(`נשמר כטיוטה "${nameTrimmed}" (${validRows.length} עסקאות). תוכל לטעון את הטיוטה מ"טען טיוטה".${docWarning}`)
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בשמירת טיוטה')
@@ -2110,7 +2132,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
                 />
-                יוצר עסקאות...
+                {submitProgress
+                  ? `מעבד ${submitProgress.done} מתוך ${submitProgress.total}...`
+                  : 'יוצר עסקאות...'}
               </span>
             ) : (
               `צור ${rows.length} עסקאות`

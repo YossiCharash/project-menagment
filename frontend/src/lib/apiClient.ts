@@ -367,9 +367,9 @@ export class TransactionAPI {
     const formData = new FormData()
     formData.append('file', file)
     
-    // Calculate timeout based on file size (1MB = 10 seconds, minimum 30 seconds)
+    // Calculate timeout based on file size (1MB = 15 seconds, minimum 60 seconds)
     const fileSizeMB = file.size / (1024 * 1024)
-    const timeout = Math.max(30000, fileSizeMB * 10000)
+    const timeout = Math.max(60000, fileSizeMB * 15000)
     
     const url = `/transactions/${transactionId}/supplier-document`
     
@@ -473,10 +473,12 @@ export class GroupTransactionDraftAPI {
     formData.append('row_index', String(rowIndex))
     formData.append('sub_type', subType)
     if (subIndex != null) formData.append('sub_index', String(subIndex))
+    const fileSizeMB = file.size / (1024 * 1024)
+    const timeout = Math.max(60000, fileSizeMB * 15000)
     const { data } = await api.post<GroupTransactionDraftDocumentOut>(
       `/group-transaction-drafts/${draftId}/documents`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      { timeout }
     )
     return data
   }
