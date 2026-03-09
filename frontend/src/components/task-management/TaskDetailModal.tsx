@@ -32,7 +32,7 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 }
 
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
-  meeting: 'פגישה',
+  meeting: 'משימה',
   task: 'משימה',
 }
 
