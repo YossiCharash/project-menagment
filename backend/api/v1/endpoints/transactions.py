@@ -171,9 +171,9 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
     try:
         transaction = await TransactionService(db).create(**transaction_data)
     except ValueError as e:
-        # Convert ValueError from duplicate check to HTTPException
+        # Convert ValueError from business rule violations to HTTPException
         error_msg = str(e)
-        if "זוהתה עסקה כפולה" in error_msg:
+        if "זוהתה עסקה כפולה" in error_msg or "נמצאה חפיפה" in error_msg:
             raise HTTPException(status_code=409, detail=error_msg)
         logger.exception("שגיאה ביצירת עסקה")
         raise HTTPException(status_code=400, detail="שגיאה ביצירת העסקה")
