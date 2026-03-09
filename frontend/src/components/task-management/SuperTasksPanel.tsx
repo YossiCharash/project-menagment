@@ -14,6 +14,7 @@ export default function SuperTasksPanel() {
   const [superTasks, setSuperTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [creating, setCreating] = useState(false)
@@ -114,7 +115,7 @@ export default function SuperTasksPanel() {
               <button
                 key={task.id}
                 type="button"
-                onClick={() => setSelectedTaskId(task.id)}
+                onClick={() => { setSelectedTask(task); setSelectedTaskId(task.id) }}
                 className="flex items-center gap-1.5 bg-red-100 border border-red-300 rounded-full px-3 py-1 text-xs font-medium text-red-800 hover:bg-red-200 transition-colors truncate max-w-[200px]"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
@@ -175,11 +176,16 @@ export default function SuperTasksPanel() {
       {selectedTaskId !== null && (
         <TaskDetailModal
           taskId={selectedTaskId}
-          onClose={() => setSelectedTaskId(null)}
-          onTaskUpdated={handleTaskUpdated}
+          initialTask={selectedTask ?? undefined}
+          onClose={() => { setSelectedTaskId(null); setSelectedTask(null) }}
+          onTaskUpdated={(updated) => {
+            handleTaskUpdated(updated)
+            setSelectedTask(updated)
+          }}
           onTaskDeleted={() => {
             setSuperTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
             setSelectedTaskId(null)
+            setSelectedTask(null)
           }}
         />
       )}

@@ -14,7 +14,7 @@ import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag,
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import { cn } from '../lib/utils'
-import { fetchMe, updateUser } from '../store/slices/authSlice'
+import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
 import { PermissionGuard } from '../components/ui/PermissionGuard'

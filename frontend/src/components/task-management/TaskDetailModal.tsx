@@ -104,7 +104,6 @@ export default function TaskDetailModal({
       setTask(data)
       return data
     } catch {
-      setTask(null)
       return null
     } finally {
       setTaskLoading(false)
@@ -113,17 +112,16 @@ export default function TaskDetailModal({
 
   useEffect(() => {
     if (!taskId) {
-      setTask(initialTask ?? null)
+      setTask(null)
       setTaskMessages([])
       setTaskMessageInput('')
       return
     }
-    if (initialTask?.id === taskId) {
+    if (initialTask && initialTask.id === taskId) {
       setTask(initialTask)
-    } else {
-      fetchTask(taskId)
     }
-  }, [taskId, initialTask?.id, initialTask, fetchTask])
+    fetchTask(taskId)
+  }, [taskId, initialTask?.id, fetchTask])
 
   useEffect(() => {
     if (!taskId) return
@@ -218,25 +216,26 @@ export default function TaskDetailModal({
 
   if (!taskId) return null
 
+  const effectiveTask = task ?? (initialTask && initialTask.id === taskId ? initialTask : null)
   const showEditButton = typeof onEdit === 'function'
 
   return (
     <Modal isOpen={!!taskId} onClose={onClose} title="פרטי משימה">
-      {taskLoading && !task ? (
+      {taskLoading && !effectiveTask ? (
         <p className="text-sm text-gray-500 dark:text-gray-400 py-4">טוען...</p>
-      ) : !task ? (
+      ) : !effectiveTask ? (
         <p className="text-sm text-gray-500 dark:text-gray-400 py-4">המשימה לא נמצאה.</p>
       ) : (
         <div className="space-y-3">
-          <p className="font-medium text-gray-900 dark:text-gray-100">{task.title}</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{effectiveTask.title}</p>
           <p className="text-sm">
             <span className="text-gray-600 dark:text-gray-400">סוג: </span>
-            <span className="font-medium">{EVENT_TYPE_LABELS[(task.event_type || 'task') as EventType]}</span>
+            <span className="font-medium">{EVENT_TYPE_LABELS[(effectiveTask.event_type || 'task') as EventType]}</span>
           </p>
           {(() => {
-            const overdueInfo = getOverdueInfo(task)
+            const overdueInfo = getOverdueInfo(effectiveTask)
             const isAdmin = me?.role === 'Admin'
-            const isPendingClosure = task.status === 'pending_closure'
+            const isPendingClosure = effectiveTask.status === 'pending_closure'
 
             return (
               <div className="flex flex-wrap items-center gap-2">
@@ -248,8 +247,8 @@ export default function TaskDetailModal({
                 ) : (
                   <select
                     id="detail-status"
-                    value={task.status || 'pending'}
-                    onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
+                    value={effectiveTask.status || 'pending'}
+                    onChange={(e) => handleStatusChange(effectiveTask.id, e.target.value as TaskStatus)}
                     disabled={updatingStatus}
                     className={cn(
                       'px-3 py-1.5 border rounded-lg text-sm',
@@ -270,7 +269,7 @@ export default function TaskDetailModal({
                 {isAdmin && isPendingClosure && (
                   <button
                     type="button"
-                    onClick={() => handleStatusChange(task.id, 'completed')}
+                    onClick={() => handleStatusChange(effectiveTask.id, 'completed')}
                     disabled={updatingStatus}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg disabled:opacity-50"
                   >
@@ -286,7 +285,7 @@ export default function TaskDetailModal({
               </div>
             )
           })()}
-          {task.requires_closure_approval && (
+          {effectiveTask.requires_closure_approval && (
             <p className="text-sm flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
               <span>🔒</span>
               <span>דורש אישור סגירה</span>
@@ -294,87 +293,87 @@ export default function TaskDetailModal({
           )}
               <PermissionGuard action="update" resource="task">
                 <div className="flex items-center gap-3 py-1">
-                  <Zap className={cn('w-4 h-4', task.is_super_task ? 'text-red-600' : 'text-gray-400')} />
+                  <Zap className={cn('w-4 h-4', effectiveTask.is_super_task ? 'text-red-600' : 'text-gray-400')} />
                   <span className="text-sm text-gray-600 dark:text-gray-400">משימת על:</span>
                   <button
                     type="button"
-                    onClick={() => handleToggleSuperTask(task)}
+                    onClick={() => handleToggleSuperTask(effectiveTask)}
                     disabled={togglingSuper}
                     className={cn(
                       'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                      task.is_super_task ? 'bg-red-600' : 'bg-gray-300 dark:bg-gray-600',
+                      effectiveTask.is_super_task ? 'bg-red-600' : 'bg-gray-300 dark:bg-gray-600',
                       'disabled:opacity-50'
                     )}
                     role="switch"
-                    aria-checked={!!task.is_super_task}
+                    aria-checked={!!effectiveTask.is_super_task}
                   >
                     <span
                       className={cn(
                         'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-                        task.is_super_task ? 'translate-x-6' : 'translate-x-1'
+                        effectiveTask.is_super_task ? 'translate-x-6' : 'translate-x-1'
                       )}
                     />
                   </button>
-                  <span className={cn('text-sm font-medium', task.is_super_task ? 'text-red-600' : 'text-gray-500')}>
-                    {togglingSuper ? '...' : task.is_super_task ? 'כן' : 'לא'}
+                  <span className={cn('text-sm font-medium', effectiveTask.is_super_task ? 'text-red-600' : 'text-gray-500')}>
+                    {togglingSuper ? '...' : effectiveTask.is_super_task ? 'כן' : 'לא'}
                   </span>
                 </div>
               </PermissionGuard>
           <p className="text-sm flex items-center gap-2">
             <span className="text-gray-600 dark:text-gray-400">מוקצה למשתמש: </span>
-            {avatarUrl(task.assigned_user_avatar) ? (
+            {avatarUrl(effectiveTask.assigned_user_avatar) ? (
               <span className="flex items-center gap-2">
-                <img src={avatarUrl(task.assigned_user_avatar)!} alt="" className="w-6 h-6 rounded-full object-cover" />
-                <span className="font-medium">{task.assigned_user_name}</span>
+                <img src={avatarUrl(effectiveTask.assigned_user_avatar)!} alt="" className="w-6 h-6 rounded-full object-cover" />
+                <span className="font-medium">{effectiveTask.assigned_user_name}</span>
               </span>
             ) : (
-              <span className="font-medium">{task.assigned_user_name}</span>
+              <span className="font-medium">{effectiveTask.assigned_user_name}</span>
             )}
           </p>
-          {task.assignee_acknowledged_at ? (
+          {effectiveTask.assignee_acknowledged_at ? (
             <p className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              <span>הלקוח אימת קבלת המשימה ב־{new Date(task.assignee_acknowledged_at).toLocaleString('he-IL')}</span>
+              <span>הלקוח אימת קבלת המשימה ב־{new Date(effectiveTask.assignee_acknowledged_at).toLocaleString('he-IL')}</span>
             </p>
-          ) : me?.id === task.assigned_to_user_id && (
+          ) : me?.id === effectiveTask.assigned_to_user_id && (
             <button
               type="button"
-              onClick={() => handleAcknowledgeTask(task)}
-              disabled={acknowledgingTaskId === task.id}
+              onClick={() => handleAcknowledgeTask(effectiveTask)}
+              disabled={acknowledgingTaskId === effectiveTask.id}
               className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
             >
               <CheckCircle className="w-4 h-4" />
-              {acknowledgingTaskId === task.id ? 'מאשר...' : 'אישרתי קבלת המשימה'}
+              {acknowledgingTaskId === effectiveTask.id ? 'מאשר...' : 'אישרתי קבלת המשימה'}
             </button>
           )}
-          {task.start_time && task.end_time && (
+          {effectiveTask.start_time && effectiveTask.end_time && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">משעה עד שעה: </span>
-              {new Date(task.start_time).toLocaleString('he-IL')} – {new Date(task.end_time).toLocaleString('he-IL')}
+              {new Date(effectiveTask.start_time).toLocaleString('he-IL')} – {new Date(effectiveTask.end_time).toLocaleString('he-IL')}
             </p>
           )}
-          {!task.start_time && !task.end_time && (
+          {!effectiveTask.start_time && !effectiveTask.end_time && (
             <p className="text-sm text-gray-600 dark:text-gray-400">משימה בלי תאריך</p>
           )}
-          {(task.recurrence_rule === 'weekly' || task.recurrence_rule === 'monthly') && (
+          {(effectiveTask.recurrence_rule === 'weekly' || effectiveTask.recurrence_rule === 'monthly') && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">משימה מחזורית: </span>
-              <span className="font-medium">{RECURRENCE_LABELS[task.recurrence_rule as RecurrenceRule]}</span>
-              {task.recurrence_end_date && (
-                <span className="text-gray-600 dark:text-gray-400"> עד {task.recurrence_end_date}</span>
+              <span className="font-medium">{RECURRENCE_LABELS[effectiveTask.recurrence_rule as RecurrenceRule]}</span>
+              {effectiveTask.recurrence_end_date && (
+                <span className="text-gray-600 dark:text-gray-400"> עד {effectiveTask.recurrence_end_date}</span>
               )}
             </p>
           )}
-          {task.description && (
+          {effectiveTask.description && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">תיאור: </span>
-              {task.description}
+              {effectiveTask.description}
             </p>
           )}
-          {(task.labels?.length ?? 0) > 0 && (
+          {(effectiveTask.labels?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-1.5 items-center">
               <span className="text-sm text-gray-600 dark:text-gray-400">לייבלים: </span>
-              {task.labels?.map((l: TaskLabelType) => (
+              {effectiveTask.labels?.map((l: TaskLabelType) => (
                 <span
                   key={l.id}
                   className="px-2 py-0.5 rounded-full text-xs text-white"
@@ -388,9 +387,9 @@ export default function TaskDetailModal({
 
           {/* רשימת משימות */}
           <TaskChecklist
-            taskId={task.id}
-            canEdit={me?.role === 'Admin' || me?.id === task.assigned_to_user_id}
-            participants={(task.participants || []).map((p) => ({
+            taskId={effectiveTask.id}
+            canEdit={me?.role === 'Admin' || me?.id === effectiveTask.assigned_to_user_id}
+            participants={(effectiveTask.participants || []).map((p) => ({
               id: p.user_id,
               name: p.full_name,
               avatar: p.avatar_url ?? null,
@@ -476,19 +475,19 @@ export default function TaskDetailModal({
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-600 mt-4">
             <button
               type="button"
-              onClick={() => handleRemindTask(task)}
-              disabled={remindingTaskId === task.id}
+              onClick={() => handleRemindTask(effectiveTask)}
+              disabled={remindingTaskId === effectiveTask.id}
               className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50"
               title="שלח תזכורת לעובד המוקצה"
             >
               <Bell className="w-4 h-4" />
-              {remindingTaskId === task.id ? 'שולח...' : 'הזכר'}
+              {remindingTaskId === effectiveTask.id ? 'שולח...' : 'הזכר'}
             </button>
             {showEditButton && (
               <PermissionGuard action="update" resource="task">
                 <button
                   type="button"
-                  onClick={() => { onEdit?.(task); onClose() }}
+                  onClick={() => { onEdit?.(effectiveTask); onClose() }}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
                 >
                   <Pencil className="w-4 h-4" />
@@ -499,12 +498,12 @@ export default function TaskDetailModal({
             <PermissionGuard action="delete" resource="task">
               <button
                 type="button"
-                onClick={() => handleDeleteTask(task)}
+                onClick={() => handleDeleteTask(effectiveTask)}
                 disabled={!!deletingTaskId}
                 className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />
-                {deletingTaskId === task.id ? 'מוחק...' : 'מחק'}
+                {deletingTaskId === effectiveTask.id ? 'מוחק...' : 'מחק'}
               </button>
             </PermissionGuard>
             <button
