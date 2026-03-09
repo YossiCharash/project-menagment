@@ -171,19 +171,19 @@ export default function TaskList() {
             <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden min-w-[140px]">
               <button
                 type="button"
-                onClick={() => { setCreateEventType('task'); setShowEventMenu(false); setShowCreateModal(true) }}
-                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
-              >
-                <ListTodo className="w-4 h-4" />
-                אירוע
-              </button>
-              <button
-                type="button"
                 onClick={() => { setCreateEventType('meeting'); setShowEventMenu(false); setShowCreateModal(true) }}
                 className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
               >
                 <Calendar className="w-4 h-4" />
-                פגישה
+                אירוע
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreateEventType('task'); setShowEventMenu(false); setShowCreateModal(true) }}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+              >
+                <ListTodo className="w-4 h-4" />
+                משימה
               </button>
             </div>
           )}

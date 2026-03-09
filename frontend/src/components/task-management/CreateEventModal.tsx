@@ -210,7 +210,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
       end_time = `${createForm.date}T23:59:59`
     } else if (taskType === 'meeting') {
       if (!createForm.start_time?.trim() || !createForm.end_time?.trim()) {
-        setCreateError('לפגישה יש למלא תאריך ומשעה עד שעה')
+        setCreateError('לאירוע יש למלא תאריך ומשעה עד שעה')
         return
       }
       let startStr = createForm.start_time.trim()
@@ -266,7 +266,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={taskType === 'meeting' ? 'פגישה חדשה' : 'משימה חדשה'}>
+    <Modal isOpen={isOpen} onClose={handleClose} title={taskType === 'meeting' ? 'אירוע חדש' : 'משימה חדשה'}>
       <form onSubmit={handleCreate} className="space-y-2">
         {/* error */}
         {createError && <p className="text-sm text-red-600 dark:text-red-400">{createError}</p>}
@@ -287,7 +287,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="radio" name="taskType" checked={taskType === 'meeting'} onChange={() => setTaskTypeWithDefaults('meeting')} />
-                <span>פגישה</span>
+                <span>אירוע</span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskTypeWithDefaults('all_day')} />
