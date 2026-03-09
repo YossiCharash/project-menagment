@@ -91,9 +91,34 @@ class TransactionService:
         overlapping = list(result.scalars().all())
 
         if overlapping:
-            msg = "נמצאה חפיפה עם עסקאות קיימות לתקופה זו:\n"
+            fmt_start = period_start.strftime("%d/%m/%Y")
+            fmt_end = period_end.strftime("%d/%m/%Y")
+
+            msg = (
+                f"לא ניתן ליצור עסקה לתקופה {fmt_start} – {fmt_end}:\n"
+                "כל קטגוריה יכולה להכיל עסקה אחת בלבד לכל תקופה.\n\n"
+                "עסקאות קיימות שחופפות:\n"
+            )
+
             for tx in overlapping:
-                msg += f"- {tx.period_start_date} עד {tx.period_end_date} (סכום: {tx.amount})\n"
+                tx_start = tx.period_start_date.strftime("%d/%m/%Y")
+                tx_end = tx.period_end_date.strftime("%d/%m/%Y")
+                amount_fmt = f"₪{tx.amount:,.2f}" if tx.amount is not None else ""
+
+                parts = [f"עסקה #{tx.id}"]
+                if tx.category and tx.category.name:
+                    parts.append(f"קטגוריה: {tx.category.name}")
+                parts.append(f"{tx_start} – {tx_end}")
+                if amount_fmt:
+                    parts.append(amount_fmt)
+                if tx.supplier and tx.supplier.name:
+                    parts.append(f"ספק: {tx.supplier.name}")
+                if tx.description:
+                    parts.append(tx.description)
+
+                msg += "• " + " | ".join(parts) + "\n"
+
+            msg += "\nלפתרון: ערוך את העסקה הקיימת, או בחר תקופה / קטגוריה שאינה חופפת."
             raise ValueError(msg)
 
     async def create(self, **data) -> Transaction:
