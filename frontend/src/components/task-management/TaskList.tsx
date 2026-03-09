@@ -312,6 +312,16 @@ export default function TaskList() {
           setSelectedTask(null)
         }}
       />
+
+      <CreateEventModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        initialEventType={createEventType}
+        onCreated={() => {
+          fetchTasks()
+          setShowCreateModal(false)
+        }}
+      />
     </div>
   )
 }
