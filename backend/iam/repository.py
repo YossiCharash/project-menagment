@@ -10,9 +10,12 @@ startup.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Sequence
 
 from sqlalchemy import select, delete as sa_delete, and_
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.iam.interfaces import RoleRepository, PermissionProvider
@@ -300,8 +303,8 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
             # 3. Check global role policies
             return await self._check_global_role(user_id, action, resource_type)
 
-        except Exception:
-            # has_permission must never raise -- return False on any error
+        except Exception as e:
+            logger.error("שגיאה בבדיקת הרשאה (user_id=%s, action=%s, resource=%s): %s", user_id, action, resource_type, e, exc_info=True)
             return False
 
     async def get_user_permissions(
