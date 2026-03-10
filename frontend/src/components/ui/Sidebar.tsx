@@ -35,7 +35,7 @@ interface NavigationItem {
   icon: React.ComponentType<{ className?: string }>
   description: string
   adminOnly?: boolean
-  permission?: { action: string; resource: string }
+  permission?: { resource: string }
 }
 
 interface SidebarProps {
@@ -55,28 +55,28 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/projects',
     icon: FolderOpen,
     description: 'ניהול פרויקטים ותת-פרויקטים',
-    permission: { action: 'read', resource: 'project' }
+    permission: { resource: 'project' }
   },
   {
     name: 'דוחות',
     href: '/reports',
     icon: BarChart3,
     description: 'דוחות פיננסיים ומעקב',
-    permission: { action: 'read', resource: 'report' }
+    permission: { resource: 'report' }
   },
   {
     name: 'הצעות מחיר',
     href: '/price-quotes',
     icon: Receipt,
     description: 'בניית הצעות מחיר והמרה לפרויקטים',
-    permission: { action: 'read', resource: 'quote' }
+    permission: { resource: 'quote' }
   },
   {
     name: 'ניהול משימות',
     href: '/task-management',
     icon: ClipboardList,
     description: 'לוח, יומן, משימות והודעות',
-    permission: { action: 'read', resource: 'task' }
+    permission: { resource: 'task' }
   },
   {
     name: 'היסטורית פעילות',
@@ -119,18 +119,12 @@ function filterNavigationItems(
     if (!item.permission) return true
     if (isAdmin) return true
 
-    const { action, resource } = item.permission
-    const isDenied = permissions.some(
-      (p) => p.resource_type === resource && p.action === action && p.effect === 'deny'
-    )
+    const { resource } = item.permission
+    const resourcePerms = permissions.filter(p => p.resource_type === resource)
+    if (resourcePerms.length === 0) return false
+    const isDenied = resourcePerms.every(p => p.effect === 'deny')
     if (isDenied) return false
-
-    return permissions.some(
-      (p) =>
-        p.resource_type === resource &&
-        p.action === action &&
-        (p.effect === 'allow' || !p.effect)
-    )
+    return resourcePerms.some(p => p.effect === 'allow' || !p.effect)
   })
 }
 

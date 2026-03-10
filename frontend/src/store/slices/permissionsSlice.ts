@@ -88,3 +88,19 @@ export const selectCanAccess =
         (p.effect === 'allow' || !p.effect)
     )
   }
+
+/**
+ * Returns true if the user has ANY non-denied permission for the given resource type.
+ * Admin always returns true. Non-admins must have at least one allow entry for the resource.
+ */
+export const selectHasAnyAccess =
+  (resource: string) =>
+  (state: { auth: { me: { role: string } | null }; permissions: PermissionsState }): boolean => {
+    if (state.auth.me?.role === 'Admin') return true
+    const perms = state.permissions.permissions
+    const resourcePerms = perms.filter(p => p.resource_type === resource)
+    if (resourcePerms.length === 0) return false
+    const isDenied = resourcePerms.every(p => p.effect === 'deny')
+    if (isDenied) return false
+    return resourcePerms.some(p => p.effect === 'allow' || !p.effect)
+  }
