@@ -59,20 +59,8 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.NOTIFICATION.value: {Action.READ.value},
     },
     GlobalRole.MEMBER.value: {
-        ResourceType.PROJECT.value: {Action.READ.value},
-        ResourceType.TRANSACTION.value: {Action.READ.value},
-        ResourceType.BUDGET.value: {Action.READ.value},
-        ResourceType.REPORT.value: {Action.READ.value},
-        ResourceType.USER.value: {Action.READ.value},
-        ResourceType.SUPPLIER.value: {Action.READ.value},
-        ResourceType.TASK.value: {Action.READ.value, Action.UPDATE.value},
-        ResourceType.CATEGORY.value: {Action.READ.value},
-        ResourceType.AUDIT_LOG.value: set(),  # no access
-        ResourceType.CONTRACT.value: {Action.READ.value},
-        ResourceType.QUOTE.value: {Action.READ.value},
-        ResourceType.MEMBER_INVITE.value: set(),  # no access
-        ResourceType.ADMIN_INVITE.value: set(),  # no access
-        ResourceType.NOTIFICATION.value: {Action.READ.value},
+        rt.value: set()
+        for rt in ResourceType
     },
 }
 
