@@ -154,6 +154,10 @@ export function useProjectDetailState() {
   const [creatingFund, setCreatingFund] = useState(false)
   const [updatingFund, setUpdatingFund] = useState(false)
   const [fundScopePreviousYear, setFundScopePreviousYear] = useState<'only_period' | 'also_current' | null>(null)
+  const [showDeleteFundModal, setShowDeleteFundModal] = useState(false)
+  const [deleteFundPassword, setDeleteFundPassword] = useState('')
+  const [deleteFundPasswordError, setDeleteFundPasswordError] = useState('')
+  const [isDeletingFund, setIsDeletingFund] = useState(false)
 
   // Unforeseen Transactions state
   const [unforeseenTransactions, setUnforeseenTransactions] = useState<UnforeseenTransaction[]>([])
@@ -372,6 +376,10 @@ export function useProjectDetailState() {
     creatingFund, setCreatingFund,
     updatingFund, setUpdatingFund,
     fundScopePreviousYear, setFundScopePreviousYear,
+    showDeleteFundModal, setShowDeleteFundModal,
+    deleteFundPassword, setDeleteFundPassword,
+    deleteFundPasswordError, setDeleteFundPasswordError,
+    isDeletingFund, setIsDeletingFund,
 
     // Unforeseen Transactions state
     unforeseenTransactions, setUnforeseenTransactions,

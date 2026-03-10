@@ -13,6 +13,7 @@ interface FundAndUnforeseenPanelProps {
   onShowCreateUnforeseenTransactionModal: () => void
   onResetUnforeseenForm: () => void
   onViewUnforeseenTransaction?: (tx: UnforeseenTransaction) => void
+  onShowDeleteFundModal?: () => void
 }
 
 export default function FundAndUnforeseenPanel({
@@ -25,7 +26,8 @@ export default function FundAndUnforeseenPanel({
   onShowUnforeseenTransactionsModal,
   onShowCreateUnforeseenTransactionModal,
   onResetUnforeseenForm,
-  onViewUnforeseenTransaction
+  onViewUnforeseenTransaction,
+  onShowDeleteFundModal
 }: FundAndUnforeseenPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [needsScrolling, setNeedsScrolling] = useState(false)
@@ -73,6 +75,14 @@ export default function FundAndUnforeseenPanel({
                 className="fund-panel-button px-2.5 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-fluid-sm whitespace-nowrap"
               >
                 ערוך
+              </button>
+            )}
+            {fundData && onShowDeleteFundModal && (
+              <button
+                onClick={onShowDeleteFundModal}
+                className="fund-panel-button px-2.5 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-fluid-sm whitespace-nowrap"
+              >
+                מחק
               </button>
             )}
           </div>

@@ -320,7 +320,28 @@ export default function ProjectDetail() {
         }
     }
 
-
+    const handleDeleteFund = async () => {
+        if (!id || isNaN(Number(id))) return
+        if (!state.deleteFundPassword) {
+            state.setDeleteFundPasswordError('נא להזין סיסמה')
+            return
+        }
+        state.setIsDeletingFund(true)
+        state.setDeleteFundPasswordError('')
+        try {
+            await api.delete(`/projects/${id}/fund`, {
+                data: { password: state.deleteFundPassword }
+            })
+            state.setShowDeleteFundModal(false)
+            state.setDeleteFundPassword('')
+            await dataLoaders.loadProjectInfo()
+            await dataLoaders.loadFundData()
+        } catch (err: any) {
+            state.setDeleteFundPasswordError(err.response?.data?.detail || 'שגיאה במחיקת הקופה')
+        } finally {
+            state.setIsDeletingFund(false)
+        }
+    }
 
     const resetUnforeseenForm = () => {
         state.setUnforeseenIncomes([{amount: 0, description: '', documentFiles: [], incomeId: null, documentIds: []}])
@@ -1177,6 +1198,7 @@ export default function ProjectDetail() {
                         onShowUnforeseenTransactionsModal={() => state.setShowUnforeseenTransactionsModal(true)}
                         onShowCreateUnforeseenTransactionModal={() => state.setShowCreateUnforeseenTransactionModal(true)}
                         onResetUnforeseenForm={resetUnforeseenForm}
+                        onShowDeleteFundModal={() => state.setShowDeleteFundModal(true)}
                         onViewUnforeseenTransaction={async (tx) => {
                             state.setUnforeseenDetailsReadOnly(false)
                             try {
@@ -1338,6 +1360,17 @@ export default function ProjectDetail() {
                     }}
                     onEditTransaction={handleEditAnyTransaction}
                     onDeleteTransaction={handleDeleteTransaction}
+                    showDeleteFundModal={state.showDeleteFundModal}
+                    deleteFundPassword={state.deleteFundPassword}
+                    deleteFundPasswordError={state.deleteFundPasswordError}
+                    isDeletingFund={state.isDeletingFund}
+                    onCloseDeleteFundModal={() => {
+                        state.setShowDeleteFundModal(false)
+                        state.setDeleteFundPassword('')
+                        state.setDeleteFundPasswordError('')
+                    }}
+                    onSetDeleteFundPassword={state.setDeleteFundPassword}
+                    onDeleteFund={handleDeleteFund}
                 />
             </div>
             {/* End main content wrapper */}

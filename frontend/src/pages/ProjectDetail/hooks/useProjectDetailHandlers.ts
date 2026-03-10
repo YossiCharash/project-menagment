@@ -918,6 +918,29 @@ export function useProjectDetailHandlers(
     }
   }
 
+  const handleDeleteFund = async () => {
+    if (!id || isNaN(Number(id))) return
+    if (!state.deleteFundPassword) {
+      state.setDeleteFundPasswordError('נא להזין סיסמה')
+      return
+    }
+    state.setIsDeletingFund(true)
+    state.setDeleteFundPasswordError('')
+    try {
+      await api.delete(`/projects/${id}/fund`, {
+        data: { password: state.deleteFundPassword }
+      })
+      state.setShowDeleteFundModal(false)
+      state.setDeleteFundPassword('')
+      await dataLoaders.loadProjectInfo()
+      await dataLoaders.loadFundData()
+    } catch (err: any) {
+      state.setDeleteFundPasswordError(err.response?.data?.detail || 'שגיאה במחיקת הקופה')
+    } finally {
+      state.setIsDeletingFund(false)
+    }
+  }
+
   return {
     // Utility functions
     isOfficeDocument,
@@ -961,6 +984,9 @@ export function useProjectDetailHandlers(
     handleEditAnyTransaction,
     handleEditRecurringSelection,
     handleDeleteTransaction,
-    confirmDeleteTransaction
+    confirmDeleteTransaction,
+
+    // Fund handlers
+    handleDeleteFund
   }
 }

@@ -33,6 +33,13 @@ interface FundModalsProps {
   onShowDocumentsModal: (tx: Transaction) => Promise<void>
   onEditTransaction: (tx: Transaction) => void
   onDeleteTransaction: (id: number, tx: Transaction) => void
+  showDeleteFundModal: boolean
+  deleteFundPassword: string
+  deleteFundPasswordError: string
+  isDeletingFund: boolean
+  onCloseDeleteFundModal: () => void
+  onSetDeleteFundPassword: (password: string) => void
+  onDeleteFund: () => Promise<void>
 }
 
 export default function FundModals({
@@ -61,7 +68,14 @@ export default function FundModals({
   onLoadProjectInfo,
   onShowDocumentsModal,
   onEditTransaction,
-  onDeleteTransaction
+  onDeleteTransaction,
+  showDeleteFundModal,
+  deleteFundPassword,
+  deleteFundPasswordError,
+  isDeletingFund,
+  onCloseDeleteFundModal,
+  onSetDeleteFundPassword,
+  onDeleteFund
 }: FundModalsProps) {
   return (
     <>
@@ -292,14 +306,7 @@ export default function FundModals({
                     await onLoadFundData()
                     onCloseCreateFund()
                   } catch (err: any) {
-                    const status = err.response?.status
-                    if (status >= 200 && status < 300) {
-                      await onLoadProjectInfo()
-                      await onLoadFundData()
-                      onCloseCreateFund()
-                    } else {
-                      alert(err.response?.data?.detail || 'שגיאה ביצירת הקופה')
-                    }
+                    alert(err.response?.data?.detail || 'שגיאה ביצירת הקופה')
                   }
                 }}
                 className="space-y-4"
@@ -540,6 +547,84 @@ export default function FundModals({
             </div>
           </motion.div>
         </motion.div>
+      )}
+      {/* Delete Fund Modal */}
+      {showDeleteFundModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-6"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-red-600 dark:text-red-400">
+                מחיקת קופה
+              </h3>
+              <button
+                onClick={onCloseDeleteFundModal}
+                disabled={isDeletingFund}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              מחיקת הקופה היא פעולה בלתי הפיכה. הזן את סיסמתך לאישור.
+            </p>
+            {/* Warning about what will be deleted */}
+            {fundData && fundData.transactions.length > 0 && (() => {
+              const txCount = fundData.transactions.length
+              const docCount = fundData.transactions.reduce((sum: number, tx: any) => sum + (tx.documents_count || 0), 0)
+              return (
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1">
+                    שים לב! הפעולה תמחק לצמיתות:
+                  </p>
+                  <ul className="text-sm text-red-600 dark:text-red-400 list-disc list-inside space-y-0.5">
+                    <li>{txCount} עסקאות קופה</li>
+                    {docCount > 0 && <li>{docCount} מסמכים מצורפים</li>}
+                  </ul>
+                </div>
+              )
+            })()}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                סיסמה
+              </label>
+              <input
+                type="password"
+                value={deleteFundPassword}
+                onChange={(e) => onSetDeleteFundPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') onDeleteFund() }}
+                placeholder="הכנס סיסמה"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                disabled={isDeletingFund}
+              />
+              {deleteFundPasswordError && (
+                <p className="mt-2 text-sm text-red-600 dark:text-red-400">{deleteFundPasswordError}</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={onDeleteFund}
+                disabled={isDeletingFund || !deleteFundPassword}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                {isDeletingFund ? 'מוחק...' : 'מחק קופה'}
+              </button>
+              <button
+                type="button"
+                onClick={onCloseDeleteFundModal}
+                disabled={isDeletingFund}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                ביטול
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
     </>
   )

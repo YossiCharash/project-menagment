@@ -2079,6 +2079,82 @@ async def update_project_fund(
     }
 
 
+class DeleteFundRequest(BaseModel):
+    password: str
+
+
+@router.delete("/{project_id}/fund")
+async def delete_project_fund(
+    project_id: int,
+    delete_request: DeleteFundRequest,
+    db: DBSessionDep,
+    user = Depends(get_current_user)
+):
+    """Delete fund for a project (and all fund transactions + documents), requires password verification"""
+    user_repo = UserRepository(db)
+    db_user = await user_repo.get_by_id(user.id)
+    if not db_user or not db_user.password_hash:
+        raise HTTPException(status_code=400, detail="User not found or uses OAuth login")
+
+    if not verify_password(delete_request.password, db_user.password_hash):
+        raise HTTPException(status_code=400, detail="סיסמה שגויה")
+
+    fund_service = FundService(db)
+    fund = await fund_service.get_fund_by_project(project_id)
+    if not fund:
+        raise HTTPException(status_code=404, detail="Fund not found")
+
+    # Fetch all fund transactions before deletion (for S3 cleanup)
+    from sqlalchemy import select, delete as sql_delete, and_
+    from backend.models.transaction import Transaction
+    from backend.models.document import Document
+
+    fund_txs_result = await db.execute(
+        select(Transaction).where(
+            and_(Transaction.project_id == project_id, Transaction.from_fund == True)
+        )
+    )
+    fund_transactions = list(fund_txs_result.scalars().all())
+    fund_tx_ids = [tx.id for tx in fund_transactions]
+
+    # Collect all S3 file paths to delete
+    s3_paths: list[str] = []
+    for tx in fund_transactions:
+        if tx.file_path:
+            s3_paths.append(tx.file_path)
+
+    # Fetch document file paths for S3 deletion
+    if fund_tx_ids:
+        docs_result = await db.execute(
+            select(Document).where(Document.transaction_id.in_(fund_tx_ids))
+        )
+        for doc in docs_result.scalars().all():
+            if doc.file_path:
+                s3_paths.append(doc.file_path)
+
+    # Delete S3 files (only if S3 is configured)
+    if settings.AWS_S3_BUCKET and s3_paths:
+        try:
+            s3_service = S3Service()
+            for path in s3_paths:
+                try:
+                    s3_service.delete_file(path)
+                except Exception as e:
+                    logger.warning("Failed to delete file %s from S3: %s", path, e)
+        except Exception as e:
+            logger.warning("S3 service unavailable, skipping file deletion: %s", e)
+
+    # Delete fund transactions from DB (documents cascade via FK ondelete=CASCADE)
+    if fund_tx_ids:
+        await db.execute(sql_delete(Transaction).where(Transaction.id.in_(fund_tx_ids)))
+
+    # Delete the fund
+    await db.delete(fund)
+    await db.commit()
+
+    return {"detail": "הקופה נמחקה בהצלחה"}
+
+
 @router.get("/{project_id}/financial-trends")
 async def get_financial_trends(
     project_id: int,
