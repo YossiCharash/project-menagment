@@ -43,6 +43,7 @@ from backend.core.schedulers import (
     run_contract_renewal_scheduler,
     run_task_archive_scheduler,
 )
+from backend.core.log_alert_handler import setup_whatsapp_log_handler
 from backend.db.session import engine
 from backend.db.base import Base
 from backend.db.init_db import init_database
@@ -107,6 +108,9 @@ async def lifespan(app: FastAPI):
 
     from backend.core.seed import create_super_admin
     await create_super_admin()
+
+    # Set up WhatsApp error alerting (must run before background schedulers)
+    setup_whatsapp_log_handler()
 
     asyncio.create_task(run_recurring_transactions_scheduler())
     asyncio.create_task(run_contract_renewal_scheduler())

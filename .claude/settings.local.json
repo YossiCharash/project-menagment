@@ -35,7 +35,15 @@
       "Bash(npx tsc:*)",
       "Bash(git checkout:*)",
       "Bash(ls:*)",
-      "Bash(migrations \")"
+      "Bash(migrations \")",
+      "Bash(chmod:*)",
+      "Bash(bash C:/Users/c0548/Projects/project-menagment/scripts/auto-test-agent.sh)",
+      "Bash(echo:*)",
+      "Bash(bash -x:*)",
+      "Bash(command -v jq:*)",
+      "Bash(bash -c:*)",
+      "Bash(where:*)",
+      "Bash(exit:*)"
     ]
   },
   "enabledPlugins": {

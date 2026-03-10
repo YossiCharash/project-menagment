@@ -1321,13 +1321,10 @@ export default function ProjectDetail() {
                     monthlyFundAmount={state.monthlyFundAmount}
                     currentBalance={state.currentBalance}
                     fundUpdateScope={state.fundUpdateScope}
-                    fundScopePreviousYear={state.fundScopePreviousYear}
                     updatingFund={state.updatingFund}
-                    creatingFund={state.creatingFund}
                     fundCategoryFilter={state.fundCategoryFilter}
-                    selectedPeriod={state.selectedPeriod ? { start_date: state.selectedPeriod.start_date, end_date: state.selectedPeriod.end_date || undefined } : null}
-                    isViewingHistoricalPeriod={isViewingHistoricalPeriod}
                     id={id}
+                    projectStartDate={state.projectStartDate}
                     onCloseEditFund={() => {
                         state.setShowEditFundModal(false)
                         state.setMonthlyFundAmount(0)
@@ -1336,13 +1333,11 @@ export default function ProjectDetail() {
                     onCloseCreateFund={() => {
                         state.setShowCreateFundModal(false)
                         state.setMonthlyFundAmount(0)
-                        state.setFundScopePreviousYear(null)
                     }}
                     onCloseFundTransactions={() => state.setShowFundTransactionsModal(false)}
                     onSetMonthlyFundAmount={state.setMonthlyFundAmount}
                     onSetCurrentBalance={state.setCurrentBalance}
                     onSetFundUpdateScope={state.setFundUpdateScope}
-                    onSetFundScopePreviousYear={state.setFundScopePreviousYear}
                     onLoadFundData={dataLoaders.loadFundData}
                     onLoadProjectInfo={dataLoaders.loadProjectInfo}
                     onShowDocumentsModal={async (tx: Transaction) => {

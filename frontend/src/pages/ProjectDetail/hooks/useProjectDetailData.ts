@@ -1,3 +1,4 @@
+import api from '../../../lib/api'
 import { ProjectAPI, UnforeseenTransactionAPI, RecurringTransactionAPI } from '../../../lib/apiClient'
 import { Transaction } from '../types'
 import { BudgetWithSpending, RecurringTransactionTemplate, UnforeseenTransaction } from '../../../types/api'
@@ -179,10 +180,51 @@ export function useProjectDetailData(
     }
   }
 
+  // Load fund data independently (used after fund create/delete operations)
+  const loadFundData = async () => {
+    if (!id || isNaN(Number(id))) return
+
+    try {
+      const response = await api.get(`/projects/${id}/fund`)
+      const data = response.data
+      state.setFundData({
+        current_balance: data.current_balance || 0,
+        monthly_amount: data.monthly_amount || 0,
+        last_monthly_addition: data.last_monthly_addition || null,
+        initial_balance: data.initial_balance || 0,
+        initial_total: data.initial_total || 0,
+        total_additions: data.total_additions || 0,
+        total_deductions: data.total_deductions || 0,
+        transactions: (data.transactions || []) as any[]
+      })
+      state.setHasFund(true)
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        state.setFundData(null)
+        state.setHasFund(false)
+      } else {
+        console.error('Error loading fund data:', err)
+      }
+    }
+  }
+
+  // Reload charts-relevant data (budgets, transactions) after budget CRUD
+  const reloadChartsDataOnly = async () => {
+    await loadAllProjectData(viewingPeriodId)
+  }
+
+  // Reload transactions only (after recurring transaction instance deletion)
+  const loadTransactionsOnly = async () => {
+    await loadAllProjectData(viewingPeriodId)
+  }
+
   return {
     loadAllProjectData,
     loadUnforeseenTransactions,
     loadRecurringTemplates,
-    loadProjectInfo
+    loadProjectInfo,
+    loadFundData,
+    reloadChartsDataOnly,
+    loadTransactionsOnly
   }
 }

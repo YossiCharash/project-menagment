@@ -9,7 +9,8 @@ interface FundSetupModalProps {
   onSuccess: () => void
   projectId: number
   projectStartDate: string | null
-  monthlyFundAmount: number
+  monthlyFundAmount?: number
+  showMonthlyAmountInput?: boolean
 }
 
 type FundSetupType = 
@@ -27,13 +28,17 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
   onSuccess,
   projectId,
   projectStartDate,
-  monthlyFundAmount
+  monthlyFundAmount = 0,
+  showMonthlyAmountInput = false
 }) => {
   const [setupType, setSetupType] = useState<FundSetupType>('from_contract_start')
   const [oneTimeAmount, setOneTimeAmount] = useState<number>(0)
+  const [internalMonthlyAmount, setInternalMonthlyAmount] = useState<number>(monthlyFundAmount)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fundScopePreviousYear, setFundScopePreviousYear] = useState<FundScopePreviousYear>(null)
+
+  const effectiveMonthlyAmount = showMonthlyAmountInput ? internalMonthlyAmount : monthlyFundAmount
 
   if (!isOpen) return null
 
@@ -53,7 +58,7 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
     try {
       let initialBalance = 0
       let lastMonthlyAddition: string | null = null
-      let finalMonthlyAmount = monthlyFundAmount
+      let finalMonthlyAmount = effectiveMonthlyAmount
 
       const today = new Date()
       today.setHours(12, 0, 0, 0)
@@ -64,13 +69,13 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
           if (projectStartDate && startDateParsed) {
             if (showPreviousYearScope && fundScopePreviousYear === 'only_period') {
               const endOfStartYear = new Date(startDateParsed.getFullYear(), 11, 31)
-              initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, startDateParsed, endOfStartYear)
+              initialBalance = calculateMonthlyIncomeAccrual(effectiveMonthlyAmount, startDateParsed, endOfStartYear)
               lastMonthlyAddition = `${endOfStartYear.getFullYear()}-12-31`
               finalMonthlyAmount = 0
             } else {
-              initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, startDateParsed, today)
+              initialBalance = calculateMonthlyIncomeAccrual(effectiveMonthlyAmount, startDateParsed, today)
               lastMonthlyAddition = todayStr
-              finalMonthlyAmount = monthlyFundAmount
+              finalMonthlyAmount = effectiveMonthlyAmount
             }
           }
           break
@@ -78,13 +83,13 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
         case 'one_time_and_monthly':
           initialBalance = oneTimeAmount
           lastMonthlyAddition = todayStr
-          finalMonthlyAmount = monthlyFundAmount
+          finalMonthlyAmount = effectiveMonthlyAmount
           break
 
         case 'only_from_month':
           initialBalance = 0
           lastMonthlyAddition = todayStr
-          finalMonthlyAmount = monthlyFundAmount
+          finalMonthlyAmount = effectiveMonthlyAmount
           break
 
         case 'only_one_time':
@@ -118,6 +123,7 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
     if (!loading) {
       setSetupType('from_contract_start')
       setOneTimeAmount(0)
+      setInternalMonthlyAmount(monthlyFundAmount)
       setFundScopePreviousYear(null)
       setError(null)
       onClose()
@@ -141,6 +147,26 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
         </div>
 
         <div className="space-y-4">
+          {showMonthlyAmountInput && (
+            <div className="mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                סכום חודשי (₪)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={internalMonthlyAmount || ''}
+                onChange={(e) => setInternalMonthlyAmount(Number(e.target.value) || 0)}
+                placeholder="הכנס סכום חודשי"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                הסכום יתווסף לקופה כל חודש באופן אוטומטי
+              </p>
+            </div>
+          )}
+
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
             בחר כיצד תרצה להגדיר את הקופה:
           </p>
@@ -163,7 +189,7 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
                   הוסף סכום מתחילת החוזה
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  הקופה תתחיל עם סכום מחושב מתחילת החוזה עד היום ({monthlyFundAmount.toLocaleString('he-IL')} ₪ לחודש), ותמשיך להוסיף כל חודש
+                  הקופה תתחיל עם סכום מחושב מתחילת החוזה עד היום ({effectiveMonthlyAmount.toLocaleString('he-IL')} ₪ לחודש), ותמשיך להוסיף כל חודש
                 </div>
                 {showPreviousYearScope && (
                   <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
@@ -211,7 +237,7 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
                   הוסף סכום חד פעמי והתחל מהחודש
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  הקופה תתחיל עם סכום חד פעמי שתזין, ותמשיך להוסיף {monthlyFundAmount.toLocaleString('he-IL')} ₪ כל חודש מהחודש
+                  הקופה תתחיל עם סכום חד פעמי שתזין, ותמשיך להוסיף {effectiveMonthlyAmount.toLocaleString('he-IL')} ₪ כל חודש מהחודש
                 </div>
                 {setupType === 'one_time_and_monthly' && (
                   <div className="mt-3">
@@ -243,7 +269,7 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
                   רק התחל מהחודש
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  הקופה תתחיל עם יתרה 0 ותמשיך להוסיף {monthlyFundAmount.toLocaleString('he-IL')} ₪ כל חודש מהחודש
+                  הקופה תתחיל עם יתרה 0 ותמשיך להוסיף {effectiveMonthlyAmount.toLocaleString('he-IL')} ₪ כל חודש מהחודש
                 </div>
               </div>
             </label>
@@ -303,7 +329,8 @@ const FundSetupModal: React.FC<FundSetupModalProps> = ({
                 loading ||
                 mustChooseScope ||
                 (setupType === 'one_time_and_monthly' && oneTimeAmount <= 0) ||
-                (setupType === 'only_one_time' && oneTimeAmount <= 0)
+                (setupType === 'only_one_time' && oneTimeAmount <= 0) ||
+                (showMonthlyAmountInput && setupType !== 'only_one_time' && effectiveMonthlyAmount <= 0)
               }
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             >
