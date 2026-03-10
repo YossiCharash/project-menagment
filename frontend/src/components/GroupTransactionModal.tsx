@@ -7,6 +7,7 @@ import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
 import ConfirmationModal from './ConfirmationModal'
+import DuplicateWarningModal from './DuplicateWarningModal'
 
 interface GroupTransactionModalProps {
   isOpen: boolean
@@ -83,6 +84,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editorValue, setEditorValue] = useState('')
   const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
   const [submitProgress, setSubmitProgress] = useState<{done: number, total: number} | null>(null)
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftsList, setDraftsList] = useState<GroupTransactionDraftOut[]>([])
   const [showLoadDraft, setShowLoadDraft] = useState(false)
@@ -744,11 +746,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    await doSubmit(false)
+  }
+
+  const handleConfirmDuplicateSubmit = async () => {
+    setShowDuplicateConfirm(false)
+    await doSubmit(true)
+  }
+
+  const doSubmit = async (forceAllowDuplicate: boolean) => {
     setLoading(true)
     setError(null)
 
     // Validate all rows
     const errors: string[] = []
+    const duplicateWarnings: string[] = []
     rows.forEach((row, index) => {
       if (!row.projectId) {
         errors.push(`שורה ${index + 1}: יש לבחור פרויקט`)
@@ -759,7 +771,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           errors.push(`שורה ${index + 1}: יש לבחור תת-פרויקט`)
         }
       }
-      
+
       if (row.isUnforeseen) {
         const totalIncomes = (row.incomes || []).reduce((sum, inc) => sum + (Number(inc.amount) || 0), 0)
         const hasExpenses = row.expenses && row.expenses.length > 0 && !row.expenses.every(exp => !exp.amount || Number(exp.amount) <= 0)
@@ -780,7 +792,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           }
         }
       }
-      
+
       const isPeriodTx = !!(row.period_start_date && row.period_end_date)
       if (isPeriodTx) {
         if (!row.period_start_date?.trim() || !row.period_end_date?.trim()) {
@@ -798,12 +810,19 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         errors.push(`שורה ${index + 1}: ${row.dateError}`)
       }
       if (row.duplicateError && !row.isUnforeseen) {
-        errors.push(`שורה ${index + 1}: ${row.duplicateError}`)
+        duplicateWarnings.push(`שורה ${index + 1}: ${row.duplicateError}`)
       }
     })
 
     if (errors.length > 0) {
       setError(errors.join('\n'))
+      setLoading(false)
+      return
+    }
+
+    // If there are duplicate warnings and not forced, show confirmation modal
+    if (duplicateWarnings.length > 0 && !forceAllowDuplicate) {
+      setShowDuplicateConfirm(true)
       setLoading(false)
       return
     }
@@ -954,7 +973,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           transactionData.period_end_date = row.period_end_date!
         }
 
-        const transaction = await TransactionAPI.createTransaction(transactionData)
+        const transaction = forceAllowDuplicate && row.duplicateError
+          ? (await api.post('/transactions/', { ...transactionData, allow_duplicate: true })).data
+          : await TransactionAPI.createTransaction(transactionData)
 
         if (!transaction || !transaction.id) {
           console.error('[GROUP TX] Transaction created but no ID returned:', transaction)
@@ -1095,7 +1116,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         }
         return { succeeded: true, rowErrors }
       } catch (err: any) {
-        rowErrors.push(`שורה ${i + 1}: ${err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'}`)
+        const errDetail = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
+        const errFields: string[] | undefined = err.response?.data?.errors
+        const errMsg = errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail
+        rowErrors.push(`שורה ${i + 1}: ${errMsg}`)
         return { succeeded: false, rowErrors }
       }
     }
@@ -2202,6 +2226,12 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         cancelText="ביטול"
         variant="danger"
         loading={deletingDraft}
+      />
+
+      <DuplicateWarningModal
+        isOpen={showDuplicateConfirm}
+        onClose={() => { setShowDuplicateConfirm(false); setLoading(false) }}
+        onConfirm={handleConfirmDuplicateSubmit}
       />
     </div>
   )

@@ -494,7 +494,9 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       setPendingPayload(null)
       await handleTransactionSuccess(response.data)
     } catch (e: any) {
-      setError(e.response?.data?.detail ?? 'שמירה נכשלה')
+      const errDetail = e.response?.data?.detail ?? 'שמירה נכשלה'
+      const errFields: string[] | undefined = e.response?.data?.errors
+      setError(errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail)
       setLoading(false)
     }
   }
