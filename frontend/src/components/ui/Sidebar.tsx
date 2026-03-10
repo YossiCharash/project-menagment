@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useLocation } from 'react-router-dom'
-import { 
+import {
   LayoutDashboard,
   FolderOpen,
   BarChart3,
@@ -26,77 +26,112 @@ import { cn } from '../../lib/utils'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState, AppDispatch } from '../../store'
 import { fetchUnreadCount } from '../../store/slices/notificationsSlice'
+import type { Permission } from '../../store/slices/permissionsSlice'
 import { Logo } from './Logo'
+
+interface NavigationItem {
+  name: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  description: string
+  adminOnly?: boolean
+  permission?: { action: string; resource: string }
+}
 
 interface SidebarProps {
   isCollapsed: boolean
   onToggle: () => void
 }
 
-const getNavigationItems = (userRole?: string) => {
-  const baseItems = [
-    {
-      name: 'לוח בקרה',
-      href: '/',
-      icon: LayoutDashboard,
-      description: 'סקירה כללית של הפרויקטים'
-    },
-    {
-      name: 'פרויקטים',
-      href: '/projects',
-      icon: FolderOpen,
-      description: 'ניהול פרויקטים ותת-פרויקטים'
-    },
-    {
-      name: 'דוחות',
-      href: '/reports',
-      icon: BarChart3,
-      description: 'דוחות פיננסיים ומעקב'
-    },
-    {
-      name: 'הצעות מחיר',
-      href: '/price-quotes',
-      icon: Receipt,
-      description: 'בניית הצעות מחיר והמרה לפרויקטים'
-    },
-    {
-      name: 'ניהול משימות',
-      href: '/task-management',
-      icon: ClipboardList,
-      description: 'לוח, יומן, משימות והודעות'
-    }
-  ]
-
-  // Add admin-only items
-  if (userRole === 'Admin') {
-    baseItems.push({
-      name: 'היסטורית פעילות',
-      href: '/audit-logs',
-      icon: Activity,
-      description: 'מעקב אחר כל הפעולות במערכת'
-    })
-    baseItems.push({
-      name: 'ניהול מנהלים',
-      href: '/admin-management',
-      icon: UserCog,
-      description: 'ניהול מנהלי מערכת נוספים'
-    })
-    baseItems.push({
-      name: 'ניהול משתמשים',
-      href: '/users',
-      icon: UserCog,
-      description: 'ניהול משתמשי המערכת והרשאות'
-    })
-  }
-
-  baseItems.push({
+const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
+  {
+    name: 'לוח בקרה',
+    href: '/',
+    icon: LayoutDashboard,
+    description: 'סקירה כללית של הפרויקטים'
+  },
+  {
+    name: 'פרויקטים',
+    href: '/projects',
+    icon: FolderOpen,
+    description: 'ניהול פרויקטים ותת-פרויקטים',
+    permission: { action: 'read', resource: 'project' }
+  },
+  {
+    name: 'דוחות',
+    href: '/reports',
+    icon: BarChart3,
+    description: 'דוחות פיננסיים ומעקב',
+    permission: { action: 'read', resource: 'report' }
+  },
+  {
+    name: 'הצעות מחיר',
+    href: '/price-quotes',
+    icon: Receipt,
+    description: 'בניית הצעות מחיר והמרה לפרויקטים',
+    permission: { action: 'read', resource: 'quote' }
+  },
+  {
+    name: 'ניהול משימות',
+    href: '/task-management',
+    icon: ClipboardList,
+    description: 'לוח, יומן, משימות והודעות',
+    permission: { action: 'read', resource: 'task' }
+  },
+  {
+    name: 'היסטורית פעילות',
+    href: '/audit-logs',
+    icon: Activity,
+    description: 'מעקב אחר כל הפעולות במערכת',
+    adminOnly: true
+  },
+  {
+    name: 'ניהול מנהלים',
+    href: '/admin-management',
+    icon: UserCog,
+    description: 'ניהול מנהלי מערכת נוספים',
+    adminOnly: true
+  },
+  {
+    name: 'ניהול משתמשים',
+    href: '/users',
+    icon: UserCog,
+    description: 'ניהול משתמשי המערכת והרשאות',
+    adminOnly: true
+  },
+  {
     name: 'הגדרות',
     href: '/settings',
     icon: Settings,
     description: 'אזור אישי, הגדרות מערכת ומשתמש'
-  })
+  }
+]
 
-  return baseItems
+function filterNavigationItems(
+  items: NavigationItem[],
+  userRole: string | undefined,
+  permissions: Permission[]
+): NavigationItem[] {
+  const isAdmin = userRole === 'Admin'
+
+  return items.filter((item) => {
+    if (item.adminOnly) return isAdmin
+    if (!item.permission) return true
+    if (isAdmin) return true
+
+    const { action, resource } = item.permission
+    const isDenied = permissions.some(
+      (p) => p.resource_type === resource && p.action === action && p.effect === 'deny'
+    )
+    if (isDenied) return false
+
+    return permissions.some(
+      (p) =>
+        p.resource_type === resource &&
+        p.action === action &&
+        (p.effect === 'allow' || !p.effect)
+    )
+  })
 }
 
 export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
@@ -105,7 +140,8 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
   const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
-  const navigationItems = getNavigationItems(me?.role)
+  const permissions = useSelector((state: RootState) => state.permissions.permissions)
+  const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
 
   useEffect(() => {
     if (me) dispatch(fetchUnreadCount())
@@ -276,7 +312,8 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
   const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
-  const navigationItems = getNavigationItems(me?.role)
+  const permissions = useSelector((state: RootState) => state.permissions.permissions)
+  const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
 
   return (
     <AnimatePresence>

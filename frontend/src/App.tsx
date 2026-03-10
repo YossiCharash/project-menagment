@@ -35,7 +35,7 @@ const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 const UserGuide = React.lazy(() => import('./pages/UserGuide'))
 import { logout, fetchMe } from './store/slices/authSlice'
-import { fetchUserPermissions, clearPermissions } from './store/slices/permissionsSlice'
+import { fetchUserPermissions, clearPermissions, selectCanAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { LoadingOverlay } from './components/ui/Loading'
@@ -77,6 +77,14 @@ function RequireAuth({ children }: { children: JSX.Element }) {
     return <LoadingOverlay message="טוען נתוני משתמש..." />
   }
 
+  return children
+}
+
+function RequirePermission({ action, resource, children }: { action: string; resource: string; children: JSX.Element }) {
+  const canAccess = useSelector(selectCanAccess(action, resource))
+  const permissionsLoaded = useSelector((s: RootState) => s.permissions.loaded)
+  if (!permissionsLoaded) return null
+  if (!canAccess) return <Navigate to="/" replace />
   return children
 }
 
@@ -208,17 +216,17 @@ function AppContent() {
             <Routes>
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
-              <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
-              <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><UnforeseenTransactions /></RequireAuth>} />
-              <Route path="/projects/:id/parent" element={<RequireAuth><ParentProjectDetail /></RequireAuth>} />
-              <Route path="/projects/:parentId/subprojects" element={<RequireAuth><Subprojects /></RequireAuth>} />
-              <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-              <Route path="/price-quotes" element={<RequireAuth><PriceQuotes /></RequireAuth>} />
-              <Route path="/price-quotes/new" element={<RequireAuth><CreateQuotePage /></RequireAuth>} />
-              <Route path="/price-quotes/:id" element={<RequireAuth><QuoteDetail key={location.pathname} /></RequireAuth>} />
+              <Route path="/projects" element={<RequireAuth><RequirePermission action="read" resource="project"><Projects /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:id" element={<RequireAuth><RequirePermission action="read" resource="project"><ProjectDetail /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><RequirePermission action="read" resource="project"><UnforeseenTransactions /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:id/parent" element={<RequireAuth><RequirePermission action="read" resource="project"><ParentProjectDetail /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:parentId/subprojects" element={<RequireAuth><RequirePermission action="read" resource="project"><Subprojects /></RequirePermission></RequireAuth>} />
+              <Route path="/reports" element={<RequireAuth><RequirePermission action="read" resource="report"><Reports /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes" element={<RequireAuth><RequirePermission action="read" resource="quote"><PriceQuotes /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/new" element={<RequireAuth><RequirePermission action="read" resource="quote"><CreateQuotePage /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission action="read" resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
-              <Route path="/task-management" element={<RequireAuth><TaskManagement /></RequireAuth>} />
+              <Route path="/task-management" element={<RequireAuth><RequirePermission action="read" resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
               <Route path="/task-calendar" element={<Navigate to="/task-management" replace />} />
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
