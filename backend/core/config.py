@@ -136,6 +136,19 @@ class Settings(BaseModel):
     MICROSOFT_CLIENT_SECRET: str = Field(default=os.getenv("MICROSOFT_CLIENT_SECRET", ""))
     MICROSOFT_REDIRECT_URI: str = Field(default=os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/api/v1/outlook/callback"))
 
+    # ── Error alerting via WhatsApp (Green API) + Claude AI ─────────────────
+    ERROR_ALERTS_ENABLED: bool = Field(
+        default=os.getenv("ERROR_ALERTS_ENABLED", "false").lower() == "true"
+    )
+    # Green API instance ID (from green-api.com dashboard)
+    GREEN_API_INSTANCE_ID: str = Field(default=os.getenv("GREEN_API_INSTANCE_ID", ""))
+    # Green API token (from green-api.com dashboard)
+    GREEN_API_TOKEN: str = Field(default=os.getenv("GREEN_API_TOKEN", ""))
+    # Your WhatsApp number to receive alerts (international format, no +)
+    ALERT_PHONE: str = Field(default=os.getenv("ALERT_PHONE", ""))
+    # Anthropic API key for Claude-based error analysis
+    ANTHROPIC_API_KEY: str = Field(default=os.getenv("ANTHROPIC_API_KEY", ""))
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

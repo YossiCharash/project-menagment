@@ -2,9 +2,9 @@ import { motion } from 'framer-motion'
 import api from '../../../lib/api'
 import { Transaction } from '../types'
 import { getCategoryName } from '../utils'
-import { formatDate, parseLocalDate } from '../../../lib/utils'
+import { formatDate } from '../../../lib/utils'
 import { CATEGORY_LABELS } from '../../../utils/calculations'
-import { calculateMonthlyIncomeAccrual } from '../../../utils/calculations'
+import FundSetupModal from '../../../components/FundSetupModal'
 
 interface FundModalsProps {
   showEditFundModal: boolean
@@ -14,20 +14,16 @@ interface FundModalsProps {
   monthlyFundAmount: number
   currentBalance: number
   fundUpdateScope: 'from_start' | 'from_this_month' | 'only_this_month'
-  fundScopePreviousYear: 'only_period' | 'also_current' | null
   updatingFund: boolean
-  creatingFund: boolean
   fundCategoryFilter: string
-  selectedPeriod: { start_date?: string; end_date?: string } | null
-  isViewingHistoricalPeriod: boolean
   id: string | undefined
+  projectStartDate: string | null
   onCloseEditFund: () => void
   onCloseCreateFund: () => void
   onCloseFundTransactions: () => void
   onSetMonthlyFundAmount: (amount: number) => void
   onSetCurrentBalance: (balance: number) => void
   onSetFundUpdateScope: (scope: 'from_start' | 'from_this_month' | 'only_this_month') => void
-  onSetFundScopePreviousYear: (scope: 'only_period' | 'also_current' | null) => void
   onLoadFundData: () => Promise<void>
   onLoadProjectInfo: () => Promise<void>
   onShowDocumentsModal: (tx: Transaction) => Promise<void>
@@ -50,20 +46,16 @@ export default function FundModals({
   monthlyFundAmount,
   currentBalance,
   fundUpdateScope,
-  fundScopePreviousYear,
   updatingFund,
-  creatingFund,
   fundCategoryFilter,
-  selectedPeriod,
-  isViewingHistoricalPeriod,
   id,
+  projectStartDate,
   onCloseEditFund,
   onCloseCreateFund,
   onCloseFundTransactions,
   onSetMonthlyFundAmount,
   onSetCurrentBalance,
   onSetFundUpdateScope,
-  onSetFundScopePreviousYear,
   onLoadFundData,
   onLoadProjectInfo,
   onShowDocumentsModal,
@@ -233,167 +225,20 @@ export default function FundModals({
       )}
 
       {/* Create Fund Modal */}
-      {showCreateFundModal && (() => {
-        const periodEnd = selectedPeriod?.end_date ? parseLocalDate(selectedPeriod.end_date) : null
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-        /** Show prompt when viewing a period that ended in the past (incl. earlier this year) */
-        const isAddingFundInPreviousYear = !!(
-          isViewingHistoricalPeriod &&
-          selectedPeriod?.start_date &&
-          selectedPeriod?.end_date &&
-          periodEnd &&
-          periodEnd.getTime() < today.getTime()
-        )
-        const canSubmit = monthlyFundAmount > 0 && (!isAddingFundInPreviousYear || fundScopePreviousYear !== null)
-
-        return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  הוסף קופה לפרויקט
-                </h3>
-                <button
-                  onClick={onCloseCreateFund}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  if (!canSubmit) return
-                  try {
-                    const params = new URLSearchParams()
-                    params.append('monthly_amount', monthlyFundAmount.toString())
-
-                    if (isAddingFundInPreviousYear && fundScopePreviousYear) {
-                      const periodStart = parseLocalDate(selectedPeriod!.start_date!)
-                      const periodEndDate = parseLocalDate(selectedPeriod!.end_date!)
-                      if (!periodStart || !periodEndDate) {
-                        alert('שגיאה: לא ניתן לחשב תאריכי תקופה')
-                        return
-                      }
-                      const todayDate = new Date()
-                      todayDate.setHours(12, 0, 0, 0)
-
-                      if (fundScopePreviousYear === 'only_period') {
-                        const initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, periodStart, periodEndDate)
-                        params.set('monthly_amount', '0')
-                        params.append('initial_balance', initialBalance.toString())
-                        params.append('last_monthly_addition', selectedPeriod!.end_date!)
-                      } else {
-                        const initialBalance = calculateMonthlyIncomeAccrual(monthlyFundAmount, periodStart, todayDate)
-                        const y = todayDate.getFullYear()
-                        const m = String(todayDate.getMonth() + 1).padStart(2, '0')
-                        const d = String(todayDate.getDate()).padStart(2, '0')
-                        params.append('initial_balance', initialBalance.toString())
-                        params.append('last_monthly_addition', `${y}-${m}-${d}`)
-                      }
-                    }
-
-                    await api.post(`/projects/${id}/fund?${params.toString()}`)
-                    await onLoadProjectInfo()
-                    await onLoadFundData()
-                    onCloseCreateFund()
-                  } catch (err: any) {
-                    alert(err.response?.data?.detail || 'שגיאה ביצירת הקופה')
-                  }
-                }}
-                className="space-y-4"
-              >
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    סכום חודשי (₪)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={monthlyFundAmount}
-                    onChange={(e) => onSetMonthlyFundAmount(Number(e.target.value))}
-                    placeholder="הכנס סכום חודשי"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                  {(!isAddingFundInPreviousYear || fundScopePreviousYear === 'also_current') && (
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      הסכום יתווסף לקופה כל חודש באופן אוטומטי
-                    </p>
-                  )}
-                </div>
-
-                {isAddingFundInPreviousYear && (
-                  <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
-                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                      אתה מוסיף קופה בשנה קודמת. איך ליצור את הקופה?
-                    </p>
-                    <div className="space-y-2">
-                      <label className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-700 cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30">
-                        <input
-                          type="radio"
-                          name="fundScopePreviousYear"
-                          checked={fundScopePreviousYear === 'only_period'}
-                          onChange={() => onSetFundScopePreviousYear('only_period')}
-                          className="mt-1 text-amber-600 dark:text-amber-400"
-                        />
-                        <div>
-                          <span className="font-medium text-gray-900 dark:text-white">רק לתקופה ההיא</span>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-                            קופה עם יתרה מחושבת מתחילת התקופה לסוף התקופה בלבד, בלי הוספה חודשית להמשך
-                          </p>
-                        </div>
-                      </label>
-                      <label className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-700 cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30">
-                        <input
-                          type="radio"
-                          name="fundScopePreviousYear"
-                          checked={fundScopePreviousYear === 'also_current'}
-                          onChange={() => onSetFundScopePreviousYear('also_current')}
-                          className="mt-1 text-amber-600 dark:text-amber-400"
-                        />
-                        <div>
-                          <span className="font-medium text-gray-900 dark:text-white">גם לתקופה הנוכחית</span>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-                            קופה עם יתרה מתחילת התקופה עד היום, והסכום החודשי ימשיך להתווסף מדי חודש
-                          </p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={creatingFund || !canSubmit}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    {creatingFund ? 'יוצר...' : 'צור קופה'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCloseCreateFund}
-                    disabled={creatingFund}
-                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-                  >
-                    ביטול
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )
-      })()}
+      {showCreateFundModal && (
+        <FundSetupModal
+          isOpen={showCreateFundModal}
+          onClose={onCloseCreateFund}
+          onSuccess={async () => {
+            await onLoadProjectInfo()
+            await onLoadFundData()
+          }}
+          projectId={Number(id)}
+          projectStartDate={projectStartDate}
+          monthlyFundAmount={monthlyFundAmount}
+          showMonthlyAmountInput={true}
+        />
+      )}
 
       {/* Fund Transactions Modal */}
       {showFundTransactionsModal && fundData && (
