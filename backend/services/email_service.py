@@ -1,3 +1,4 @@
+import logging
 import smtplib
 import ssl
 from email.mime.text import MIMEText
@@ -5,6 +6,8 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional
 from backend.core.config import settings
 import html
+
+logger = logging.getLogger(__name__)
 
 
 def get_frontend_url() -> str:
@@ -69,7 +72,8 @@ class EmailService:
 צוות המערכת"""
 
             return await self._send_email(email, subject, body)
-        except Exception:
+        except Exception as e:
+            logger.error("שליחת אימייל אימות ל-%s נכשלה: %s", email, e, exc_info=True)
             return False
 
     async def send_admin_invite_email(self, email: str, full_name: str, invite_code: str) -> bool:
@@ -93,7 +97,8 @@ class EmailService:
             """
 
             return await self._send_email(email, subject, body)
-        except Exception:
+        except Exception as e:
+            logger.error("שליחת אימייל הזמנה ל-%s נכשלה: %s", email, e, exc_info=True)
             return False
 
     async def send_member_invite_email(self, email: str, full_name: str, registration_link: str, expires_days: int) -> bool:
@@ -258,9 +263,7 @@ class EmailService:
     async def _send_email(self, to_email: str, subject: str, body: str, html_body: str = None) -> bool:
         """Send email using SMTP"""
         try:
-            print(f"📧 מנסה לשלוח אימייל ל-{to_email}")
-            print(f"   שרת SMTP: {self.smtp_server}:{self.smtp_port}")
-            print(f"   שם משתמש SMTP: {self.smtp_username[:3] + '***' if self.smtp_username else 'לא הוגדר'}")
+            logger.debug("מנסה לשלוח אימייל ל-%s (SMTP: %s:%s)", to_email, self.smtp_server, self.smtp_port)
             
             # Validate email parameters
             if not to_email or not isinstance(to_email, str):
@@ -274,24 +277,14 @@ class EmailService:
             smtp_username = (self.smtp_username or "").strip()
             smtp_password = (self.smtp_password or "").strip()
             
-            print(f"   שם משתמש לאחר strip: {'הוגדר' if smtp_username else 'לא הוגדר'}")
-            print(f"   סיסמה לאחר strip: {'הוגדרה' if smtp_password else 'לא הוגדרה'}")
-            
             if not smtp_username or not smtp_password:
-                import logging
-                logging.warning(f"פרטי SMTP לא הוגדרו. אימייל ל-{to_email} לא נשלח.")
-                print(f"⚠️  פרטי SMTP לא הוגדרו. אימייל ל-{to_email} לא נשלח.")
-                print(f"   SMTP_USERNAME: {'הוגדר' if smtp_username else 'לא הוגדר'}")
-                print(f"   SMTP_PASSWORD: {'הוגדר' if smtp_password else 'לא הוגדר'}")
-                print(f"   אנא הגדר SMTP_USERNAME ו-SMTP_PASSWORD בקובץ .env")
+                logger.warning("פרטי SMTP לא הוגדרו – אימייל ל-%s לא נשלח.", to_email)
                 return False
 
             # Ensure from_email is set
             from_email = (self.from_email or self.smtp_username or "noreply@example.com").strip()
             if not from_email:
                 from_email = self.smtp_username or "noreply@example.com"
-            
-            print(f"   אימייל שולח: {from_email}")
 
             # Create message
             message = MIMEMultipart()

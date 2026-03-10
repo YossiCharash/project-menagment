@@ -1,8 +1,11 @@
+import logging
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
+
+logger = logging.getLogger(__name__)
 
 from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.models.transaction import Transaction, TransactionType, ExpenseCategory
@@ -131,8 +134,7 @@ class RecurringTransactionService:
                 await self.db.execute(stmt)
                 await self.db.commit()
             except Exception as e:
-                print(f"אזהרה: העברת עדכוני תבנית חוזרת לעסקאות נכשלה: {e}")
-                # Don't fail the request, just log it
+                logger.error("העברת עדכוני תבנית חוזרת לעסקאות נכשלה (template_id=%s): %s", template_id, e, exc_info=True)
         
         return updated_template
 
@@ -185,8 +187,8 @@ class RecurringTransactionService:
             )
             if check_result.fetchone():
                 return None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("בדיקת עסקה קיימת נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
 
         try:
             from backend.repositories.deleted_recurring_instance_repository import (
@@ -195,8 +197,8 @@ class RecurringTransactionService:
             deleted_repo = DeletedRecurringInstanceRepository(self.db)
             if await deleted_repo.is_deleted(template.id, target_date):
                 return None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("בדיקת מחיקת instance נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
 
         end_type_str = (
             template.end_type.value if hasattr(template.end_type, "value") else str(template.end_type)
@@ -241,7 +243,8 @@ class RecurringTransactionService:
             tx = Transaction(**transaction_data)
             self.db.add(tx)
             return tx
-        except Exception:
+        except Exception as e:
+            logger.warning("יצירת עסקה עם נתונים מלאים נכשלה, מנסה fallback (template_id=%s): %s", template.id, e)
             fallback = {
                 k: v
                 for k, v in transaction_data.items()
@@ -268,7 +271,8 @@ class RecurringTransactionService:
                 tx = await self._try_create_transaction_for_template_date(template, target_date)
                 if tx:
                     generated_transactions.append(tx)
-            except Exception:
+            except Exception as e:
+                logger.error("שגיאה ביצירת עסקה חוזרת (template_id=%s, date=%s): %s", template.id, target_date, e, exc_info=True)
                 raise
         if generated_transactions:
             await self.db.commit()
@@ -428,8 +432,8 @@ class RecurringTransactionService:
                 select(Transaction).where(Transaction.id.in_(tx_ids)).order_by(Transaction.tx_date.desc())
             )
             return list(res.scalars().all())
-        except Exception:
-            # Fallback: try without recurring_template_id filter
+        except Exception as e:
+            logger.error("שגיאה בשליפת עסקאות חוזרות (template_id=%s): %s", template_id, e, exc_info=True)
             return []
 
     async def update_transaction_instance(self, transaction_id: int, data: RecurringTransactionInstanceUpdate) -> Optional[Transaction]:
@@ -445,7 +449,8 @@ class RecurringTransactionService:
             recurring_id = check_result.scalar()
             if not recurring_id:
                 return None
-        except Exception:
+        except Exception as e:
+            logger.warning("בדיקת recurring_template_id נכשלה (tx_id=%s): %s", transaction_id, e)
             # If column doesn't exist or error, use getattr as fallback
             if not getattr(transaction, 'recurring_template_id', None):
                 return None
@@ -535,7 +540,8 @@ class RecurringTransactionService:
                     """)
                     count_result = await self.db.execute(count_query, {"template_id": template_id})
                     existing_count = count_result.scalar() or 0
-                except Exception:
+                except Exception as e:
+                    logger.warning("ספירת עסקאות קיימות נכשלה (template_id=%s): %s", template_id, e)
                     existing_count = 0
                 if existing_count >= template.max_occurrences:
                     should_generate = False

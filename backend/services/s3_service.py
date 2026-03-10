@@ -1,8 +1,11 @@
+import logging
 import boto3
 from botocore.config import Config
 from backend.core.config import settings
 from uuid import uuid4
 from typing import BinaryIO
+
+logger = logging.getLogger(__name__)
 
 
 class S3Service:
@@ -73,8 +76,7 @@ class S3Service:
         try:
             self._s3.delete_object(Bucket=self._bucket, Key=key)
         except Exception as e:
-            # Log error but don't fail the deletion - the database record will still be deleted
-            print(f"Warning: Failed to delete file from S3: {e}")
+            logger.error("מחיקת קובץ מ-S3 נכשלה (key=%s): %s", key, e, exc_info=True)
 
     def get_file_content(self, file_url: str) -> bytes | None:
         """Get file content from S3 given its URL"""
@@ -94,7 +96,7 @@ class S3Service:
             response = self._s3.get_object(Bucket=self._bucket, Key=key)
             return response['Body'].read()
         except Exception as e:
-            print(f"Warning: Failed to download file from S3: {e}")
+            logger.error("הורדת קובץ מ-S3 נכשלה (key=%s): %s", key, e, exc_info=True)
             return None
 
 

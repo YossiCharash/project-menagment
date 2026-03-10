@@ -1,8 +1,11 @@
+import logging
 from datetime import date, timedelta, datetime, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Dict, List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 
 from backend.repositories.contract_period_repository import ContractPeriodRepository
 from backend.repositories.project_repository import ProjectRepository
@@ -778,15 +781,14 @@ class ContractPeriodService:
                     project.end_date = project.end_date + relativedelta(years=1)
                     await self.projects.update(project)
             except Exception as e:
-                pass  # Error auto-renewing contract
-                # If we're stuck and can't close year, try to at least advance the project dates to prevent being stuck forever
+                logger.error("שגיאה בחידוש חוזה שנתי לפרויקט %s: %s", getattr(project, 'id', '?'), e, exc_info=True)
                 try:
                     project.end_date = project.end_date + relativedelta(years=1)
                     await self.projects.update(project)
-                except:
-                    pass
+                except Exception as inner_e:
+                    logger.error("שגיאה בהתאוששות מחידוש חוזה: %s", inner_e, exc_info=True)
                 break
-                
+
         return latest_created_period
 
     async def _renew_contract_by_duration(self, project_id: int, project: Project) -> Optional[ContractPeriod]:
@@ -870,17 +872,16 @@ class ContractPeriodService:
                 current_start = new_period.end_date
                 
             except Exception as e:
-                pass  # Error auto-renewing contract
-                # If we're stuck and can't close year, try to at least advance the project dates
+                logger.error("שגיאה בחידוש חוזה לפי משך לפרויקט %s: %s", getattr(project, 'id', '?'), e, exc_info=True)
                 try:
                     current_start = current_start + relativedelta(months=duration_months)
                     project.start_date = current_start
                     project.end_date = current_start + relativedelta(months=duration_months)
                     await self.projects.update(project)
-                except:
-                    pass
+                except Exception as inner_e:
+                    logger.error("שגיאה בהתאוששות מחידוש חוזה: %s", inner_e, exc_info=True)
                 break
-                
+
         return latest_created_period
 
     async def update_period_dates(
