@@ -35,7 +35,7 @@ const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 const UserGuide = React.lazy(() => import('./pages/UserGuide'))
 import { logout, fetchMe } from './store/slices/authSlice'
-import { fetchUserPermissions, clearPermissions, selectCanAccess } from './store/slices/permissionsSlice'
+import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { LoadingOverlay } from './components/ui/Loading'
@@ -43,6 +43,7 @@ import { Logo } from './components/ui/Logo'
 import { Menu, LogOut, User } from 'lucide-react'
 import { cn } from './lib/utils'
 import { avatarUrl } from './lib/api'
+import { AccessDenied, NoPermissions } from './components/ui/AccessDenied'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const dispatch = useDispatch()
@@ -80,11 +81,21 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return children
 }
 
-function RequirePermission({ action, resource, children }: { action: string; resource: string; children: JSX.Element }) {
-  const canAccess = useSelector(selectCanAccess(action, resource))
+function RequirePermission({ resource, children }: { resource: string; children: JSX.Element }) {
+  const canAccess = useSelector(selectHasAnyAccess(resource))
   const permissionsLoaded = useSelector((s: RootState) => s.permissions.loaded)
   if (!permissionsLoaded) return null
-  if (!canAccess) return <Navigate to="/" replace />
+  if (!canAccess) return <AccessDenied />
+  return children
+}
+
+function RequireAnyPermission({ children }: { children: JSX.Element }) {
+  const permissions = useSelector((s: RootState) => s.permissions.permissions)
+  const permissionsLoaded = useSelector((s: RootState) => s.permissions.loaded)
+  const me = useSelector((s: RootState) => s.auth.me)
+  if (!permissionsLoaded) return null
+  if (me?.role === 'Admin') return children
+  if (permissions.length === 0) return <NoPermissions />
   return children
 }
 
@@ -214,22 +225,22 @@ function AppContent() {
           >
             <Suspense fallback={<LoadingOverlay message="טוען..." />}>
             <Routes>
-              <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              <Route path="/projects" element={<RequireAuth><RequirePermission action="read" resource="project"><Projects /></RequirePermission></RequireAuth>} />
-              <Route path="/projects/:id" element={<RequireAuth><RequirePermission action="read" resource="project"><ProjectDetail /></RequirePermission></RequireAuth>} />
-              <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><RequirePermission action="read" resource="project"><UnforeseenTransactions /></RequirePermission></RequireAuth>} />
-              <Route path="/projects/:id/parent" element={<RequireAuth><RequirePermission action="read" resource="project"><ParentProjectDetail /></RequirePermission></RequireAuth>} />
-              <Route path="/projects/:parentId/subprojects" element={<RequireAuth><RequirePermission action="read" resource="project"><Subprojects /></RequirePermission></RequireAuth>} />
-              <Route path="/reports" element={<RequireAuth><RequirePermission action="read" resource="report"><Reports /></RequirePermission></RequireAuth>} />
-              <Route path="/price-quotes" element={<RequireAuth><RequirePermission action="read" resource="quote"><PriceQuotes /></RequirePermission></RequireAuth>} />
-              <Route path="/price-quotes/new" element={<RequireAuth><RequirePermission action="read" resource="quote"><CreateQuotePage /></RequirePermission></RequireAuth>} />
-              <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission action="read" resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
-              <Route path="/suppliers" element={<RequireAuth><Suppliers /></RequireAuth>} />
-              <Route path="/task-management" element={<RequireAuth><RequirePermission action="read" resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
+              <Route path="/" element={<RequireAuth><RequireAnyPermission><Dashboard /></RequireAnyPermission></RequireAuth>} />
+              <Route path="/dashboard" element={<RequireAuth><RequireAnyPermission><Dashboard /></RequireAnyPermission></RequireAuth>} />
+              <Route path="/projects" element={<RequireAuth><RequirePermission resource="project"><Projects /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:id" element={<RequireAuth><RequirePermission resource="project"><ProjectDetail /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:projectId/unforeseen-transactions" element={<RequireAuth><RequirePermission resource="project"><UnforeseenTransactions /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:id/parent" element={<RequireAuth><RequirePermission resource="project"><ParentProjectDetail /></RequirePermission></RequireAuth>} />
+              <Route path="/projects/:parentId/subprojects" element={<RequireAuth><RequirePermission resource="project"><Subprojects /></RequirePermission></RequireAuth>} />
+              <Route path="/reports" element={<RequireAuth><RequirePermission resource="report"><Reports /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes" element={<RequireAuth><RequirePermission resource="quote"><PriceQuotes /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/new" element={<RequireAuth><RequirePermission resource="quote"><CreateQuotePage /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
+              <Route path="/suppliers" element={<RequireAuth><RequirePermission resource="supplier"><Suppliers /></RequirePermission></RequireAuth>} />
+              <Route path="/task-management" element={<RequireAuth><RequirePermission resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
               <Route path="/task-calendar" element={<Navigate to="/task-management" replace />} />
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
-              <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><SupplierDocuments /></RequireAuth>} />
+              <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><RequirePermission resource="supplier"><SupplierDocuments /></RequirePermission></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
               <Route path="/users/:userId/permissions" element={<RequireAuth><UserPermissions /></RequireAuth>} />
               <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
