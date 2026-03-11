@@ -4,6 +4,7 @@ import { ArrowRight, ArrowLeft, Plus, Trash2, Building2, ChevronDown } from 'luc
 import { QuoteProjectsAPI, QuoteSubjectsAPI, QuoteStructureAPI } from '../lib/apiClient'
 import type { QuoteSubject, QuoteCalculationMethod } from '../lib/apiClient'
 import type { CreateSubjectInput } from '../components/QuoteViewModal'
+import QuoteMonthlyProjectionTable from './QuoteDetail/components/QuoteMonthlyProjectionTable'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -680,6 +681,13 @@ export default function CreateQuotePage() {
                 <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
                   לא נוספו סעיפים עדיין לבניין זה
                 </p>
+              )}
+
+              {activeLines.length > 0 && totalLines > 0 && (
+                <QuoteMonthlyProjectionTable
+                  lines={activeLines.map((l) => ({ name: l.structure_item_name, amount: parseFloat(l.amount) || 0 }))}
+                  totalAmount={totalLines}
+                />
               )}
 
               {/* Add categories */}

@@ -17,6 +17,7 @@ class QuoteProjectRepository:
         project_id: int | None = None,
         quote_subject_id: int | None = None,
         status: str | None = None,
+        include_all: bool = False,
     ) -> List[QuoteProject]:
         query = select(QuoteProject).options(
             selectinload(QuoteProject.quote_subject),
@@ -31,7 +32,7 @@ class QuoteProjectRepository:
             query = query.where(QuoteProject.project_id == project_id)
         elif parent_id is not None:
             query = query.where(QuoteProject.parent_id == parent_id)
-        else:
+        elif not include_all:
             query = query.where(QuoteProject.parent_id.is_(None), QuoteProject.project_id.is_(None))
         if status:
             query = query.where(QuoteProject.status == status)

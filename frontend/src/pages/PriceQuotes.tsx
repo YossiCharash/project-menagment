@@ -344,7 +344,23 @@ export default function PriceQuotes() {
     setProjectsLoading(true)
     setError(null)
     try {
-      const list = await ProjectAPI.getProjects(true)
+      // 2 parallel calls instead of N+2
+      const [list, allQuotes] = await Promise.all([
+        ProjectAPI.getProjects(true),
+        QuoteProjectsAPI.list(undefined, undefined, undefined, statusFilter || undefined, true),
+      ])
+
+      // Group quotes by project_id and standalone
+      const quotesByProjectId: Record<number, QuoteProject[]> = {}
+      const standalone: QuoteProject[] = []
+      for (const q of allQuotes) {
+        if (q.project_id != null) {
+          ;(quotesByProjectId[q.project_id] ??= []).push(q)
+        } else if (q.quote_subject_id == null) {
+          standalone.push(q)
+        }
+      }
+
       const active = list.filter((p: Project) => p.is_active)
       const topLevel = active.filter((p: any) => !p.relation_project)
       const withSubs: ProjectWithQuotes[] = topLevel.map((p: Project) => ({
@@ -354,22 +370,14 @@ export default function PriceQuotes() {
         expanded: false,
       }))
 
-      const allProjectIds = withSubs.flatMap((p) => [p.id, ...(p.subprojects ?? []).map((s) => s.id)])
-      const quotesByProjectId = await Promise.all(
-        allProjectIds.map(async (pid) => {
-          const quotes = await QuoteProjectsAPI.list(undefined, pid, undefined, statusFilter || undefined)
-          return { projectId: pid, quotes }
-        })
-      )
-      const quoteMap = Object.fromEntries(quotesByProjectId.map(({ projectId, quotes }) => [projectId, quotes]))
       const withQuotes: ProjectWithQuotes[] = withSubs.map((p) => {
         const subprojects = (p.subprojects ?? []).map((sp) => ({
           ...sp,
-          quotes: quoteMap[sp.id] ?? [],
+          quotes: quotesByProjectId[sp.id] ?? [],
         }))
         return {
           ...p,
-          quotes: quoteMap[p.id] ?? [],
+          quotes: quotesByProjectId[p.id] ?? [],
           subprojects,
         }
       })
@@ -391,8 +399,6 @@ export default function PriceQuotes() {
           ),
         }))
       setProjects(filtered)
-
-      const standalone = await QuoteProjectsAPI.list(undefined, undefined, undefined, statusFilter || undefined)
       setStandaloneQuotes(standalone)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת הפרויקטים')
@@ -416,13 +422,24 @@ export default function PriceQuotes() {
   const loadSubjectsWithQuotes = useCallback(async (): Promise<SubjectWithQuotes[]> => {
     setSubjectsLoading(true)
     try {
-      const subjects = await QuoteSubjectsAPI.list()
-      const withQuotes: SubjectWithQuotes[] = await Promise.all(
-        subjects.map(async (subject) => {
-          const quotes = await QuoteProjectsAPI.list(undefined, undefined, subject.id, statusFilter || undefined)
-          return { subject, quotes }
-        })
-      )
+      // 2 parallel calls instead of M+1
+      const [subjects, allQuotes] = await Promise.all([
+        QuoteSubjectsAPI.list(),
+        QuoteProjectsAPI.list(undefined, undefined, undefined, statusFilter || undefined, true),
+      ])
+
+      // Group quotes by subject_id
+      const quotesBySubjectId: Record<number, QuoteProject[]> = {}
+      for (const q of allQuotes) {
+        if (q.quote_subject_id != null) {
+          ;(quotesBySubjectId[q.quote_subject_id] ??= []).push(q)
+        }
+      }
+
+      const withQuotes: SubjectWithQuotes[] = subjects.map((subject) => ({
+        subject,
+        quotes: quotesBySubjectId[subject.id] ?? [],
+      }))
       setSubjectsWithQuotes(withQuotes)
       return withQuotes
     } catch {

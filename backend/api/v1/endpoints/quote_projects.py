@@ -137,13 +137,14 @@ async def list_quote_projects(
     project_id: int | None = Query(None, description="Filter by project - quotes for this project"),
     quote_subject_id: int | None = Query(None, description="Filter by quote subject (נושא הצעה)"),
     status: str | None = Query(None, description="draft | approved"),
+    include_all: bool = Query(False, description="Return all quotes regardless of parent/project filters"),
     user=Depends(get_current_user),
 ):
     repo = QuoteProjectRepository(db)
-    items = await repo.list(parent_id=parent_id, project_id=project_id, quote_subject_id=quote_subject_id, status=status)
+    items = await repo.list(parent_id=parent_id, project_id=project_id, quote_subject_id=quote_subject_id, status=status, include_all=include_all)
     result = []
     for qp in items:
-        children_count = await repo.get_children_count(qp.id)
+        children_count = len(qp.children or [])
         result.append(_quote_project_to_out(qp, children_count=children_count))
     return result
 
