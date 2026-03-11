@@ -1,7 +1,9 @@
+import {useState, useEffect, useCallback} from 'react'
 import {motion} from 'framer-motion'
 import {Transaction, SplitTransaction} from '../types'
-import {splitPeriodTransactionByMonth, formatCurrency} from '../utils'
-import {parseLocalDate} from '../../../lib/utils'
+import {splitPeriodTransactionByMonth, formatCurrency, getCategoryName} from '../utils'
+import {parseLocalDate, formatDate} from '../../../lib/utils'
+import {CATEGORY_LABELS} from '../../../utils/calculations'
 
 interface MonthlyExpenseTableProps {
     transactions: Transaction[]
@@ -15,6 +17,9 @@ interface MonthlyExpenseTableProps {
     } | null
     suppliers: Array<{id: number; name: string}>
     onYearChange: (year: number) => void
+    onShowTransactionDetails: (tx: Transaction) => void
+    onShowDocumentsModal: (tx: Transaction) => Promise<void>
+    onEditTransaction: (tx: Transaction) => void
 }
 
 export default function MonthlyExpenseTable({
@@ -25,8 +30,18 @@ export default function MonthlyExpenseTable({
     isViewingHistoricalPeriod,
     selectedPeriod,
     suppliers,
-    onYearChange
+    onYearChange,
+    onShowTransactionDetails,
+    onShowDocumentsModal,
+    onEditTransaction,
 }: MonthlyExpenseTableProps) {
+
+    const [selectedCell, setSelectedCell] = useState<{
+        category: string
+        supplier: string
+        monthKey: string
+    } | null>(null)
+
     // Get current date
     const now = new Date()
     const currentYear = now.getFullYear()
@@ -282,6 +297,17 @@ export default function MonthlyExpenseTable({
         runningTotals.push(runningTotal)
     })
 
+    // Filter splits for the selected cell modal
+    const filteredSplits = selectedCell
+        ? regularSplits.filter(s =>
+            s.monthKey === selectedCell.monthKey &&
+            (s.category || 'אחר') === selectedCell.category &&
+            (s.supplier_id
+                ? suppliers.find(sup => sup.id === s.supplier_id)?.name === selectedCell.supplier
+                : selectedCell.supplier === 'ללא ספק')
+        )
+        : []
+
     const projectStartsInJanuary = projectStartMonthDate !== null && projectStartMonthDate.getMonth() === 0
     const projectStartYear = projectStartMonthDate ? projectStartMonthDate.getFullYear() : currentYear
     const yearOptions = Array.from({length: currentYear - projectStartYear + 1}, (_, i) => projectStartYear + i)
@@ -347,9 +373,12 @@ export default function MonthlyExpenseTable({
                                 // Always show the first month (monthIdx === 0) even if it hasn't been reached yet
                                 const shouldShow = monthIdx === 0 || hasReached || hasTransactions
                                 const amount = monthlyData[m.monthKey].expenses[item.category]?.[item.supplier] || 0
+                                const isClickable = shouldShow && amount > 0
                                 return (
                                     <td key={monthIdx}
-                                        className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white">
+                                        className={`border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-center text-gray-900 dark:text-white${isClickable ? ' cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30' : ''}`}
+                                        onClick={isClickable ? () => setSelectedCell({ category: item.category, supplier: item.supplier, monthKey: m.monthKey }) : undefined}
+                                    >
                                         {shouldShow && amount > 0
                                             ? formatCurrency(amount)
                                             : shouldShow ? '0' : ''}
@@ -456,6 +485,160 @@ export default function MonthlyExpenseTable({
                     </tbody>
                 </table>
             </div>
+
+            {selectedCell && (
+                <CellTransactionsModal
+                    category={selectedCell.category}
+                    supplier={selectedCell.supplier}
+                    monthLabel={months.find(m => m.monthKey === selectedCell.monthKey)?.label ?? selectedCell.monthKey}
+                    splits={filteredSplits}
+                    onClose={() => setSelectedCell(null)}
+                    onShowTransactionDetails={onShowTransactionDetails}
+                    onShowDocumentsModal={onShowDocumentsModal}
+                    onEditTransaction={onEditTransaction}
+                />
+            )}
         </motion.div>
+    )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cell Transactions Modal                                           */
+/* ------------------------------------------------------------------ */
+
+interface CellTransactionsModalProps {
+    category: string
+    supplier: string
+    monthLabel: string
+    splits: SplitTransaction[]
+    onClose: () => void
+    onShowTransactionDetails: (tx: Transaction) => void
+    onShowDocumentsModal: (tx: Transaction) => Promise<void>
+    onEditTransaction: (tx: Transaction) => void
+}
+
+function CellTransactionsModal({category, supplier, monthLabel, splits, onClose, onShowTransactionDetails, onShowDocumentsModal, onEditTransaction}: CellTransactionsModalProps) {
+
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose()
+    }, [onClose])
+
+    useEffect(() => {
+        document.addEventListener('keydown', handleKeyDown)
+        return () => document.removeEventListener('keydown', handleKeyDown)
+    }, [handleKeyDown])
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={onClose}
+        >
+            <div
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-300 dark:border-gray-600 w-full max-w-lg max-h-[75vh] flex flex-col"
+                dir="rtl"
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-300 dark:border-gray-600">
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                        {category} &mdash; {supplier} &mdash; {monthLabel}
+                    </h3>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white text-lg leading-none"
+                        aria-label="סגור"
+                    >
+                        &times;
+                    </button>
+                </div>
+
+                {/* Body */}
+                {splits.length === 0 ? (
+                    <p className="text-center text-gray-500 dark:text-gray-400 py-6">אין עסקאות</p>
+                ) : (
+                    <div className="flex flex-col gap-3 overflow-y-auto p-4">
+                        {splits.map(split => {
+                            const uniqueKey = split.monthKey ? `${split.id}-${split.monthKey}` : split.id
+                            return (
+                                <div key={uniqueKey} className="border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md transition-shadow min-w-0">
+                                    <div className="w-full px-4 py-3 text-right flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 min-w-0 cursor-pointer" onClick={() => onShowTransactionDetails(split)}>
+                                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 flex-1 justify-between sm:justify-start">
+                                            <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                                                <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${split.type === 'Income' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                                                    {split.type === 'Income' ? 'הכנסה' : 'הוצאה'}
+                                                </span>
+                                                {split.is_generated && (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800 whitespace-nowrap">
+                                                        מחזורי
+                                                    </span>
+                                                )}
+                                                {split.is_unforeseen && (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800 whitespace-nowrap">
+                                                        לא צפויה
+                                                    </span>
+                                                )}
+                                                {split.period_start_date && split.period_end_date && (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 whitespace-nowrap">
+                                                        תאריכית
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                                                <div className="text-right">
+                                                    <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(split.tx_date)}</div>
+                                                    {split.period_start_date && split.period_end_date && (
+                                                        <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5 whitespace-nowrap" dir="ltr">
+                                                            {formatDate(split.period_start_date, '', {day: '2-digit', month: '2-digit'})} – {formatDate(split.period_end_date, '', {day: '2-digit', month: '2-digit'})}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <span className={`text-lg font-semibold whitespace-nowrap ${split.type === 'Income' ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {formatCurrency(split.proportionalAmount)} ₪
+                                                </span>
+                                                {split.proportionalAmount !== split.fullAmount && (
+                                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                                        מתוך {formatCurrency(split.fullAmount)} ₪
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300 min-w-0 flex-1">
+                                            {split.is_unforeseen && split.description
+                                                ? split.description
+                                                : (() => {
+                                                    const catName = getCategoryName(split.category)
+                                                    return catName ? (CATEGORY_LABELS[catName] || catName) : '-'
+                                                })()}
+                                        </div>
+                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={e => { e.stopPropagation(); onEditTransaction(split) }}
+                                                className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                                                title="ערוך עסקה"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={e => { e.stopPropagation(); onShowDocumentsModal(split) }}
+                                                className="p-1.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+                                                title="מסמכים"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
