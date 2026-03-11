@@ -51,12 +51,13 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   supplier: 'ספק',
   task: 'משימות / יומן',
   category: 'קטגוריה',
-  audit_log: 'יומן פעילות',
+  audit_log: 'היסטורית פעילות',
   contract: 'חוזה',
   quote: 'הצעת מחיר',
   member_invite: 'הזמנת חבר',
   admin_invite: 'הזמנת מנהל',
   notification: 'התראה',
+  dashboard: 'לוח בקרה',
 }
 
 const ACTION_LABELS: Record<string, string> = {
