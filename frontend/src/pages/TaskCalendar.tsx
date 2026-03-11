@@ -62,6 +62,7 @@ export interface Task {
   attachments?: TaskAttachmentType[]
   /** תאריך שבו הלקוח/המשתמש המוקצה אישר קבלת המשימה */
   assignee_acknowledged_at?: string | null
+  assignee_viewed_at?: string | null
   is_archived?: boolean
   archived_at?: string | null
   completed_at?: string | null
