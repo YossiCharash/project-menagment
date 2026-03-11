@@ -1083,13 +1083,15 @@ export class QuoteProjectsAPI {
     parentId?: number | null,
     projectId?: number | null,
     quoteSubjectId?: number | null,
-    status?: 'draft' | 'approved'
+    status?: 'draft' | 'approved',
+    includeAll?: boolean
   ): Promise<QuoteProject[]> {
     const params = new URLSearchParams()
     if (parentId != null) params.set('parent_id', String(parentId))
     if (projectId != null) params.set('project_id', String(projectId))
     if (quoteSubjectId != null) params.set('quote_subject_id', String(quoteSubjectId))
     if (status) params.set('status', status)
+    if (includeAll) params.set('include_all', 'true')
     const { data } = await api.get<QuoteProject[]>(`/quote-projects?${params}`)
     return data
   }

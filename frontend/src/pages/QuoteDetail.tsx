@@ -14,6 +14,7 @@ import QuoteBuildingsPanel from '../components/QuoteBuildingsPanel'
 import QuoteDetailHeader from './QuoteDetail/components/QuoteDetailHeader'
 import QuoteExpenseLinesTable from './QuoteDetail/components/QuoteExpenseLinesTable'
 import QuoteApartmentsBySize from './QuoteDetail/components/QuoteApartmentsBySize'
+import QuoteMonthlyProjectionTable from './QuoteDetail/components/QuoteMonthlyProjectionTable'
 
 interface QuoteDetailProps {
   quoteId?: number | null
@@ -508,6 +509,13 @@ export default function QuoteDetail({ quoteId: quoteIdProp, embedMode, onClose }
           onNumResidentsChange={setCurrentNumResidentsStr}
           onNumResidentsBlur={handleSaveNumResidents}
         />
+
+        {currentLines.length > 0 && buildingTotal > 0 && (
+          <QuoteMonthlyProjectionTable
+            lines={currentLines.map((l) => ({ name: l.quote_structure_item_name, amount: l.amount }))}
+            totalAmount={buildingTotal}
+          />
+        )}
 
         {currentBuilding?.calculation_method === 'by_apartment_size' && (
           <QuoteApartmentsBySize
