@@ -12,7 +12,13 @@ import DeleteCategoryModal from '../components/DeleteCategoryModal'
 export default function Settings() {
   const dispatch = useAppDispatch()
   const { me, loading: authLoading } = useAppSelector(s => s.auth)
+  const permissions = useAppSelector(s => s.permissions.permissions)
   const isAdmin = me?.role === 'Admin' || me?.role === 'SuperAdmin'
+  const hasPermission = (resource: string) =>
+    isAdmin || permissions.some(p => p.resource_type === resource)
+  const canSeeCategories = hasPermission('category')
+  const canSeeSuppliers = hasPermission('supplier')
+  const canSeeQuoteStructure = hasPermission('quote')
   const { theme, toggleTheme } = useTheme()
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
@@ -95,7 +101,11 @@ export default function Settings() {
 
   // Reset to profile tab if non-admin somehow has an admin-only tab active
   useEffect(() => {
-    if (!isAdmin && (activeTab === 'categories' || activeTab === 'suppliers' || activeTab === 'quoteStructure')) {
+    if (
+      (activeTab === 'categories' && !canSeeCategories) ||
+      (activeTab === 'suppliers' && !canSeeSuppliers) ||
+      (activeTab === 'quoteStructure' && !canSeeQuoteStructure)
+    ) {
       setActiveTab('profile')
     }
   }, [isAdmin, activeTab])
@@ -588,7 +598,7 @@ export default function Settings() {
               >
                 אזור אישי
               </button>
-              {isAdmin && (
+              {canSeeCategories && (
                 <button
                   onClick={() => setActiveTab('categories')}
                   className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
@@ -600,7 +610,7 @@ export default function Settings() {
                   ניהול קטגוריות
                 </button>
               )}
-              {isAdmin && (
+              {canSeeSuppliers && (
                 <button
                   onClick={() => setActiveTab('suppliers')}
                   className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
@@ -612,7 +622,7 @@ export default function Settings() {
                   ניהול ספקים
                 </button>
               )}
-              {isAdmin && (
+              {canSeeQuoteStructure && (
                 <button
                   onClick={() => setActiveTab('quoteStructure')}
                   className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${

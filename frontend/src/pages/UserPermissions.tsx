@@ -501,14 +501,19 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
     setAdding(true)
     setError(null)
     try {
-      await api.post('/iam/resource-policies', null, {
-        params: {
-          user_id: userId,
-          resource_type: form.resource_type,
-          resource_id: '*',
-          action: form.action,
-        },
-      })
+      const actionsToGrant = form.action === 'ALL'
+        ? ['read', 'write', 'update', 'delete']
+        : [form.action]
+      for (const action of actionsToGrant) {
+        await api.post('/iam/resource-policies', null, {
+          params: {
+            user_id: userId,
+            resource_type: form.resource_type,
+            resource_id: '*',
+            action,
+          },
+        })
+      }
       setForm({ resource_type: '', action: '' })
       onRefresh()
     } catch (err: any) {
@@ -642,6 +647,7 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm transition-all duration-150 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">בחר...</option>
+              <option value="ALL">הכל (קריאה + כתיבה + עדכון + מחיקה)</option>
               {rolesData.actions.map((a) => (
                 <option key={a.name} value={a.name}>
                   {labelFor(ACTION_LABELS, a.name)}
