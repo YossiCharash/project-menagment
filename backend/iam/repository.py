@@ -57,6 +57,7 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.MEMBER_INVITE.value: _ALL_ACTIONS,
         ResourceType.ADMIN_INVITE.value: _ALL_ACTIONS,
         ResourceType.NOTIFICATION.value: {Action.READ.value},
+        ResourceType.DASHBOARD.value: {Action.READ.value},
     },
     GlobalRole.MEMBER.value: {
         rt.value: set()

@@ -52,6 +52,7 @@ class ResourceType(str, Enum):
     MEMBER_INVITE = "member_invite"
     ADMIN_INVITE = "admin_invite"
     NOTIFICATION = "notification"
+    DASHBOARD = "dashboard"
 
 
 class GlobalRole(str, Enum):
