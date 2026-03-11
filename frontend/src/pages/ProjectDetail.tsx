@@ -2103,6 +2103,35 @@ export default function ProjectDetail() {
                 selectedPeriod={state.selectedPeriod}
                 suppliers={suppliers}
                 onYearChange={state.setMonthlyTableYear}
+                onShowTransactionDetails={async (tx) => {
+                    if ((tx as any).is_unforeseen) {
+                        try {
+                            const fresh = await UnforeseenTransactionAPI.getUnforeseenTransactionByResultingTransactionId(tx.id)
+                            state.setSelectedUnforeseenTransactionForDetails(fresh as any)
+                            state.setUnforeseenDetailsReadOnly(true)
+                            state.setShowUnforeseenTransactionDetailsModal(true)
+                        } catch (_) {
+                            alert('לא נמצאה עסקה לא צפויה מקושרת')
+                        }
+                    } else {
+                        state.setSelectedTransactionForDetails(tx)
+                        state.setShowTransactionDetailsModal(true)
+                    }
+                }}
+                onShowDocumentsModal={async (tx) => {
+                    state.setSelectedTransactionForDocuments(tx)
+                    state.setShowDocumentsModal(true)
+                    state.setDocumentsLoading(true)
+                    try {
+                        const {data} = await api.get(`/transactions/${tx.id}/documents`)
+                        state.setTransactionDocuments(data || [])
+                    } catch (err) {
+                        state.setTransactionDocuments([])
+                    } finally {
+                        state.setDocumentsLoading(false)
+                    }
+                }}
+                onEditTransaction={handleEditAnyTransaction}
             />
 
             {/* Archive/Delete Choice Modal */}
