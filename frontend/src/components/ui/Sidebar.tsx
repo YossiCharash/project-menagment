@@ -120,11 +120,7 @@ function filterNavigationItems(
     if (isAdmin) return true
 
     const { resource } = item.permission
-    const resourcePerms = permissions.filter(p => p.resource_type === resource)
-    if (resourcePerms.length === 0) return false
-    const isDenied = resourcePerms.every(p => p.effect === 'deny')
-    if (isDenied) return false
-    return resourcePerms.some(p => p.effect === 'allow' || !p.effect)
+    return permissions.some(p => p.resource_type === resource)
   })
 }
 

@@ -77,15 +77,8 @@ export const selectCanAccess =
   (state: { auth: { me: { role: string } | null }; permissions: PermissionsState }): boolean => {
     if (state.auth.me?.role === 'Admin') return true
     const perms = state.permissions.permissions
-    const denied = perms.some(
-      p => p.resource_type === resource && p.action === action && p.effect === 'deny'
-    )
-    if (denied) return false
     return perms.some(
-      p =>
-        p.resource_type === resource &&
-        p.action === action &&
-        (p.effect === 'allow' || !p.effect)
+      p => p.resource_type === resource && p.action === action
     )
   }
 
@@ -98,9 +91,5 @@ export const selectHasAnyAccess =
   (state: { auth: { me: { role: string } | null }; permissions: PermissionsState }): boolean => {
     if (state.auth.me?.role === 'Admin') return true
     const perms = state.permissions.permissions
-    const resourcePerms = perms.filter(p => p.resource_type === resource)
-    if (resourcePerms.length === 0) return false
-    const isDenied = resourcePerms.every(p => p.effect === 'deny')
-    if (isDenied) return false
-    return resourcePerms.some(p => p.effect === 'allow' || !p.effect)
+    return perms.some(p => p.resource_type === resource)
   }

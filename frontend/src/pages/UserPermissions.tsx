@@ -72,11 +72,6 @@ const PROJECT_ROLE_LABELS: Record<string, string> = {
   ProjectViewer: 'צופה',
 }
 
-const EFFECT_LABELS: Record<string, string> = {
-  allow: 'אפשר',
-  deny: 'חסום',
-}
-
 const GLOBAL_ROLE_LABELS: Record<string, string> = {
   Admin: 'מנהל מערכת',
   Member: 'משתמש',
@@ -91,10 +86,7 @@ function labelFor(map: Record<string, string>, key: string): string {
 
 function isAllowed(permissions: IamPermission[], rt: string, action: string): boolean {
   return permissions.some(
-    (p) =>
-      p.resource_type === rt &&
-      p.action === action &&
-      (p.effect == null || p.effect === 'allow'),
+    (p) => p.resource_type === rt && p.action === action
   )
 }
 
@@ -498,7 +490,7 @@ interface PoliciesTabProps {
 
 function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabProps) {
   const policies = getResourcePolicies(permissions)
-  const [form, setForm] = useState({ resource_type: '', resource_id: '', action: '', effect: 'allow' })
+  const [form, setForm] = useState({ resource_type: '', resource_id: '', action: '' })
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -515,10 +507,9 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
           resource_type: form.resource_type,
           resource_id: form.resource_id.trim() || '*',
           action: form.action,
-          effect: form.effect,
         },
       })
-      setForm({ resource_type: '', resource_id: '', action: '', effect: 'allow' })
+      setForm({ resource_type: '', resource_id: '', action: '' })
       onRefresh()
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בהוספה')
@@ -580,12 +571,8 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
               return (
                 <div key={key} className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3 transition-all duration-150 hover:shadow-sm">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      p.effect === 'allow' || !p.effect
-                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                      {labelFor(EFFECT_LABELS, p.effect ?? 'allow')}
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      אפשר
                     </span>
                     <span className="text-sm font-medium text-gray-900 dark:text-white">
                       {labelFor(RESOURCE_TYPE_LABELS, p.resource_type)}
@@ -629,7 +616,7 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
       {/* Add new policy */}
       <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-5">
         <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-4">הוסף מדיניות</h3>
-        <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+        <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">סוג משאב</label>
             <select
@@ -672,17 +659,6 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
                   {labelFor(ACTION_LABELS, a.name)}
                 </option>
               ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">אפקט</label>
-            <select
-              value={form.effect}
-              onChange={(e) => setForm({ ...form, effect: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm transition-all duration-150 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="allow">אפשר</option>
-              <option value="deny">חסום</option>
             </select>
           </div>
           <div>
