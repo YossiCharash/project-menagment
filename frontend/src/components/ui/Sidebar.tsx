@@ -83,7 +83,7 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/audit-logs',
     icon: Activity,
     description: 'מעקב אחר כל הפעולות במערכת',
-    adminOnly: true
+    permission: { resource: 'audit_log' }
   },
   {
     name: 'ניהול מנהלים',
