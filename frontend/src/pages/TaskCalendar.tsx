@@ -1178,7 +1178,6 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             const color = status === 'completed'
               ? TASK_STATUS_COLORS.completed
               : (t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length])
-            const icon = eventType === 'meeting' ? '📅 ' : '📋 '
             const labels = t.labels || []
             const isRecurring = (t.recurrence_rule || '') !== ''
             return occurrences.map((occ, i) => {
@@ -1189,14 +1188,15 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               const eventId = occurrences.length > 1 ? `${t.id}-${i}` : String(t.id)
               return {
                 id: eventId,
-                title: icon + t.title + (isRecurring ? ' 🔁' : ''),
+                title: t.title,
                 start: start.toISOString(),
                 end: isAllDayTask ? undefined : end.toISOString(),
                 allDay: isAllDayTask,
-                backgroundColor: color,
-                borderColor: color,
-                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDayTask ? 'fc-event-task-no-time' : ''],
-                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask },
+                backgroundColor: isAllDayTask ? color : 'transparent',
+                borderColor: isAllDayTask ? color : 'transparent',
+                textColor: 'inherit',
+                classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDayTask ? 'fc-event-task-no-time' : '', 'fc-event-outlook'],
+                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask, status, isRecurring, color },
               }
             })
           })
@@ -1301,139 +1301,88 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         </header>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-5">
-          {isAdmin && (
-            <aside className="task-calendar-sidebar lg:w-72 flex-shrink-0 order-2 lg:order-1">
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 h-fit">
-                <h2 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2 text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  <User className="w-4 h-4" />
-                  סינון לפי משתמש
-                </h2>
+        <div className="space-y-4">
+          {/* Unified Controls + Legend Toolbar */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 rounded-xl bg-white/90 dark:bg-gray-800/90 border border-gray-200/80 dark:border-gray-700/80 backdrop-blur-sm shadow-sm">
+            {isAdmin && (
+              <>
                 <select
                   id="filter-user"
                   name="filter-user"
                   value={filterUserId ?? ''}
                   onChange={(e) => setFilterUserId(e.target.value ? Number(e.target.value) : null)}
-                  className="task-calendar-select w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
+                  className="task-calendar-select px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
                 >
-                  <option value="">הכל</option>
+                  <option value="">כל המשתמשים</option>
                   {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.full_name}
-                    </option>
+                    <option key={u.id} value={u.id}>{u.full_name}</option>
                   ))}
                 </select>
-                {users.length === 0 && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                    אין משתמשים במערכת.
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setIncludeArchived(v => !v)}
-                  className={cn(
-                    'mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-all',
-                    includeArchived
-                      ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
-                      : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
-                  )}
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
-                </button>
                 {users.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">צבע בלוח לפי עובד</p>
-                    <ul className="space-y-2.5">
-                      {users.map((u) => {
-                        const color = u.calendar_color || USER_COLORS[(u.id - 1) % USER_COLORS.length]
-                        const src = avatarUrl(u.avatar_url)
-                        return (
-                          <li key={u.id} className="flex items-center gap-3">
-                            {src ? (
-                              <img src={src} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-white dark:border-gray-700 shadow-sm flex-shrink-0" />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 shadow-sm" style={{ backgroundColor: color }} title={u.full_name}>
-                                {u.full_name.charAt(0)}
-                              </div>
-                            )}
-                            <input
-                              id={`user-color-${u.id}`}
-                              name={`user-color-${u.id}`}
-                              type="color"
-                              value={color.startsWith('#') ? color : `#${color}`}
-                              onChange={(e) => handleUserColorChange(u.id, e.target.value)}
-                              disabled={!!updatingUserColorId}
-                              className="w-8 h-8 rounded-lg border-2 border-gray-200 dark:border-gray-600 cursor-pointer disabled:opacity-50 bg-transparent"
-                              title={`צבע ל${u.full_name}`}
-                              aria-label={`צבע ל${u.full_name}`}
-                            />
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate flex-1">{u.full_name}</span>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-gray-400 dark:text-gray-500">צבע:</span>
+                    {users.map((u) => {
+                      const color = u.calendar_color || USER_COLORS[(u.id - 1) % USER_COLORS.length]
+                      return (
+                        <label key={u.id} title={u.full_name} className="relative cursor-pointer group">
+                          <div
+                            className="w-6 h-6 rounded-full shadow-sm ring-2 ring-white dark:ring-gray-800 group-hover:ring-violet-400 transition-all"
+                            style={{ backgroundColor: color }}
+                          />
+                          <input
+                            id={`user-color-${u.id}`}
+                            name={`user-color-${u.id}`}
+                            type="color"
+                            value={color.startsWith('#') ? color : `#${color}`}
+                            onChange={(e) => handleUserColorChange(u.id, e.target.value)}
+                            disabled={!!updatingUserColorId}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed"
+                            aria-label={`צבע ל${u.full_name}`}
+                          />
+                        </label>
+                      )
+                    })}
                   </div>
                 )}
-                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">סוג בלוח</p>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className="text-xs font-medium px-2 py-1 rounded-lg border-l-4 border-solid border-gray-500 bg-gray-100 dark:bg-gray-700/50">פגישה</span>
-                    <span className="text-xs font-medium px-2 py-1 rounded-lg border-2 border-dashed border-gray-500 bg-gray-50 dark:bg-gray-700/30">משימה</span>
-                  </div>
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">מצב משימה</p>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-                      <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: TASK_STATUS_COLORS.pending }} />
-                      {TASK_STATUS_LABELS.pending}
-                    </span>
-                    <span className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-                      <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: TASK_STATUS_COLORS.in_progress }} />
-                      {TASK_STATUS_LABELS.in_progress}
-                    </span>
-                    <span className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-                      <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: TASK_STATUS_COLORS.completed }} />
-                      {TASK_STATUS_LABELS.completed}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </aside>
-          )}
-
-          <div className="flex-1 min-w-0 space-y-3 order-1 lg:order-2">
-            {!isAdmin && (
-              <div className="task-calendar-legend flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400 px-1">
-                <span className="font-medium px-2 py-1 rounded-lg border-l-4 border-solid border-gray-500 bg-white/60 dark:bg-gray-800/60">פגישה</span>
-                <span className="font-medium px-2 py-1 rounded-lg border-2 border-dashed border-gray-500 bg-white/60 dark:bg-gray-800/60">משימה</span>
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.pending }} />
-                  {TASK_STATUS_LABELS.pending}
-                </span>
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.in_progress }} />
-                  {TASK_STATUS_LABELS.in_progress}
-                </span>
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.completed }} />
-                  {TASK_STATUS_LABELS.completed}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIncludeArchived(v => !v)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border transition-all',
-                    includeArchived
-                      ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
-                      : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
-                  )}
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
-                </button>
-              </div>
+                <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+              </>
             )}
+            <button
+              type="button"
+              onClick={() => setIncludeArchived(v => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                includeArchived
+                  ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
+              )}
+            >
+              <Archive className="w-3.5 h-3.5" />
+              {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
+            </button>
+            <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">מקרא:</span>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-md border-r-4 border-solid border-gray-500 bg-gray-100 dark:bg-gray-700/50">📅 פגישה</span>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-md border-2 border-dashed border-gray-500 bg-gray-50 dark:bg-gray-700/30">📋 משימה</span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.pending }} />
+              {TASK_STATUS_LABELS.pending}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.in_progress }} />
+              {TASK_STATUS_LABELS.in_progress}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.pending_closure }} />
+              {TASK_STATUS_LABELS.pending_closure}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.completed }} />
+              {TASK_STATUS_LABELS.completed}
+            </span>
+          </div>
+
+          <div className="space-y-3">
             {(() => {
               const noDateTasks = tasks.filter(t => !t.start_time && !t.end_time)
               const tasksWithDateNoTime = tasks.filter(t => (t.event_type || 'task') === 'task' && t.start_time && t.end_time)
@@ -1490,7 +1439,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 </div>
               )
             })()}
-            <div className="flex-1 min-w-0 rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 sm:p-6">
+            <div className="rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 sm:p-6">
               {loading && tasks.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
               ) : (
@@ -1584,24 +1533,69 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               eventClick={handleEventClick}
               datesSet={handleDatesSet}
               eventContent={(arg) => {
+                const esc = (s: string) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;')
                 if ((arg.event.extendedProps as { isHoliday?: boolean }).isHoliday) {
                   const title = arg.event.title
-                  const esc = (s: string) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;')
                   return {
                     html: `<div class="fc-event-main-frame"><div class="fc-event-title-container"><div class="fc-event-title fc-sticky">${esc(title)}</div></div></div>`,
                   }
                 }
-                const labels = (arg.event.extendedProps as { labels?: TaskLabelType[] }).labels || []
-                if (labels.length === 0) return undefined
+                const ext = arg.event.extendedProps as {
+                  labels?: TaskLabelType[]
+                  eventType?: EventType
+                  status?: TaskStatus
+                  isRecurring?: boolean
+                  color?: string
+                  isAllDayTask?: boolean
+                }
+                const labels = ext.labels || []
+                const eventType = ext.eventType || 'task'
+                const status = ext.status || 'pending'
+                const isRecurring = ext.isRecurring || false
+                const color = ext.color || '#6B7280'
+                const isAllDayTask = ext.isAllDayTask || false
                 const title = arg.event.title
+
+                if (isAllDayTask) return undefined
+
+                // Format time
+                const startDate = arg.event.start
+                const endDate = arg.event.end
+                let timeStr = ''
+                if (startDate && !arg.event.allDay) {
+                  const pad = (n: number) => String(n).padStart(2, '0')
+                  const startHH = pad(startDate.getHours())
+                  const startMM = pad(startDate.getMinutes())
+                  timeStr = `${startHH}:${startMM}`
+                  if (endDate) {
+                    const endHH = pad(endDate.getHours())
+                    const endMM = pad(endDate.getMinutes())
+                    timeStr += ` - ${endHH}:${endMM}`
+                  }
+                }
+
+                // Status icon
+                const statusIcon = status === 'completed' ? '✓' : status === 'in_progress' ? '●' : status === 'pending_closure' ? '◐' : '○'
+                const typeIcon = eventType === 'meeting' ? '📅' : '📋'
+                const recurIcon = isRecurring ? ' 🔁' : ''
+
+                // Labels pills
                 const pills = labels
-                  .map(
-                    (l: TaskLabelType) =>
-                      `<span class="fc-event-label-pill" style="background:${l.color};color:white;padding:0 4px;border-radius:4px;font-size:10px;white-space:nowrap">${String(l.name).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`
+                  .map((l: TaskLabelType) =>
+                    `<span class="fc-event-label-pill" style="background:${l.color};color:white;padding:1px 5px;border-radius:4px;font-size:10px;white-space:nowrap;line-height:1.4">${esc(l.name)}</span>`
                   )
                   .join('')
+
                 return {
-                  html: `<div class="fc-event-main-frame"><div class="fc-event-title-container"><div class="fc-event-title fc-sticky">${String(title).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div></div><div class="fc-event-labels" style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${pills}</div></div>`,
+                  html: `<div class="fc-outlook-event" style="--evt-color:${color}">
+                    <div class="fc-outlook-bar" style="background:${color}"></div>
+                    <div class="fc-outlook-body">
+                      ${timeStr ? `<div class="fc-outlook-time">${typeIcon} ${esc(timeStr)}${recurIcon}</div>` : `<div class="fc-outlook-time">${typeIcon}${recurIcon}</div>`}
+                      <div class="fc-outlook-title">${esc(title)}</div>
+                      ${labels.length > 0 ? `<div class="fc-outlook-labels">${pills}</div>` : ''}
+                    </div>
+                    <div class="fc-outlook-status" title="${esc(TASK_STATUS_LABELS[status as TaskStatus] || '')}">${statusIcon}</div>
+                  </div>`,
                 }
               }}
               customButtons={hebrewCustomButtons}
@@ -1627,7 +1621,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               slotLabelInterval="01:00:00"
               nowIndicator={true}
               navLinks={true}
-              height={640}
+              contentHeight={720}
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               allDayText="כל היום"
