@@ -12,6 +12,7 @@ import DeleteCategoryModal from '../components/DeleteCategoryModal'
 export default function Settings() {
   const dispatch = useAppDispatch()
   const { me, loading: authLoading } = useAppSelector(s => s.auth)
+  const isAdmin = me?.role === 'Admin' || me?.role === 'SuperAdmin'
   const { theme, toggleTheme } = useTheme()
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
@@ -91,6 +92,13 @@ export default function Settings() {
       setLoading(false)
     }
   }
+
+  // Reset to profile tab if non-admin somehow has an admin-only tab active
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'categories' || activeTab === 'suppliers' || activeTab === 'quoteStructure')) {
+      setActiveTab('profile')
+    }
+  }, [isAdmin, activeTab])
 
   useEffect(() => {
     // Reset forms and errors when switching tabs
@@ -580,36 +588,42 @@ export default function Settings() {
               >
                 אזור אישי
               </button>
-              <button
-                onClick={() => setActiveTab('categories')}
-                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
-                  activeTab === 'categories'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                ניהול קטגוריות
-              </button>
-              <button
-                onClick={() => setActiveTab('suppliers')}
-                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
-                  activeTab === 'suppliers'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                ניהול ספקים
-              </button>
-              <button
-                onClick={() => setActiveTab('quoteStructure')}
-                className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
-                  activeTab === 'quoteStructure'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                חלוקת הצעת מחיר
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('categories')}
+                  className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
+                    activeTab === 'categories'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  ניהול קטגוריות
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('suppliers')}
+                  className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
+                    activeTab === 'suppliers'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  ניהול ספקים
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('quoteStructure')}
+                  className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${
+                    activeTab === 'quoteStructure'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  חלוקת הצעת מחיר
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('display')}
                 className={`settings-tab px-4 py-2 font-medium transition-colors border-b-2 flex-shrink-0 whitespace-nowrap -mb-px ${

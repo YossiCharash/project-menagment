@@ -49,7 +49,7 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   report: 'דוח',
   user: 'משתמש',
   supplier: 'ספק',
-  task: 'משימה',
+  task: 'משימות / יומן',
   category: 'קטגוריה',
   audit_log: 'יומן פעילות',
   contract: 'חוזה',
