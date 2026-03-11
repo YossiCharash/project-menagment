@@ -146,6 +146,7 @@ def _task_to_out(task: Task) -> dict:
         "created_at": task.created_at,
         "updated_at": task.updated_at,
         "assignee_acknowledged_at": getattr(task, "assignee_acknowledged_at", None),
+        "assignee_viewed_at": getattr(task, "assignee_viewed_at", None),
         "is_archived": getattr(task, "is_archived", False),
         "archived_at": getattr(task, "archived_at", None),
         "completed_at": getattr(task, "completed_at", None),
@@ -395,6 +396,10 @@ async def get_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if not _can_access_task(task, user):
         raise HTTPException(status_code=403, detail="Access denied")
+    # Auto-mark as viewed when assignee opens the task for the first time
+    if task.assigned_to_user_id == user.id and task.assignee_viewed_at is None:
+        task.assignee_viewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        await db.flush()
     out = _task_to_out(task)
     checklist_repo = TaskChecklistRepository(db)
     summary = await checklist_repo.get_summary(task_id)

@@ -127,6 +127,7 @@ class TaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     assignee_acknowledged_at: datetime | None = None
+    assignee_viewed_at: datetime | None = None
     is_archived: bool = False
     archived_at: datetime | None = None
     completed_at: datetime | None = None

@@ -330,6 +330,12 @@ export default function TaskDetailModal({
               <span className="font-medium">{effectiveTask.assigned_user_name}</span>
             )}
           </p>
+          {effectiveTask.assignee_viewed_at && (
+            <p className="text-sm flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              <span>נקראה ב־{new Date(effectiveTask.assignee_viewed_at).toLocaleString('he-IL')}</span>
+            </p>
+          )}
           {effectiveTask.assignee_acknowledged_at ? (
             <p className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />

@@ -87,6 +87,9 @@ class Task(Base):
     assignee_acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
     )
+    assignee_viewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
