@@ -490,7 +490,7 @@ interface PoliciesTabProps {
 
 function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabProps) {
   const policies = getResourcePolicies(permissions)
-  const [form, setForm] = useState({ resource_type: '', resource_id: '', action: '' })
+  const [form, setForm] = useState({ resource_type: '', action: '' })
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -505,11 +505,11 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
         params: {
           user_id: userId,
           resource_type: form.resource_type,
-          resource_id: form.resource_id.trim() || '*',
+          resource_id: '*',
           action: form.action,
         },
       })
-      setForm({ resource_type: '', resource_id: '', action: '' })
+      setForm({ resource_type: '', action: '' })
       onRefresh()
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בהוספה')
@@ -616,7 +616,7 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
       {/* Add new policy */}
       <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-5">
         <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-4">הוסף מדיניות</h3>
-        <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+        <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">סוג משאב</label>
             <select
@@ -632,18 +632,6 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              מזהה משאב <span className="text-gray-400">(אופציונלי)</span>
-            </label>
-            <input
-              type="text"
-              value={form.resource_id}
-              onChange={(e) => setForm({ ...form, resource_id: e.target.value })}
-              placeholder="ריק = כל המשאבים"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm transition-all duration-150 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">פעולה</label>
