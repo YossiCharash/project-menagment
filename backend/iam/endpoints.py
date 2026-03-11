@@ -163,7 +163,6 @@ async def grant_resource_permission(
     resource_type: str = Query(...),
     resource_id: str = Query(...),
     action: str = Query(...),
-    effect: str = Query(default="allow"),
     db: DBSessionDep = None,
     admin=Depends(require_admin()),
 ):
@@ -174,16 +173,15 @@ async def grant_resource_permission(
         resource_type=resource_type,
         resource_id=resource_id,
         action=action,
-        effect=effect,
         actor_user_id=admin.id,
     )
     return {
-        "message": f"Resource permission {effect} granted",
+        "message": "Resource permission granted",
         "user_id": user_id,
         "resource_type": resource_type,
         "resource_id": resource_id,
         "action": action,
-        "effect": effect,
+        "effect": "allow",
     }
 
 

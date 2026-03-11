@@ -74,6 +74,15 @@ class PermissionsEngine:
         Returns:
             True if permitted, False otherwise. Never raises.
         """
+        # Self-profile: users can always update their own profile fields
+        if (
+            resource_type == "user"
+            and action in ("update", "read")
+            and resource_id is not None
+            and str(resource_id) == str(user_id)
+        ):
+            return True
+
         try:
             domain = str(project_id) if project_id is not None else None
             return await self._provider.has_permission(
@@ -224,7 +233,6 @@ class PermissionsEngine:
         resource_id: int | str,
         action: str,
         *,
-        effect: str = "allow",
         actor_user_id: int | None = None,
     ) -> None:
         """Create an explicit resource-level permission override."""
@@ -242,7 +250,7 @@ class PermissionsEngine:
         )
         policy = existing.scalar_one_or_none()
         if policy:
-            policy.effect = effect
+            policy.effect = "allow"
         else:
             self._db.add(
                 ResourcePolicy(
@@ -250,7 +258,7 @@ class PermissionsEngine:
                     resource_type=resource_type,
                     resource_id=str(resource_id),
                     action=action,
-                    effect=effect,
+                    effect="allow",
                     granted_by=actor_user_id,
                 )
             )
@@ -259,13 +267,13 @@ class PermissionsEngine:
         await self._audit(
             actor_user_id=actor_user_id,
             target_user_id=user_id,
-            action=f"grant_resource_{effect}",
+            action="grant_resource_allow",
             detail=json.dumps(
                 {
                     "resource_type": resource_type,
                     "resource_id": str(resource_id),
                     "action": action,
-                    "effect": effect,
+                    "effect": "allow",
                 }
             ),
         )

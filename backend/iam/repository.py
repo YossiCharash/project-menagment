@@ -339,7 +339,7 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
                     "resource_type": rp.resource_type,
                     "action": rp.action,
                     "resource_id": rp.resource_id,
-                    "effect": rp.effect,
+                    "effect": "allow",
                     "source": "resource_policy",
                 }
             )
@@ -372,7 +372,7 @@ class SQLAlchemyPermissionProvider(PermissionProvider):
         policy = result.scalar_one_or_none()
         if policy is None:
             return None
-        return policy.effect == "allow"
+        return True  # A policy existing always means "allow" now
 
     async def _check_project_role(
         self,

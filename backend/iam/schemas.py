@@ -57,7 +57,6 @@ class ResourcePolicyCreate(BaseModel):
     resource_type: str = Field(..., min_length=1, max_length=64)
     resource_id: str = Field(..., min_length=1, max_length=128)
     action: str = Field(..., min_length=1, max_length=64)
-    effect: str = Field(default="allow", pattern=r"^(allow|deny)$")
 
     model_config = ConfigDict(from_attributes=True)
 
