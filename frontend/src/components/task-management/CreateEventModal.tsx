@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../../lib/api'
 import Modal from '../Modal'
-import { Tag, Paperclip, X } from 'lucide-react'
+import { Tag, Paperclip, X, Zap } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType, RecurrenceRule } from '../../pages/TaskCalendar'
 
@@ -51,6 +51,7 @@ interface CreateForm {
   participant_ids: number[]
   recurrence_rule: RecurrenceRule
   recurrence_end_date: string
+  is_super_task: boolean
   requires_closure_approval: boolean
 }
 
@@ -66,6 +67,7 @@ const EMPTY_FORM: CreateForm = {
   participant_ids: [],
   recurrence_rule: '',
   recurrence_end_date: '',
+  is_super_task: false,
   requires_closure_approval: false,
 }
 
@@ -246,6 +248,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
         recurrence_rule: recurrence_rule || '',
         recurrence_end_date: recurrence_end_date || undefined,
         requires_closure_approval: createForm.requires_closure_approval,
+        is_super_task: createForm.is_super_task,
       })
 
       for (const file of createPendingFiles) {
@@ -407,6 +410,14 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
           <label htmlFor="ce-description" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תיאור</label>
           <textarea id="ce-description" value={createForm.description} onChange={(e) => setCreateForm(f => ({ ...f, description: e.target.value }))} rows={2}
             className="w-full px-3 py-1.5 border rounded-lg text-sm border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100" />
+        </div>
+
+        {/* super task */}
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="ce-is-super-task" checked={createForm.is_super_task} onChange={(e) => setCreateForm(f => ({ ...f, is_super_task: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-red-600" />
+          <label htmlFor="ce-is-super-task" className="text-sm text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
+            <Zap className="w-3.5 h-3.5" /> משימת על
+          </label>
         </div>
 
         {/* requires closure */}
