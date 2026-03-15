@@ -53,11 +53,8 @@ export default function TaskManagement() {
           </div>
         </header>
 
-        {/* Super Tasks Panel — always visible above tabs */}
-        <SuperTasksPanel />
-
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">
+        {/* Tabs + Super Tasks Panel in one row */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">
           {TABS.map((tab) => {
             const Icon = tab.icon
             return (
@@ -80,6 +77,7 @@ export default function TaskManagement() {
               </button>
             )
           })}
+          <SuperTasksPanel />
         </div>
 
         {/* Tab Content */}
