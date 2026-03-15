@@ -256,7 +256,6 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     description: string
     status: TaskStatus
     assigned_to_user_id: string
-    event_type: EventType
     recurrence_rule: RecurrenceRule
     recurrence_end_date: string
     label_ids: number[]
@@ -269,6 +268,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [editDeletingAttachmentId, setEditDeletingAttachmentId] = useState<number | null>(null)
   const editFileInputRef = useRef<HTMLInputElement>(null)
   const [taskType, setTaskType] = useState<'meeting' | 'all_day' | 'no_date'>('meeting')
+  const [editTaskType, setEditTaskType] = useState<'with_time' | 'date_only' | 'no_date'>('date_only')
   const [outlookStatus, setOutlookStatus] = useState<{
     configured: boolean
     connected: boolean
@@ -338,6 +338,21 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       /* ignore */
     }
   }, [me?.calendar_date_display])
+
+  const [localShowJewishHolidays, setLocalShowJewishHolidays] = useState<boolean>(
+    () => me?.show_jewish_holidays ?? true
+  )
+  const [localShowIslamicHolidays, setLocalShowIslamicHolidays] = useState<boolean>(
+    () => me?.show_islamic_holidays ?? false
+  )
+
+  useEffect(() => {
+    setLocalShowJewishHolidays(me?.show_jewish_holidays ?? true)
+  }, [me?.show_jewish_holidays])
+
+  useEffect(() => {
+    setLocalShowIslamicHolidays(me?.show_islamic_holidays ?? false)
+  }, [me?.show_islamic_holidays])
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -842,10 +857,11 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const openEditModal = useCallback((task: Task) => {
     setSelectedTask(null)
     setEditingTask(task)
-    const eventType = (task.event_type || 'task') as EventType
     const hasDates = !!task.start_time && !!task.end_time
     const start = task.start_time ? new Date(task.start_time) : new Date()
     const end = task.end_time ? new Date(task.end_time) : new Date()
+    const isWithTime = hasDates && !(start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59)
+    setEditTaskType(hasDates ? (isWithTime ? 'with_time' : 'date_only') : 'no_date')
     const pad = (n: number) => String(n).padStart(2, '0')
     const recRule = (task.recurrence_rule || '') as RecurrenceRule
     const recEnd = task.recurrence_end_date ? task.recurrence_end_date.slice(0, 10) : ''
@@ -857,7 +873,6 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       description: task.description || '',
       status: (task.status || 'pending') as TaskStatus,
       assigned_to_user_id: String(task.assigned_to_user_id),
-      event_type: eventType,
       recurrence_rule: recRule === 'weekly' || recRule === 'monthly' ? recRule : '',
       recurrence_end_date: recEnd,
       label_ids: task.labels?.map(l => l.id) ?? [],
@@ -913,7 +928,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     }
     let start_time: string | null | undefined = undefined
     let end_time: string | null | undefined = undefined
-    if (editForm.event_type === 'meeting' && editForm.start_time?.trim() && editForm.end_time?.trim()) {
+    if (editTaskType === 'with_time' && editForm.start_time?.trim() && editForm.end_time?.trim()) {
       let startStr = editForm.start_time.trim()
       let endStr = editForm.end_time.trim()
       if (startStr.length === 16) startStr += ':00'
@@ -924,10 +939,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       }
       start_time = startStr
       end_time = endStr
-    } else if (editForm.event_type === 'task' && editForm.date) {
+    } else if (editTaskType === 'date_only' && editForm.date) {
       start_time = `${editForm.date}T00:00:00`
       end_time = `${editForm.date}T23:59:59`
-    } else if (editForm.event_type === 'task') {
+    } else {
       start_time = null
       end_time = null
     }
@@ -939,7 +954,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         end_time: end_time,
         description: editForm.description || undefined,
         status: editForm.status,
-        event_type: editForm.event_type,
+        event_type: 'task',
         assigned_to_user_id: Number(editForm.assigned_to_user_id),
         label_ids: editForm.label_ids,
         participant_ids: editForm.participant_ids,
@@ -1002,7 +1017,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         end_time: end_time ?? null,
         description: createForm.description.trim() || undefined,
         status: createForm.status,
-        event_type: taskType === 'meeting' ? 'meeting' : 'task',
+        event_type: 'task',
         assigned_to_user_id: Number(createForm.assigned_to_user_id),
         label_ids: createForm.label_ids,
         participant_ids: createForm.participant_ids,
@@ -1050,9 +1065,29 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     }
   }
 
+  const handleJewishHolidaysChange = async (value: boolean) => {
+    setLocalShowJewishHolidays(value)
+    dispatch(updateUser({ show_jewish_holidays: value }))
+    try {
+      await api.patch('/users/me', { show_jewish_holidays: value })
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const handleIslamicHolidaysChange = async (value: boolean) => {
+    setLocalShowIslamicHolidays(value)
+    dispatch(updateUser({ show_islamic_holidays: value }))
+    try {
+      await api.patch('/users/me', { show_islamic_holidays: value })
+    } catch {
+      /* ignore */
+    }
+  }
+
   const calendarDateDisplay = localCalendarDateDisplay
-  const showJewishHolidays = me?.show_jewish_holidays ?? true
-  const showIslamicHolidays = me?.show_islamic_holidays ?? false
+  const showJewishHolidays = localShowJewishHolidays
+  const showIslamicHolidays = localShowIslamicHolidays
 
   /** Stable visibleRange for Hebrew month – prevents re-render loops and navigation issues. */
   const hebrewVisibleRange = useCallback((currentDate: Date) => {
@@ -1184,7 +1219,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               const start = occ.start
               const end = occ.end
               const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59
-              const isAllDayTask = isAllDay && eventType !== 'meeting'
+              const isAllDayTask = isAllDay
               const eventId = occurrences.length > 1 ? `${t.id}-${i}` : String(t.id)
               return {
                 id: eventId,
@@ -1301,144 +1336,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         </header>
         )}
 
-        <div className="space-y-4">
-          {/* Unified Controls + Legend Toolbar */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 rounded-xl bg-white/90 dark:bg-gray-800/90 border border-gray-200/80 dark:border-gray-700/80 backdrop-blur-sm shadow-sm">
-            {isAdmin && (
-              <>
-                <select
-                  id="filter-user"
-                  name="filter-user"
-                  value={filterUserId ?? ''}
-                  onChange={(e) => setFilterUserId(e.target.value ? Number(e.target.value) : null)}
-                  className="task-calendar-select px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
-                >
-                  <option value="">כל המשתמשים</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>{u.full_name}</option>
-                  ))}
-                </select>
-                {users.length > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">צבע:</span>
-                    {users.map((u) => {
-                      const color = u.calendar_color || USER_COLORS[(u.id - 1) % USER_COLORS.length]
-                      return (
-                        <label key={u.id} title={u.full_name} className="relative cursor-pointer group">
-                          <div
-                            className="w-6 h-6 rounded-full shadow-sm ring-2 ring-white dark:ring-gray-800 group-hover:ring-violet-400 transition-all"
-                            style={{ backgroundColor: color }}
-                          />
-                          <input
-                            id={`user-color-${u.id}`}
-                            name={`user-color-${u.id}`}
-                            type="color"
-                            value={color.startsWith('#') ? color : `#${color}`}
-                            onChange={(e) => handleUserColorChange(u.id, e.target.value)}
-                            disabled={!!updatingUserColorId}
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed"
-                            aria-label={`צבע ל${u.full_name}`}
-                          />
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setIncludeArchived(v => !v)}
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
-                includeArchived
-                  ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
-                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
-              )}
-            >
-              <Archive className="w-3.5 h-3.5" />
-              {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
-            </button>
-            <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">מקרא:</span>
-            <span className="text-xs font-medium px-2 py-0.5 rounded-md border-r-4 border-solid border-gray-500 bg-gray-100 dark:bg-gray-700/50">📅 פגישה</span>
-            <span className="text-xs font-medium px-2 py-0.5 rounded-md border-2 border-dashed border-gray-500 bg-gray-50 dark:bg-gray-700/30">📋 משימה</span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.pending }} />
-              {TASK_STATUS_LABELS.pending}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.in_progress }} />
-              {TASK_STATUS_LABELS.in_progress}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.pending_closure }} />
-              {TASK_STATUS_LABELS.pending_closure}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TASK_STATUS_COLORS.completed }} />
-              {TASK_STATUS_LABELS.completed}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {(() => {
-              const noDateTasks = tasks.filter(t => !t.start_time && !t.end_time)
-              const tasksWithDateNoTime = tasks.filter(t => (t.event_type || 'task') === 'task' && t.start_time && t.end_time)
-              const hasAny = noDateTasks.length > 0 || tasksWithDateNoTime.length > 0
-              if (!hasAny) return null
-              const taskItem = (t: Task) => {
-                const status = (t.status || 'pending') as TaskStatus
-                const color = TASK_STATUS_COLORS[status] ?? t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
-                const avatarSrc = avatarUrl(t.assigned_user_avatar)
-                return (
-                  <li key={t.id} className="flex items-center gap-2">
-                    {avatarSrc ? (
-                      <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
-                    ) : (
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    )}
-                    <button type="button" onClick={() => setSelectedTask(t)} className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline">
-                      {t.title} – {t.assigned_user_name}
-                    </button>
-                  </li>
-                )
-              }
-              const byDate = new Map<string, Task[]>()
-              tasksWithDateNoTime.forEach(t => {
-                const d = t.start_time!.slice(0, 10)
-                if (!byDate.has(d)) byDate.set(d, [])
-                byDate.get(d)!.push(t)
-              })
-              const sortedDates = Array.from(byDate.keys()).sort()
-              return (
-                <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
-                  <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות</h3>
-                  {noDateTasks.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">בלי תאריך</h4>
-                      <ul className="space-y-1.5 text-sm">{noDateTasks.map(taskItem)}</ul>
-                    </div>
-                  )}
-                  {sortedDates.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">עם תאריך (בלי שעה)</h4>
-                      <ul className="space-y-2 text-sm">
-                        {sortedDates.map(dateStr => (
-                          <li key={dateStr}>
-                            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{new Date(dateStr + 'T12:00:00').toLocaleDateString('he-IL')}</span>
-                            <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
-                              {byDate.get(dateStr)!.map(taskItem)}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
+        <div className="space-y-3">
             <div className="rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 sm:p-6">
               {loading && tasks.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
@@ -1463,6 +1361,88 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                       </button>
                     ))}
                   </div>
+                  <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+                  <button
+                    type="button"
+                    onClick={() => handleJewishHolidaysChange(!showJewishHolidays)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      showJewishHolidays
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-300'
+                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+                    )}
+                  >
+                    ✡️ חגי ישראל
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleIslamicHolidaysChange(!showIslamicHolidays)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      showIslamicHolidays
+                        ? 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300'
+                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+                    )}
+                  >
+                    ☪️ חגים אסלאמיים
+                  </button>
+                  <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+                  {isAdmin && (
+                    <>
+                      <select
+                        id="filter-user"
+                        name="filter-user"
+                        value={filterUserId ?? ''}
+                        onChange={(e) => setFilterUserId(e.target.value ? Number(e.target.value) : null)}
+                        className="task-calendar-select px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
+                      >
+                        <option value="">כל המשתמשים</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>{u.full_name}</option>
+                        ))}
+                      </select>
+                      {users.length > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-400 dark:text-gray-500">צבע:</span>
+                          {users.map((u) => {
+                            const color = u.calendar_color || USER_COLORS[(u.id - 1) % USER_COLORS.length]
+                            return (
+                              <label key={u.id} title={u.full_name} className="relative cursor-pointer group">
+                                <div
+                                  className="w-6 h-6 rounded-full shadow-sm ring-2 ring-white dark:ring-gray-800 group-hover:ring-violet-400 transition-all"
+                                  style={{ backgroundColor: color }}
+                                />
+                                <input
+                                  id={`user-color-${u.id}`}
+                                  name={`user-color-${u.id}`}
+                                  type="color"
+                                  value={color.startsWith('#') ? color : `#${color}`}
+                                  onChange={(e) => handleUserColorChange(u.id, e.target.value)}
+                                  disabled={!!updatingUserColorId}
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed"
+                                  aria-label={`צבע ל${u.full_name}`}
+                                />
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIncludeArchived(v => !v)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      includeArchived
+                        ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400'
+                    )}
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    {includeArchived ? 'הסתר ארכיון' : 'הצג ארכיון'}
+                  </button>
                 </div>
                 <div
                   className={cn(
@@ -1631,8 +1611,68 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             </>
           )}
         </div>
+            {(() => {
+              const noDateTasks = tasks.filter(t => !t.start_time && !t.end_time)
+              const tasksWithDateNoTime = tasks.filter(t => {
+                if (!t.start_time || !t.end_time) return false
+                const s = new Date(t.start_time)
+                const e = new Date(t.end_time)
+                return s.getHours() === 0 && s.getMinutes() === 0 && e.getHours() === 23 && e.getMinutes() === 59
+              })
+              const hasAny = noDateTasks.length > 0 || tasksWithDateNoTime.length > 0
+              if (!hasAny) return null
+              const taskItem = (t: Task) => {
+                const status = (t.status || 'pending') as TaskStatus
+                const color = TASK_STATUS_COLORS[status] ?? t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
+                const avatarSrc = avatarUrl(t.assigned_user_avatar)
+                return (
+                  <li key={t.id} className="flex items-center gap-2">
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    )}
+                    <button type="button" onClick={() => setSelectedTask(t)} className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline">
+                      {t.title} – {t.assigned_user_name}
+                    </button>
+                  </li>
+                )
+              }
+              const byDate = new Map<string, Task[]>()
+              tasksWithDateNoTime.forEach(t => {
+                const d = t.start_time!.slice(0, 10)
+                if (!byDate.has(d)) byDate.set(d, [])
+                byDate.get(d)!.push(t)
+              })
+              const sortedDates = Array.from(byDate.keys()).sort()
+              return (
+                <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
+                  <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות</h3>
+                  {noDateTasks.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">בלי תאריך</h4>
+                      <ul className="space-y-1.5 text-sm">{noDateTasks.map(taskItem)}</ul>
+                    </div>
+                  )}
+                  {sortedDates.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">עם תאריך (בלי שעה)</h4>
+                      <ul className="space-y-2 text-sm">
+                        {sortedDates.map(dateStr => (
+                          <li key={dateStr}>
+                            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{new Date(dateStr + 'T12:00:00').toLocaleDateString('he-IL')}</span>
+                            <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
+                              {byDate.get(dateStr)!.map(taskItem)}
+                            </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
         </div>
-      </div>
       </div>
 
       {dropConfirm && (
@@ -1966,25 +2006,19 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סוג</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תזמון</label>
               <div className="flex gap-4 flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="editEventType"
-                    checked={editForm.event_type === 'meeting'}
-                    onChange={() => setEditForm(f => f ? { ...f, event_type: 'meeting' } : f)}
-                  />
-                  <span>פגישה</span>
+                  <input type="radio" name="editTaskType" checked={editTaskType === 'with_time'} onChange={() => setEditTaskType('with_time')} />
+                  <span>עם שעה</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="editEventType"
-                    checked={editForm.event_type === 'task'}
-                    onChange={() => setEditForm(f => f ? { ...f, event_type: 'task' } : f)}
-                  />
-                  <span>משימה</span>
+                  <input type="radio" name="editTaskType" checked={editTaskType === 'date_only'} onChange={() => setEditTaskType('date_only')} />
+                  <span>בלי שעה</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="editTaskType" checked={editTaskType === 'no_date'} onChange={() => setEditTaskType('no_date')} />
+                  <span>בלי תאריך</span>
                 </label>
               </div>
             </div>
@@ -2090,7 +2124,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 </button>
               </div>
             </div>
-            {editForm.event_type === 'meeting' && (
+            {editTaskType === 'with_time' && (
               <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -2124,7 +2158,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 </div>
               </div>
             )}
-            {editForm.event_type === 'task' && (
+            {editTaskType === 'date_only' && (
               <div>
                 <label htmlFor="edit-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך (משימה)</label>
                 <input
@@ -2140,7 +2174,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 />
               </div>
             )}
-            {(editForm.event_type === 'meeting' || editForm.event_type === 'task') && (editForm.start_time || editForm.date) && (
+            {editTaskType !== 'no_date' && (editForm.start_time || editForm.date) && (
               <div className="p-2 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-700">
                 <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">משימה מחזורית</p>
                 <div className="flex flex-wrap items-center gap-4">
@@ -2277,7 +2311,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         <Modal
           isOpen={showCreateModal}
           onClose={() => { setShowCreateModal(false); setCreatePendingFiles([]); }}
-          title={taskType === 'meeting' ? 'פגישה חדשה' : 'משימה חדשה'}
+          title="משימה חדשה"
         >
           <form onSubmit={handleCreate} className="space-y-2">
             {createError && (
@@ -2304,7 +2338,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                     <input type="radio" name="taskType" checked={taskType === 'meeting'} onChange={() => setTaskTypeWithDefaults('meeting')} />
-                    <span>פגישה</span>
+                    <span>עם שעה</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                     <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskTypeWithDefaults('all_day')} />
@@ -2561,7 +2595,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 disabled={createSaving}
                 className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
               >
-                {createSaving ? 'שומר...' : taskType === 'meeting' ? 'צור פגישה' : 'צור משימה'}
+                {createSaving ? 'שומר...' : 'צור משימה'}
               </button>
             </div>
           </form>

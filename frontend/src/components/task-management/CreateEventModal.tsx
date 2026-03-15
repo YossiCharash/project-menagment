@@ -241,7 +241,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
         end_time: end_time ?? null,
         description: createForm.description.trim() || undefined,
         status: createForm.status,
-        event_type: taskType === 'meeting' ? 'meeting' : 'task',
+        event_type: 'task',
         assigned_to_user_id: Number(createForm.assigned_to_user_id),
         label_ids: createForm.label_ids,
         participant_ids: createForm.participant_ids,
@@ -269,7 +269,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={taskType === 'meeting' ? 'אירוע חדש' : 'משימה חדשה'}>
+    <Modal isOpen={isOpen} onClose={handleClose} title="משימה חדשה">
       <form onSubmit={handleCreate} className="space-y-2">
         {/* error */}
         {createError && <p className="text-sm text-red-600 dark:text-red-400">{createError}</p>}
@@ -290,7 +290,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="radio" name="taskType" checked={taskType === 'meeting'} onChange={() => setTaskTypeWithDefaults('meeting')} />
-                <span>אירוע</span>
+                <span>עם שעה</span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskTypeWithDefaults('all_day')} />
@@ -430,7 +430,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={handleClose} className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">ביטול</button>
           <button type="submit" disabled={createSaving} className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-            {createSaving ? 'שומר...' : taskType === 'meeting' ? 'צור פגישה' : 'צור משימה'}
+            {createSaving ? 'שומר...' : 'צור משימה'}
           </button>
         </div>
       </form>

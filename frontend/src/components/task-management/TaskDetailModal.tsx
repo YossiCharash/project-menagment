@@ -17,7 +17,6 @@ import type {
   Task,
   TaskStatus,
   TaskLabelType,
-  EventType,
   RecurrenceRule,
   TaskMessageType,
 } from '../../pages/TaskCalendar'
@@ -29,11 +28,6 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: 'בטיפול',
   completed: 'טופלה',
   pending_closure: 'ממתין לאישור סגירה',
-}
-
-const EVENT_TYPE_LABELS: Record<EventType, string> = {
-  meeting: 'משימה',
-  task: 'משימה',
 }
 
 const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
@@ -228,10 +222,6 @@ export default function TaskDetailModal({
       ) : (
         <div className="space-y-3">
           <p className="font-medium text-gray-900 dark:text-gray-100">{effectiveTask.title}</p>
-          <p className="text-sm">
-            <span className="text-gray-600 dark:text-gray-400">סוג: </span>
-            <span className="font-medium">{EVENT_TYPE_LABELS[(effectiveTask.event_type || 'task') as EventType]}</span>
-          </p>
           {(() => {
             const overdueInfo = getOverdueInfo(effectiveTask)
             const isAdmin = me?.role === 'Admin'
