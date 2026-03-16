@@ -6,6 +6,7 @@ import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
 import DuplicateWarningModal from './DuplicateWarningModal'
+import OverlapWarningModal from './OverlapWarningModal'
 
 interface CreateTransactionModalProps {
   isOpen: boolean
@@ -84,6 +85,8 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
   const [subprojects, setSubprojects] = useState<Array<{id: number, name: string}>>([])
   const [showDescriptionModal, setShowDescriptionModal] = useState(false)
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
+  const [showOverlapWarning, setShowOverlapWarning] = useState(false)
+  const [overlapMessage, setOverlapMessage] = useState<string>('')
   const [pendingPayload, setPendingPayload] = useState<TransactionCreate | null>(null)
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{id: number, fileName: string, description: string}>>([])
   const [selectedTransactionForDocuments, setSelectedTransactionForDocuments] = useState<any | null>(null)
@@ -466,8 +469,14 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
         response = await api.post('/transactions/', payload)
       } catch (e: any) {
         if (e.response?.status === 409) {
+          const detail: string = e.response?.data?.detail ?? ''
           setPendingPayload(payload)
-          setShowDuplicateWarning(true)
+          if (detail.includes('לא ניתן ליצור עסקה לתקופה')) {
+            setOverlapMessage(detail)
+            setShowOverlapWarning(true)
+          } else {
+            setShowDuplicateWarning(true)
+          }
           setLoading(false)
           return
         } else {
@@ -497,6 +506,21 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       const errDetail = e.response?.data?.detail ?? 'שמירה נכשלה'
       const errFields: string[] | undefined = e.response?.data?.errors
       setError(errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail)
+      setLoading(false)
+    }
+  }
+
+  const handleConfirmOverlap = async () => {
+    if (!pendingPayload) return
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.post('/transactions/', { ...pendingPayload, allow_overlap: true })
+      setShowOverlapWarning(false)
+      setPendingPayload(null)
+      await handleTransactionSuccess(response.data)
+    } catch (e: any) {
+      setError(e.response?.data?.detail ?? 'שמירה נכשלה')
       setLoading(false)
     }
   }
@@ -1424,6 +1448,16 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
         }}
         onConfirm={handleConfirmDuplicate}
         isEdit={false}
+      />
+
+      <OverlapWarningModal
+        isOpen={showOverlapWarning}
+        message={overlapMessage}
+        onClose={() => {
+          setShowOverlapWarning(false)
+          setPendingPayload(null)
+        }}
+        onConfirm={handleConfirmOverlap}
       />
 
       {/* Description Modal for Uploaded Documents */}
