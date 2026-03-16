@@ -115,6 +115,7 @@ export interface TransactionCreate {
   supplier_id?: number | null
   from_fund?: boolean
   allow_duplicate?: boolean
+  allow_overlap?: boolean
   subproject_id?: number
   period_start_date?: string | null
   period_end_date?: string | null
