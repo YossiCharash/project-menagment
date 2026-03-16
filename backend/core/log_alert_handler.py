@@ -102,3 +102,28 @@ def setup_whatsapp_log_handler() -> None:
     )
     root_logger.addHandler(handler)
     logging.getLogger(__name__).info("WhatsApp error alert handler registered.")
+
+
+def setup_console_log_handler() -> None:
+    """
+    Attach a StreamHandler to the root logger so full tracebacks always
+    appear in Docker / uvicorn stdout regardless of uvicorn's log config.
+    Safe to call multiple times (idempotent).
+    """
+    import sys
+    root_logger = logging.getLogger()
+
+    # Idempotency: skip if a StreamHandler already points to stdout
+    for existing in root_logger.handlers:
+        if isinstance(existing, logging.StreamHandler) and getattr(existing, 'stream', None) is sys.stdout:
+            return
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s"
+        )
+    )
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.DEBUG)
