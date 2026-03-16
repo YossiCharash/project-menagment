@@ -51,7 +51,7 @@ def analyze_error_with_claude(error_message: str, traceback_str: str) -> str:
             "2. מה הסיבה הכי סבירה\n"
             "3. מה לבדוק / לתקן\n\n"
             f"שגיאה:\n{error_message}\n\n"
-            f"Traceback:\n{traceback_str[:1500] if traceback_str else 'לא זמין'}"
+            f"Traceback:\n{traceback_str[:3000] if traceback_str else 'לא זמין'}"
         )
 
         message = client.messages.create(
@@ -99,10 +99,12 @@ def send_whatsapp_alert(
 
     # Build the WhatsApp message
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    traceback_display = traceback_str[:2000] if traceback_str else "לא זמין"
     text = (
         f"🚨 שגיאה במערכת BMS\n\n"
         f"📍 נתיב: {path or 'לא ידוע'}\n"
         f"❌ שגיאה: {error_message[:300]}\n\n"
+        f"📋 Traceback:\n{traceback_display}\n\n"
         f"🤖 ניתוח AI:\n{ai_analysis}\n\n"
         f"⏰ {now}"
     )
