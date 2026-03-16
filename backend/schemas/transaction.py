@@ -16,6 +16,7 @@ class TransactionBase(BaseModel):
     supplier_id: int | None = None
     from_fund: bool = False
     allow_duplicate: bool = False
+    allow_overlap: bool = False
     period_start_date: date | None = None
     period_end_date: date | None = None
 
