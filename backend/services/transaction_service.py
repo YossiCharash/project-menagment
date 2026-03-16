@@ -147,6 +147,7 @@ class TransactionService:
         data['category_id'] = resolved_category.id if resolved_category else None
 
         # Check period overlap if dates provided
+        allow_overlap = data.pop('allow_overlap', False)
         if data.get('period_start_date') and data.get('period_end_date'):
             if data['period_start_date'] > data['period_end_date']:
                 raise ValueError("תאריך התחלה חייב להיות לפני תאריך סיום")
@@ -156,12 +157,13 @@ class TransactionService:
                 ps, pe = data['period_start_date'], data['period_end_date']
                 validate_date_not_before_contract(ps, first_start, "עסקה תאריכית (התחלה)")
                 validate_date_not_before_contract(pe, first_start, "עסקה תאריכית (סיום)")
-            await self.check_period_overlap(
-                project_id=data['project_id'],
-                category_id=data['category_id'],
-                period_start=data['period_start_date'],
-                period_end=data['period_end_date']
-            )
+            if not allow_overlap:
+                await self.check_period_overlap(
+                    project_id=data['project_id'],
+                    category_id=data['category_id'],
+                    period_start=data['period_start_date'],
+                    period_end=data['period_end_date']
+                )
 
         # Check for duplicate transactions
         allow_duplicate = data.pop('allow_duplicate', False)
