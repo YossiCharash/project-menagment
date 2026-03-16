@@ -2242,6 +2242,9 @@ class ReportService:
                                      alignment=1, textColor=colors.HexColor('#1E3A8A'))
         style_h2 = ParagraphStyle('HebrewHeading2', parent=styles['Heading2'], fontName=font_name, fontSize=12,
                                   alignment=1, textColor=colors.HexColor('#1F2937'))
+        style_number = ParagraphStyle('NumberStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10,
+                                      alignment=1, leading=14, spaceAfter=8,
+                                      textColor=colors.HexColor(COLOR_TEXT_DARK))
 
         elements = []
 
