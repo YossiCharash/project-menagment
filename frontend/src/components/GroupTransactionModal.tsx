@@ -1839,25 +1839,28 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                           <td className="px-2 py-2 align-middle">
                             <div className="min-w-0 w-full space-y-1">
                               {(row.period_start_date && row.period_end_date) ? (
-                                <>
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <input
-                                      type="date"
-                                      value={normalizeDateForInput(row.period_start_date) || new Date().toISOString().split('T')[0]}
-                                      onChange={(e) => updateRow(row.id, 'period_start_date', e.target.value || new Date().toISOString().split('T')[0])}
-                                      title="מתאריך"
-                                      className={`w-full min-w-0 px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
-                                    />
-                                    <input
-                                      type="date"
-                                      value={normalizeDateForInput(row.period_end_date) || new Date().toISOString().split('T')[0]}
-                                      onChange={(e) => updateRow(row.id, 'period_end_date', e.target.value || new Date().toISOString().split('T')[0])}
-                                      title="עד תאריך"
-                                      className={`w-full min-w-0 px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
-                                    />
-                                  </div>
-                                  <button type="button" onClick={() => { updateRow(row.id, 'period_start_date', ''); updateRow(row.id, 'period_end_date', '') }} className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline mt-0.5 block">מעבר לתאריך בודד</button>
-                                </>
+                                <div className="flex flex-row items-center gap-1.5 flex-wrap">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full shrink-0">
+                                    📅 תאריכית
+                                  </span>
+                                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 shrink-0">מ:</span>
+                                  <input
+                                    type="date"
+                                    value={normalizeDateForInput(row.period_start_date) || new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => updateRow(row.id, 'period_start_date', e.target.value || new Date().toISOString().split('T')[0])}
+                                    title="מתאריך"
+                                    className={`px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm shrink-0 ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
+                                  />
+                                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 shrink-0">עד:</span>
+                                  <input
+                                    type="date"
+                                    value={normalizeDateForInput(row.period_end_date) || new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => updateRow(row.id, 'period_end_date', e.target.value || new Date().toISOString().split('T')[0])}
+                                    title="עד תאריך"
+                                    className={`px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm shrink-0 ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
+                                  />
+                                  <button type="button" onClick={() => { updateRow(row.id, 'period_start_date', ''); updateRow(row.id, 'period_end_date', '') }} className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline shrink-0">בודד</button>
+                                </div>
                               ) : (
                                 <div className="space-y-1">
                                   <input
