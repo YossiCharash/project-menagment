@@ -10,7 +10,7 @@ from backend.cems.models.base import CEMSBase, TimestampMixin, UUIDPrimaryKeyMix
 
 if TYPE_CHECKING:
     from backend.cems.models.fixed_asset import FixedAsset
-    from backend.cems.models.user import User
+    from backend.models.user import User
 
 
 class RetirementStatus(str, enum.Enum):
@@ -27,12 +27,12 @@ class AssetRetirement(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         nullable=False,
         index=True,
     )
-    requested_by_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="CASCADE"),
+    requested_by_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    approved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
+    approved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
@@ -46,7 +46,14 @@ class AssetRetirement(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Relationships
     asset: Mapped["FixedAsset"] = relationship("FixedAsset", foreign_keys=[asset_id])
-    requested_by: Mapped["User"] = relationship("User", foreign_keys=[requested_by_id])
-    approved_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by_id])
+    requested_by: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[requested_by_id],
+        primaryjoin="AssetRetirement.requested_by_id == User.id",
+    )
+    approved_by: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[approved_by_id],
+        primaryjoin="AssetRetirement.approved_by_id == User.id",
+    )

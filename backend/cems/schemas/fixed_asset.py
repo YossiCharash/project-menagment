@@ -19,7 +19,7 @@ class FixedAssetBase(BaseModel):
 
 class FixedAssetCreate(FixedAssetBase):
     current_custodian_id: Optional[uuid.UUID] = None
-    current_area_id: Optional[uuid.UUID] = None
+    current_warehouse_id: Optional[uuid.UUID] = None
     status: AssetStatus = AssetStatus.ACTIVE
 
 
@@ -38,7 +38,7 @@ class FixedAssetRead(FixedAssetBase):
     id: uuid.UUID
     status: AssetStatus
     current_custodian_id: Optional[uuid.UUID]
-    current_area_id: Optional[uuid.UUID]
+    current_warehouse_id: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
 
@@ -52,8 +52,8 @@ class AssetHistoryRead(BaseModel):
     actor_id: uuid.UUID
     from_custodian_id: Optional[uuid.UUID]
     to_custodian_id: Optional[uuid.UUID]
-    from_area_id: Optional[uuid.UUID]
-    to_area_id: Optional[uuid.UUID]
+    from_warehouse_id: Optional[uuid.UUID]
+    to_warehouse_id: Optional[uuid.UUID]
     notes: Optional[str]
     timestamp: datetime
 

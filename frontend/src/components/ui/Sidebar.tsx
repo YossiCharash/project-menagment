@@ -19,7 +19,9 @@ import {
   Receipt,
   ClipboardList,
   Bell,
-  BookOpen
+  BookOpen,
+  Package,
+  SlidersHorizontal
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { cn } from '../../lib/utils'
@@ -36,6 +38,7 @@ interface NavigationItem {
   description: string
   adminOnly?: boolean
   permission?: { resource: string }
+  settingsHref?: string
 }
 
 interface SidebarProps {
@@ -78,6 +81,13 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     icon: ClipboardList,
     description: 'לוח, יומן, משימות והודעות',
     permission: { resource: 'task' }
+  },
+  {
+    name: 'ניהול מלאי',
+    href: '/inventory',
+    icon: Package,
+    description: 'ציוד, מחסנים ומלאי',
+    settingsHref: '/inventory/settings',
   },
   {
     name: 'היסטורית פעילות',
@@ -207,49 +217,68 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {navigationItems.map((item) => {
-          const isActive = location.pathname === item.href
+          const isActive = location.pathname === item.href || (item.href !== '/' && location.pathname.startsWith(item.href + '/'))
           const Icon = item.icon
 
+          const settingsActive = item.settingsHref ? location.pathname.startsWith(item.settingsHref) : false
+
           return (
-            <Link
-              key={item.name}
-              to={item.href}
-              className={cn(
-                "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative",
-                isActive
-                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            <div key={item.name} className="relative group/nav">
+              <Link
+                to={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800",
+                  !isCollapsed && item.settingsHref ? "pr-3 pl-8" : ""
+                )}
+              >
+                <span className="relative flex-shrink-0">
+                  <Icon className={cn(
+                    "w-5 h-5",
+                    isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                  )} />
+                  {item.href === '/task-management' && unreadNotifications > 0 && (
+                    <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
+                      {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                    </span>
+                  )}
+                </span>
+
+                <AnimatePresence>
+                  {!isCollapsed && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex-1 min-w-0"
+                    >
+                      <div className="font-medium">{item.name}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {item.description}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </Link>
+
+              {item.settingsHref && !isCollapsed && (
+                <Link
+                  to={item.settingsHref}
+                  title="הגדרות מלאי"
+                  className={cn(
+                    "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-all",
+                    settingsActive
+                      ? "text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30"
+                      : "text-gray-400 dark:text-gray-500 opacity-0 group-hover/nav:opacity-100 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  )}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </Link>
               )}
-            >
-              <span className="relative flex-shrink-0">
-                <Icon className={cn(
-                  "w-5 h-5",
-                  isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
-                )} />
-                {item.href === '/task-management' && unreadNotifications > 0 && (
-                  <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
-                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
-                  </span>
-                )}
-              </span>
-              
-              <AnimatePresence>
-                {!isCollapsed && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 10 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex-1 min-w-0"
-                  >
-                    <div className="font-medium">{item.name}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {item.description}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </Link>
+            </div>
           )
         })}
       </nav>
@@ -353,39 +382,59 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
 
             <nav className="flex-1 p-4 space-y-2">
               {navigationItems.map((item) => {
-                const isActive = location.pathname === item.href
+                const isActive = location.pathname === item.href || (item.href !== '/' && location.pathname.startsWith(item.href + '/'))
                 const Icon = item.icon
 
+                const settingsActive = item.settingsHref ? location.pathname.startsWith(item.settingsHref) : false
+
                 return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    onClick={onClose}
-                    className={cn(
-                      "group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative",
-                      isActive
-                        ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    )}
-                  >
-                    <span className="relative flex-shrink-0">
-                      <Icon className={cn(
-                        "w-5 h-5",
-                        isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
-                      )} />
-                      {item.href === '/task-management' && unreadNotifications > 0 && (
-                        <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
-                          {unreadNotifications > 99 ? '99+' : unreadNotifications}
-                        </span>
+                  <div key={item.name} className="relative group/nav">
+                    <Link
+                      to={item.href}
+                      onClick={onClose}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                        isActive
+                          ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800",
+                        item.settingsHref ? "pl-8" : ""
                       )}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">{item.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                        {item.description}
+                    >
+                      <span className="relative flex-shrink-0">
+                        <Icon className={cn(
+                          "w-5 h-5",
+                          isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                        )} />
+                        {item.href === '/task-management' && unreadNotifications > 0 && (
+                          <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
+                            {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium">{item.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {item.description}
+                        </div>
                       </div>
-                    </div>
-                  </Link>
+                    </Link>
+
+                    {item.settingsHref && (
+                      <Link
+                        to={item.settingsHref}
+                        onClick={onClose}
+                        title="הגדרות מלאי"
+                        className={cn(
+                          "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors",
+                          settingsActive
+                            ? "text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30"
+                            : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        )}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </Link>
+                    )}
+                  </div>
                 )
               })}
             </nav>

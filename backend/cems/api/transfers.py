@@ -44,7 +44,7 @@ async def initiate_transfer(
         asset_id=payload.asset_id,
         from_user_id=payload.from_user_id,
         to_user_id=payload.to_user_id,
-        to_area_id=payload.to_area_id,
+        to_warehouse_id=payload.to_warehouse_id,
         initiated_by_id=current_user.id,
         notes=payload.notes,
     )
@@ -156,7 +156,7 @@ async def approve_return(
         manager_id=current_user.id,
         signature_hash=payload.signature_hash,
         ip_address=payload.ip_address,
-        return_area_id=payload.return_area_id,
+        return_warehouse_id=payload.return_warehouse_id,
     )
     return WarehouseReturnRead.model_validate(wr)
 

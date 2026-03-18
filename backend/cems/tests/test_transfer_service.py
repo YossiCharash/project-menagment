@@ -34,7 +34,7 @@ async def test_transfer_creates_pending_record(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -56,7 +56,7 @@ async def test_transfer_sets_asset_in_transfer(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -78,7 +78,7 @@ async def test_complete_transfer_requires_correct_recipient(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -106,7 +106,7 @@ async def test_complete_transfer_creates_signature(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -139,7 +139,7 @@ async def test_complete_transfer_updates_asset_custodian(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -153,7 +153,7 @@ async def test_complete_transfer_updates_asset_custodian(
     asset = await repo.get_by_id(seed_asset.id)
     assert asset is not None
     assert asset.current_custodian_id == seed_users["recipient"].id
-    assert asset.current_area_id == seed_warehouse["area"].id
+    assert asset.current_warehouse_id == seed_warehouse["warehouse"].id
     assert asset.status == AssetStatus.ACTIVE
 
 
@@ -169,7 +169,7 @@ async def test_complete_transfer_logs_history(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 
@@ -198,7 +198,7 @@ async def test_reject_transfer_restores_asset_status(
         asset_id=seed_asset.id,
         from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
-        to_area_id=seed_warehouse["area"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
     )
 

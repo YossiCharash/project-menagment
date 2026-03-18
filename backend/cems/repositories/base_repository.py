@@ -1,12 +1,12 @@
 import uuid
-from typing import Generic, List, Optional, Type, TypeVar
+from typing import Any, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.models.base import CEMSBase
+from backend.db.base import Base
 
-ModelT = TypeVar("ModelT", bound=CEMSBase)
+ModelT = TypeVar("ModelT", bound=Base)
 
 
 class BaseRepository(Generic[ModelT]):
@@ -22,7 +22,7 @@ class BaseRepository(Generic[ModelT]):
         self._model = model
         self._session = session
 
-    async def get_by_id(self, entity_id: uuid.UUID) -> Optional[ModelT]:
+    async def get_by_id(self, entity_id: Any) -> Optional[ModelT]:
         return await self._session.get(self._model, entity_id)
 
     async def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelT]:
@@ -36,7 +36,7 @@ class BaseRepository(Generic[ModelT]):
         await self._session.flush()
         return instance
 
-    async def update(self, entity_id: uuid.UUID, data: dict) -> Optional[ModelT]:
+    async def update(self, entity_id: Any, data: dict) -> Optional[ModelT]:
         instance = await self.get_by_id(entity_id)
         if instance is None:
             return None
@@ -46,7 +46,7 @@ class BaseRepository(Generic[ModelT]):
         await self._session.flush()
         return instance
 
-    async def delete(self, entity_id: uuid.UUID) -> bool:
+    async def delete(self, entity_id: Any) -> bool:
         instance = await self.get_by_id(entity_id)
         if instance is None:
             return False
@@ -54,6 +54,6 @@ class BaseRepository(Generic[ModelT]):
         await self._session.flush()
         return True
 
-    async def exists(self, entity_id: uuid.UUID) -> bool:
+    async def exists(self, entity_id: Any) -> bool:
         instance = await self.get_by_id(entity_id)
         return instance is not None

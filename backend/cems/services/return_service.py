@@ -77,7 +77,7 @@ class ReturnService:
         manager_id: uuid.UUID,
         signature_hash: str,
         ip_address: Optional[str],
-        return_area_id: uuid.UUID,
+        return_warehouse_id: uuid.UUID,
     ) -> WarehouseReturn:
         warehouse_return = await self._transfer_repo.get_return_by_id(return_id)
         if warehouse_return is None:
@@ -100,12 +100,12 @@ class ReturnService:
                 detail="Only the warehouse manager can approve returns.",
             )
 
-        # Validate area belongs to the warehouse
-        area = await self._warehouse_repo.get_area(return_area_id)
-        if area is None or area.warehouse_id != warehouse_return.warehouse_id:
+        # Validate the target warehouse exists
+        target_warehouse = await self._warehouse_repo.get_by_id(return_warehouse_id)
+        if target_warehouse is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Return area does not belong to the target warehouse.",
+                detail="Return warehouse not found.",
             )
 
         signature = await self._transfer_repo.create_signature(
@@ -122,7 +122,7 @@ class ReturnService:
         warehouse_return.status = ReturnStatus.APPROVED
         warehouse_return.manager_id = manager_id
         warehouse_return.manager_signature_id = signature.id
-        warehouse_return.return_area_id = return_area_id
+        warehouse_return.return_warehouse_id = return_warehouse_id
         warehouse_return.resolved_at = now
         await self._transfer_repo._session.flush()
 
@@ -130,7 +130,7 @@ class ReturnService:
             warehouse_return.asset_id,
             {
                 "current_custodian_id": None,
-                "current_area_id": return_area_id,
+                "current_warehouse_id": return_warehouse_id,
                 "status": AssetStatus.IN_WAREHOUSE,
             },
         )
@@ -140,7 +140,7 @@ class ReturnService:
             action="RETURNED_TO_WAREHOUSE",
             actor_id=manager_id,
             from_custodian_id=warehouse_return.returned_by_id,
-            to_area_id=return_area_id,
+            to_warehouse_id=return_warehouse_id,
             notes=f"Return approved by manager. Return reason: {warehouse_return.return_reason or 'N/A'}",
         )
 

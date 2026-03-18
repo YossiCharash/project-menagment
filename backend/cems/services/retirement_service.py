@@ -91,7 +91,9 @@ class RetirementService:
                 detail="Approver user not found.",
             )
 
-        if approver.role not in (UserRole.ADMIN, UserRole.MANAGER):
+        is_main_admin = approver.role == "Admin"
+        is_cems_authority = approver.cems_role in (UserRole.ADMIN.value, UserRole.MANAGER.value)
+        if not (is_main_admin or is_cems_authority):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only Admin or Manager can approve retirements.",

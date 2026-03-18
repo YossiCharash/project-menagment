@@ -18,10 +18,10 @@ class AlertService:
     ) -> List[StockAlert]:
         """Return all unresolved alerts.
 
-        If *warehouse_id* is provided, filters items whose area belongs
-        to that warehouse.  For simplicity the current implementation
-        returns all unresolved alerts; warehouse-level filtering would
-        require a join which is handled at the API layer query level.
+        If *warehouse_id* is provided, filters items belonging to that
+        warehouse.  For simplicity the current implementation returns
+        all unresolved alerts; warehouse-level filtering is handled
+        at the API layer query level.
         """
         return await self._consumable_repo.get_unresolved_alerts()
 

@@ -1,12 +1,12 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
 from backend.cems.models.fixed_asset import AssetStatus
-from backend.cems.models.user import User, UserRole
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
 from backend.cems.repositories.user_repository import UserRepository
@@ -19,13 +19,19 @@ from backend.cems.schemas.fixed_asset import (
 )
 from backend.cems.schemas.transfer import RetirementRead
 from backend.cems.services.retirement_service import RetirementService
+from backend.models import User
+
+
+class MoveAssetRequest(PydanticBaseModel):
+    to_warehouse_id: uuid.UUID
+    notes: Optional[str] = None
 
 router = APIRouter(prefix="/assets", tags=["CEMS Assets"])
 
 
 @router.get("", response_model=List[FixedAssetRead])
 async def list_assets(
-    area_id: Optional[uuid.UUID] = Query(None),
+    warehouse_id: Optional[uuid.UUID] = Query(None),
     project_id: Optional[uuid.UUID] = Query(None),
     status_filter: Optional[AssetStatus] = Query(None, alias="status"),
     custodian_id: Optional[uuid.UUID] = Query(None),
@@ -35,8 +41,8 @@ async def list_assets(
     current_user: User = Depends(get_current_user),
 ) -> List[FixedAssetRead]:
     repo = AssetRepository(db)
-    if area_id:
-        assets = await repo.get_by_area(area_id, skip, limit)
+    if warehouse_id:
+        assets = await repo.get_by_warehouse(warehouse_id, skip, limit)
     elif project_id:
         assets = await repo.get_by_project(project_id, skip, limit)
     elif status_filter:
@@ -68,8 +74,6 @@ async def get_asset(
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        from fastapi import HTTPException, status
-
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     return FixedAssetRead.model_validate(asset)
 
@@ -102,8 +106,6 @@ async def update_asset(
     data = payload.model_dump(exclude_unset=True)
     asset = await repo.update(asset_id, data)
     if asset is None:
-        from fastapi import HTTPException, status
-
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     await repo.log_history(
         asset_id=asset_id,
@@ -125,6 +127,30 @@ async def asset_history(
     repo = AssetRepository(db)
     entries = await repo.get_history(asset_id, skip, limit)
     return [AssetHistoryRead.model_validate(e) for e in entries]
+
+
+@router.post("/{asset_id}/move", response_model=FixedAssetRead)
+async def move_asset(
+    asset_id: uuid.UUID,
+    payload: MoveAssetRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> FixedAssetRead:
+    repo = AssetRepository(db)
+    asset = await repo.get_by_id(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    from_warehouse_id = asset.current_warehouse_id
+    asset.current_warehouse_id = payload.to_warehouse_id
+    await repo.log_history(
+        asset_id=asset.id,
+        action="WAREHOUSE_MOVE",
+        actor_id=current_user.id,
+        from_warehouse_id=from_warehouse_id,
+        to_warehouse_id=payload.to_warehouse_id,
+        notes=payload.notes,
+    )
+    return FixedAssetRead.model_validate(asset)
 
 
 @router.post("/{asset_id}/retire", response_model=RetirementRead, status_code=201)

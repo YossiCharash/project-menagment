@@ -119,11 +119,10 @@ def setup_console_log_handler() -> None:
             return
 
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
+    handler.setLevel(logging.ERROR)
     handler.setFormatter(
         logging.Formatter(
             "%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s"
         )
     )
     root_logger.addHandler(handler)
-    root_logger.setLevel(logging.DEBUG)

@@ -1,17 +1,16 @@
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-from backend.cems.models.user import UserRole
+from backend.cems.models.user import UserRole  # CemsUserRole enum
 
 
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str
-    role: UserRole
-    warehouse_id: Optional[uuid.UUID] = None
+    cems_role: Optional[UserRole] = None
+    cems_warehouse_id: Optional[int] = None
 
 
 class UserCreate(UserBase):
@@ -21,15 +20,14 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     full_name: Optional[str] = None
-    role: Optional[UserRole] = None
-    warehouse_id: Optional[uuid.UUID] = None
+    cems_role: Optional[UserRole] = None
+    cems_warehouse_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 
 class UserRead(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     is_active: bool
     created_at: datetime
-    updated_at: datetime

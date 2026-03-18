@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.cems.models.base import CEMSBase, UUIDPrimaryKeyMixin, _utc_now
 
 if TYPE_CHECKING:
-    from backend.cems.models.user import User
+    from backend.models.user import User
 
 
 class SignatureType(str, enum.Enum):
@@ -21,8 +21,8 @@ class SignatureType(str, enum.Enum):
 class Signature(UUIDPrimaryKeyMixin, CEMSBase):
     __tablename__ = "cems_signatures"
 
-    signer_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="CASCADE"),
+    signer_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     signature_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -34,5 +34,8 @@ class Signature(UUIDPrimaryKeyMixin, CEMSBase):
     reference_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
 
-    # Relationships
-    signer: Mapped["User"] = relationship("User", foreign_keys=[signer_id])
+    signer: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[signer_id],
+        primaryjoin="Signature.signer_id == User.id",
+    )

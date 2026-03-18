@@ -10,7 +10,7 @@ from backend.cems.models.consumable import ConsumableItem, StockAlert
 from backend.cems.models.fixed_asset import AssetStatus, FixedAsset
 from backend.cems.models.transfer import Transfer, TransferStatus, WarehouseReturn, ReturnStatus
 from backend.cems.models.user import User
-from backend.cems.models.warehouse import Area, Warehouse
+from backend.cems.models.warehouse import Warehouse
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
@@ -87,34 +87,23 @@ async def warehouse_report(
 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
 
-    # Areas
-    stmt = select(func.count()).select_from(Area).where(Area.warehouse_id == warehouse_id)
-    total_areas = (await db.execute(stmt)).scalar_one()
+    # Assets directly linked to this warehouse
+    stmt = select(func.count()).select_from(FixedAsset).where(
+        FixedAsset.current_warehouse_id == warehouse_id
+    )
+    total_assets = (await db.execute(stmt)).scalar_one()
 
-    # Area IDs for sub-queries
-    area_ids_stmt = select(Area.id).where(Area.warehouse_id == warehouse_id)
-    area_ids_result = await db.execute(area_ids_stmt)
-    area_ids = [row[0] for row in area_ids_result.all()]
+    # Consumables directly linked to this warehouse
+    stmt = select(func.count()).select_from(ConsumableItem).where(
+        ConsumableItem.warehouse_id == warehouse_id
+    )
+    total_consumables = (await db.execute(stmt)).scalar_one()
 
-    total_assets = 0
-    total_consumables = 0
-    low_stock_items = 0
-    if area_ids:
-        stmt = select(func.count()).select_from(FixedAsset).where(
-            FixedAsset.current_area_id.in_(area_ids)
-        )
-        total_assets = (await db.execute(stmt)).scalar_one()
-
-        stmt = select(func.count()).select_from(ConsumableItem).where(
-            ConsumableItem.area_id.in_(area_ids)
-        )
-        total_consumables = (await db.execute(stmt)).scalar_one()
-
-        stmt = select(func.count()).select_from(ConsumableItem).where(
-            ConsumableItem.area_id.in_(area_ids),
-            ConsumableItem.quantity <= ConsumableItem.low_stock_threshold,
-        )
-        low_stock_items = (await db.execute(stmt)).scalar_one()
+    stmt = select(func.count()).select_from(ConsumableItem).where(
+        ConsumableItem.warehouse_id == warehouse_id,
+        ConsumableItem.quantity <= ConsumableItem.low_stock_threshold,
+    )
+    low_stock_items = (await db.execute(stmt)).scalar_one()
 
     stmt = select(func.count()).select_from(WarehouseReturn).where(
         WarehouseReturn.warehouse_id == warehouse_id,
@@ -125,7 +114,6 @@ async def warehouse_report(
     return WarehouseSummary(
         warehouse_id=warehouse_id,
         warehouse_name=warehouse.name,
-        total_areas=total_areas,
         total_assets_in_warehouse=total_assets,
         total_consumables=total_consumables,
         low_stock_items=low_stock_items,

@@ -11,15 +11,16 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.cems.models.base import CEMSBase
+from backend.db.base import Base
 from backend.cems.models.category import AssetCategory
 from backend.cems.models.consumable import ConsumableItem
 from backend.cems.models.fixed_asset import AssetStatus, FixedAsset
 from backend.cems.models.project import Project
-from backend.cems.models.user import User, UserRole
-from backend.cems.models.warehouse import Area, Warehouse
+from backend.cems.models.user import UserRole  # CemsUserRole enum
+from backend.cems.models.warehouse import Warehouse
+from backend.models.user import User
 
-# Force all model tables to be registered on CEMSBase.metadata
+# Ensure all CEMS model tables are registered on Base.metadata
 import backend.cems.models  # noqa: F401
 
 
@@ -29,7 +30,20 @@ async def async_session():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
 
     async with engine.begin() as conn:
-        await conn.run_sync(CEMSBase.metadata.create_all)
+        # Only create tables defined in CEMS + shared users table
+        cems_table_names = {
+            "users",
+            "cems_warehouses", "cems_warehouse_projects", "cems_manager_history",
+            "cems_asset_categories", "cems_projects",
+            "cems_fixed_assets", "cems_asset_history",
+            "cems_consumable_items", "cems_consumption_logs", "cems_stock_alerts",
+            "cems_transfers", "cems_warehouse_returns",
+            "cems_asset_retirements",
+            "cems_signatures",
+            "cems_documents",
+        }
+        tables = [t for t in Base.metadata.sorted_tables if t.name in cems_table_names]
+        await conn.run_sync(Base.metadata.create_all, tables=tables)
 
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -37,41 +51,42 @@ async def async_session():
         yield session
 
     async with engine.begin() as conn:
-        await conn.run_sync(CEMSBase.metadata.drop_all)
+        tables = [t for t in Base.metadata.sorted_tables if t.name in cems_table_names]
+        await conn.run_sync(Base.metadata.drop_all, tables=tables)
 
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def seed_users(async_session: AsyncSession) -> dict[str, User]:
-    """Create a set of users covering all roles."""
+    """Create a set of users covering all CEMS roles."""
     admin = User(
-        id=uuid.uuid4(),
         email="admin@test.com",
-        hashed_password="hashed",
+        password_hash="hashed",
         full_name="Admin User",
-        role=UserRole.ADMIN,
+        role="Admin",            # main-system role
+        cems_role=UserRole.ADMIN.value,
     )
     manager = User(
-        id=uuid.uuid4(),
         email="manager@test.com",
-        hashed_password="hashed",
+        password_hash="hashed",
         full_name="Manager User",
-        role=UserRole.MANAGER,
+        role="Member",
+        cems_role=UserRole.MANAGER.value,
     )
     employee = User(
-        id=uuid.uuid4(),
         email="employee@test.com",
-        hashed_password="hashed",
+        password_hash="hashed",
         full_name="Employee User",
-        role=UserRole.EMPLOYEE,
+        role="Member",
+        cems_role=UserRole.EMPLOYEE.value,
     )
     recipient = User(
-        id=uuid.uuid4(),
         email="recipient@test.com",
-        hashed_password="hashed",
+        password_hash="hashed",
         full_name="Recipient User",
-        role=UserRole.EMPLOYEE,
+        role="Member",
+        cems_role=UserRole.EMPLOYEE.value,
     )
     async_session.add_all([admin, manager, employee, recipient])
     await async_session.flush()
@@ -85,7 +100,7 @@ async def seed_users(async_session: AsyncSession) -> dict[str, User]:
 
 @pytest_asyncio.fixture
 async def seed_warehouse(async_session: AsyncSession, seed_users: dict[str, User]) -> dict:
-    """Create a warehouse with an area and assign the manager."""
+    """Create a warehouse and assign the manager."""
     warehouse = Warehouse(
         id=uuid.uuid4(),
         name="Main Warehouse",
@@ -95,20 +110,11 @@ async def seed_warehouse(async_session: AsyncSession, seed_users: dict[str, User
     async_session.add(warehouse)
     await async_session.flush()
 
-    area = Area(
-        id=uuid.uuid4(),
-        name="Section A1",
-        warehouse_id=warehouse.id,
-        description="Electrical storage",
-    )
-    async_session.add(area)
+    # Link manager to warehouse via cems_warehouse_id
+    seed_users["manager"].cems_warehouse_id = warehouse.id
     await async_session.flush()
 
-    # Link manager to warehouse
-    seed_users["manager"].warehouse_id = warehouse.id
-    await async_session.flush()
-
-    return {"warehouse": warehouse, "area": area}
+    return {"warehouse": warehouse}
 
 
 @pytest_asyncio.fixture
@@ -141,7 +147,7 @@ async def seed_asset(
         serial_number="SN-001",
         category_id=seed_category.id,
         current_custodian_id=seed_users["employee"].id,
-        current_area_id=seed_warehouse["area"].id,
+        current_warehouse_id=seed_warehouse["warehouse"].id,
         status=AssetStatus.ACTIVE,
     )
     async_session.add(asset)
@@ -160,7 +166,7 @@ async def seed_consumable(
         id=uuid.uuid4(),
         name="Screws 5mm",
         category_id=seed_category.id,
-        area_id=seed_warehouse["area"].id,
+        warehouse_id=seed_warehouse["warehouse"].id,
         quantity=Decimal("100.0000"),
         unit="pieces",
         low_stock_threshold=Decimal("10.0000"),

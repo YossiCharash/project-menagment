@@ -36,7 +36,6 @@ class DashboardSummary(BaseModel):
 class WarehouseSummary(BaseModel):
     warehouse_id: uuid.UUID
     warehouse_name: str
-    total_areas: int
     total_assets_in_warehouse: int
     total_consumables: int
     low_stock_items: int
