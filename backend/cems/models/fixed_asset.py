@@ -10,9 +10,9 @@ from backend.cems.models.base import CEMSBase, TimestampMixin, UUIDPrimaryKeyMix
 
 if TYPE_CHECKING:
     from backend.cems.models.category import AssetCategory
-    from backend.cems.models.project import Project
-    from backend.cems.models.user import User
-    from backend.cems.models.warehouse import Area
+    from backend.cems.models.warehouse import Warehouse
+    from backend.models.project import Project
+    from backend.models.user import User
 
 
 class AssetStatus(str, enum.Enum):
@@ -32,18 +32,18 @@ class FixedAsset(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         nullable=False,
         index=True,
     )
-    current_custodian_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
+    current_custodian_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    current_area_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_areas.id", ondelete="SET NULL"),
+    current_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_projects.id", ondelete="SET NULL"),
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -54,19 +54,24 @@ class FixedAsset(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         index=True,
     )
     purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    warranty_expiry: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    warranty_expiry: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Relationships
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
-    current_custodian: Mapped[Optional["User"]] = relationship("User", foreign_keys=[current_custodian_id])
-    current_area: Mapped[Optional["Area"]] = relationship("Area", foreign_keys=[current_area_id])
+    current_custodian: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[current_custodian_id],
+        primaryjoin="FixedAsset.current_custodian_id == User.id",
+    )
+    current_warehouse: Mapped[Optional["Warehouse"]] = relationship(
+        "Warehouse", foreign_keys=[current_warehouse_id]
+    )
     project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id])
     history: Mapped[List["AssetHistory"]] = relationship(
         "AssetHistory",
         back_populates="asset",
         cascade="all, delete-orphan",
-        order_by="AssetHistory.timestamp.desc()",
+        order_by="AssetHistory.timestamp",
     )
 
 
@@ -79,29 +84,42 @@ class AssetHistory(UUIDPrimaryKeyMixin, CEMSBase):
         index=True,
     )
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    actor_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
-        nullable=False,
-    )
-    from_custodian_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    to_custodian_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
+    from_custodian_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    from_area_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_areas.id", ondelete="SET NULL"),
+    to_custodian_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    to_area_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_areas.id", ondelete="SET NULL"),
+    from_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    to_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="SET NULL"),
         nullable=True,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False, index=True)
 
-    # Relationships
     asset: Mapped["FixedAsset"] = relationship("FixedAsset", back_populates="history")
-    actor: Mapped["User"] = relationship("User", foreign_keys=[actor_id])
+    actor: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[actor_id],
+        primaryjoin="AssetHistory.actor_id == User.id",
+    )
+    from_custodian: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[from_custodian_id],
+        primaryjoin="AssetHistory.from_custodian_id == User.id",
+    )
+    to_custodian: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[to_custodian_id],
+        primaryjoin="AssetHistory.to_custodian_id == User.id",
+    )

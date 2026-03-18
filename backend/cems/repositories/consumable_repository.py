@@ -13,8 +13,8 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(ConsumableItem, session)
 
-    async def get_by_area(self, area_id: uuid.UUID) -> List[ConsumableItem]:
-        stmt = select(ConsumableItem).where(ConsumableItem.area_id == area_id)
+    async def get_by_warehouse(self, warehouse_id: uuid.UUID) -> List[ConsumableItem]:
+        stmt = select(ConsumableItem).where(ConsumableItem.warehouse_id == warehouse_id)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

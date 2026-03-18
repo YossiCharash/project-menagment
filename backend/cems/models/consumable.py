@@ -11,9 +11,9 @@ from backend.cems.models.base import CEMSBase, TimestampMixin, UUIDPrimaryKeyMix
 
 if TYPE_CHECKING:
     from backend.cems.models.category import AssetCategory
-    from backend.cems.models.project import Project
-    from backend.cems.models.user import User
-    from backend.cems.models.warehouse import Area
+    from backend.cems.models.warehouse import Warehouse
+    from backend.models.project import Project
+    from backend.models.user import User
 
 
 class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
@@ -25,8 +25,8 @@ class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         nullable=False,
         index=True,
     )
-    area_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cems_areas.id", ondelete="CASCADE"),
+    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -39,9 +39,8 @@ class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         Numeric(10, 4), default=Decimal("0"), nullable=False
     )
 
-    # Relationships
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
-    area: Mapped["Area"] = relationship("Area", foreign_keys=[area_id])
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id])
 
 
 class AlertType(str, enum.Enum):
@@ -57,21 +56,24 @@ class ConsumptionLog(UUIDPrimaryKeyMixin, CEMSBase):
         nullable=False,
         index=True,
     )
-    consumed_by_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cems_users.id", ondelete="SET NULL"),
+    consumed_by_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=False,
     )
-    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("cems_projects.id", ondelete="SET NULL"),
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,
     )
     quantity_consumed: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     consumed_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Relationships
     item: Mapped["ConsumableItem"] = relationship("ConsumableItem")
-    consumed_by: Mapped["User"] = relationship("User", foreign_keys=[consumed_by_id])
+    consumed_by: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[consumed_by_id],
+        primaryjoin="ConsumptionLog.consumed_by_id == User.id",
+    )
     project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id])
 
 
@@ -92,5 +94,4 @@ class StockAlert(UUIDPrimaryKeyMixin, CEMSBase):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False)
 
-    # Relationships
     item: Mapped["ConsumableItem"] = relationship("ConsumableItem")

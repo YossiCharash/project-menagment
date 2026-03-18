@@ -35,6 +35,9 @@ class User(Base):
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # CEMS-specific fields (null = no CEMS access)
+    cems_role: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    cems_warehouse_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
 
     preferences: Mapped["UserPreference"] = relationship(
         "UserPreference", back_populates="user", uselist=False, lazy="selectin",

@@ -2,21 +2,15 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
+
+# Re-use the project-wide declarative base so all CEMS tables
+# are managed by the same metadata / engine as the rest of the app.
+from backend.db.base import Base as CEMSBase  # noqa: F401 – re-exported for backwards compat
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-class CEMSBase(DeclarativeBase):
-    """Separate declarative base for the CEMS module.
-
-    Keeps CEMS tables isolated from the main BMS schema while still
-    allowing Alembic or raw DDL to manage them independently.
-    """
-
-    pass
 
 
 class TimestampMixin:

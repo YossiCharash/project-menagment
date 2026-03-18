@@ -1,15 +1,16 @@
 """
 Database initialization - creates all tables, enums, and indexes.
 All database schema is defined in the SQLAlchemy models in backend/models/
-This file only creates missing tables on first run; it never modifies existing schema.
+and backend/cems/models/.
 
+This file only creates missing tables on first run; it never modifies existing schema.
 Schema changes must be applied via SQL migration scripts in backend/migrations/.
 """
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.db.base import Base
 
-# Import all models to ensure they are registered with Base.metadata
+# ── Main application models ──────────────────────────────────────────────────
 from backend.models import (  # noqa: F401
     User,
     Project,
@@ -34,6 +35,25 @@ from backend.models import (  # noqa: F401
     UserNotification,
     GroupTransactionDraft,
     GroupTransactionDraftDocument,
+)
+
+# ── CEMS models (same Base, so the same create_all covers them) ───────────────
+from backend.cems.models import (  # noqa: F401
+    Warehouse,
+    Area,
+    ManagerHistory,
+    AssetCategory,
+    Project as CemsProject,
+    FixedAsset,
+    AssetHistory,
+    ConsumableItem,
+    ConsumptionLog,
+    StockAlert,
+    Transfer,
+    WarehouseReturn,
+    AssetRetirement,
+    Signature,
+    Document as CemsDocument,
 )
 
 

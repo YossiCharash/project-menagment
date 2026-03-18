@@ -12,17 +12,23 @@ from backend.cems.repositories.user_repository import UserRepository
 from backend.cems.repositories.warehouse_repository import WarehouseRepository
 from backend.cems.schemas.fixed_asset import FixedAssetRead
 from backend.cems.schemas.warehouse import (
-    AreaCreate,
-    AreaRead,
     ChangeManagerRequest,
     WarehouseCreate,
-    WarehouseDetail,
+    WarehouseProjectsUpdate,
     WarehouseRead,
     WarehouseUpdate,
 )
 from backend.cems.services.warehouse_service import WarehouseService
 
 router = APIRouter(prefix="/warehouses", tags=["CEMS Warehouses"])
+
+
+def _warehouse_to_read(warehouse) -> WarehouseRead:
+    """Convert a Warehouse ORM instance to WarehouseRead, populating project fields."""
+    data = WarehouseRead.model_validate(warehouse)
+    data.project_ids = [p.id for p in warehouse.projects]
+    data.project_names = [p.name for p in warehouse.projects]
+    return data
 
 
 @router.get("", response_model=List[WarehouseRead])
@@ -34,7 +40,7 @@ async def list_warehouses(
 ) -> List[WarehouseRead]:
     repo = WarehouseRepository(db)
     warehouses = await repo.get_all(skip, limit)
-    return [WarehouseRead.model_validate(w) for w in warehouses]
+    return [_warehouse_to_read(w) for w in warehouses]
 
 
 @router.post("", response_model=WarehouseRead, status_code=201)
@@ -45,7 +51,7 @@ async def create_warehouse(
 ) -> WarehouseRead:
     repo = WarehouseRepository(db)
     warehouse = await repo.create(payload.model_dump())
-    return WarehouseRead.model_validate(warehouse)
+    return _warehouse_to_read(warehouse)
 
 
 @router.put("/{warehouse_id}", response_model=WarehouseRead)
@@ -60,7 +66,7 @@ async def update_warehouse(
     warehouse = await repo.update(warehouse_id, data)
     if warehouse is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
-    return WarehouseRead.model_validate(warehouse)
+    return _warehouse_to_read(warehouse)
 
 
 @router.post("/{warehouse_id}/change-manager", response_model=WarehouseRead)
@@ -79,33 +85,23 @@ async def change_manager(
         changed_by_id=current_user.id,
         reason=payload.reason,
     )
-    return WarehouseRead.model_validate(warehouse)
+    return _warehouse_to_read(warehouse)
 
 
-@router.get("/{warehouse_id}/areas", response_model=List[AreaRead])
-async def list_areas(
+@router.put("/{warehouse_id}/projects", response_model=WarehouseRead)
+async def update_warehouse_projects(
     warehouse_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> List[AreaRead]:
-    repo = WarehouseRepository(db)
-    areas = await repo.get_areas_by_warehouse(warehouse_id)
-    return [AreaRead.model_validate(a) for a in areas]
-
-
-@router.post("/{warehouse_id}/areas", response_model=AreaRead, status_code=201)
-async def create_area(
-    warehouse_id: uuid.UUID,
-    payload: AreaCreate,
+    payload: WarehouseProjectsUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
-) -> AreaRead:
+) -> WarehouseRead:
     repo = WarehouseRepository(db)
     warehouse = await repo.get_by_id(warehouse_id)
     if warehouse is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
-    area = await repo.create_area({**payload.model_dump(), "warehouse_id": warehouse_id})
-    return AreaRead.model_validate(area)
+    await repo.set_warehouse_projects(warehouse_id, payload.project_ids)
+    warehouse = await repo.get_with_projects(warehouse_id)
+    return _warehouse_to_read(warehouse)
 
 
 @router.get("/{warehouse_id}/inventory", response_model=List[FixedAssetRead])
@@ -116,11 +112,6 @@ async def warehouse_inventory(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[FixedAssetRead]:
-    warehouse_repo = WarehouseRepository(db)
-    areas = await warehouse_repo.get_areas_by_warehouse(warehouse_id)
     asset_repo = AssetRepository(db)
-    all_assets: list[FixedAssetRead] = []
-    for area in areas:
-        assets = await asset_repo.get_by_area(area.id, skip=0, limit=1000)
-        all_assets.extend(FixedAssetRead.model_validate(a) for a in assets)
-    return all_assets[skip : skip + limit]
+    assets = await asset_repo.get_by_warehouse(warehouse_id, skip, limit)
+    return [FixedAssetRead.model_validate(a) for a in assets]

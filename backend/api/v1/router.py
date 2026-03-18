@@ -33,3 +33,7 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 # IAM - Identity & Access Management
 from backend.iam.endpoints import router as iam_router
 api_router.include_router(iam_router, prefix="/iam", tags=["iam"])
+
+# CEMS - Company Equipment & Inventory Management System
+from backend.cems.api.router import cems_router
+api_router.include_router(cems_router)

@@ -5,26 +5,6 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
-# ---------- Area ----------
-
-class AreaBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-
-
-class AreaCreate(AreaBase):
-    pass
-
-
-class AreaRead(AreaBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    warehouse_id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-
-
 # ---------- Warehouse ----------
 
 class WarehouseBase(BaseModel):
@@ -46,12 +26,14 @@ class WarehouseRead(WarehouseBase):
 
     id: uuid.UUID
     current_manager_id: Optional[uuid.UUID]
+    project_ids: List[uuid.UUID] = []
+    project_names: List[str] = []
     created_at: datetime
     updated_at: datetime
 
 
-class WarehouseDetail(WarehouseRead):
-    areas: List[AreaRead] = []
+class WarehouseProjectsUpdate(BaseModel):
+    project_ids: List[uuid.UUID]
 
 
 # ---------- Manager change ----------

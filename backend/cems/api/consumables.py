@@ -1,7 +1,8 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
@@ -17,20 +18,24 @@ from backend.cems.schemas.consumable import (
 from backend.cems.services.alert_service import AlertService
 from backend.cems.services.consumption_service import ConsumptionService
 
+
+class MoveConsumableRequest(PydanticBaseModel):
+    to_warehouse_id: uuid.UUID
+
 router = APIRouter(prefix="/consumables", tags=["CEMS Consumables"])
 
 
 @router.get("", response_model=List[ConsumableItemRead])
 async def list_consumables(
-    area_id: Optional[uuid.UUID] = Query(None),
+    warehouse_id: Optional[uuid.UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[ConsumableItemRead]:
     repo = ConsumableRepository(db)
-    if area_id:
-        items = await repo.get_by_area(area_id)
+    if warehouse_id:
+        items = await repo.get_by_warehouse(warehouse_id)
     else:
         items = await repo.get_all(skip, limit)
     return [ConsumableItemRead.model_validate(i) for i in items]
@@ -58,8 +63,6 @@ async def update_consumable(
     data = payload.model_dump(exclude_unset=True)
     item = await repo.update(item_id, data)
     if item is None:
-        from fastapi import HTTPException, status
-
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
     return ConsumableItemRead.model_validate(item)
 
@@ -82,6 +85,22 @@ async def consume_stock(
         notes=payload.notes,
     )
     return ConsumptionLogRead.model_validate(log)
+
+
+@router.post("/{item_id}/move", response_model=ConsumableItemRead)
+async def move_consumable(
+    item_id: uuid.UUID,
+    payload: MoveConsumableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> ConsumableItemRead:
+    repo = ConsumableRepository(db)
+    item = await repo.get_by_id(item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+    item.warehouse_id = payload.to_warehouse_id
+    await db.flush()
+    return ConsumableItemRead.model_validate(item)
 
 
 @router.get("/{item_id}/history", response_model=List[ConsumptionLogRead])

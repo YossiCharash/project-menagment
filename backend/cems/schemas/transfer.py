@@ -11,7 +11,7 @@ class TransferCreate(BaseModel):
     asset_id: uuid.UUID
     from_user_id: uuid.UUID
     to_user_id: uuid.UUID
-    to_area_id: Optional[uuid.UUID] = None
+    to_warehouse_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
 
 
@@ -22,8 +22,8 @@ class TransferRead(BaseModel):
     asset_id: uuid.UUID
     from_user_id: uuid.UUID
     to_user_id: uuid.UUID
-    from_area_id: Optional[uuid.UUID]
-    to_area_id: Optional[uuid.UUID]
+    from_warehouse_id: Optional[uuid.UUID]
+    to_warehouse_id: Optional[uuid.UUID]
     initiated_by_id: uuid.UUID
     initiated_at: datetime
     status: TransferStatus
@@ -57,7 +57,7 @@ class WarehouseReturnRead(BaseModel):
     asset_id: uuid.UUID
     returned_by_id: uuid.UUID
     warehouse_id: uuid.UUID
-    return_area_id: Optional[uuid.UUID]
+    return_warehouse_id: Optional[uuid.UUID]
     manager_id: Optional[uuid.UUID]
     status: ReturnStatus
     manager_signature_id: Optional[uuid.UUID]
@@ -69,7 +69,7 @@ class WarehouseReturnRead(BaseModel):
 
 
 class ApproveReturnRequest(BaseModel):
-    return_area_id: uuid.UUID
+    return_warehouse_id: uuid.UUID
     signature_hash: str
     ip_address: Optional[str] = None
 

@@ -31,7 +31,7 @@ class TransferService:
         asset_id: uuid.UUID,
         from_user_id: uuid.UUID,
         to_user_id: uuid.UUID,
-        to_area_id: Optional[uuid.UUID],
+        to_warehouse_id: Optional[uuid.UUID],
         initiated_by_id: uuid.UUID,
         notes: Optional[str] = None,
     ) -> Transfer:
@@ -69,8 +69,8 @@ class TransferService:
                 "asset_id": asset_id,
                 "from_user_id": from_user_id,
                 "to_user_id": to_user_id,
-                "from_area_id": asset.current_area_id,
-                "to_area_id": to_area_id,
+                "from_warehouse_id": asset.current_warehouse_id,
+                "to_warehouse_id": to_warehouse_id,
                 "initiated_by_id": initiated_by_id,
                 "status": TransferStatus.PENDING,
                 "notes": notes,
@@ -83,8 +83,8 @@ class TransferService:
             actor_id=initiated_by_id,
             from_custodian_id=from_user_id,
             to_custodian_id=to_user_id,
-            from_area_id=asset.current_area_id,
-            to_area_id=to_area_id,
+            from_warehouse_id=asset.current_warehouse_id,
+            to_warehouse_id=to_warehouse_id,
             notes=notes,
         )
 
@@ -138,7 +138,7 @@ class TransferService:
             transfer.asset_id,
             {
                 "current_custodian_id": transfer.to_user_id,
-                "current_area_id": transfer.to_area_id,
+                "current_warehouse_id": transfer.to_warehouse_id,
                 "status": AssetStatus.ACTIVE,
             },
         )
@@ -149,8 +149,8 @@ class TransferService:
             actor_id=recipient_id,
             from_custodian_id=transfer.from_user_id,
             to_custodian_id=transfer.to_user_id,
-            from_area_id=transfer.from_area_id,
-            to_area_id=transfer.to_area_id,
+            from_warehouse_id=transfer.from_warehouse_id,
+            to_warehouse_id=transfer.to_warehouse_id,
             notes=f"Transfer {transfer_id} completed with signature.",
         )
 

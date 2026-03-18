@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class ConsumableItemBase(BaseModel):
     name: str
     category_id: uuid.UUID
-    area_id: uuid.UUID
+    warehouse_id: uuid.UUID
     unit: str
     low_stock_threshold: Decimal = Decimal("0")
     reorder_quantity: Decimal = Decimal("0")
@@ -22,7 +22,7 @@ class ConsumableItemCreate(ConsumableItemBase):
 class ConsumableItemUpdate(BaseModel):
     name: Optional[str] = None
     category_id: Optional[uuid.UUID] = None
-    area_id: Optional[uuid.UUID] = None
+    warehouse_id: Optional[uuid.UUID] = None
     unit: Optional[str] = None
     low_stock_threshold: Optional[Decimal] = None
     reorder_quantity: Optional[Decimal] = None

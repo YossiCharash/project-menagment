@@ -31,12 +31,12 @@ class AssetRepository(BaseRepository[FixedAsset]):
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_area(
-        self, area_id: uuid.UUID, skip: int = 0, limit: int = 100
+    async def get_by_warehouse(
+        self, warehouse_id: uuid.UUID, skip: int = 0, limit: int = 100
     ) -> List[FixedAsset]:
         stmt = (
             select(FixedAsset)
-            .where(FixedAsset.current_area_id == area_id)
+            .where(FixedAsset.current_warehouse_id == warehouse_id)
             .offset(skip)
             .limit(limit)
         )
@@ -88,8 +88,8 @@ class AssetRepository(BaseRepository[FixedAsset]):
         actor_id: uuid.UUID,
         from_custodian_id: Optional[uuid.UUID] = None,
         to_custodian_id: Optional[uuid.UUID] = None,
-        from_area_id: Optional[uuid.UUID] = None,
-        to_area_id: Optional[uuid.UUID] = None,
+        from_warehouse_id: Optional[uuid.UUID] = None,
+        to_warehouse_id: Optional[uuid.UUID] = None,
         notes: Optional[str] = None,
     ) -> AssetHistory:
         entry = AssetHistory(
@@ -98,8 +98,8 @@ class AssetRepository(BaseRepository[FixedAsset]):
             actor_id=actor_id,
             from_custodian_id=from_custodian_id,
             to_custodian_id=to_custodian_id,
-            from_area_id=from_area_id,
-            to_area_id=to_area_id,
+            from_warehouse_id=from_warehouse_id,
+            to_warehouse_id=to_warehouse_id,
             notes=notes,
         )
         self._session.add(entry)
