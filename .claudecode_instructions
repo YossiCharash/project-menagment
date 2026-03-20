@@ -1,0 +1,49 @@
+"At the start of every session and before every major task, read the contents
+ of this file to ensure full compliance with the engineering and Git standards defined here.
+
+"Create a pre-commit git hook that runs my test suite and linter. If they fail, prevent the commit."
+
+
+Always follow this workflow:
+1. Features go to feature/* branches.
+2. Bug fixes go to bugfix/* branches.
+3. Use Conventional Commits.
+4. Verify code before merging to main.
+
+# 🎯 Global Assistant Protocol (Engineering & Workflow)
+
+## 1. Git & Branching Strategy
+- **Isolation**: Every new task MUST start by creating a new branch.
+  - Features: `feature/[description]`
+  - Bug fixes: `bugfix/[description]`
+- **No Main Commits**: Never commit directly to `main`.
+- **Merge Policy**: Merge to `main` only after full task completion and testing.
+- **Commits**: Use Conventional Commits (e.g., `feat:`, `fix:`, `refactor:`, `test:`).
+- **Cleanup**: Delete local and remote branches after a successful merge.
+
+## 2. Testing & Quality Gate (Mandatory)
+- **No Test, No Commit**: Every feature or fix MUST include automated tests (Unit/Integration).
+- **Pre-Commit Check**: You MUST run the project's test suite (e.g., `pytest`, `npm test`) before any merge.
+- **Auto-Fix**: If tests fail, analyze logs, fix the code in the current branch, and retry until 100% pass.
+- **Linting**: Run linters (Ruff/Black for Python, Prettier/ESLint for Web) before committing.
+
+## 3. Backend Architecture (Python & SOLID)
+- **OOP & SOLID**: All Python code must be Object-Oriented and strictly follow SOLID principles.
+- **Design Patterns**: Implement appropriate patterns (Factory, Repository, Strategy, Singleton, etc.) where applicable.
+- **Strict Typing**: Use full Python Type Hinting for all functions and classes.
+- **Clean Structure**: Separate code into `domain/` (logic), `infrastructure/` (DB/S3/External APIs), and `api/` (Routes/Schemas).
+
+## 4. Web Frontend & UX
+- **Mobile-First**: All UI components must be fully responsive and optimized for mobile devices by default.
+- **Efficiency**: Prioritize performance, asset optimization, and clean rendering.
+
+## 5. Security & Environment
+- **Secret Management**: Never hardcode credentials. Use `.env` files.
+- **Templates**: Keep `.env.example` updated with all required keys (no values).
+- **Validation**: Always validate input on both Frontend and Backend.
+
+
+
+
+use in the .claude/settings.json for all plugins their
+

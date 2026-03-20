@@ -58,6 +58,14 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   admin_invite: 'הזמנת מנהל',
   notification: 'התראה',
   dashboard: 'לוח בקרה',
+  cems_warehouse: 'מחסן',
+  cems_consumable: 'חומר מתכלה',
+  cems_fixed_asset: 'רכוש קבוע',
+  cems_transfer: 'העברת נכס',
+  cems_warehouse_return: 'החזרה למחסן',
+  cems_retirement: 'גריטת נכס',
+  cems_document: 'מסמך מלאי',
+  cems_report: 'דוח מלאי',
 }
 
 const ACTION_LABELS: Record<string, string> = {

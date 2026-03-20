@@ -207,6 +207,12 @@ export const cemsApi = {
   updateWarehouseProjects: (id: string, projectIds: string[]) =>
     api.put<Warehouse>(`${CEMS_BASE}/warehouses/${id}/projects`, { project_ids: projectIds }),
 
+  changeWarehouseManager: (id: string, newManagerId: number, reason?: string) =>
+    api.post<Warehouse>(`${CEMS_BASE}/warehouses/${id}/change-manager`, {
+      new_manager_id: newManagerId,
+      reason: reason || undefined,
+    }),
+
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
     api.get<CemsUser[]>(`${CEMS_BASE}/users`),
