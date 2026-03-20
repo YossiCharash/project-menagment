@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
+from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
 from backend.cems.models.user import User
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.schemas.consumable import (
@@ -31,7 +31,7 @@ async def list_consumables(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumableItemRead]:
     repo = ConsumableRepository(db)
     if warehouse_id:
@@ -47,6 +47,7 @@ async def create_consumable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
+    await check_warehouse_manager_access(payload.warehouse_id, current_user, db)
     repo = ConsumableRepository(db)
     item = await repo.create(payload.model_dump())
     return ConsumableItemRead.model_validate(item)
@@ -60,10 +61,12 @@ async def update_consumable(
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
     repo = ConsumableRepository(db)
-    data = payload.model_dump(exclude_unset=True)
-    item = await repo.update(item_id, data)
+    item = await repo.get_by_id(item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+    await check_warehouse_manager_access(item.warehouse_id, current_user, db)
+    data = payload.model_dump(exclude_unset=True)
+    item = await repo.update(item_id, data)
     return ConsumableItemRead.model_validate(item)
 
 
@@ -72,7 +75,7 @@ async def consume_stock(
     item_id: uuid.UUID,
     payload: ConsumeStockRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> ConsumptionLogRead:
     repo = ConsumableRepository(db)
     alert_svc = AlertService(repo)
@@ -98,6 +101,7 @@ async def move_consumable(
     item = await repo.get_by_id(item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+    await check_warehouse_manager_access(item.warehouse_id, current_user, db)
     item.warehouse_id = payload.to_warehouse_id
     await db.flush()
     return ConsumableItemRead.model_validate(item)
@@ -109,7 +113,7 @@ async def consumption_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumptionLogRead]:
     repo = ConsumableRepository(db)
     logs = await repo.get_consumption_history(item_id, skip, limit)
@@ -119,7 +123,7 @@ async def consumption_history(
 @router.get("/low-stock", response_model=List[ConsumableItemRead])
 async def low_stock_items(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[ConsumableItemRead]:
     repo = ConsumableRepository(db)
     items = await repo.get_low_stock_items()

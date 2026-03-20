@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db
+from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
 from backend.cems.models.consumable import ConsumableItem, StockAlert
 from backend.cems.models.fixed_asset import AssetStatus, FixedAsset
 from backend.cems.models.transfer import Transfer, TransferStatus, WarehouseReturn, ReturnStatus
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/reports", tags=["CEMS Reports"])
 @router.get("/dashboard", response_model=DashboardSummary)
 async def dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> DashboardSummary:
     # Total fixed assets by status
     status_counts: dict[AssetStatus, int] = {}
@@ -79,7 +79,7 @@ async def dashboard(
 async def warehouse_report(
     warehouse_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireWarehouseManager()),
 ) -> WarehouseSummary:
     warehouse = await db.get(Warehouse, warehouse_id)
     if warehouse is None:
@@ -126,7 +126,7 @@ async def retired_assets(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[FixedAssetRead]:
     repo = AssetRepository(db)
     assets = await repo.get_by_status(AssetStatus.RETIRED, skip, limit)
@@ -139,7 +139,7 @@ async def transfer_report(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[TransferRead]:
     repo = TransferRepository(db)
     if status_filter:
@@ -152,7 +152,7 @@ async def transfer_report(
 @router.get("/alerts", response_model=List[StockAlertRead])
 async def alerts_report(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[StockAlertRead]:
     repo = ConsumableRepository(db)
     alerts = await repo.get_unresolved_alerts()

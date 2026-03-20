@@ -53,6 +53,14 @@ class ResourceType(str, Enum):
     ADMIN_INVITE = "admin_invite"
     NOTIFICATION = "notification"
     DASHBOARD = "dashboard"
+    CEMS_WAREHOUSE = "cems_warehouse"
+    CEMS_CONSUMABLE = "cems_consumable"
+    CEMS_FIXED_ASSET = "cems_fixed_asset"
+    CEMS_TRANSFER = "cems_transfer"
+    CEMS_WAREHOUSE_RETURN = "cems_warehouse_return"
+    CEMS_RETIREMENT = "cems_retirement"
+    CEMS_DOCUMENT = "cems_document"
+    CEMS_REPORT = "cems_report"
 
 
 class GlobalRole(str, Enum):

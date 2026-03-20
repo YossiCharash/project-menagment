@@ -58,6 +58,14 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.ADMIN_INVITE.value: _ALL_ACTIONS,
         ResourceType.NOTIFICATION.value: {Action.READ.value},
         ResourceType.DASHBOARD.value: {Action.READ.value},
+        ResourceType.CEMS_WAREHOUSE.value: _ALL_ACTIONS,
+        ResourceType.CEMS_CONSUMABLE.value: _ALL_ACTIONS,
+        ResourceType.CEMS_FIXED_ASSET.value: _ALL_ACTIONS,
+        ResourceType.CEMS_TRANSFER.value: _ALL_ACTIONS,
+        ResourceType.CEMS_WAREHOUSE_RETURN.value: _ALL_ACTIONS,
+        ResourceType.CEMS_RETIREMENT.value: _ALL_ACTIONS,
+        ResourceType.CEMS_DOCUMENT.value: _ALL_ACTIONS,
+        ResourceType.CEMS_REPORT.value: _ALL_ACTIONS,
     },
     GlobalRole.MEMBER.value: {
         rt.value: set()

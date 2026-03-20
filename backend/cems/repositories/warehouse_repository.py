@@ -22,6 +22,18 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_all_with_projects(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[Warehouse]:
+        stmt = (
+            select(Warehouse)
+            .options(selectinload(Warehouse.projects))
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_by_manager(self, manager_id: uuid.UUID) -> Optional[Warehouse]:
         stmt = select(Warehouse).where(Warehouse.current_manager_id == manager_id)
         result = await self._session.execute(stmt)

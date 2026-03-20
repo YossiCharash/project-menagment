@@ -13,11 +13,13 @@ import {
   Package,
   Pencil,
   FolderKanban,
+  UserCog,
 } from 'lucide-react'
 import {
   cemsApi,
   type Warehouse,
   type CemsProject,
+  type CemsUser,
 } from '../../lib/cemsApi'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -44,6 +46,9 @@ export default function WarehousesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
 
+  const [users, setUsers] = useState<CemsUser[]>([])
+  const [changeManagerWarehouseId, setChangeManagerWarehouseId] = useState<string | null>(null)
+
   // Modals
   const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false)
   const [editProjectsWarehouseId, setEditProjectsWarehouseId] = useState<string | null>(null)
@@ -52,14 +57,23 @@ export default function WarehousesPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await cemsApi.getWarehouses()
-      setWarehouses(res.data)
+      const [warehousesRes] = await Promise.all([
+        cemsApi.getWarehouses(),
+        cemsApi.getUsers().then((res) => setUsers(res.data)).catch(() => {}),
+      ])
+      setWarehouses(warehousesRes.data)
     } catch {
       setError('שגיאה בטעינת רשימת המחסנים')
     } finally {
       setLoading(false)
     }
   }, [])
+
+  function getUserName(id: number | null): string {
+    if (!id) return 'לא הוגדר'
+    const user = users.find((u) => u.id === id)
+    return user ? user.full_name : `#${id}`
+  }
 
   useEffect(() => {
     loadData()
@@ -189,7 +203,7 @@ export default function WarehousesPage() {
                   <div className="flex items-center gap-4 mt-4 text-sm text-gray-500 dark:text-gray-400">
                     <div className="flex items-center gap-1">
                       <User className="w-4 h-4" />
-                      <span>מנהל: {warehouse.current_manager_id || 'לא הוגדר'}</span>
+                      <span>מנהל: {getUserName(warehouse.current_manager_id)}</span>
                     </div>
                     {warehouse.project_names.length > 0 && (
                       <div className="flex items-center gap-1">
@@ -271,6 +285,20 @@ export default function WarehousesPage() {
                             </div>
                           )}
                         </div>
+                        {isAdmin && (
+                          <div className="flex justify-end">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setChangeManagerWarehouseId(warehouse.id)
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/40 transition-colors"
+                            >
+                              <UserCog className="w-3 h-3" />
+                              שנה מנהל
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -296,6 +324,15 @@ export default function WarehousesPage() {
           }
           onClose={() => setEditProjectsWarehouseId(null)}
           onUpdated={() => handleProjectsUpdated(editProjectsWarehouseId)}
+        />
+      )}
+      {changeManagerWarehouseId && (
+        <ChangeManagerModal
+          warehouseId={changeManagerWarehouseId}
+          currentManagerId={warehouses.find((w) => w.id === changeManagerWarehouseId)?.current_manager_id ?? null}
+          users={users}
+          onClose={() => setChangeManagerWarehouseId(null)}
+          onChanged={loadData}
         />
       )}
     </div>
@@ -469,6 +506,95 @@ function EditProjectsModal({ warehouseId, currentProjectIds, onClose, onUpdated 
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting} className={BTN_PRIMARY}>
               {submitting ? 'שומר...' : 'עדכן פרויקטים'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Change Manager Modal ─────────────────────────────────────────────────────
+
+interface ChangeManagerModalProps {
+  warehouseId: string
+  currentManagerId: number | null
+  users: CemsUser[]
+  onClose: () => void
+  onChanged: () => void
+}
+
+function ChangeManagerModal({ warehouseId, currentManagerId, users, onClose, onChanged }: ChangeManagerModalProps) {
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>(currentManagerId ?? '')
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!selectedUserId) {
+      setError('יש לבחור מנהל')
+      return
+    }
+
+    setSubmitting(true)
+    setError(null)
+    try {
+      await cemsApi.changeWarehouseManager(warehouseId, selectedUserId as number, reason.trim() || undefined)
+      onChanged()
+      onClose()
+    } catch {
+      setError('שגיאה בשינוי מנהל המחסן')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">שינוי מנהל מחסן</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className={LABEL_CLASS}>מנהל חדש *</label>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : '')}
+              className={INPUT_CLASS}
+              required
+            >
+              <option value="">בחר מנהל...</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name} ({u.email})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>סיבה לשינוי (אופציונלי)</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="לדוגמה: סיום תפקיד, העברה..."
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
+            <button type="submit" disabled={submitting} className={BTN_PRIMARY}>
+              {submitting ? 'שומר...' : 'עדכן מנהל'}
             </button>
           </div>
         </form>
