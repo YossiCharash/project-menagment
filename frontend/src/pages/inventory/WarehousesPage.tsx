@@ -380,14 +380,21 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
   const [assets, setAssets] = useState<FixedAsset[]>([])
   const [consumables, setConsumables] = useState<ConsumableItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  // Transfer mode state
-  const [transferMode, setTransferMode] = useState(false)
+  // ── Consumable transfer state ──────────────────────────────────────────────
+  const [cTransferMode, setCTransferMode] = useState(false)
   const [transferQty, setTransferQty] = useState<Record<string, string>>({})
-  const [targetWarehouseId, setTargetWarehouseId] = useState('')
-  const [transferring, setTransferring] = useState(false)
-  const [transferError, setTransferError] = useState<string | null>(null)
-  const [transferSuccess, setTransferSuccess] = useState(false)
+  const [cTargetWarehouseId, setCTargetWarehouseId] = useState('')
+  const [cTransferring, setCTransferring] = useState(false)
+  const [cTransferError, setCTransferError] = useState<string | null>(null)
+
+  // ── Asset transfer state ───────────────────────────────────────────────────
+  const [aTransferMode, setATransferMode] = useState(false)
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
+  const [aTargetWarehouseId, setATargetWarehouseId] = useState('')
+  const [aTransferring, setATransferring] = useState(false)
+  const [aTransferError, setATransferError] = useState<string | null>(null)
 
   const otherWarehouses = allWarehouses.filter((w) => w.id !== warehouse.id)
 
@@ -415,69 +422,125 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
     (c) => Number(c.quantity) <= Number(c.low_stock_threshold)
   ).length
 
-  function enterTransferMode() {
-    // Reset all quantities to ''
+  // ── Consumable transfer helpers ────────────────────────────────────────────
+
+  function enterCTransferMode() {
     const initial: Record<string, string> = {}
     consumables.forEach((c) => { initial[c.id] = '' })
     setTransferQty(initial)
-    setTargetWarehouseId('')
-    setTransferError(null)
-    setTransferSuccess(false)
-    setTransferMode(true)
+    setCTargetWarehouseId('')
+    setCTransferError(null)
+    setSuccessMessage(null)
+    setCTransferMode(true)
   }
 
-  function exitTransferMode() {
-    setTransferMode(false)
-    setTransferError(null)
-    setTransferSuccess(false)
+  function exitCTransferMode() {
+    setCTransferMode(false)
+    setCTransferError(null)
   }
 
-  async function handleTransfer() {
-    if (!targetWarehouseId) {
-      setTransferError('יש לבחור מחסן יעד')
+  async function handleCTransfer() {
+    if (!cTargetWarehouseId) {
+      setCTransferError('יש לבחור מחסן יעד')
       return
     }
-
     const transfers = consumables.filter((c) => {
       const qty = parseFloat(transferQty[c.id] ?? '')
       return !isNaN(qty) && qty > 0
     })
-
     if (transfers.length === 0) {
-      setTransferError('יש להזין כמות לפחות לפריט אחד')
+      setCTransferError('יש להזין כמות לפחות לפריט אחד')
       return
     }
-
-    // Validate quantities don't exceed available stock
     for (const item of transfers) {
       const qty = parseFloat(transferQty[item.id])
       if (qty > Number(item.quantity)) {
-        setTransferError(`הכמות של "${item.name}" חורגת מהמלאי הזמין (${item.quantity} ${item.unit})`)
+        setCTransferError(`הכמות של "${item.name}" חורגת מהמלאי הזמין (${item.quantity} ${item.unit})`)
         return
       }
     }
-
-    setTransferring(true)
-    setTransferError(null)
+    setCTransferring(true)
+    setCTransferError(null)
     try {
       await Promise.all(
         transfers.map((item) =>
           cemsApi.transferConsumable(item.id, {
-            to_warehouse_id: targetWarehouseId,
+            to_warehouse_id: cTargetWarehouseId,
             quantity: parseFloat(transferQty[item.id]).toString(),
           })
         )
       )
-      setTransferSuccess(true)
-      setTransferMode(false)
-      // Refresh consumables list
+      setCTransferMode(false)
+      setSuccessMessage('העברת המתכלים בוצעה בהצלחה!')
       await fetchInventory()
     } catch {
-      setTransferError('שגיאה בביצוע ההעברה. ודא שיש לך הרשאת מנהל מחסן.')
+      setCTransferError('שגיאה בביצוע ההעברה. ודא שיש לך הרשאת מנהל מחסן.')
     } finally {
-      setTransferring(false)
+      setCTransferring(false)
     }
   }
+
+  // ── Asset transfer helpers ─────────────────────────────────────────────────
+
+  function enterATransferMode() {
+    setSelectedAssetIds(new Set())
+    setATargetWarehouseId('')
+    setATransferError(null)
+    setSuccessMessage(null)
+    setATransferMode(true)
+  }
+
+  function exitATransferMode() {
+    setATransferMode(false)
+    setATransferError(null)
+  }
+
+  function toggleAsset(id: string) {
+    setSelectedAssetIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllAssets() {
+    const transferable = assets.filter((a) => a.status !== 'RETIRED')
+    if (selectedAssetIds.size === transferable.length) {
+      setSelectedAssetIds(new Set())
+    } else {
+      setSelectedAssetIds(new Set(transferable.map((a) => a.id)))
+    }
+  }
+
+  async function handleATransfer() {
+    if (!aTargetWarehouseId) {
+      setATransferError('יש לבחור מחסן יעד')
+      return
+    }
+    if (selectedAssetIds.size === 0) {
+      setATransferError('יש לבחור לפחות נכס אחד להעברה')
+      return
+    }
+    setATransferring(true)
+    setATransferError(null)
+    try {
+      await Promise.all(
+        [...selectedAssetIds].map((assetId) =>
+          cemsApi.moveAsset(assetId, aTargetWarehouseId)
+        )
+      )
+      setATransferMode(false)
+      setSuccessMessage(`${selectedAssetIds.size} נכס/ים הועברו בהצלחה!`)
+      await fetchInventory()
+    } catch {
+      setATransferError('שגיאה בהעברת הנכסים. ודא שיש לך הרשאת מנהל מחסן.')
+    } finally {
+      setATransferring(false)
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   function assetStatusLabel(statusVal: string): string {
     const map: Record<string, string> = {
@@ -494,6 +557,8 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
     if (statusVal === 'IN_TRANSFER') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
     return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
   }
+
+  const transferableAssets = assets.filter((a) => a.status !== 'RETIRED')
 
   return (
     <div className={MODAL_OVERLAY} onClick={onClose}>
@@ -531,11 +596,11 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
         ) : (
           <div className="overflow-y-auto p-6 space-y-6" dir="rtl">
 
-            {/* ── Transfer success banner ── */}
-            {transferSuccess && (
+            {/* ── Success banner ── */}
+            {successMessage && (
               <div className="flex items-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-sm text-green-800 dark:text-green-300">
                 <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                ההעברה בוצעה בהצלחה!
+                {successMessage}
               </div>
             )}
 
@@ -569,13 +634,134 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
 
             {/* ── Fixed Assets ── */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                <Box className="w-4 h-4 text-blue-500" />
-                נכסים קבועים ({assets.length})
-              </h4>
+              {/* Section header */}
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <Box className="w-4 h-4 text-blue-500" />
+                  נכסים קבועים ({assets.length})
+                </h4>
+                {transferableAssets.length > 0 && otherWarehouses.length > 0 && !aTransferMode && (
+                  <button
+                    onClick={enterATransferMode}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40 border border-blue-200 dark:border-blue-700 transition-colors"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    העבר נכסים
+                  </button>
+                )}
+                {aTransferMode && (
+                  <button
+                    onClick={exitATransferMode}
+                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                )}
+              </div>
+
               {assets.length === 0 ? (
                 <p className="text-sm text-gray-400 dark:text-gray-500 px-1">אין נכסים קבועים במחסן</p>
+              ) : aTransferMode ? (
+                /* ── Asset Transfer Mode ── */
+                <div className="space-y-3">
+                  {aTransferError && (
+                    <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-xs text-red-800 dark:text-red-300">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      {aTransferError}
+                    </div>
+                  )}
+
+                  {/* Select all row */}
+                  {transferableAssets.length > 1 && (
+                    <label className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg cursor-pointer text-xs text-blue-700 dark:text-blue-300 font-medium select-none">
+                      <input
+                        type="checkbox"
+                        checked={selectedAssetIds.size === transferableAssets.length}
+                        onChange={toggleAllAssets}
+                        className="h-3.5 w-3.5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      בחר הכל ({transferableAssets.length} נכסים)
+                    </label>
+                  )}
+
+                  {/* Asset checkboxes */}
+                  <div className="space-y-1.5">
+                    {assets.map((asset) => {
+                      const isRetired = asset.status === 'RETIRED'
+                      const isChecked = selectedAssetIds.has(asset.id)
+                      return (
+                        <label
+                          key={asset.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                            isRetired
+                              ? 'opacity-40 cursor-not-allowed bg-gray-50 dark:bg-gray-750'
+                              : 'cursor-pointer bg-gray-50 dark:bg-gray-750 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          } ${isChecked ? 'ring-2 ring-blue-400 dark:ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isRetired}
+                            onChange={() => toggleAsset(asset.id)}
+                            className="h-4 w-4 rounded border-gray-300 dark:border-gray-500 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-white truncate">{asset.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              מס׳ סידורי: {asset.serial_number}
+                            </p>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${assetStatusClass(asset.status)}`}>
+                            {assetStatusLabel(asset.status)}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  {/* Target warehouse */}
+                  <div className="pt-2 space-y-2">
+                    <label className={LABEL_CLASS}>מחסן יעד *</label>
+                    <select
+                      value={aTargetWarehouseId}
+                      onChange={(e) => setATargetWarehouseId(e.target.value)}
+                      className={INPUT_CLASS}
+                    >
+                      <option value="">בחר מחסן יעד...</option>
+                      {otherWarehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}{w.location ? ` — ${w.location}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedAssetIds.size > 0 && (
+                      <p className="text-xs text-blue-600 dark:text-blue-400">
+                        {selectedAssetIds.size} נכס/ים נבחרו להעברה
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleATransfer}
+                      disabled={aTransferring}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                      {aTransferring ? 'מעביר...' : 'בצע העברה'}
+                    </button>
+                    <button
+                      onClick={exitATransferMode}
+                      disabled={aTransferring}
+                      className={BTN_SECONDARY}
+                    >
+                      ביטול
+                    </button>
+                  </div>
+                </div>
               ) : (
+                /* ── Normal asset view ── */
                 <div className="space-y-1.5">
                   {assets.map((asset) => (
                     <div
@@ -605,18 +791,18 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
                   <Package className="w-4 h-4 text-green-500" />
                   פריטי מתכלה ({consumables.length})
                 </h4>
-                {consumables.length > 0 && otherWarehouses.length > 0 && !transferMode && (
+                {consumables.length > 0 && otherWarehouses.length > 0 && !cTransferMode && (
                   <button
-                    onClick={enterTransferMode}
+                    onClick={enterCTransferMode}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-800/40 border border-amber-200 dark:border-amber-700 transition-colors"
                   >
                     <ArrowLeftRight className="w-3.5 h-3.5" />
                     העבר מלאי
                   </button>
                 )}
-                {transferMode && (
+                {cTransferMode && (
                   <button
-                    onClick={exitTransferMode}
+                    onClick={exitCTransferMode}
                     className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
                   >
                     ביטול
@@ -626,14 +812,14 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
 
               {consumables.length === 0 ? (
                 <p className="text-sm text-gray-400 dark:text-gray-500 px-1">אין פריטי מתכלה במחסן</p>
-              ) : transferMode ? (
-                /* ── Transfer Mode ── */
+              ) : cTransferMode ? (
+                /* ── Consumable Transfer Mode ── */
                 <div className="space-y-3">
                   {/* Error */}
-                  {transferError && (
+                  {cTransferError && (
                     <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-xs text-red-800 dark:text-red-300">
                       <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      {transferError}
+                      {cTransferError}
                     </div>
                   )}
 
@@ -683,8 +869,8 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
                   <div className="pt-2 space-y-2">
                     <label className={LABEL_CLASS}>מחסן יעד *</label>
                     <select
-                      value={targetWarehouseId}
-                      onChange={(e) => setTargetWarehouseId(e.target.value)}
+                      value={cTargetWarehouseId}
+                      onChange={(e) => setCTargetWarehouseId(e.target.value)}
                       className={INPUT_CLASS}
                     >
                       <option value="">בחר מחסן יעד...</option>
@@ -699,16 +885,16 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
                   {/* Action buttons */}
                   <div className="flex gap-2 pt-1">
                     <button
-                      onClick={handleTransfer}
-                      disabled={transferring}
+                      onClick={handleCTransfer}
+                      disabled={cTransferring}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white transition-colors"
                     >
                       <ArrowLeftRight className="w-4 h-4" />
-                      {transferring ? 'מעביר...' : 'בצע העברה'}
+                      {cTransferring ? 'מעביר...' : 'בצע העברה'}
                     </button>
                     <button
-                      onClick={exitTransferMode}
-                      disabled={transferring}
+                      onClick={exitCTransferMode}
+                      disabled={cTransferring}
                       className={BTN_SECONDARY}
                     >
                       ביטול
