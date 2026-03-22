@@ -34,6 +34,7 @@ const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
 const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
 const UserGuide = React.lazy(() => import('./pages/UserGuide'))
+const InventoryLayout = React.lazy(() => import('./pages/inventory/InventoryLayout'))
 const InventoryDashboard = React.lazy(() => import('./pages/inventory/InventoryDashboard'))
 const AssetsPage = React.lazy(() => import('./pages/inventory/AssetsPage'))
 const ConsumablesPage = React.lazy(() => import('./pages/inventory/ConsumablesPage'))
@@ -245,12 +246,14 @@ function AppContent() {
               <Route path="/suppliers" element={<RequireAuth><RequirePermission resource="supplier"><Suppliers /></RequirePermission></RequireAuth>} />
               <Route path="/task-management" element={<RequireAuth><RequirePermission resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
               <Route path="/task-calendar" element={<Navigate to="/task-management" replace />} />
-              <Route path="/inventory" element={<RequireAuth><InventoryDashboard /></RequireAuth>} />
-              <Route path="/inventory/assets" element={<RequireAuth><AssetsPage /></RequireAuth>} />
-              <Route path="/inventory/consumables" element={<RequireAuth><ConsumablesPage /></RequireAuth>} />
-              <Route path="/inventory/warehouses" element={<RequireAuth><WarehousesPage /></RequireAuth>} />
-              <Route path="/inventory/transfers" element={<RequireAuth><TransfersPage /></RequireAuth>} />
-              <Route path="/inventory/settings" element={<RequireAuth><InventorySettings /></RequireAuth>} />
+              <Route path="/inventory" element={<RequireAuth><InventoryLayout /></RequireAuth>}>
+                <Route index element={<InventoryDashboard />} />
+                <Route path="assets" element={<AssetsPage />} />
+                <Route path="consumables" element={<ConsumablesPage />} />
+                <Route path="warehouses" element={<WarehousesPage />} />
+                <Route path="transfers" element={<TransfersPage />} />
+                <Route path="settings" element={<InventorySettings />} />
+              </Route>
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><RequirePermission resource="supplier"><SupplierDocuments /></RequirePermission></RequireAuth>} />
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
