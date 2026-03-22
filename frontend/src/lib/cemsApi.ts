@@ -136,6 +136,11 @@ interface ConsumeStockPayload {
   notes?: string
 }
 
+interface TransferConsumablePayload {
+  to_warehouse_id: string
+  quantity: string
+}
+
 interface CreateWarehousePayload {
   name: string
   location?: string
@@ -178,6 +183,9 @@ export const cemsApi = {
   moveConsumable: (itemId: string, toWarehouseId: string) =>
     api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/move`, { to_warehouse_id: toWarehouseId }),
 
+  transferConsumable: (itemId: string, data: TransferConsumablePayload) =>
+    api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/transfer`, data),
+
   getLowStock: () =>
     api.get<ConsumableItem[]>(`${CEMS_BASE}/consumables/low-stock`),
 
@@ -206,6 +214,12 @@ export const cemsApi = {
 
   updateWarehouseProjects: (id: string, projectIds: string[]) =>
     api.put<Warehouse>(`${CEMS_BASE}/warehouses/${id}/projects`, { project_ids: projectIds }),
+
+  changeWarehouseManager: (id: string, newManagerId: number, reason?: string) =>
+    api.post<Warehouse>(`${CEMS_BASE}/warehouses/${id}/change-manager`, {
+      new_manager_id: newManagerId,
+      reason: reason || undefined,
+    }),
 
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>

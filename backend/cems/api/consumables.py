@@ -1,11 +1,12 @@
 import uuid
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
+from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
 from backend.cems.models.user import User
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.schemas.consumable import (
@@ -22,6 +23,11 @@ from backend.cems.services.consumption_service import ConsumptionService
 class MoveConsumableRequest(PydanticBaseModel):
     to_warehouse_id: uuid.UUID
 
+
+class TransferConsumableRequest(PydanticBaseModel):
+    to_warehouse_id: uuid.UUID
+    quantity: Decimal
+
 router = APIRouter(prefix="/consumables", tags=["CEMS Consumables"])
 
 
@@ -31,7 +37,7 @@ async def list_consumables(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumableItemRead]:
     repo = ConsumableRepository(db)
     if warehouse_id:
@@ -47,6 +53,7 @@ async def create_consumable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
+    await check_warehouse_manager_access(payload.warehouse_id, current_user, db)
     repo = ConsumableRepository(db)
     item = await repo.create(payload.model_dump())
     return ConsumableItemRead.model_validate(item)
@@ -60,10 +67,12 @@ async def update_consumable(
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
     repo = ConsumableRepository(db)
-    data = payload.model_dump(exclude_unset=True)
-    item = await repo.update(item_id, data)
+    item = await repo.get_by_id(item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+    await check_warehouse_manager_access(item.warehouse_id, current_user, db)
+    data = payload.model_dump(exclude_unset=True)
+    item = await repo.update(item_id, data)
     return ConsumableItemRead.model_validate(item)
 
 
@@ -72,7 +81,7 @@ async def consume_stock(
     item_id: uuid.UUID,
     payload: ConsumeStockRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> ConsumptionLogRead:
     repo = ConsumableRepository(db)
     alert_svc = AlertService(repo)
@@ -98,9 +107,72 @@ async def move_consumable(
     item = await repo.get_by_id(item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+    await check_warehouse_manager_access(item.warehouse_id, current_user, db)
     item.warehouse_id = payload.to_warehouse_id
     await db.flush()
     return ConsumableItemRead.model_validate(item)
+
+
+@router.post("/{item_id}/transfer", response_model=ConsumableItemRead)
+async def transfer_consumable(
+    item_id: uuid.UUID,
+    payload: TransferConsumableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> ConsumableItemRead:
+    """Transfer a partial quantity of a consumable item to another warehouse.
+
+    The source item's quantity is reduced by *payload.quantity*. The target
+    warehouse receives the quantity on an existing item with the same name and
+    category, or a new item is created if none exists.
+    """
+    repo = ConsumableRepository(db)
+
+    source = await repo.get_by_id(item_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be positive.")
+
+    if source.quantity < payload.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Insufficient stock. Available: {source.quantity}, requested: {payload.quantity}.",
+        )
+
+    if source.warehouse_id == payload.to_warehouse_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source and target warehouse must be different.",
+        )
+
+    await check_warehouse_manager_access(source.warehouse_id, current_user, db)
+
+    # Decrement source item
+    await repo.adjust_quantity(item_id, -payload.quantity)
+
+    # Credit target warehouse — find matching item or create a new one
+    target = await repo.find_matching_in_warehouse(
+        payload.to_warehouse_id, source.name, source.category_id
+    )
+    if target is not None:
+        await repo.adjust_quantity(target.id, payload.quantity)
+    else:
+        await repo.create(
+            {
+                "name": source.name,
+                "category_id": source.category_id,
+                "warehouse_id": payload.to_warehouse_id,
+                "quantity": payload.quantity,
+                "unit": source.unit,
+                "low_stock_threshold": source.low_stock_threshold,
+                "reorder_quantity": source.reorder_quantity,
+            }
+        )
+
+    updated_source = await repo.get_by_id(item_id)
+    return ConsumableItemRead.model_validate(updated_source)
 
 
 @router.get("/{item_id}/history", response_model=List[ConsumptionLogRead])
@@ -109,7 +181,7 @@ async def consumption_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumptionLogRead]:
     repo = ConsumableRepository(db)
     logs = await repo.get_consumption_history(item_id, skip, limit)
@@ -119,7 +191,7 @@ async def consumption_history(
 @router.get("/low-stock", response_model=List[ConsumableItemRead])
 async def low_stock_items(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[ConsumableItemRead]:
     repo = ConsumableRepository(db)
     items = await repo.get_low_stock_items()

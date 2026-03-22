@@ -1,10 +1,10 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
+from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
 from backend.cems.models.transfer import TransferStatus
 from backend.cems.models.user import User
 from backend.cems.repositories.asset_repository import AssetRepository
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/transfers", tags=["CEMS Transfers"])
 async def initiate_transfer(
     payload: TransferCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> TransferRead:
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
@@ -57,7 +57,7 @@ async def list_transfers(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[TransferRead]:
     repo = TransferRepository(db)
     if status_filter:
@@ -71,13 +71,11 @@ async def list_transfers(
 async def get_transfer(
     transfer_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> TransferRead:
     repo = TransferRepository(db)
     transfer = await repo.get_by_id(transfer_id)
     if transfer is None:
-        from fastapi import HTTPException, status
-
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer not found.")
     return TransferRead.model_validate(transfer)
 
@@ -87,7 +85,7 @@ async def complete_transfer(
     transfer_id: uuid.UUID,
     payload: CompleteTransferRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> TransferRead:
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
@@ -106,7 +104,7 @@ async def reject_transfer(
     transfer_id: uuid.UUID,
     payload: RejectTransferRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> TransferRead:
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
@@ -125,7 +123,7 @@ async def reject_transfer(
 async def request_return(
     payload: WarehouseReturnCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> WarehouseReturnRead:
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
@@ -145,8 +143,14 @@ async def approve_return(
     return_id: uuid.UUID,
     payload: ApproveReturnRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> WarehouseReturnRead:
+    from backend.cems.models.transfer import WarehouseReturn as WarehouseReturnModel
+
+    wr_record = await db.get(WarehouseReturnModel, return_id)
+    if wr_record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return not found.")
+    await check_warehouse_manager_access(wr_record.warehouse_id, current_user, db)
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
     warehouse_repo = WarehouseRepository(db)

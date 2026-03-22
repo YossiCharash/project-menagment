@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db
+from backend.cems.api.deps import get_current_user, get_db, require_any_cems_role, require_admin_or_manager, _is_cems_admin
 from backend.cems.models.document import Document, DocumentType
 from backend.cems.models.user import User
 from backend.cems.models.base import _utc_now
@@ -52,7 +52,7 @@ async def list_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[DocumentRead]:
     stmt = select(Document)
     if entity_type:
@@ -69,7 +69,7 @@ async def list_documents(
 async def create_document(
     payload: DocumentCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> DocumentRead:
     doc = Document(
         **payload.model_dump(),
@@ -84,10 +84,15 @@ async def create_document(
 async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> None:
     doc = await db.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    if not _is_cems_admin(current_user) and doc.uploaded_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the uploader or an admin can delete this document.",
+        )
     await db.delete(doc)
     await db.flush()
