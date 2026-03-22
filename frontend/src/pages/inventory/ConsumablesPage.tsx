@@ -287,14 +287,22 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
       setError('שם הפריט הוא שדה חובה')
       return
     }
+    if (!categoryId) {
+      setError('יש לבחור קטגוריה')
+      return
+    }
+    if (!warehouseId) {
+      setError('יש לבחור מחסן')
+      return
+    }
 
     setSubmitting(true)
     setError(null)
     try {
       await cemsApi.createConsumable({
         name: name.trim(),
-        category_id: categoryId || undefined,
-        warehouse_id: warehouseId || undefined,
+        category_id: categoryId,
+        warehouse_id: warehouseId,
         quantity: quantity || '0',
         unit: unit || 'יחידה',
         low_stock_threshold: lowStockThreshold || '0',
@@ -329,15 +337,15 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_CLASS} required />
           </div>
           <div>
-            <label className={LABEL_CLASS}>קטגוריה</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={INPUT_CLASS}>
+            <label className={LABEL_CLASS}>קטגוריה *</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={INPUT_CLASS} required>
               <option value="">בחר קטגוריה</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className={LABEL_CLASS}>מחסן</label>
-            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={INPUT_CLASS}>
+            <label className={LABEL_CLASS}>מחסן *</label>
+            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={INPUT_CLASS} required>
               <option value="">בחר מחסן</option>
               {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>

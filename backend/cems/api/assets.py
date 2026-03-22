@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager
+from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
@@ -38,7 +38,7 @@ async def list_assets(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[FixedAssetRead]:
     repo = AssetRepository(db)
     if warehouse_id:
@@ -58,7 +58,7 @@ async def list_assets(
 async def expiring_warranties(
     days: int = Query(30, ge=1),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_manager),
 ) -> List[FixedAssetRead]:
     repo = AssetRepository(db)
     assets = await repo.get_expiring_warranties(days)
@@ -69,7 +69,7 @@ async def expiring_warranties(
 async def get_asset(
     asset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> FixedAssetRead:
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
@@ -84,6 +84,8 @@ async def create_asset(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> FixedAssetRead:
+    if payload.current_warehouse_id is not None:
+        await check_warehouse_manager_access(payload.current_warehouse_id, current_user, db)
     repo = AssetRepository(db)
     asset = await repo.create(payload.model_dump())
     await repo.log_history(
@@ -103,10 +105,13 @@ async def update_asset(
     current_user: User = Depends(require_admin_or_manager),
 ) -> FixedAssetRead:
     repo = AssetRepository(db)
-    data = payload.model_dump(exclude_unset=True)
-    asset = await repo.update(asset_id, data)
+    asset = await repo.get_by_id(asset_id)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.current_warehouse_id is not None:
+        await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
+    data = payload.model_dump(exclude_unset=True)
+    asset = await repo.update(asset_id, data)
     await repo.log_history(
         asset_id=asset_id,
         action="ASSET_UPDATED",
@@ -122,7 +127,7 @@ async def asset_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> List[AssetHistoryRead]:
     repo = AssetRepository(db)
     entries = await repo.get_history(asset_id, skip, limit)
@@ -140,6 +145,8 @@ async def move_asset(
     asset = await repo.get_by_id(asset_id)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.current_warehouse_id is not None:
+        await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
     from_warehouse_id = asset.current_warehouse_id
     asset.current_warehouse_id = payload.to_warehouse_id
     await repo.log_history(
@@ -158,7 +165,7 @@ async def retire_asset(
     asset_id: uuid.UUID,
     payload: RetireAssetRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_cems_role),
 ) -> RetirementRead:
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)

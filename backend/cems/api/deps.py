@@ -4,6 +4,7 @@ Re-uses the project-wide session, JWT decoding, and User model so that
 CEMS endpoints share the same authentication as the rest of the app.
 """
 
+import uuid
 from typing import AsyncGenerator
 
 from fastapi import Depends, HTTPException, status
@@ -61,6 +62,10 @@ async def get_current_user(
     return user
 
 
+def _is_cems_admin(user: User) -> bool:
+    return user.role == "Admin" or user.cems_role == "Admin"
+
+
 class RequireRole:
     """Callable dependency that enforces CEMS role access.
 
@@ -72,7 +77,6 @@ class RequireRole:
         self._allowed = set(allowed_cems_roles)
 
     async def __call__(self, current_user: User = Depends(get_current_user)) -> User:
-        # Main-system Admins always have full CEMS access
         if current_user.role == "Admin":
             return current_user
         if current_user.cems_role not in self._allowed:
@@ -83,8 +87,66 @@ class RequireRole:
         return current_user
 
 
-# Convenience aliases using plain strings to avoid circular imports
+class RequireWarehouseManager:
+    """Path-param dependency that enforces warehouse-level manager access.
+
+    Admins bypass the check. Managers must be the current_manager_id of
+    the warehouse identified by the ``warehouse_id`` path parameter.
+    """
+
+    async def __call__(
+        self,
+        warehouse_id: uuid.UUID,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if _is_cems_admin(current_user):
+            return current_user
+        if current_user.cems_role != "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins or the warehouse manager can perform this action.",
+            )
+        from backend.cems.models.warehouse import Warehouse
+
+        warehouse = await db.get(Warehouse, warehouse_id)
+        if warehouse is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+        if warehouse.current_manager_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not the manager of this warehouse.",
+            )
+        return current_user
+
+
+async def check_warehouse_manager_access(
+    warehouse_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Inline helper: raises HTTP 403 if the user is a Manager but not this warehouse's manager."""
+    if _is_cems_admin(current_user):
+        return
+    if current_user.cems_role != "Manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins or the warehouse manager can perform this action.",
+        )
+    from backend.cems.models.warehouse import Warehouse
+
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+    if warehouse.current_manager_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not the manager of this warehouse.",
+        )
+
+
+require_cems_access = RequireRole("Admin", "Manager", "Employee")
 require_admin = RequireRole("Admin")
 require_admin_or_manager = RequireRole("Manager", "Admin")
-require_manager_or_above = require_admin_or_manager  # backwards-compat alias
+require_manager_or_above = require_admin_or_manager
 require_any_cems_role = RequireRole("Admin", "Manager", "Employee")
