@@ -60,6 +60,12 @@ export default function WarehousesPage() {
   const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false)
   const [editProjectsWarehouseId, setEditProjectsWarehouseId] = useState<string | null>(null)
   const [inventoryModalWarehouse, setInventoryModalWarehouse] = useState<Warehouse | null>(null)
+  const [inventoryModalMode, setInventoryModalMode] = useState<'summary' | 'transfer-consumables' | 'transfer-assets'>('summary')
+
+  function openInventoryModal(warehouse: Warehouse, mode: 'summary' | 'transfer-consumables' | 'transfer-assets' = 'summary') {
+    setInventoryModalWarehouse(warehouse)
+    setInventoryModalMode(mode)
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -221,17 +227,27 @@ export default function WarehousesPage() {
                     )}
                   </div>
 
-                  {/* Inventory Button */}
-                  <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                  {/* Inventory + Transfer Buttons */}
+                  <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex gap-2">
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        setInventoryModalWarehouse(warehouse)
+                        openInventoryModal(warehouse, 'summary')
                       }}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 transition-colors border border-indigo-200 dark:border-indigo-700"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 transition-colors border border-indigo-200 dark:border-indigo-700"
                     >
                       <ClipboardList className="w-4 h-4" />
-                      סיכום מלאי ופריטים
+                      סיכום מלאי
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openInventoryModal(warehouse, 'transfer-consumables')
+                      }}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-800/40 transition-colors border border-amber-200 dark:border-amber-700"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                      העבר מלאי
                     </button>
                   </div>
                 </div>
@@ -361,6 +377,7 @@ export default function WarehousesPage() {
         <InventoryModal
           warehouse={inventoryModalWarehouse}
           allWarehouses={warehouses}
+          initialMode={inventoryModalMode}
           onClose={() => setInventoryModalWarehouse(null)}
         />
       )}
@@ -374,23 +391,25 @@ interface InventoryModalProps {
   warehouse: Warehouse
   allWarehouses: Warehouse[]
   onClose: () => void
+  /** Open the modal straight into a specific transfer mode */
+  initialMode?: 'summary' | 'transfer-consumables' | 'transfer-assets'
 }
 
-function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalProps) {
+function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summary' }: InventoryModalProps) {
   const [assets, setAssets] = useState<FixedAsset[]>([])
   const [consumables, setConsumables] = useState<ConsumableItem[]>([])
   const [loading, setLoading] = useState(true)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // ── Consumable transfer state ──────────────────────────────────────────────
-  const [cTransferMode, setCTransferMode] = useState(false)
+  const [cTransferMode, setCTransferMode] = useState(initialMode === 'transfer-consumables')
   const [transferQty, setTransferQty] = useState<Record<string, string>>({})
   const [cTargetWarehouseId, setCTargetWarehouseId] = useState('')
   const [cTransferring, setCTransferring] = useState(false)
   const [cTransferError, setCTransferError] = useState<string | null>(null)
 
   // ── Asset transfer state ───────────────────────────────────────────────────
-  const [aTransferMode, setATransferMode] = useState(false)
+  const [aTransferMode, setATransferMode] = useState(initialMode === 'transfer-assets')
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
   const [aTargetWarehouseId, setATargetWarehouseId] = useState('')
   const [aTransferring, setATransferring] = useState(false)
@@ -417,6 +436,23 @@ function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalPro
   useEffect(() => {
     fetchInventory()
   }, [warehouse.id])
+
+  // Auto-enter transfer mode once data has loaded (when opened via shortcut button)
+  useEffect(() => {
+    if (loading) return
+    if (initialMode === 'transfer-consumables' && consumables.length > 0 && !cTransferMode) {
+      const initial: Record<string, string> = {}
+      consumables.forEach((c) => { initial[c.id] = '' })
+      setTransferQty(initial)
+      setCTargetWarehouseId('')
+      setCTransferMode(true)
+    }
+    if (initialMode === 'transfer-assets' && assets.length > 0 && !aTransferMode) {
+      setSelectedAssetIds(new Set())
+      setATargetWarehouseId('')
+      setATransferMode(true)
+    }
+  }, [loading])
 
   const lowStockCount = consumables.filter(
     (c) => Number(c.quantity) <= Number(c.low_stock_threshold)
