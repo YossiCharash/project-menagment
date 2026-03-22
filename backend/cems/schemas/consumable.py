@@ -40,7 +40,7 @@ class ConsumableItemRead(ConsumableItemBase):
 
 class ConsumeStockRequest(BaseModel):
     quantity: Decimal
-    project_id: Optional[uuid.UUID] = None
+    project_id: Optional[int] = None  # FK → projects.id (integer)
     notes: Optional[str] = None
 
 
@@ -49,8 +49,8 @@ class ConsumptionLogRead(BaseModel):
 
     id: uuid.UUID
     item_id: uuid.UUID
-    consumed_by_id: uuid.UUID
-    project_id: Optional[uuid.UUID]
+    consumed_by_id: int          # FK → users.id (integer)
+    project_id: Optional[int]   # FK → projects.id (integer)
     quantity_consumed: Decimal
     consumed_at: datetime
     notes: Optional[str]
