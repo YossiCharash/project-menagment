@@ -14,12 +14,17 @@ import {
   Pencil,
   FolderKanban,
   UserCog,
+  ClipboardList,
+  Box,
+  TrendingDown,
 } from 'lucide-react'
 import {
   cemsApi,
   type Warehouse,
   type CemsProject,
   type CemsUser,
+  type FixedAsset,
+  type ConsumableItem,
 } from '../../lib/cemsApi'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -52,6 +57,7 @@ export default function WarehousesPage() {
   // Modals
   const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false)
   const [editProjectsWarehouseId, setEditProjectsWarehouseId] = useState<string | null>(null)
+  const [inventoryModalWarehouse, setInventoryModalWarehouse] = useState<Warehouse | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -212,6 +218,20 @@ export default function WarehousesPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Inventory Button */}
+                  <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setInventoryModalWarehouse(warehouse)
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 transition-colors border border-indigo-200 dark:border-indigo-700"
+                    >
+                      <ClipboardList className="w-4 h-4" />
+                      סיכום מלאי ופריטים
+                    </button>
+                  </div>
                 </div>
 
                 {/* Expanded Details */}
@@ -335,6 +355,201 @@ export default function WarehousesPage() {
           onChanged={loadData}
         />
       )}
+      {inventoryModalWarehouse && (
+        <InventoryModal
+          warehouse={inventoryModalWarehouse}
+          onClose={() => setInventoryModalWarehouse(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Inventory Modal ──────────────────────────────────────────────────────────
+
+interface InventoryModalProps {
+  warehouse: Warehouse
+  onClose: () => void
+}
+
+function InventoryModal({ warehouse, onClose }: InventoryModalProps) {
+  const [assets, setAssets] = useState<FixedAsset[]>([])
+  const [consumables, setConsumables] = useState<ConsumableItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchInventory() {
+      setLoading(true)
+      try {
+        const [assetsRes, consumablesRes] = await Promise.all([
+          cemsApi.getWarehouseInventory(warehouse.id),
+          cemsApi.getConsumables({ warehouse_id: warehouse.id }),
+        ])
+        setAssets(assetsRes.data)
+        setConsumables(consumablesRes.data)
+      } catch {
+        // silent — errors shown via empty state
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchInventory()
+  }, [warehouse.id])
+
+  const lowStockCount = consumables.filter(
+    (c) => Number(c.quantity) <= Number(c.low_stock_threshold)
+  ).length
+
+  function assetStatusLabel(status: string): string {
+    const map: Record<string, string> = {
+      ACTIVE: 'פעיל',
+      IN_TRANSFER: 'בהעברה',
+      IN_WAREHOUSE: 'במחסן',
+      RETIRED: 'יצא מכלל שימוש',
+    }
+    return map[status] ?? status
+  }
+
+  function assetStatusClass(status: string): string {
+    if (status === 'ACTIVE') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+    if (status === 'IN_TRANSFER') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+    return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+              <ClipboardList className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                סיכום מלאי — {warehouse.name}
+              </h3>
+              {warehouse.location && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {warehouse.location}
+                </p>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center h-48">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">טוען מלאי...</p>
+          </div>
+        ) : (
+          <div className="overflow-y-auto p-6 space-y-6" dir="rtl">
+
+            {/* ── Stats Row ── */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{assets.length}</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center justify-center gap-1">
+                  <Box className="w-3 h-3" /> נכסים קבועים
+                </p>
+              </div>
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{consumables.length}</p>
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center justify-center gap-1">
+                  <Package className="w-3 h-3" /> פריטי מתכלה
+                </p>
+              </div>
+              <div className={`border rounded-xl p-4 text-center ${
+                lowStockCount > 0
+                  ? 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800'
+                  : 'bg-gray-50 dark:bg-gray-750 border-gray-100 dark:border-gray-700'
+              }`}>
+                <p className={`text-2xl font-bold ${lowStockCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                  {lowStockCount}
+                </p>
+                <p className={`text-xs mt-1 flex items-center justify-center gap-1 ${lowStockCount > 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  <TrendingDown className="w-3 h-3" /> מלאי נמוך
+                </p>
+              </div>
+            </div>
+
+            {/* ── Fixed Assets ── */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                <Box className="w-4 h-4 text-blue-500" />
+                נכסים קבועים ({assets.length})
+              </h4>
+              {assets.length === 0 ? (
+                <p className="text-sm text-gray-400 dark:text-gray-500 px-1">אין נכסים קבועים במחסן</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {assets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-750 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm transition-colors"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white">{asset.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          מס׳ סידורי: {asset.serial_number}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${assetStatusClass(asset.status)}`}>
+                        {assetStatusLabel(asset.status)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Consumables ── */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                <Package className="w-4 h-4 text-green-500" />
+                פריטי מתכלה ({consumables.length})
+              </h4>
+              {consumables.length === 0 ? (
+                <p className="text-sm text-gray-400 dark:text-gray-500 px-1">אין פריטי מתכלה במחסן</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {consumables.map((item) => {
+                    const qty = Number(item.quantity)
+                    const threshold = Number(item.low_stock_threshold)
+                    const isLow = qty <= threshold
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-750 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm transition-colors"
+                      >
+                        <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-semibold tabular-nums ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
+                            {item.quantity} {item.unit}
+                          </span>
+                          {isLow && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                              מלאי נמוך
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+      </div>
     </div>
   )
 }
