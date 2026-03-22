@@ -76,3 +76,18 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
 
     async def get_alert_by_id(self, alert_id: uuid.UUID) -> Optional[StockAlert]:
         return await self._session.get(StockAlert, alert_id)
+
+    async def find_matching_in_warehouse(
+        self,
+        warehouse_id: uuid.UUID,
+        name: str,
+        category_id: uuid.UUID,
+    ) -> Optional[ConsumableItem]:
+        """Return an existing item in *warehouse_id* that shares the same name and category."""
+        stmt = select(ConsumableItem).where(
+            ConsumableItem.warehouse_id == warehouse_id,
+            ConsumableItem.name == name,
+            ConsumableItem.category_id == category_id,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalars().first()
