@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +22,11 @@ from backend.cems.services.consumption_service import ConsumptionService
 
 class MoveConsumableRequest(PydanticBaseModel):
     to_warehouse_id: uuid.UUID
+
+
+class TransferConsumableRequest(PydanticBaseModel):
+    to_warehouse_id: uuid.UUID
+    quantity: Decimal
 
 router = APIRouter(prefix="/consumables", tags=["CEMS Consumables"])
 
@@ -105,6 +111,68 @@ async def move_consumable(
     item.warehouse_id = payload.to_warehouse_id
     await db.flush()
     return ConsumableItemRead.model_validate(item)
+
+
+@router.post("/{item_id}/transfer", response_model=ConsumableItemRead)
+async def transfer_consumable(
+    item_id: uuid.UUID,
+    payload: TransferConsumableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> ConsumableItemRead:
+    """Transfer a partial quantity of a consumable item to another warehouse.
+
+    The source item's quantity is reduced by *payload.quantity*. The target
+    warehouse receives the quantity on an existing item with the same name and
+    category, or a new item is created if none exists.
+    """
+    repo = ConsumableRepository(db)
+
+    source = await repo.get_by_id(item_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be positive.")
+
+    if source.quantity < payload.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Insufficient stock. Available: {source.quantity}, requested: {payload.quantity}.",
+        )
+
+    if source.warehouse_id == payload.to_warehouse_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source and target warehouse must be different.",
+        )
+
+    await check_warehouse_manager_access(source.warehouse_id, current_user, db)
+
+    # Decrement source item
+    await repo.adjust_quantity(item_id, -payload.quantity)
+
+    # Credit target warehouse — find matching item or create a new one
+    target = await repo.find_matching_in_warehouse(
+        payload.to_warehouse_id, source.name, source.category_id
+    )
+    if target is not None:
+        await repo.adjust_quantity(target.id, payload.quantity)
+    else:
+        await repo.create(
+            {
+                "name": source.name,
+                "category_id": source.category_id,
+                "warehouse_id": payload.to_warehouse_id,
+                "quantity": payload.quantity,
+                "unit": source.unit,
+                "low_stock_threshold": source.low_stock_threshold,
+                "reorder_quantity": source.reorder_quantity,
+            }
+        )
+
+    updated_source = await repo.get_by_id(item_id)
+    return ConsumableItemRead.model_validate(updated_source)
 
 
 @router.get("/{item_id}/history", response_model=List[ConsumptionLogRead])

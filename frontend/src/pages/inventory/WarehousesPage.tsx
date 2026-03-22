@@ -17,6 +17,8 @@ import {
   ClipboardList,
   Box,
   TrendingDown,
+  ArrowLeftRight,
+  CheckCircle,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -358,6 +360,7 @@ export default function WarehousesPage() {
       {inventoryModalWarehouse && (
         <InventoryModal
           warehouse={inventoryModalWarehouse}
+          allWarehouses={warehouses}
           onClose={() => setInventoryModalWarehouse(null)}
         />
       )}
@@ -369,30 +372,42 @@ export default function WarehousesPage() {
 
 interface InventoryModalProps {
   warehouse: Warehouse
+  allWarehouses: Warehouse[]
   onClose: () => void
 }
 
-function InventoryModal({ warehouse, onClose }: InventoryModalProps) {
+function InventoryModal({ warehouse, allWarehouses, onClose }: InventoryModalProps) {
   const [assets, setAssets] = useState<FixedAsset[]>([])
   const [consumables, setConsumables] = useState<ConsumableItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function fetchInventory() {
-      setLoading(true)
-      try {
-        const [assetsRes, consumablesRes] = await Promise.all([
-          cemsApi.getWarehouseInventory(warehouse.id),
-          cemsApi.getConsumables({ warehouse_id: warehouse.id }),
-        ])
-        setAssets(assetsRes.data)
-        setConsumables(consumablesRes.data)
-      } catch {
-        // silent — errors shown via empty state
-      } finally {
-        setLoading(false)
-      }
+  // Transfer mode state
+  const [transferMode, setTransferMode] = useState(false)
+  const [transferQty, setTransferQty] = useState<Record<string, string>>({})
+  const [targetWarehouseId, setTargetWarehouseId] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
+  const [transferSuccess, setTransferSuccess] = useState(false)
+
+  const otherWarehouses = allWarehouses.filter((w) => w.id !== warehouse.id)
+
+  async function fetchInventory() {
+    setLoading(true)
+    try {
+      const [assetsRes, consumablesRes] = await Promise.all([
+        cemsApi.getWarehouseInventory(warehouse.id),
+        cemsApi.getConsumables({ warehouse_id: warehouse.id }),
+      ])
+      setAssets(assetsRes.data)
+      setConsumables(consumablesRes.data)
+    } catch {
+      // silent — errors shown via empty state
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchInventory()
   }, [warehouse.id])
 
@@ -400,19 +415,83 @@ function InventoryModal({ warehouse, onClose }: InventoryModalProps) {
     (c) => Number(c.quantity) <= Number(c.low_stock_threshold)
   ).length
 
-  function assetStatusLabel(status: string): string {
+  function enterTransferMode() {
+    // Reset all quantities to ''
+    const initial: Record<string, string> = {}
+    consumables.forEach((c) => { initial[c.id] = '' })
+    setTransferQty(initial)
+    setTargetWarehouseId('')
+    setTransferError(null)
+    setTransferSuccess(false)
+    setTransferMode(true)
+  }
+
+  function exitTransferMode() {
+    setTransferMode(false)
+    setTransferError(null)
+    setTransferSuccess(false)
+  }
+
+  async function handleTransfer() {
+    if (!targetWarehouseId) {
+      setTransferError('יש לבחור מחסן יעד')
+      return
+    }
+
+    const transfers = consumables.filter((c) => {
+      const qty = parseFloat(transferQty[c.id] ?? '')
+      return !isNaN(qty) && qty > 0
+    })
+
+    if (transfers.length === 0) {
+      setTransferError('יש להזין כמות לפחות לפריט אחד')
+      return
+    }
+
+    // Validate quantities don't exceed available stock
+    for (const item of transfers) {
+      const qty = parseFloat(transferQty[item.id])
+      if (qty > Number(item.quantity)) {
+        setTransferError(`הכמות של "${item.name}" חורגת מהמלאי הזמין (${item.quantity} ${item.unit})`)
+        return
+      }
+    }
+
+    setTransferring(true)
+    setTransferError(null)
+    try {
+      await Promise.all(
+        transfers.map((item) =>
+          cemsApi.transferConsumable(item.id, {
+            to_warehouse_id: targetWarehouseId,
+            quantity: parseFloat(transferQty[item.id]).toString(),
+          })
+        )
+      )
+      setTransferSuccess(true)
+      setTransferMode(false)
+      // Refresh consumables list
+      await fetchInventory()
+    } catch {
+      setTransferError('שגיאה בביצוע ההעברה. ודא שיש לך הרשאת מנהל מחסן.')
+    } finally {
+      setTransferring(false)
+    }
+  }
+
+  function assetStatusLabel(statusVal: string): string {
     const map: Record<string, string> = {
       ACTIVE: 'פעיל',
       IN_TRANSFER: 'בהעברה',
       IN_WAREHOUSE: 'במחסן',
       RETIRED: 'יצא מכלל שימוש',
     }
-    return map[status] ?? status
+    return map[statusVal] ?? statusVal
   }
 
-  function assetStatusClass(status: string): string {
-    if (status === 'ACTIVE') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-    if (status === 'IN_TRANSFER') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+  function assetStatusClass(statusVal: string): string {
+    if (statusVal === 'ACTIVE') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+    if (statusVal === 'IN_TRANSFER') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
     return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
   }
 
@@ -451,6 +530,14 @@ function InventoryModal({ warehouse, onClose }: InventoryModalProps) {
           </div>
         ) : (
           <div className="overflow-y-auto p-6 space-y-6" dir="rtl">
+
+            {/* ── Transfer success banner ── */}
+            {transferSuccess && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-sm text-green-800 dark:text-green-300">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                ההעברה בוצעה בהצלחה!
+              </div>
+            )}
 
             {/* ── Stats Row ── */}
             <div className="grid grid-cols-3 gap-3">
@@ -512,13 +599,124 @@ function InventoryModal({ warehouse, onClose }: InventoryModalProps) {
 
             {/* ── Consumables ── */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                <Package className="w-4 h-4 text-green-500" />
-                פריטי מתכלה ({consumables.length})
-              </h4>
+              {/* Section header with transfer toggle */}
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <Package className="w-4 h-4 text-green-500" />
+                  פריטי מתכלה ({consumables.length})
+                </h4>
+                {consumables.length > 0 && otherWarehouses.length > 0 && !transferMode && (
+                  <button
+                    onClick={enterTransferMode}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-800/40 border border-amber-200 dark:border-amber-700 transition-colors"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    העבר מלאי
+                  </button>
+                )}
+                {transferMode && (
+                  <button
+                    onClick={exitTransferMode}
+                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                )}
+              </div>
+
               {consumables.length === 0 ? (
                 <p className="text-sm text-gray-400 dark:text-gray-500 px-1">אין פריטי מתכלה במחסן</p>
+              ) : transferMode ? (
+                /* ── Transfer Mode ── */
+                <div className="space-y-3">
+                  {/* Error */}
+                  {transferError && (
+                    <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-xs text-red-800 dark:text-red-300">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      {transferError}
+                    </div>
+                  )}
+
+                  {/* Items with quantity inputs */}
+                  <div className="space-y-1.5">
+                    {consumables.map((item) => {
+                      const qty = Number(item.quantity)
+                      const threshold = Number(item.low_stock_threshold)
+                      const isLow = qty <= threshold
+                      const inputVal = transferQty[item.id] ?? ''
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 dark:bg-gray-750 rounded-lg text-sm"
+                        >
+                          {/* Name & stock */}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-white truncate">{item.name}</p>
+                            <p className={`text-xs mt-0.5 ${isLow ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                              זמין: {item.quantity} {item.unit}
+                            </p>
+                          </div>
+
+                          {/* Quantity input */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.quantity}
+                              step="any"
+                              value={inputVal}
+                              placeholder="0"
+                              onChange={(e) =>
+                                setTransferQty((prev) => ({ ...prev, [item.id]: e.target.value }))
+                              }
+                              className="w-24 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-center focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                            />
+                            <span className="text-xs text-gray-500 dark:text-gray-400 w-8">{item.unit}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Target warehouse selector */}
+                  <div className="pt-2 space-y-2">
+                    <label className={LABEL_CLASS}>מחסן יעד *</label>
+                    <select
+                      value={targetWarehouseId}
+                      onChange={(e) => setTargetWarehouseId(e.target.value)}
+                      className={INPUT_CLASS}
+                    >
+                      <option value="">בחר מחסן יעד...</option>
+                      {otherWarehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}{w.location ? ` — ${w.location}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleTransfer}
+                      disabled={transferring}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white transition-colors"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                      {transferring ? 'מעביר...' : 'בצע העברה'}
+                    </button>
+                    <button
+                      onClick={exitTransferMode}
+                      disabled={transferring}
+                      className={BTN_SECONDARY}
+                    >
+                      ביטול
+                    </button>
+                  </div>
+                </div>
               ) : (
+                /* ── Normal view ── */
                 <div className="space-y-1.5">
                   {consumables.map((item) => {
                     const qty = Number(item.quantity)

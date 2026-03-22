@@ -136,6 +136,11 @@ interface ConsumeStockPayload {
   notes?: string
 }
 
+interface TransferConsumablePayload {
+  to_warehouse_id: string
+  quantity: string
+}
+
 interface CreateWarehousePayload {
   name: string
   location?: string
@@ -177,6 +182,9 @@ export const cemsApi = {
 
   moveConsumable: (itemId: string, toWarehouseId: string) =>
     api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/move`, { to_warehouse_id: toWarehouseId }),
+
+  transferConsumable: (itemId: string, data: TransferConsumablePayload) =>
+    api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/transfer`, data),
 
   getLowStock: () =>
     api.get<ConsumableItem[]>(`${CEMS_BASE}/consumables/low-stock`),
