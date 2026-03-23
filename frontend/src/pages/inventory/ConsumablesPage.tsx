@@ -8,6 +8,13 @@ import {
   Filter,
   X,
   MapPin,
+  ShoppingCart,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Ban,
+  Clock,
+  Truck,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -15,6 +22,8 @@ import {
   type AssetCategory,
   type Warehouse,
   type CemsProject,
+  type ReorderRequest,
+  type ReorderStatus,
 } from '../../lib/cemsApi'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -25,6 +34,29 @@ const INPUT_CLASS = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-60
 const LABEL_CLASS = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'
 const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
+
+const REORDER_STATUS_CONFIG: Record<ReorderStatus, { label: string; badgeClass: string; icon: typeof Clock }> = {
+  PENDING: {
+    label: 'ממתין',
+    badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+    icon: Clock,
+  },
+  ORDERED: {
+    label: 'הוזמן',
+    badgeClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+    icon: Truck,
+  },
+  RECEIVED: {
+    label: 'התקבל',
+    badgeClass: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+    icon: CheckCircle,
+  },
+  CANCELLED: {
+    label: 'בוטל',
+    badgeClass: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+    icon: Ban,
+  },
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +102,28 @@ export default function ConsumablesPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [consumeItem, setConsumeItem] = useState<ConsumableItem | null>(null)
   const [moveItem, setMoveItem] = useState<ConsumableItem | null>(null)
+  const [reorderItem, setReorderItem] = useState<ConsumableItem | null>(null)
+
+  // Reorder history
+  const [showReorderHistory, setShowReorderHistory] = useState(false)
+  const [reorders, setReorders] = useState<ReorderRequest[]>([])
+  const [reordersLoading, setReordersLoading] = useState(false)
+  const [markingOrderedId, setMarkingOrderedId] = useState<string | null>(null)
+  const [markingReceivedId, setMarkingReceivedId] = useState<string | null>(null)
+  const [receiveQuantity, setReceiveQuantity] = useState('')
+  const [orderSupplier, setOrderSupplier] = useState('')
+
+  const loadReorders = useCallback(async () => {
+    setReordersLoading(true)
+    try {
+      const res = await cemsApi.getReorderRequests()
+      setReorders(res.data)
+    } catch {
+      // silent - reorder section is optional
+    } finally {
+      setReordersLoading(false)
+    }
+  }, [])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -92,9 +146,55 @@ export default function ConsumablesPage() {
     }
   }, [])
 
+  const refreshAll = useCallback(async () => {
+    await loadData()
+    if (showReorderHistory) {
+      await loadReorders()
+    }
+  }, [loadData, loadReorders, showReorderHistory])
+
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  useEffect(() => {
+    if (showReorderHistory) {
+      loadReorders()
+    }
+  }, [showReorderHistory, loadReorders])
+
+  async function handleMarkOrdered(reorderId: string) {
+    try {
+      await cemsApi.markReorderOrdered(reorderId, { supplier: orderSupplier || undefined })
+      setMarkingOrderedId(null)
+      setOrderSupplier('')
+      await loadReorders()
+    } catch {
+      // silent
+    }
+  }
+
+  async function handleMarkReceived(reorderId: string) {
+    const qty = Number(receiveQuantity)
+    if (qty <= 0) return
+    try {
+      await cemsApi.markReorderReceived(reorderId, qty)
+      setMarkingReceivedId(null)
+      setReceiveQuantity('')
+      await refreshAll()
+    } catch {
+      // silent
+    }
+  }
+
+  async function handleCancelReorder(reorderId: string) {
+    try {
+      await cemsApi.cancelReorder(reorderId)
+      await loadReorders()
+    } catch {
+      // silent
+    }
+  }
 
   function getCategoryName(categoryId: string): string {
     return categories.find((c) => c.id === categoryId)?.name || '-'
@@ -168,6 +268,184 @@ export default function ConsumablesPage() {
         </div>
       </div>
 
+      {/* Reorder History Section */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <button
+          onClick={() => setShowReorderHistory(!showReorderHistory)}
+          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              בקשות הזמנה מחדש
+            </span>
+            {reorders.filter((r) => r.status === 'PENDING' || r.status === 'ORDERED').length > 0 && (
+              <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 text-xs px-2 py-0.5 rounded-full font-medium">
+                {reorders.filter((r) => r.status === 'PENDING' || r.status === 'ORDERED').length} פעילות
+              </span>
+            )}
+          </div>
+          {showReorderHistory ? (
+            <ChevronUp className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          )}
+        </button>
+
+        {showReorderHistory && (
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            {reordersLoading ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                טוען בקשות הזמנה...
+              </div>
+            ) : reorders.length === 0 ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                אין בקשות הזמנה מחדש
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-700">
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">פריט</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">כמות</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">ספק</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">סטטוס</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תאריך בקשה</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">פעולות</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {reorders.map((reorder) => {
+                      const statusConfig = REORDER_STATUS_CONFIG[reorder.status]
+                      const StatusIcon = statusConfig.icon
+                      return (
+                        <tr key={reorder.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
+                          <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
+                            {reorder.item_name}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                            {reorder.quantity_requested}
+                            {reorder.quantity_received && (
+                              <span className="text-green-600 dark:text-green-400 mr-1">
+                                {' '}(התקבל: {reorder.quantity_received})
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {reorder.supplier || '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${statusConfig.badgeClass}`}>
+                              <StatusIcon className="w-3 h-3" />
+                              {statusConfig.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {new Date(reorder.requested_at).toLocaleDateString('he-IL')}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {/* Mark as Ordered */}
+                              {reorder.status === 'PENDING' && (
+                                <>
+                                  {markingOrderedId === reorder.id ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="ספק..."
+                                        value={orderSupplier}
+                                        onChange={(e) => setOrderSupplier(e.target.value)}
+                                        className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-24"
+                                      />
+                                      <button
+                                        onClick={() => handleMarkOrdered(reorder.id)}
+                                        className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/40"
+                                      >
+                                        אשר
+                                      </button>
+                                      <button
+                                        onClick={() => { setMarkingOrderedId(null); setOrderSupplier('') }}
+                                        className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200"
+                                      >
+                                        ביטול
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => { setMarkingOrderedId(reorder.id); setOrderSupplier(reorder.supplier || '') }}
+                                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-colors"
+                                    >
+                                      <Truck className="w-3 h-3" />
+                                      סמן כהוזמן
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Mark as Received */}
+                              {reorder.status === 'ORDERED' && (
+                                <>
+                                  {markingReceivedId === reorder.id ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        placeholder="כמות..."
+                                        min={0.01}
+                                        step="any"
+                                        value={receiveQuantity}
+                                        onChange={(e) => setReceiveQuantity(e.target.value)}
+                                        className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-20"
+                                      />
+                                      <button
+                                        onClick={() => handleMarkReceived(reorder.id)}
+                                        disabled={!receiveQuantity || Number(receiveQuantity) <= 0}
+                                        className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/40 disabled:opacity-50"
+                                      >
+                                        אשר
+                                      </button>
+                                      <button
+                                        onClick={() => { setMarkingReceivedId(null); setReceiveQuantity('') }}
+                                        className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200"
+                                      >
+                                        ביטול
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => { setMarkingReceivedId(reorder.id); setReceiveQuantity(reorder.quantity_requested) }}
+                                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/40 transition-colors"
+                                    >
+                                      <CheckCircle className="w-3 h-3" />
+                                      סמן כהתקבל
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Cancel */}
+                              {(reorder.status === 'PENDING' || reorder.status === 'ORDERED') && (
+                                <button
+                                  onClick={() => handleCancelReorder(reorder.id)}
+                                  className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                >
+                                  <Ban className="w-3 h-3" />
+                                  בטל
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Consumables Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="overflow-x-auto">
@@ -223,6 +501,15 @@ export default function ConsumablesPage() {
                           <MapPin className="w-3 h-3" />
                           העבר למחסן
                         </button>
+                        {isLowStock(item) && (
+                          <button
+                            onClick={() => setReorderItem(item)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800/40 transition-colors"
+                          >
+                            <ShoppingCart className="w-3 h-3" />
+                            הזמן מחדש
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -247,7 +534,7 @@ export default function ConsumablesPage() {
           item={consumeItem}
           projects={projects}
           onClose={() => setConsumeItem(null)}
-          onConsumed={loadData}
+          onConsumed={refreshAll}
         />
       )}
       {moveItem && (
@@ -255,6 +542,16 @@ export default function ConsumablesPage() {
           item={moveItem}
           onClose={() => setMoveItem(null)}
           onMoved={loadData}
+        />
+      )}
+      {reorderItem && (
+        <ReorderModal
+          item={reorderItem}
+          onClose={() => setReorderItem(null)}
+          onCreated={async () => {
+            await loadReorders()
+            setShowReorderHistory(true)
+          }}
         />
       )}
     </div>
@@ -559,6 +856,116 @@ function MoveConsumableModal({ item, onClose, onMoved }: MoveConsumableModalProp
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
               {submitting ? 'מעביר...' : 'העבר למחסן'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Reorder Modal ──────────────────────────────────────────────────────────
+
+interface ReorderModalProps {
+  item: ConsumableItem
+  onClose: () => void
+  onCreated: () => void
+}
+
+function ReorderModal({ item, onClose, onCreated }: ReorderModalProps) {
+  const [quantity, setQuantity] = useState(item.reorder_quantity || '0')
+  const [supplier, setSupplier] = useState('')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const qty = Number(quantity)
+    if (qty <= 0) {
+      setError('כמות חייבת להיות גדולה מ-0')
+      return
+    }
+
+    setSubmitting(true)
+    setError(null)
+    try {
+      await cemsApi.createReorderRequest({
+        item_id: item.id,
+        quantity_requested: qty,
+        supplier: supplier.trim() || undefined,
+        notes: notes.trim() || undefined,
+      })
+      onCreated()
+      onClose()
+    } catch {
+      setError('שגיאה ביצירת בקשת הזמנה מחדש')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            הזמנה מחדש: {item.name}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
+              {error}
+            </div>
+          )}
+          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3">
+            <p className="text-sm text-purple-800 dark:text-purple-300">
+              מלאי נוכחי: <span className="font-bold">{item.quantity} {item.unit}</span>
+              {Number(item.low_stock_threshold) > 0 && (
+                <span className="mr-2">(סף התראה: {item.low_stock_threshold})</span>
+              )}
+            </p>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>כמות להזמנה *</label>
+            <input
+              type="number"
+              min={0.01}
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className={INPUT_CLASS}
+              required
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>ספק</label>
+            <input
+              type="text"
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="שם הספק (אופציונלי)"
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>הערות</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className={INPUT_CLASS}
+              rows={2}
+              placeholder="הערות נוספות..."
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
+            <button type="submit" disabled={submitting} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              {submitting ? 'שולח בקשה...' : 'שלח בקשת הזמנה'}
             </button>
           </div>
         </form>

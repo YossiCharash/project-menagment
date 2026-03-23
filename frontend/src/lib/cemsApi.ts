@@ -98,6 +98,24 @@ export interface AssetRetirement {
   notes: string | null
 }
 
+export type ReorderStatus = 'PENDING' | 'ORDERED' | 'RECEIVED' | 'CANCELLED'
+
+export interface ReorderRequest {
+  id: string
+  item_id: string
+  item_name: string
+  requested_by_id: number
+  quantity_requested: string
+  supplier: string | null
+  notes: string | null
+  status: ReorderStatus
+  requested_at: string
+  ordered_at: string | null
+  received_at: string | null
+  received_by_id: number | null
+  quantity_received: string | null
+}
+
 export type TransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 export interface Transfer {
@@ -319,4 +337,20 @@ export const cemsApi = {
 
   deleteDocument: (id: string) =>
     api.delete(`${CEMS_BASE}/documents/${id}`),
+
+  // ── Reorders ───────────────────────────────────────────────────────────
+  createReorderRequest: (data: { item_id: string; quantity_requested: number; supplier?: string; notes?: string }) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders`, data),
+
+  getReorderRequests: (params?: { status?: string; item_id?: string }) =>
+    api.get<ReorderRequest[]>(`${CEMS_BASE}/reorders`, { params }),
+
+  markReorderOrdered: (id: string, data?: { supplier?: string; notes?: string }) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/mark-ordered`, data ?? {}),
+
+  markReorderReceived: (id: string, quantityReceived: number, notes?: string) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/mark-received`, { quantity_received: quantityReceived, notes }),
+
+  cancelReorder: (id: string) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/cancel`, {}),
 }
