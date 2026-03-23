@@ -17,7 +17,7 @@ from backend.cems.schemas.fixed_asset import (
     FixedAssetUpdate,
     RetireAssetRequest,
 )
-from backend.cems.schemas.transfer import RetirementRead
+from backend.cems.schemas.transfer import ApproveRetirementRequest, RetirementRead
 from backend.cems.services.retirement_service import RetirementService
 from backend.models import User
 
@@ -25,6 +25,10 @@ from backend.models import User
 class MoveAssetRequest(PydanticBaseModel):
     to_warehouse_id: uuid.UUID
     notes: Optional[str] = None
+
+
+class RejectRetirementRequest(PydanticBaseModel):
+    reason: str
 
 router = APIRouter(prefix="/assets", tags=["CEMS Assets"])
 
@@ -70,6 +74,83 @@ async def expiring_warranties(
     repo = AssetRepository(db)
     assets = await repo.get_expiring_warranties(days)
     return [FixedAssetRead.model_validate(a) for a in assets]
+
+
+# ── Retirement Management ────────────────────────────────────────────────────
+# These routes use the literal prefix "/retirements" and MUST be registered
+# before the parameterised "/{asset_id}" route so that FastAPI does not
+# attempt to parse "retirements" as a UUID.
+
+
+@router.get("/retirements", response_model=List[RetirementRead])
+async def list_retirements(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> List[RetirementRead]:
+    """Return retirement requests, optionally filtered by status."""
+    transfer_repo = TransferRepository(db)
+    if status_filter:
+        retirements = await transfer_repo.get_retirements_by_status(
+            status_filter, skip, limit,
+        )
+    else:
+        from sqlalchemy import select as sa_select
+
+        from backend.cems.models.retirement import AssetRetirement
+
+        stmt = (
+            sa_select(AssetRetirement)
+            .order_by(AssetRetirement.requested_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        retirements = list(result.scalars().all())
+    return [RetirementRead.model_validate(r) for r in retirements]
+
+
+@router.post("/retirements/{retirement_id}/approve", response_model=RetirementRead)
+async def approve_retirement(
+    retirement_id: uuid.UUID,
+    payload: ApproveRetirementRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> RetirementRead:
+    """Approve a pending retirement request and mark the asset as RETIRED."""
+    service = RetirementService(
+        AssetRepository(db), TransferRepository(db), UserRepository(db),
+    )
+    retirement = await service.approve_retirement(
+        retirement_id=retirement_id,
+        manager_id=current_user.id,
+        notes=payload.notes,
+    )
+    return RetirementRead.model_validate(retirement)
+
+
+@router.post("/retirements/{retirement_id}/reject", response_model=RetirementRead)
+async def reject_retirement(
+    retirement_id: uuid.UUID,
+    payload: RejectRetirementRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> RetirementRead:
+    """Reject a pending retirement request with a reason."""
+    service = RetirementService(
+        AssetRepository(db), TransferRepository(db), UserRepository(db),
+    )
+    retirement = await service.reject_retirement(
+        retirement_id=retirement_id,
+        manager_id=current_user.id,
+        reason=payload.reason,
+    )
+    return RetirementRead.model_validate(retirement)
+
+
+# ── Single Asset by ID ───────────────────────────────────────────────────────
 
 
 @router.get("/{asset_id}", response_model=FixedAssetRead)
