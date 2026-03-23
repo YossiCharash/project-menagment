@@ -5,6 +5,7 @@ from backend.cems.models.project import CemsProject, Project
 from backend.cems.models.fixed_asset import FixedAsset, AssetStatus, AssetHistory
 from backend.cems.models.consumable import ConsumableItem, ConsumptionLog, StockAlert, AlertType
 from backend.cems.models.transfer import Transfer, TransferStatus, WarehouseReturn, ReturnStatus
+from backend.cems.models.reorder import ReorderRequest, ReorderStatus
 from backend.cems.models.retirement import AssetRetirement, RetirementStatus
 from backend.cems.models.signature import Signature, SignatureType
 from backend.cems.models.document import CemsDocument, Document, DocumentType
@@ -29,6 +30,8 @@ __all__ = [
     "TransferStatus",
     "WarehouseReturn",
     "ReturnStatus",
+    "ReorderRequest",
+    "ReorderStatus",
     "AssetRetirement",
     "RetirementStatus",
     "Signature",
