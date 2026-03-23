@@ -101,6 +101,21 @@ export interface InventoryReport {
   low_stock_count: number
 }
 
+export type DocumentType = 'WARRANTY' | 'INVOICE' | 'OTHER'
+
+export interface CemsDocument {
+  id: string
+  entity_type: string
+  entity_id: string
+  document_type: DocumentType
+  filename: string
+  file_url: string
+  uploaded_by_id: number
+  uploaded_at: string
+  expiry_date: string | null
+  created_at: string
+}
+
 // ─── Query Parameter Interfaces ──────────────────────────────────────────────
 
 interface AssetQueryParams {
@@ -245,4 +260,16 @@ export const cemsApi = {
 
   getAlerts: () =>
     api.get<StockAlert[]>(`${CEMS_BASE}/reports/alerts`),
+
+  // ── Documents ─────────────────────────────────────────────────────────
+  getDocuments: (entityType: string, entityId: string) =>
+    api.get<CemsDocument[]>(`${CEMS_BASE}/documents`, { params: { entity_type: entityType, entity_id: entityId } }),
+
+  uploadDocument: (formData: FormData) =>
+    api.post<CemsDocument>(`${CEMS_BASE}/documents/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+
+  deleteDocument: (id: string) =>
+    api.delete(`${CEMS_BASE}/documents/${id}`),
 }
