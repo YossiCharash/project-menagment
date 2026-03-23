@@ -122,3 +122,42 @@ class RetirementService:
         )
 
         return retirement
+
+    async def reject_retirement(
+        self,
+        retirement_id: uuid.UUID,
+        manager_id: uuid.UUID,
+        reason: str,
+    ) -> AssetRetirement:
+        """Reject a pending retirement request.
+
+        Records the rejection, stamps the approver/timestamp, and logs a
+        history entry on the related asset.
+        """
+        retirement = await self._transfer_repo.get_retirement_by_id(retirement_id)
+        if retirement is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Retirement request not found.",
+            )
+
+        if retirement.status != RetirementStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Retirement request is not pending.",
+            )
+
+        retirement.status = RetirementStatus.REJECTED
+        retirement.approved_by_id = manager_id
+        retirement.approved_at = _utc_now()
+        retirement.notes = reason
+        await self._transfer_repo._session.flush()
+
+        await self._asset_repo.log_history(
+            asset_id=retirement.asset_id,
+            action="RETIREMENT_REJECTED",
+            actor_id=manager_id,
+            notes=f"Rejected retirement. Reason: {reason}",
+        )
+
+        return retirement
