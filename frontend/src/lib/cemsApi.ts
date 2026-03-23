@@ -7,6 +7,7 @@ export interface CemsUser {
   full_name: string
   email: string
   cems_role: string | null
+  cems_warehouse_id: string | null
 }
 
 export interface Warehouse {
@@ -239,6 +240,9 @@ export const cemsApi = {
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
     api.get<CemsUser[]>(`${CEMS_BASE}/users`),
+
+  assignEmployeeWarehouse: (userId: number, warehouseId: string | null) =>
+    api.put<CemsUser>(`${CEMS_BASE}/users/${userId}/warehouse`, { warehouse_id: warehouseId }),
 
   // ── Categories ──────────────────────────────────────────────────────────
   getCategories: () =>
