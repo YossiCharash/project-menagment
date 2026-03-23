@@ -49,15 +49,38 @@ const TAB_ITEMS: TabItem[] = [
 
 export default function InventoryLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!settingsOpen) return
+
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        settingsRef.current &&
+        !settingsRef.current.contains(event.target as Node)
+      ) {
+        setSettingsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [settingsOpen])
 
   return (
     <div dir="rtl" className="space-y-6">
-      <LayoutHeader
-        settingsOpen={settingsOpen}
-        onToggleSettings={() => setSettingsOpen((prev) => !prev)}
-      />
+      <div className="relative" ref={settingsRef}>
+        <LayoutHeader
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((prev) => !prev)}
+        />
 
-      {settingsOpen && <SettingsPanel />}
+        {settingsOpen && (
+          <div className="absolute top-full left-0 mt-2 z-50 w-full max-w-2xl shadow-xl rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          </div>
+        )}
+      </div>
 
       <TabBar />
 
@@ -132,7 +155,11 @@ function TabBar() {
 
 // ─── Settings Panel (lazy-loaded data) ──────────────────────────────────────
 
-function SettingsPanel() {
+interface SettingsPanelProps {
+  onClose?: () => void
+}
+
+function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
   const [categories, setCategories] = useState<AssetCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
