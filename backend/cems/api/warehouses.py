@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
+from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
 from backend.cems.models.user import User
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.consumable_repository import ConsumableRepository
@@ -39,6 +39,15 @@ async def list_warehouses(
     current_user: User = Depends(require_any_cems_role),
 ) -> List[WarehouseRead]:
     repo = WarehouseRepository(db)
+
+    # Employees only see their assigned warehouse
+    if current_user.cems_role == "Employee":
+        employee_wh = get_employee_warehouse_filter(current_user)
+        if employee_wh is None:
+            return []
+        warehouse = await repo.get_with_projects(employee_wh)
+        return [_warehouse_to_read(warehouse)] if warehouse else []
+
     warehouses = await repo.get_all_with_projects(skip, limit)
     return [_warehouse_to_read(w) for w in warehouses]
 

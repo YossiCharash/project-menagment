@@ -1,8 +1,9 @@
 from __future__ import annotations
+import uuid as _uuid_module
 from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Boolean, DateTime
+from sqlalchemy import ForeignKey, String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -37,7 +38,11 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # CEMS-specific fields (null = no CEMS access)
     cems_role: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
-    cems_warehouse_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    cems_warehouse_id: Mapped[_uuid_module.UUID | None] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     preferences: Mapped["UserPreference"] = relationship(
         "UserPreference", back_populates="user", uselist=False, lazy="selectin",
