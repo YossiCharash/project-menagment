@@ -39,7 +39,7 @@ class WarehouseProjectsUpdate(BaseModel):
 # ---------- Manager change ----------
 
 class ChangeManagerRequest(BaseModel):
-    new_manager_id: uuid.UUID
+    new_manager_id: int
     reason: Optional[str] = None
 
 
@@ -48,11 +48,17 @@ class ManagerHistoryRead(BaseModel):
 
     id: uuid.UUID
     warehouse_id: uuid.UUID
-    previous_manager_id: Optional[uuid.UUID]
-    new_manager_id: uuid.UUID
-    changed_by_id: uuid.UUID
+    previous_manager_id: Optional[int]
+    new_manager_id: int
+    changed_by_id: int
     changed_at: datetime
     reason: Optional[str]
+
+
+class ManagerHistoryReadWithNames(ManagerHistoryRead):
+    previous_manager_name: Optional[str] = None
+    new_manager_name: str = ""
+    changed_by_name: str = ""
 
 
 # ---------- Category ----------

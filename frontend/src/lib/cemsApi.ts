@@ -80,6 +80,19 @@ export interface StockAlert {
   created_at: string
 }
 
+export interface ManagerHistoryEntry {
+  id: string
+  warehouse_id: string
+  previous_manager_id: number | null
+  new_manager_id: number
+  changed_by_id: number
+  changed_at: string
+  reason: string | null
+  previous_manager_name: string | null
+  new_manager_name: string
+  changed_by_name: string
+}
+
 export type TransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 export interface Transfer {
@@ -220,6 +233,9 @@ export const cemsApi = {
       new_manager_id: newManagerId,
       reason: reason || undefined,
     }),
+
+  getWarehouseManagerHistory: (warehouseId: string) =>
+    api.get<ManagerHistoryEntry[]>(`${CEMS_BASE}/warehouses/${warehouseId}/manager-history`),
 
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
