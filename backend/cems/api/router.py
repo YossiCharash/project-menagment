@@ -11,6 +11,7 @@ from backend.cems.api.categories import router as categories_router
 from backend.cems.api.consumables import router as consumables_router
 from backend.cems.api.documents import router as documents_router
 from backend.cems.api.projects import router as projects_router
+from backend.cems.api.reorders import router as reorders_router
 from backend.cems.api.reports import router as reports_router
 from backend.cems.api.transfers import router as transfers_router
 from backend.cems.api.users import router as users_router
@@ -27,3 +28,4 @@ cems_router.include_router(users_router)
 cems_router.include_router(warehouses_router)
 cems_router.include_router(reports_router)
 cems_router.include_router(documents_router)
+cems_router.include_router(reorders_router)

@@ -51,6 +51,7 @@ from backend.cems.models import (  # noqa: F401
     Transfer,
     WarehouseReturn,
     AssetRetirement,
+    ReorderRequest,
     Signature,
     Document as CemsDocument,
 )
