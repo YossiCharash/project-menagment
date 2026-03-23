@@ -5,7 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Package,
-  Warehouse,
+  Warehouse as WarehouseIcon,
   ArrowLeftRight,
   Archive,
   LayoutDashboard,
@@ -14,7 +14,7 @@ import {
   X,
   AlertTriangle,
 } from 'lucide-react'
-import { cemsApi, type AssetCategory } from '../../lib/cemsApi'
+import { cemsApi, type AssetCategory, type Warehouse } from '../../lib/cemsApi'
 
 // ─── Style Constants ────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ const TAB_ITEMS: TabItem[] = [
   { label: 'סקירה', href: '/inventory', icon: LayoutDashboard, isExactMatch: true },
   { label: 'ציוד קבוע', href: '/inventory/assets', icon: Package, isExactMatch: false },
   { label: 'מתכלים', href: '/inventory/consumables', icon: Archive, isExactMatch: false },
-  { label: 'מחסנים', href: '/inventory/warehouses', icon: Warehouse, isExactMatch: false },
+  { label: 'מחסנים', href: '/inventory/warehouses', icon: WarehouseIcon, isExactMatch: false },
   { label: 'העברות', href: '/inventory/transfers', icon: ArrowLeftRight, isExactMatch: false },
 ]
 
@@ -161,17 +161,23 @@ interface SettingsPanelProps {
 
 function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
   const [categories, setCategories] = useState<AssetCategory[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAddCategory, setShowAddCategory] = useState(false)
+  const [addCategoryWarehouseId, setAddCategoryWarehouseId] = useState<string | undefined>(undefined)
   const dataLoadedRef = useRef(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const catRes = await cemsApi.getCategories()
+      const [catRes, whRes] = await Promise.all([
+        cemsApi.getCategories(),
+        cemsApi.getWarehouses(),
+      ])
       setCategories(catRes.data)
+      setWarehouses(whRes.data)
     } catch {
       setError('שגיאה בטעינת הנתונים')
     } finally {
@@ -196,6 +202,11 @@ function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
     }
   }
 
+  function handleOpenAddModal(warehouseId?: string) {
+    setAddCategoryWarehouseId(warehouseId)
+    setShowAddCategory(true)
+  }
+
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-4">
       <div className="flex items-center gap-3 mb-2">
@@ -214,15 +225,18 @@ function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
           <p className="text-gray-500 dark:text-gray-400 text-sm">טוען...</p>
         </div>
       ) : (
-        <CategoriesTable
+        <GroupedCategoriesView
           categories={categories}
-          onAdd={() => setShowAddCategory(true)}
+          warehouses={warehouses}
+          onAdd={handleOpenAddModal}
           onDelete={handleDeleteCategory}
         />
       )}
 
       {showAddCategory && (
         <AddCategoryModal
+          warehouses={warehouses}
+          defaultWarehouseId={addCategoryWarehouseId}
           onClose={() => setShowAddCategory(false)}
           onCreated={() => {
             setShowAddCategory(false)
@@ -245,20 +259,32 @@ function SettingsError({ message }: { message: string }) {
   )
 }
 
-// ─── Categories Table ───────────────────────────────────────────────────────
+// ─── Grouped Categories View ────────────────────────────────────────────────
 
-interface CategoriesTableProps {
+interface GroupedCategoriesViewProps {
   categories: AssetCategory[]
-  onAdd: () => void
+  warehouses: Warehouse[]
+  onAdd: (warehouseId?: string) => void
   onDelete: (id: string, name: string) => void
 }
 
-function CategoriesTable({ categories, onAdd, onDelete }: CategoriesTableProps) {
+function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete }: GroupedCategoriesViewProps) {
+  const globalCategories = categories.filter((c) => c.warehouse_id === null)
+
+  const categoriesByWarehouse = new Map<string, AssetCategory[]>()
+  for (const cat of categories) {
+    if (cat.warehouse_id !== null) {
+      const existing = categoriesByWarehouse.get(cat.warehouse_id) ?? []
+      existing.push(cat)
+      categoriesByWarehouse.set(cat.warehouse_id, existing)
+    }
+  }
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">קטגוריות</h3>
-        <button onClick={onAdd} className={BTN_PRIMARY}>
+        <button onClick={() => onAdd(undefined)} className={BTN_PRIMARY}>
           <span className="flex items-center gap-2">
             <Plus className="w-4 h-4" />
             הוסף
@@ -266,10 +292,58 @@ function CategoriesTable({ categories, onAdd, onDelete }: CategoriesTableProps) 
         </button>
       </div>
 
+      <div className="divide-y divide-gray-200 dark:divide-gray-700">
+        {/* Global categories section */}
+        <CategorySection
+          title="קטגוריות גלובליות"
+          categories={globalCategories}
+          onAdd={() => onAdd(undefined)}
+          onDelete={onDelete}
+        />
+
+        {/* Per-warehouse sections */}
+        {warehouses.map((warehouse) => {
+          const warehouseCategories = categoriesByWarehouse.get(warehouse.id) ?? []
+          return (
+            <CategorySection
+              key={warehouse.id}
+              title={warehouse.name}
+              categories={warehouseCategories}
+              onAdd={() => onAdd(warehouse.id)}
+              onDelete={onDelete}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Category Section (one warehouse group or global) ───────────────────────
+
+interface CategorySectionProps {
+  title: string
+  categories: AssetCategory[]
+  onAdd: () => void
+  onDelete: (id: string, name: string) => void
+}
+
+function CategorySection({ title, categories, onAdd, onDelete }: CategorySectionProps) {
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-200">{title}</h4>
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors font-medium"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          הוסף
+        </button>
+      </div>
+
       {categories.length === 0 ? (
-        <div className="p-12 text-center">
-          <p className="text-gray-500 dark:text-gray-400">לא נמצאו קטגוריות</p>
-        </div>
+        <p className="text-gray-400 dark:text-gray-500 text-sm">אין קטגוריות</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -280,7 +354,7 @@ function CategoriesTable({ categories, onAdd, onDelete }: CategoriesTableProps) 
                 <th className={`${TABLE_HEAD} w-20`}>פעולות</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {categories.map((cat) => (
                 <tr
                   key={cat.id}
@@ -312,13 +386,16 @@ function CategoriesTable({ categories, onAdd, onDelete }: CategoriesTableProps) 
 // ─── Add Category Modal ─────────────────────────────────────────────────────
 
 interface AddCategoryModalProps {
+  warehouses: Warehouse[]
+  defaultWarehouseId?: string
   onClose: () => void
   onCreated: () => void
 }
 
-function AddCategoryModal({ onClose, onCreated }: AddCategoryModalProps) {
+function AddCategoryModal({ warehouses, defaultWarehouseId, onClose, onCreated }: AddCategoryModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [warehouseId, setWarehouseId] = useState(defaultWarehouseId ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -335,6 +412,7 @@ function AddCategoryModal({ onClose, onCreated }: AddCategoryModalProps) {
       await cemsApi.createCategory({
         name: name.trim(),
         description: description.trim() || undefined,
+        warehouse_id: warehouseId || undefined,
       })
       onCreated()
     } catch {
@@ -384,6 +462,19 @@ function AddCategoryModal({ onClose, onCreated }: AddCategoryModalProps) {
               rows={3}
               placeholder="תיאור אופציונלי"
             />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>מחסן</label>
+            <select
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">גלובלי</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>
