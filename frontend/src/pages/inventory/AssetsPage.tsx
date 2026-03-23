@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import {
-  Package,
   Plus,
   Search,
   ArrowLeftRight,
@@ -12,15 +11,18 @@ import {
   X,
   AlertTriangle,
   MapPin,
+  History,
+  Check,
+  XCircle,
 } from 'lucide-react'
 import {
   cemsApi,
   type FixedAsset,
   type AssetHistory,
+  type AssetRetirement,
   type CemsUser,
   type AssetCategory,
   type Warehouse,
-  type AssetStatus,
 } from '../../lib/cemsApi'
 import { StatusBadge } from './InventoryDashboard'
 
@@ -67,6 +69,19 @@ export default function AssetsPage() {
   const [retireAsset, setRetireAsset] = useState<FixedAsset | null>(null)
   const [moveAssetTarget, setMoveAssetTarget] = useState<FixedAsset | null>(null)
 
+  // Retirement workflow
+  const me = useSelector((s: RootState) => s.auth.me)
+  const isManagerOrAdmin =
+    me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
+  const [showRetiredSection, setShowRetiredSection] = useState(false)
+  const [retirements, setRetirements] = useState<AssetRetirement[]>([])
+  const [retiredAssets, setRetiredAssets] = useState<FixedAsset[]>([])
+  const [retirementLoading, setRetirementLoading] = useState(false)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [approveNotes, setApproveNotes] = useState('')
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -99,6 +114,52 @@ export default function AssetsPage() {
       .then((res) => setWarehouses(res.data))
       .catch(() => { /* silent */ })
   }, [])
+
+  // Retirement data
+  const loadRetirementData = useCallback(async () => {
+    setRetirementLoading(true)
+    try {
+      const [retRes, retiredRes] = await Promise.all([
+        cemsApi.getRetirements('PENDING'),
+        cemsApi.getAssets({ status: 'RETIRED' }),
+      ])
+      setRetirements(retRes.data)
+      setRetiredAssets(retiredRes.data)
+    } catch {
+      // silently fail for secondary data
+    } finally {
+      setRetirementLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (showRetiredSection) {
+      loadRetirementData()
+    }
+  }, [showRetiredSection, loadRetirementData])
+
+  async function handleApproveRetirement(retirementId: string) {
+    try {
+      await cemsApi.approveRetirement(retirementId, approveNotes || undefined)
+      setApprovingId(null)
+      setApproveNotes('')
+      await Promise.all([loadRetirementData(), loadData()])
+    } catch {
+      // error handling is implicit via UI refresh
+    }
+  }
+
+  async function handleRejectRetirement(retirementId: string) {
+    if (!rejectReason.trim()) return
+    try {
+      await cemsApi.rejectRetirement(retirementId, rejectReason.trim())
+      setRejectingId(null)
+      setRejectReason('')
+      await loadRetirementData()
+    } catch {
+      // error handling is implicit via UI refresh
+    }
+  }
 
   async function toggleAssetHistory(assetId: string) {
     if (expandedAssetId === assetId) {
@@ -188,8 +249,182 @@ export default function AssetsPage() {
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          <button
+            onClick={() => setShowRetiredSection((prev) => !prev)}
+            className={BTN_SECONDARY}
+          >
+            <span className="flex items-center gap-2">
+              <History className="w-4 h-4" />
+              {showRetiredSection ? 'הסתר' : 'ציוד פרוש ובקשות'}
+            </span>
+          </button>
         </div>
       </div>
+
+      {/* Retired Assets & Pending Retirement Requests */}
+      {showRetiredSection && (
+        <div className="space-y-4">
+          {/* Section 1: Pending retirement requests -- managers only */}
+          {isManagerOrAdmin && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  בקשות פרישה ממתינות לאישור
+                </h2>
+              </div>
+              {retirementLoading ? (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
+              ) : retirements.length === 0 ? (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  אין בקשות פרישה ממתינות
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-700">
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מזהה ציוד</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">סיבה</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שיטת סילוק</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מבקש</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תאריך בקשה</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">פעולות</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {retirements.map((ret) => (
+                        <tr key={ret.id}>
+                          <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-mono">
+                            {ret.asset_id.slice(0, 8)}...
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
+                            {ret.reason}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {ret.disposal_method}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {getUserName(ret.requested_by_id)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {new Date(ret.requested_at).toLocaleDateString('he-IL')}
+                          </td>
+                          <td className="px-4 py-3">
+                            {approvingId === ret.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="הערות (אופציונלי)"
+                                  value={approveNotes}
+                                  onChange={(e) => setApproveNotes(e.target.value)}
+                                  className={`${INPUT_CLASS} w-40`}
+                                />
+                                <button
+                                  onClick={() => handleApproveRetirement(ret.id)}
+                                  className="p-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors"
+                                  title="אשר"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => { setApprovingId(null); setApproveNotes('') }}
+                                  className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 transition-colors"
+                                  title="בטל"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : rejectingId === ret.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="סיבת דחייה *"
+                                  value={rejectReason}
+                                  onChange={(e) => setRejectReason(e.target.value)}
+                                  className={`${INPUT_CLASS} w-40`}
+                                />
+                                <button
+                                  onClick={() => handleRejectRetirement(ret.id)}
+                                  disabled={!rejectReason.trim()}
+                                  className="p-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                                  title="דחה"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => { setRejectingId(null); setRejectReason('') }}
+                                  className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 transition-colors"
+                                  title="בטל"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setApprovingId(ret.id)}
+                                  className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+                                  title="אשר פרישה"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setRejectingId(ret.id)}
+                                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                  title="דחה פרישה"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section 2: Retired assets -- visible to all */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ציוד פרוש</h2>
+            </div>
+            {retirementLoading ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
+            ) : retiredAssets.length === 0 ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                אין ציוד פרוש
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-700">
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מס' סידורי</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">הערות</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {retiredAssets.map((asset) => (
+                      <tr key={asset.id}>
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{asset.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(asset.category_id)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Assets Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -604,8 +839,6 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const me = useSelector((s: RootState) => s.auth.me)
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!reason.trim()) {
@@ -616,12 +849,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
     setSubmitting(true)
     setError(null)
     try {
-      // Use the transfer mechanism to retire the asset
-      await cemsApi.initiateTransfer({
-        asset_id: asset.id,
-        to_user_id: me?.id || 0,
-        notes: `פרישה - סיבה: ${reason.trim()}${disposalMethod ? ` | שיטת סילוק: ${disposalMethod}` : ''}`,
-      })
+      await cemsApi.retireAsset(asset.id, reason.trim(), disposalMethod || 'אחר')
       onRetired()
       onClose()
     } catch {
@@ -649,7 +877,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
             </div>
           )}
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 text-sm text-yellow-800 dark:text-yellow-300">
-            שים לב: פעולה זו תסמן את הציוד כ"בפרישה" ולא ניתן לבטל אותה בקלות.
+            שים לב: הבקשה תועבר לאישור מנהל.
           </div>
           <div>
             <label className={LABEL_CLASS}>סיבה לפרישה *</label>

@@ -80,6 +80,21 @@ export interface StockAlert {
   created_at: string
 }
 
+export type RetirementStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface AssetRetirement {
+  id: string
+  asset_id: string
+  requested_by_id: number
+  approved_by_id: number | null
+  reason: string
+  disposal_method: string
+  status: RetirementStatus
+  requested_at: string
+  approved_at: string | null
+  notes: string | null
+}
+
 export type TransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 export interface Transfer {
@@ -169,6 +184,30 @@ export const cemsApi = {
 
   getExpiringWarranties: () =>
     api.get<FixedAsset[]>(`${CEMS_BASE}/assets/expiring-warranties`),
+
+  // ── Retirements ────────────────────────────────────────────────────────
+  retireAsset: (assetId: string, reason: string, disposalMethod: string) =>
+    api.post<AssetRetirement>(`${CEMS_BASE}/assets/${assetId}/retire`, {
+      reason,
+      disposal_method: disposalMethod,
+    }),
+
+  getRetirements: (status?: string) =>
+    api.get<AssetRetirement[]>(`${CEMS_BASE}/assets/retirements`, {
+      params: status ? { status } : undefined,
+    }),
+
+  approveRetirement: (id: string, notes?: string) =>
+    api.post<AssetRetirement>(
+      `${CEMS_BASE}/assets/retirements/${id}/approve`,
+      { notes },
+    ),
+
+  rejectRetirement: (id: string, reason: string) =>
+    api.post<AssetRetirement>(
+      `${CEMS_BASE}/assets/retirements/${id}/reject`,
+      { reason },
+    ),
 
   // ── Consumables ─────────────────────────────────────────────────────────
   getConsumables: (params?: ConsumableQueryParams) =>
