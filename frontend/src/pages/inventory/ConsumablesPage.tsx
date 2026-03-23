@@ -19,6 +19,7 @@ import {
 import {
   cemsApi,
   type ConsumableItem,
+  type ConsumableQueryParams,
   type AssetCategory,
   type Warehouse,
   type CemsProject,
@@ -96,6 +97,8 @@ export default function ConsumablesPage() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [lowStockOnly, setLowStockOnly] = useState(false)
 
   // Modals
@@ -129,8 +132,14 @@ export default function ConsumablesPage() {
     setLoading(true)
     setError(null)
     try {
+      const params: ConsumableQueryParams = {}
+      if (warehouseFilter) params.warehouse_id = warehouseFilter
+      if (categoryFilter) params.category_id = categoryFilter
+      if (searchTerm) params.search = searchTerm
+      if (lowStockOnly) params.low_stock = true
+
       const [itemsRes, categoriesRes, projectsRes, warehousesRes] = await Promise.all([
-        cemsApi.getConsumables(),
+        cemsApi.getConsumables(params),
         cemsApi.getCategories(),
         cemsApi.getProjects(),
         cemsApi.getWarehouses(),
@@ -144,7 +153,7 @@ export default function ConsumablesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [warehouseFilter, categoryFilter, searchTerm, lowStockOnly])
 
   const refreshAll = useCallback(async () => {
     await loadData()
@@ -204,11 +213,14 @@ export default function ConsumablesPage() {
     return warehouses.find((w) => w.id === warehouseId)?.name || '-'
   }
 
-  const filteredItems = items.filter((item) => {
-    if (lowStockOnly && !isLowStock(item)) return false
-    if (!searchTerm) return true
-    return item.name.toLowerCase().includes(searchTerm.toLowerCase())
-  })
+  const hasActiveFilters = warehouseFilter || categoryFilter || searchTerm || lowStockOnly
+
+  function clearAllFilters() {
+    setSearchTerm('')
+    setWarehouseFilter('')
+    setCategoryFilter('')
+    setLowStockOnly(false)
+  }
 
   if (loading) {
     return (
@@ -243,8 +255,8 @@ export default function ConsumablesPage() {
 
       {/* Filter Bar */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col sm:flex-row gap-4 items-center">
-          <div className="relative flex-1 w-full">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -254,9 +266,29 @@ export default function ConsumablesPage() {
               className={`${INPUT_CLASS} pr-10`}
             />
           </div>
+          <select
+            value={warehouseFilter}
+            onChange={(e) => setWarehouseFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל המחסנים</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל הקטגוריות</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
           <button
             onClick={() => setLowStockOnly(!lowStockOnly)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
               lowStockOnly
                 ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800'
                 : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
@@ -265,6 +297,15 @@ export default function ConsumablesPage() {
             <Filter className="w-4 h-4" />
             {lowStockOnly ? 'מלאי נמוך בלבד' : 'הצג הכל'}
           </button>
+          {hasActiveFilters && (
+            <button
+              onClick={clearAllFilters}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              נקה פילטרים
+            </button>
+          )}
         </div>
       </div>
 
@@ -463,14 +504,14 @@ export default function ConsumablesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredItems.length === 0 ? (
+              {items.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     לא נמצאו פריטי מלאי
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item) => (
+                items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{item.name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(item.category_id)}</td>

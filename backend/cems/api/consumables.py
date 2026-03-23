@@ -6,7 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
+from backend.cems.api.deps import (
+    check_warehouse_manager_access,
+    get_current_user,
+    get_db,
+    get_employee_warehouse_filter,
+    require_admin_or_manager,
+    require_any_cems_role,
+)
 from backend.cems.models.user import User
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.schemas.consumable import (
@@ -34,12 +41,15 @@ router = APIRouter(prefix="/consumables", tags=["CEMS Consumables"])
 @router.get("", response_model=List[ConsumableItemRead])
 async def list_consumables(
     warehouse_id: Optional[uuid.UUID] = Query(None),
+    category_id: Optional[uuid.UUID] = Query(None),
+    low_stock_only: bool = Query(False, alias="low_stock"),
+    search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumableItemRead]:
-    # Employees are restricted to their assigned warehouse
+    # Employees are restricted to their assigned warehouse.
     if current_user.cems_role == "Employee":
         employee_wh = get_employee_warehouse_filter(current_user)
         if employee_wh is None:
@@ -47,10 +57,14 @@ async def list_consumables(
         warehouse_id = employee_wh
 
     repo = ConsumableRepository(db)
-    if warehouse_id:
-        items = await repo.get_by_warehouse(warehouse_id)
-    else:
-        items = await repo.get_all(skip, limit)
+    items = await repo.get_filtered(
+        warehouse_id=warehouse_id,
+        category_id=category_id,
+        low_stock_only=low_stock_only,
+        search=search,
+        skip=skip,
+        limit=limit,
+    )
     return [ConsumableItemRead.model_validate(i) for i in items]
 
 
