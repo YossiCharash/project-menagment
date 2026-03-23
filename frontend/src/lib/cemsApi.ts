@@ -23,6 +23,8 @@ export interface AssetCategory {
   id: string
   name: string
   description?: string
+  warehouse_id: string | null
+  warehouse_name: string | null
 }
 
 export interface CemsProject {
@@ -245,10 +247,12 @@ export const cemsApi = {
     api.put<CemsUser>(`${CEMS_BASE}/users/${userId}/warehouse`, { warehouse_id: warehouseId }),
 
   // ── Categories ──────────────────────────────────────────────────────────
-  getCategories: () =>
-    api.get<AssetCategory[]>(`${CEMS_BASE}/categories`),
+  getCategories: (warehouseId?: string) =>
+    api.get<AssetCategory[]>(`${CEMS_BASE}/categories`, {
+      params: warehouseId ? { warehouse_id: warehouseId } : undefined,
+    }),
 
-  createCategory: (data: { name: string; description?: string }) =>
+  createCategory: (data: { name: string; description?: string; warehouse_id?: string }) =>
     api.post<AssetCategory>(`${CEMS_BASE}/categories`, data),
 
   deleteCategory: (id: string) =>

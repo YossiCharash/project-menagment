@@ -732,6 +732,28 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // When a warehouse is selected, show only categories that belong to that
+  // warehouse plus global categories (warehouse_id === null).  When no
+  // warehouse is selected, show all categories.
+  const filteredCategories = warehouseId
+    ? categories.filter((c) => c.warehouse_id === null || c.warehouse_id === warehouseId)
+    : categories
+
+  // Reset category selection when warehouse changes and the currently
+  // selected category is no longer in the filtered list.
+  function handleWarehouseChange(newWarehouseId: string) {
+    setWarehouseId(newWarehouseId)
+    if (categoryId) {
+      const stillValid = (newWarehouseId
+        ? categories.filter((c) => c.warehouse_id === null || c.warehouse_id === newWarehouseId)
+        : categories
+      ).some((c) => c.id === categoryId)
+      if (!stillValid) {
+        setCategoryId('')
+      }
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || !serialNumber.trim()) {
@@ -787,12 +809,12 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
             <label className={LABEL_CLASS}>קטגוריה</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר קטגוריה</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {filteredCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
             <label className={LABEL_CLASS}>מחסן</label>
-            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={INPUT_CLASS}>
+            <select value={warehouseId} onChange={(e) => handleWarehouseChange(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר מחסן</option>
               {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
