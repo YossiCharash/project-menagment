@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
+from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
@@ -40,6 +40,13 @@ async def list_assets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[FixedAssetRead]:
+    # Employees are restricted to their assigned warehouse
+    if current_user.cems_role == "Employee":
+        employee_wh = get_employee_warehouse_filter(current_user)
+        if employee_wh is None:
+            return []
+        warehouse_id = employee_wh
+
     repo = AssetRepository(db)
     if warehouse_id:
         assets = await repo.get_by_warehouse(warehouse_id, skip, limit)
