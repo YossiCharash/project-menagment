@@ -162,5 +162,11 @@ def get_employee_warehouse_filter(user: User) -> uuid.UUID | None:
     """
     if _is_cems_admin(user) or user.cems_role == "Manager":
         return None
-    # Employee: restrict to their assigned warehouse
-    return user.cems_warehouse_id
+    # Employee: restrict to their assigned warehouse.
+    if user.cems_warehouse_id is None:
+        return None
+    # The DB column is UUID; the ORM type annotation is a legacy int stub.
+    raw = user.cems_warehouse_id
+    if isinstance(raw, uuid.UUID):
+        return raw
+    return uuid.UUID(str(raw))

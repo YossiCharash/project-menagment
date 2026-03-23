@@ -154,14 +154,22 @@ export interface CemsDocument {
 
 // ─── Query Parameter Interfaces ──────────────────────────────────────────────
 
-interface AssetQueryParams {
+export interface AssetQueryParams {
+  warehouse_id?: string
+  project_id?: string
   status?: string
+  category_id?: string
+  custodian_id?: number
+  search?: string
   skip?: number
   limit?: number
 }
 
-interface ConsumableQueryParams {
+export interface ConsumableQueryParams {
   warehouse_id?: string
+  category_id?: string
+  low_stock?: boolean
+  search?: string
   skip?: number
   limit?: number
 }

@@ -5,7 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
+from backend.cems.api.deps import (
+    check_warehouse_manager_access,
+    get_current_user,
+    get_db,
+    get_employee_warehouse_filter,
+    require_admin_or_manager,
+    require_any_cems_role,
+)
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
@@ -36,15 +43,17 @@ router = APIRouter(prefix="/assets", tags=["CEMS Assets"])
 @router.get("", response_model=List[FixedAssetRead])
 async def list_assets(
     warehouse_id: Optional[uuid.UUID] = Query(None),
-    project_id: Optional[uuid.UUID] = Query(None),
+    project_id: Optional[int] = Query(None),
     status_filter: Optional[AssetStatus] = Query(None, alias="status"),
-    custodian_id: Optional[uuid.UUID] = Query(None),
+    category_id: Optional[uuid.UUID] = Query(None),
+    custodian_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[FixedAssetRead]:
-    # Employees are restricted to their assigned warehouse
+    # Employees are restricted to their assigned warehouse.
     if current_user.cems_role == "Employee":
         employee_wh = get_employee_warehouse_filter(current_user)
         if employee_wh is None:
@@ -52,16 +61,16 @@ async def list_assets(
         warehouse_id = employee_wh
 
     repo = AssetRepository(db)
-    if warehouse_id:
-        assets = await repo.get_by_warehouse(warehouse_id, skip, limit)
-    elif project_id:
-        assets = await repo.get_by_project(project_id, skip, limit)
-    elif status_filter:
-        assets = await repo.get_by_status(status_filter, skip, limit)
-    elif custodian_id:
-        assets = await repo.get_by_custodian(custodian_id, skip, limit)
-    else:
-        assets = await repo.get_all(skip, limit)
+    assets = await repo.get_filtered(
+        warehouse_id=warehouse_id,
+        project_id=project_id,
+        status=status_filter,
+        category_id=category_id,
+        custodian_id=custodian_id,
+        search=search,
+        skip=skip,
+        limit=limit,
+    )
     return [FixedAssetRead.model_validate(a) for a in assets]
 
 

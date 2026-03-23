@@ -23,8 +23,10 @@ import {
   type FixedAsset,
   type AssetHistory,
   type AssetRetirement,
+  type AssetQueryParams,
   type CemsUser,
   type AssetCategory,
+  type CemsProject,
   type Warehouse,
   type CemsDocument,
   type DocumentType,
@@ -74,12 +76,16 @@ export default function AssetsPage() {
   const [users, setUsers] = useState<CemsUser[]>([])
   const [categories, setCategories] = useState<AssetCategory[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [projects, setProjects] = useState<CemsProject[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('')
+  const [projectFilter, setProjectFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   // Expanded rows (asset history)
   const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null)
@@ -97,6 +103,8 @@ export default function AssetsPage() {
 
   const me = useSelector((s: RootState) => s.auth.me)
   const isManager = me?.role === 'Admin'
+  const isManagerOrAdmin =
+    me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
@@ -105,9 +113,6 @@ export default function AssetsPage() {
   const [moveAssetTarget, setMoveAssetTarget] = useState<FixedAsset | null>(null)
 
   // Retirement workflow
-  const me = useSelector((s: RootState) => s.auth.me)
-  const isManagerOrAdmin =
-    me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
   const [showRetiredSection, setShowRetiredSection] = useState(false)
   const [retirements, setRetirements] = useState<AssetRetirement[]>([])
   const [retiredAssets, setRetiredAssets] = useState<FixedAsset[]>([])
@@ -121,34 +126,35 @@ export default function AssetsPage() {
     setLoading(true)
     setError(null)
     try {
-      const params: { status?: string } = {}
+      const params: AssetQueryParams = {}
       if (statusFilter) params.status = statusFilter
+      if (warehouseFilter) params.warehouse_id = warehouseFilter
+      if (projectFilter) params.project_id = projectFilter
+      if (categoryFilter) params.category_id = categoryFilter
+      if (searchTerm) params.search = searchTerm
 
-      const [assetsRes, usersRes, categoriesRes] = await Promise.all([
+      const [assetsRes, usersRes, categoriesRes, warehousesRes, projectsRes] = await Promise.all([
         cemsApi.getAssets(params),
         cemsApi.getUsers(),
         cemsApi.getCategories(),
+        cemsApi.getWarehouses(),
+        cemsApi.getProjects(),
       ])
       setAssets(assetsRes.data)
       setUsers(usersRes.data)
       setCategories(categoriesRes.data)
+      setWarehouses(warehousesRes.data)
+      setProjects(projectsRes.data)
     } catch {
       setError('שגיאה בטעינת רשימת הציוד')
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, warehouseFilter, projectFilter, categoryFilter, searchTerm])
 
   useEffect(() => {
     loadData()
   }, [loadData])
-
-  // Load warehouses for move modal
-  useEffect(() => {
-    cemsApi.getWarehouses()
-      .then((res) => setWarehouses(res.data))
-      .catch(() => { /* silent */ })
-  }, [])
 
   // Retirement data
   const loadRetirementData = useCallback(async () => {
@@ -272,14 +278,15 @@ export default function AssetsPage() {
     return users.find((u) => u.id === userId)?.full_name || '-'
   }
 
-  const filteredAssets = assets.filter((asset) => {
-    if (!searchTerm) return true
-    const term = searchTerm.toLowerCase()
-    return (
-      asset.name.toLowerCase().includes(term) ||
-      asset.serial_number.toLowerCase().includes(term)
-    )
-  })
+  const hasActiveFilters = statusFilter || warehouseFilter || projectFilter || categoryFilter || searchTerm
+
+  function clearAllFilters() {
+    setSearchTerm('')
+    setStatusFilter('')
+    setWarehouseFilter('')
+    setProjectFilter('')
+    setCategoryFilter('')
+  }
 
   if (loading) {
     return (
@@ -314,8 +321,8 @@ export default function AssetsPage() {
 
       {/* Filter Bar */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -328,12 +335,51 @@ export default function AssetsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className={`${INPUT_CLASS} w-full sm:w-48`}
+            className={`${INPUT_CLASS} w-full sm:w-40`}
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          <select
+            value={warehouseFilter}
+            onChange={(e) => setWarehouseFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל המחסנים</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל הפרויקטים</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל הקטגוריות</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          {hasActiveFilters && (
+            <button
+              onClick={clearAllFilters}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              נקה פילטרים
+            </button>
+          )}
           <button
             onClick={() => setShowRetiredSection((prev) => !prev)}
             className={BTN_SECONDARY}
@@ -527,14 +573,14 @@ export default function AssetsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredAssets.length === 0 ? (
+              {assets.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     לא נמצאו פריטי ציוד
                   </td>
                 </tr>
               ) : (
-                filteredAssets.map((asset) => (
+                assets.map((asset) => (
                   <AssetRow
                     key={asset.id}
                     asset={asset}
