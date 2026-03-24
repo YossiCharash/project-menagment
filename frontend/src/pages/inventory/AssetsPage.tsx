@@ -17,6 +17,7 @@ import {
   History,
   Check,
   XCircle,
+  UserCheck,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -111,6 +112,7 @@ export default function AssetsPage() {
   const [transferAsset, setTransferAsset] = useState<FixedAsset | null>(null)
   const [retireAsset, setRetireAsset] = useState<FixedAsset | null>(null)
   const [moveAssetTarget, setMoveAssetTarget] = useState<FixedAsset | null>(null)
+  const [assignAssetTarget, setAssignAssetTarget] = useState<FixedAsset | null>(null)
 
   // Retirement workflow
   const [showRetiredSection, setShowRetiredSection] = useState(false)
@@ -593,6 +595,7 @@ export default function AssetsPage() {
                     onTransfer={() => setTransferAsset(asset)}
                     onRetire={() => setRetireAsset(asset)}
                     onMoveToWarehouse={() => setMoveAssetTarget(asset)}
+                    onAssignToEmployee={() => setAssignAssetTarget(asset)}
                     getUserName={getUserName}
                     activeTab={docTab[asset.id] || 'history'}
                     onTabSwitch={(tab) => handleDocTabSwitch(asset.id, tab)}
@@ -648,6 +651,14 @@ export default function AssetsPage() {
           onMoved={loadData}
         />
       )}
+      {assignAssetTarget && (
+        <AssignAssetModal
+          asset={assignAssetTarget}
+          users={users}
+          onClose={() => setAssignAssetTarget(null)}
+          onAssigned={loadData}
+        />
+      )}
     </div>
   )
 }
@@ -665,6 +676,7 @@ interface AssetRowProps {
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
+  onAssignToEmployee: () => void
   getUserName: (id: number | null) => string
   activeTab: 'history' | 'docs'
   onTabSwitch: (tab: 'history' | 'docs') => void
@@ -693,6 +705,7 @@ function AssetRow({
   onTransfer,
   onRetire,
   onMoveToWarehouse,
+  onAssignToEmployee,
   getUserName,
   activeTab,
   onTabSwitch,
@@ -709,7 +722,9 @@ function AssetRow({
   onDocumentUpload,
   onDocumentDelete,
 }: AssetRowProps) {
-  const canTransfer = asset.status === 'ACTIVE'
+  const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  const canAssignToEmployee = asset.status === 'IN_WAREHOUSE' || (asset.status === 'ACTIVE' && asset.current_custodian_id === null)
   const canRetire = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
 
   return (
@@ -742,13 +757,24 @@ function AssetRow({
                 <ArrowLeftRight className="w-4 h-4" />
               </button>
             )}
-            <button
-              onClick={onMoveToWarehouse}
-              className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
-              title="העבר למחסן"
-            >
-              <MapPin className="w-4 h-4" />
-            </button>
+            {canMoveToWarehouse && (
+              <button
+                onClick={onMoveToWarehouse}
+                className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+                title="החזר למחסן"
+              >
+                <MapPin className="w-4 h-4" />
+              </button>
+            )}
+            {canAssignToEmployee && (
+              <button
+                onClick={onAssignToEmployee}
+                className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
+                title="הקצה לעובד"
+              >
+                <UserCheck className="w-4 h-4" />
+              </button>
+            )}
             {canRetire && (
               <button
                 onClick={onRetire}
@@ -1378,6 +1404,82 @@ function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
               {submitting ? 'מעביר...' : 'העבר למחסן'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Assign Asset Modal ───────────────────────────────────────────────────────
+
+interface AssignAssetModalProps {
+  asset: FixedAsset
+  users: CemsUser[]
+  onClose: () => void
+  onAssigned: () => void
+}
+
+function AssignAssetModal({ asset, users, onClose, onAssigned }: AssignAssetModalProps) {
+  const [toUserId, setToUserId] = useState('')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!toUserId) {
+      setError('יש לבחור עובד')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      await cemsApi.assignAsset(asset.id, Number(toUserId), notes.trim() || undefined)
+      onAssigned()
+      onClose()
+    } catch {
+      setError('שגיאה בהקצאת הציוד לעובד')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            הקצאת ציוד לעובד: {asset.name}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className={LABEL_CLASS}>בחר עובד *</label>
+            <select value={toUserId} onChange={(e) => setToUserId(e.target.value)} className={INPUT_CLASS} required>
+              <option value="">בחר עובד</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>הערות</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={INPUT_CLASS} rows={2} placeholder="הערות (אופציונלי)" />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
+            <button type="submit" disabled={submitting || !toUserId} className={BTN_PRIMARY}>
+              {submitting ? 'מקצה...' : 'הקצה לעובד'}
             </button>
           </div>
         </form>

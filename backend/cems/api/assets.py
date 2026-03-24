@@ -37,6 +37,11 @@ class MoveAssetRequest(PydanticBaseModel):
 class RejectRetirementRequest(PydanticBaseModel):
     reason: str
 
+
+class AssignAssetRequest(PydanticBaseModel):
+    to_user_id: int
+    notes: Optional[str] = None
+
 router = APIRouter(prefix="/assets", tags=["CEMS Assets"])
 
 
@@ -245,13 +250,49 @@ async def move_asset(
     if asset.current_warehouse_id is not None:
         await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
     from_warehouse_id = asset.current_warehouse_id
+    from_custodian_id = asset.current_custodian_id
     asset.current_warehouse_id = payload.to_warehouse_id
+    asset.current_custodian_id = None
+    asset.status = AssetStatus.IN_WAREHOUSE
     await repo.log_history(
         asset_id=asset.id,
         action="WAREHOUSE_MOVE",
         actor_id=current_user.id,
+        from_custodian_id=from_custodian_id,
         from_warehouse_id=from_warehouse_id,
         to_warehouse_id=payload.to_warehouse_id,
+        notes=payload.notes,
+    )
+    return FixedAssetRead.model_validate(asset)
+
+
+@router.post("/{asset_id}/assign", response_model=FixedAssetRead)
+async def assign_asset(
+    asset_id: uuid.UUID,
+    payload: AssignAssetRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> FixedAssetRead:
+    repo = AssetRepository(db)
+    asset = await repo.get_by_id(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.status not in (AssetStatus.IN_WAREHOUSE, AssetStatus.ACTIVE) or (
+        asset.status == AssetStatus.ACTIVE and asset.current_custodian_id is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"ניתן להקצות רק נכסים שאינם מוקצים לעובד (סטטוס נוכחי: {asset.status.value}).",
+        )
+    from_warehouse_id = asset.current_warehouse_id
+    asset.current_custodian_id = payload.to_user_id
+    asset.status = AssetStatus.ACTIVE
+    await repo.log_history(
+        asset_id=asset.id,
+        action="ASSIGNED_TO_EMPLOYEE",
+        actor_id=current_user.id,
+        to_custodian_id=payload.to_user_id,
+        from_warehouse_id=from_warehouse_id,
         notes=payload.notes,
     )
     return FixedAssetRead.model_validate(asset)

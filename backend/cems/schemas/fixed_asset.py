@@ -11,14 +11,14 @@ class FixedAssetBase(BaseModel):
     name: str
     serial_number: str
     category_id: uuid.UUID
-    project_id: Optional[uuid.UUID] = None
+    project_id: Optional[int] = None
     purchase_date: Optional[date] = None
     warranty_expiry: Optional[date] = None
     notes: Optional[str] = None
 
 
 class FixedAssetCreate(FixedAssetBase):
-    current_custodian_id: Optional[uuid.UUID] = None
+    current_custodian_id: Optional[int] = None
     current_warehouse_id: Optional[uuid.UUID] = None
     status: AssetStatus = AssetStatus.ACTIVE
 
@@ -26,7 +26,7 @@ class FixedAssetCreate(FixedAssetBase):
 class FixedAssetUpdate(BaseModel):
     name: Optional[str] = None
     category_id: Optional[uuid.UUID] = None
-    project_id: Optional[uuid.UUID] = None
+    project_id: Optional[int] = None
     purchase_date: Optional[date] = None
     warranty_expiry: Optional[date] = None
     notes: Optional[str] = None
@@ -37,7 +37,7 @@ class FixedAssetRead(FixedAssetBase):
 
     id: uuid.UUID
     status: AssetStatus
-    current_custodian_id: Optional[uuid.UUID]
+    current_custodian_id: Optional[int]
     current_warehouse_id: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
@@ -49,9 +49,9 @@ class AssetHistoryRead(BaseModel):
     id: uuid.UUID
     asset_id: uuid.UUID
     action: str
-    actor_id: uuid.UUID
-    from_custodian_id: Optional[uuid.UUID]
-    to_custodian_id: Optional[uuid.UUID]
+    actor_id: int
+    from_custodian_id: Optional[int]
+    to_custodian_id: Optional[int]
     from_warehouse_id: Optional[uuid.UUID]
     to_warehouse_id: Optional[uuid.UUID]
     notes: Optional[str]

@@ -9,8 +9,7 @@ from backend.cems.models.transfer import ReturnStatus, TransferStatus
 
 class TransferCreate(BaseModel):
     asset_id: uuid.UUID
-    from_user_id: uuid.UUID
-    to_user_id: uuid.UUID
+    to_user_id: int
     to_warehouse_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
 
@@ -20,11 +19,11 @@ class TransferRead(BaseModel):
 
     id: uuid.UUID
     asset_id: uuid.UUID
-    from_user_id: uuid.UUID
-    to_user_id: uuid.UUID
+    from_user_id: int
+    to_user_id: int
     from_warehouse_id: Optional[uuid.UUID]
     to_warehouse_id: Optional[uuid.UUID]
-    initiated_by_id: uuid.UUID
+    initiated_by_id: int
     initiated_at: datetime
     status: TransferStatus
     recipient_signature_id: Optional[uuid.UUID]

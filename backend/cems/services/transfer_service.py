@@ -29,10 +29,9 @@ class TransferService:
     async def transfer_asset(
         self,
         asset_id: uuid.UUID,
-        from_user_id: uuid.UUID,
-        to_user_id: uuid.UUID,
+        to_user_id: int,
         to_warehouse_id: Optional[uuid.UUID],
-        initiated_by_id: uuid.UUID,
+        initiated_by_id: int,
         notes: Optional[str] = None,
     ) -> Transfer:
         asset = await self._asset_repo.get_by_id(asset_id)
@@ -48,10 +47,11 @@ class TransferService:
                 detail=f"Asset is not transferable (current status: {asset.status.value}).",
             )
 
-        if asset.current_custodian_id != from_user_id:
+        from_user_id = asset.current_custodian_id
+        if from_user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="from_user_id does not match the current custodian of the asset.",
+                detail="הנכס אינו מוקצה לעובד כלשהו ולא ניתן להעבירו. יש להקצות אותו תחילה.",
             )
 
         active_transfers = await self._transfer_repo.get_active_transfers_for_asset(asset_id)
@@ -61,7 +61,6 @@ class TransferService:
                 detail="Asset already has an active transfer in progress.",
             )
 
-        # Mark asset as in-transfer
         await self._asset_repo.update(asset_id, {"status": AssetStatus.IN_TRANSFER})
 
         transfer = await self._transfer_repo.create(
