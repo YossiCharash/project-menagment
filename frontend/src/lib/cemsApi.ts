@@ -239,6 +239,9 @@ export const cemsApi = {
   moveAsset: (assetId: string, toWarehouseId: string, notes?: string) =>
     api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/move`, { to_warehouse_id: toWarehouseId, notes }),
 
+  assignAsset: (assetId: string, toUserId: number, notes?: string) =>
+    api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/assign`, { to_user_id: toUserId, notes }),
+
   getExpiringWarranties: () =>
     api.get<FixedAsset[]>(`${CEMS_BASE}/assets/expiring-warranties`),
 
