@@ -15,6 +15,7 @@ import {
   type TransferStatus,
   type CemsUser,
 } from '../../lib/cemsApi'
+import SignaturePadModal from '../../components/inventory/SignaturePadModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export default function TransfersPage() {
 
   // Modals
   const [rejectTransferId, setRejectTransferId] = useState<string | null>(null)
+  const [signatureTransferId, setSignatureTransferId] = useState<string | null>(null)
 
   // Action loading states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
@@ -94,15 +96,22 @@ export default function TransfersPage() {
     return users.find((u) => u.id === userId)?.full_name || `עובד #${userId}`
   }
 
-  async function handleComplete(transferId: string) {
-    setActionLoadingId(transferId)
+  function handleComplete(transferId: string) {
+    setSignatureTransferId(transferId)
+  }
+
+  async function handleSignatureConfirm(hash: string) {
+    if (!signatureTransferId) return
+
+    setActionLoadingId(signatureTransferId)
     try {
-      await cemsApi.completeTransfer(transferId, {
-        signature_hash: crypto.randomUUID(),
+      await cemsApi.completeTransfer(signatureTransferId, {
+        signature_hash: hash,
       })
+      setSignatureTransferId(null)
       await loadData()
     } catch {
-      setError('שגיאה באישור ההעברה')
+      setError('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D0\u05D9\u05E9\u05D5\u05E8 \u05D4\u05D4\u05E2\u05D1\u05E8\u05D4')
     } finally {
       setActionLoadingId(null)
     }
@@ -274,6 +283,16 @@ export default function TransfersPage() {
           isLoading={actionLoadingId === rejectTransferId}
           onReject={handleReject}
           onClose={() => setRejectTransferId(null)}
+        />
+      )}
+
+      {/* Signature Modal for Transfer Completion */}
+      {signatureTransferId && (
+        <SignaturePadModal
+          title={'\u05D7\u05EA\u05D9\u05DE\u05EA \u05D0\u05D9\u05E9\u05D5\u05E8 \u05E7\u05D1\u05DC\u05D4'}
+          description={'\u05D7\u05EA\u05D5\u05DD \u05DC\u05D4\u05E9\u05DC\u05DE\u05EA \u05D4\u05E2\u05D1\u05E8\u05EA \u05D4\u05E6\u05D9\u05D5\u05D3'}
+          onConfirm={(hash) => handleSignatureConfirm(hash)}
+          onClose={() => setSignatureTransferId(null)}
         />
       )}
     </div>

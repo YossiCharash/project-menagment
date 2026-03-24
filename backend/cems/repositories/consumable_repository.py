@@ -13,6 +13,37 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(ConsumableItem, session)
 
+    async def get_filtered(
+        self,
+        warehouse_id: Optional[uuid.UUID] = None,
+        category_id: Optional[uuid.UUID] = None,
+        low_stock_only: bool = False,
+        search: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[ConsumableItem]:
+        """Return consumable items matching all supplied filters simultaneously.
+
+        Each non-None parameter narrows the result set (AND semantics).
+        When low_stock_only is True, only items at or below their threshold are returned.
+        """
+        stmt = select(ConsumableItem)
+
+        if warehouse_id is not None:
+            stmt = stmt.where(ConsumableItem.warehouse_id == warehouse_id)
+        if category_id is not None:
+            stmt = stmt.where(ConsumableItem.category_id == category_id)
+        if low_stock_only:
+            stmt = stmt.where(
+                ConsumableItem.quantity <= ConsumableItem.low_stock_threshold
+            )
+        if search:
+            stmt = stmt.where(ConsumableItem.name.ilike(f"%{search}%"))
+
+        stmt = stmt.order_by(ConsumableItem.name.asc()).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_by_warehouse(self, warehouse_id: uuid.UUID) -> List[ConsumableItem]:
         stmt = select(ConsumableItem).where(ConsumableItem.warehouse_id == warehouse_id)
         result = await self._session.execute(stmt)

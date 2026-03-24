@@ -42,7 +42,6 @@ async def initiate_transfer(
     service = TransferService(asset_repo, transfer_repo)
     transfer = await service.transfer_asset(
         asset_id=payload.asset_id,
-        from_user_id=payload.from_user_id,
         to_user_id=payload.to_user_id,
         to_warehouse_id=payload.to_warehouse_id,
         initiated_by_id=current_user.id,

@@ -2,7 +2,7 @@ import uuid
 from datetime import date, timedelta
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.models.fixed_asset import AssetHistory, AssetStatus, FixedAsset
@@ -13,6 +13,47 @@ from backend.cems.repositories.base_repository import BaseRepository
 class AssetRepository(BaseRepository[FixedAsset]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(FixedAsset, session)
+
+    async def get_filtered(
+        self,
+        warehouse_id: Optional[uuid.UUID] = None,
+        project_id: Optional[int] = None,
+        status: Optional[AssetStatus] = None,
+        category_id: Optional[uuid.UUID] = None,
+        custodian_id: Optional[int] = None,
+        search: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[FixedAsset]:
+        """Return assets matching all supplied filters simultaneously.
+
+        Each non-None parameter narrows the result set (AND semantics).
+        The search parameter applies an OR across name and serial_number.
+        """
+        stmt = select(FixedAsset)
+
+        if warehouse_id is not None:
+            stmt = stmt.where(FixedAsset.current_warehouse_id == warehouse_id)
+        if project_id is not None:
+            stmt = stmt.where(FixedAsset.project_id == project_id)
+        if status is not None:
+            stmt = stmt.where(FixedAsset.status == status)
+        if category_id is not None:
+            stmt = stmt.where(FixedAsset.category_id == category_id)
+        if custodian_id is not None:
+            stmt = stmt.where(FixedAsset.current_custodian_id == custodian_id)
+        if search:
+            pattern = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    FixedAsset.name.ilike(pattern),
+                    FixedAsset.serial_number.ilike(pattern),
+                )
+            )
+
+        stmt = stmt.order_by(FixedAsset.created_at.desc()).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_serial(self, serial_number: str) -> Optional[FixedAsset]:
         stmt = select(FixedAsset).where(FixedAsset.serial_number == serial_number)
