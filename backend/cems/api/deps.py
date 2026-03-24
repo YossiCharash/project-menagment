@@ -150,3 +150,23 @@ require_admin = RequireRole("Admin")
 require_admin_or_manager = RequireRole("Manager", "Admin")
 require_manager_or_above = require_admin_or_manager
 require_any_cems_role = RequireRole("Admin", "Manager", "Employee")
+
+
+def get_employee_warehouse_filter(user: User) -> uuid.UUID | None:
+    """Return the warehouse UUID that should be used as a mandatory filter for Employees.
+
+    Admins and Managers see all warehouses (returns ``None`` = no filter).
+    Employees are restricted to their assigned warehouse.  When the employee
+    has no warehouse assigned yet, the caller should treat ``None`` as "no
+    access" and return an empty result set.
+    """
+    if _is_cems_admin(user) or user.cems_role == "Manager":
+        return None
+    # Employee: restrict to their assigned warehouse.
+    if user.cems_warehouse_id is None:
+        return None
+    # The DB column is UUID; the ORM type annotation is a legacy int stub.
+    raw = user.cems_warehouse_id
+    if isinstance(raw, uuid.UUID):
+        return raw
+    return uuid.UUID(str(raw))

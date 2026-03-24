@@ -6,6 +6,8 @@ import {
   Plus,
   MapPin,
   User,
+  UserPlus,
+  UserMinus,
   ChevronDown,
   ChevronUp,
   X,
@@ -19,6 +21,8 @@ import {
   TrendingDown,
   ArrowLeftRight,
   CheckCircle,
+  Users,
+  History,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -27,6 +31,7 @@ import {
   type CemsUser,
   type FixedAsset,
   type ConsumableItem,
+  type ManagerHistoryEntry,
 } from '../../lib/cemsApi'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -56,15 +61,45 @@ export default function WarehousesPage() {
   const [users, setUsers] = useState<CemsUser[]>([])
   const [changeManagerWarehouseId, setChangeManagerWarehouseId] = useState<string | null>(null)
 
+  // Employee assignment
+  const [assignDropdownWarehouseId, setAssignDropdownWarehouseId] = useState<string | null>(null)
+  const [assigningUserId, setAssigningUserId] = useState<number | null>(null)
+
   // Modals
   const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false)
   const [editProjectsWarehouseId, setEditProjectsWarehouseId] = useState<string | null>(null)
   const [inventoryModalWarehouse, setInventoryModalWarehouse] = useState<Warehouse | null>(null)
   const [inventoryModalMode, setInventoryModalMode] = useState<'summary' | 'transfer-consumables' | 'transfer-assets'>('summary')
 
+  // Manager history
+  const [historyWarehouseId, setHistoryWarehouseId] = useState<string | null>(null)
+  const [managerHistory, setManagerHistory] = useState<ManagerHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
   function openInventoryModal(warehouse: Warehouse, mode: 'summary' | 'transfer-consumables' | 'transfer-assets' = 'summary') {
     setInventoryModalWarehouse(warehouse)
     setInventoryModalMode(mode)
+  }
+
+  const loadManagerHistory = useCallback(async (warehouseId: string) => {
+    setHistoryLoading(true)
+    try {
+      const res = await cemsApi.getWarehouseManagerHistory(warehouseId)
+      setManagerHistory(res.data)
+    } catch {
+      setManagerHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  function toggleManagerHistory(warehouseId: string) {
+    if (historyWarehouseId === warehouseId) {
+      setHistoryWarehouseId(null)
+      return
+    }
+    setHistoryWarehouseId(warehouseId)
+    loadManagerHistory(warehouseId)
   }
 
   const loadData = useCallback(async () => {
@@ -87,6 +122,48 @@ export default function WarehousesPage() {
     if (!id) return 'לא הוגדר'
     const user = users.find((u) => u.id === id)
     return user ? user.full_name : `#${id}`
+  }
+
+  /** Employees currently assigned to a given warehouse */
+  function getAssignedEmployees(warehouseId: string): CemsUser[] {
+    return users.filter(
+      (u) => u.cems_role === 'Employee' && u.cems_warehouse_id === warehouseId,
+    )
+  }
+
+  /** Employees that have not been assigned to any warehouse */
+  function getUnassignedEmployees(): CemsUser[] {
+    return users.filter(
+      (u) => u.cems_role === 'Employee' && !u.cems_warehouse_id,
+    )
+  }
+
+  async function handleAssignEmployee(userId: number, warehouseId: string) {
+    setAssigningUserId(userId)
+    try {
+      await cemsApi.assignEmployeeWarehouse(userId, warehouseId)
+      // Refresh user list to reflect assignment
+      const res = await cemsApi.getUsers()
+      setUsers(res.data)
+    } catch {
+      // silent - could add toast
+    } finally {
+      setAssigningUserId(null)
+      setAssignDropdownWarehouseId(null)
+    }
+  }
+
+  async function handleUnassignEmployee(userId: number) {
+    setAssigningUserId(userId)
+    try {
+      await cemsApi.assignEmployeeWarehouse(userId, null)
+      const res = await cemsApi.getUsers()
+      setUsers(res.data)
+    } catch {
+      // silent
+    } finally {
+      setAssigningUserId(null)
+    }
   }
 
   useEffect(() => {
@@ -323,8 +400,114 @@ export default function WarehousesPage() {
                             </div>
                           )}
                         </div>
-                        {isAdmin && (
-                          <div className="flex justify-end">
+                        {/* Assigned Employees */}
+                        {isManagerOrAdmin && (
+                          <div>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                <Users className="w-4 h-4" />
+                                עובדים משויכים ({getAssignedEmployees(warehouse.id).length})
+                              </h4>
+                              {getUnassignedEmployees().length > 0 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setAssignDropdownWarehouseId(
+                                      assignDropdownWarehouseId === warehouse.id ? null : warehouse.id,
+                                    )
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/40 transition-colors"
+                                >
+                                  <UserPlus className="w-3 h-3" />
+                                  שייך עובד
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Assign dropdown */}
+                            {assignDropdownWarehouseId === warehouse.id && (
+                              <div className="mb-3 p-3 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg space-y-2">
+                                <p className="text-xs font-medium text-green-800 dark:text-green-300">
+                                  בחר עובד לשיוך למחסן:
+                                </p>
+                                <div className="max-h-40 overflow-y-auto space-y-1">
+                                  {getUnassignedEmployees().map((emp) => (
+                                    <button
+                                      key={emp.id}
+                                      disabled={assigningUserId === emp.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleAssignEmployee(emp.id, warehouse.id)
+                                      }}
+                                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-white dark:bg-gray-700 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors disabled:opacity-50 border border-gray-200 dark:border-gray-600"
+                                    >
+                                      <span className="text-gray-900 dark:text-white">{emp.full_name}</span>
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">{emp.email}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setAssignDropdownWarehouseId(null)
+                                  }}
+                                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                                >
+                                  ביטול
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Assigned employee list */}
+                            {getAssignedEmployees(warehouse.id).length === 0 ? (
+                              <p className="text-sm text-gray-500 dark:text-gray-400">אין עובדים משויכים למחסן זה</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {getAssignedEmployees(warehouse.id).map((emp) => (
+                                  <div
+                                    key={emp.id}
+                                    className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-750 rounded-lg text-sm"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <User className="w-3.5 h-3.5 text-gray-400" />
+                                      <span className="text-gray-900 dark:text-white">{emp.full_name}</span>
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">({emp.email})</span>
+                                    </div>
+                                    <button
+                                      disabled={assigningUserId === emp.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleUnassignEmployee(emp.id)
+                                      }}
+                                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                                      title="הסר שיוך"
+                                    >
+                                      <UserMinus className="w-3 h-3" />
+                                      הסר
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleManagerHistory(warehouse.id)
+                            }}
+                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                              historyWarehouseId === warehouse.id
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40'
+                            }`}
+                          >
+                            <History className="w-3 h-3" />
+                            היסטוריה
+                          </button>
+                          {isAdmin && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -335,7 +518,15 @@ export default function WarehousesPage() {
                               <UserCog className="w-3 h-3" />
                               שנה מנהל
                             </button>
-                          </div>
+                          )}
+                        </div>
+
+                        {/* Manager History Panel */}
+                        {historyWarehouseId === warehouse.id && (
+                          <ManagerHistoryPanel
+                            history={managerHistory}
+                            loading={historyLoading}
+                          />
                         )}
                       </>
                     )}
@@ -381,6 +572,85 @@ export default function WarehousesPage() {
           onClose={() => setInventoryModalWarehouse(null)}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Manager History Panel ────────────────────────────────────────────────────
+
+interface ManagerHistoryPanelProps {
+  history: ManagerHistoryEntry[]
+  loading: boolean
+}
+
+function ManagerHistoryPanel({ history, loading }: ManagerHistoryPanelProps) {
+  if (loading) {
+    return (
+      <div className="bg-gray-50 dark:bg-gray-750 rounded-lg p-4">
+        <p className="text-sm text-gray-500 dark:text-gray-400">טוען היסטוריה...</p>
+      </div>
+    )
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="bg-gray-50 dark:bg-gray-750 rounded-lg p-4">
+        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+          <History className="w-4 h-4" />
+          היסטוריית מנהלים
+        </h4>
+        <p className="text-sm text-gray-500 dark:text-gray-400">אין היסטוריית שינויים</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-50 dark:bg-gray-750 rounded-lg p-4">
+      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
+        <History className="w-4 h-4" />
+        היסטוריית מנהלים ({history.length})
+      </h4>
+      <div className="relative border-r-2 border-blue-200 dark:border-blue-800 pr-4 space-y-4 mr-2">
+        {history.map((entry, index) => {
+          const isFirst = index === history.length - 1
+          const formattedDate = new Date(entry.changed_at).toLocaleDateString('he-IL')
+
+          return (
+            <div key={entry.id} className="relative">
+              {/* Timeline dot */}
+              <div className="absolute -right-[1.3rem] top-1 w-3 h-3 rounded-full bg-blue-500 border-2 border-white dark:border-gray-750" />
+
+              <div className="space-y-1">
+                {/* Date and new manager */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500 dark:text-gray-400 tabular-nums">{formattedDate}</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{entry.new_manager_name}</span>
+                </div>
+
+                {/* Previous manager */}
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {isFirst && !entry.previous_manager_name
+                    ? '(מנהל ראשון)'
+                    : `הוחלף מ: ${entry.previous_manager_name ?? 'לא הוגדר'}`
+                  }
+                </p>
+
+                {/* Changed by */}
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  בוצע ע&quot;י: {entry.changed_by_name}
+                </p>
+
+                {/* Reason */}
+                {entry.reason && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                    סיבה: {entry.reason}
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

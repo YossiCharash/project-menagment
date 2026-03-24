@@ -22,8 +22,8 @@ class WarehouseService:
     async def change_manager(
         self,
         warehouse_id: uuid.UUID,
-        new_manager_id: uuid.UUID,
-        changed_by_id: uuid.UUID,
+        new_manager_id: int,
+        changed_by_id: int,
         reason: Optional[str] = None,
     ) -> Warehouse:
         warehouse = await self._warehouse_repo.get_by_id(warehouse_id)

@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import {
-  Package,
   Plus,
   Search,
   ArrowLeftRight,
@@ -12,16 +11,28 @@ import {
   X,
   AlertTriangle,
   MapPin,
+  FileText,
+  Upload,
+  Download,
+  History,
+  Check,
+  XCircle,
+  UserCheck,
 } from 'lucide-react'
 import {
   cemsApi,
   type FixedAsset,
   type AssetHistory,
+  type AssetRetirement,
+  type AssetQueryParams,
   type CemsUser,
   type AssetCategory,
+  type CemsProject,
   type Warehouse,
-  type AssetStatus,
+  type CemsDocument,
+  type DocumentType,
 } from '../../lib/cemsApi'
+import { fileAttachmentUrl } from '../../lib/api'
 import { StatusBadge } from './InventoryDashboard'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -42,6 +53,23 @@ const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-
 const BTN_DANGER = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 
+const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  WARRANTY: 'תעודת אחריות',
+  INVOICE: 'חשבונית',
+  OTHER: 'אחר',
+}
+
+const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
+  { value: 'INVOICE', label: 'חשבונית' },
+  { value: 'WARRANTY', label: 'תעודת אחריות' },
+  { value: 'OTHER', label: 'אחר' },
+]
+
+function isImageFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  return ['jpg', 'jpeg', 'png'].includes(ext)
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AssetsPage() {
@@ -49,56 +77,132 @@ export default function AssetsPage() {
   const [users, setUsers] = useState<CemsUser[]>([])
   const [categories, setCategories] = useState<AssetCategory[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [projects, setProjects] = useState<CemsProject[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('')
+  const [projectFilter, setProjectFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   // Expanded rows (asset history)
   const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null)
   const [assetHistory, setAssetHistory] = useState<AssetHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  // Documents (per-asset tab + shared doc state)
+  const [docTab, setDocTab] = useState<Record<string, 'history' | 'docs'>>({})
+  const [assetDocs, setAssetDocs] = useState<CemsDocument[]>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [uploadDocType, setUploadDocType] = useState<DocumentType>('INVOICE')
+  const [uploadExpiry, setUploadExpiry] = useState('')
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const me = useSelector((s: RootState) => s.auth.me)
+  const isManager = me?.role === 'Admin'
+  const isManagerOrAdmin =
+    me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
+
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
   const [transferAsset, setTransferAsset] = useState<FixedAsset | null>(null)
   const [retireAsset, setRetireAsset] = useState<FixedAsset | null>(null)
   const [moveAssetTarget, setMoveAssetTarget] = useState<FixedAsset | null>(null)
+  const [assignAssetTarget, setAssignAssetTarget] = useState<FixedAsset | null>(null)
+
+  // Retirement workflow
+  const [showRetiredSection, setShowRetiredSection] = useState(false)
+  const [retirements, setRetirements] = useState<AssetRetirement[]>([])
+  const [retiredAssets, setRetiredAssets] = useState<FixedAsset[]>([])
+  const [retirementLoading, setRetirementLoading] = useState(false)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [approveNotes, setApproveNotes] = useState('')
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const params: { status?: string } = {}
+      const params: AssetQueryParams = {}
       if (statusFilter) params.status = statusFilter
+      if (warehouseFilter) params.warehouse_id = warehouseFilter
+      if (projectFilter) params.project_id = projectFilter
+      if (categoryFilter) params.category_id = categoryFilter
+      if (searchTerm) params.search = searchTerm
 
-      const [assetsRes, usersRes, categoriesRes] = await Promise.all([
+      const [assetsRes, usersRes, categoriesRes, warehousesRes, projectsRes] = await Promise.all([
         cemsApi.getAssets(params),
         cemsApi.getUsers(),
         cemsApi.getCategories(),
+        cemsApi.getWarehouses(),
+        cemsApi.getProjects(),
       ])
       setAssets(assetsRes.data)
       setUsers(usersRes.data)
       setCategories(categoriesRes.data)
+      setWarehouses(warehousesRes.data)
+      setProjects(projectsRes.data)
     } catch {
       setError('שגיאה בטעינת רשימת הציוד')
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, warehouseFilter, projectFilter, categoryFilter, searchTerm])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
-  // Load warehouses for move modal
-  useEffect(() => {
-    cemsApi.getWarehouses()
-      .then((res) => setWarehouses(res.data))
-      .catch(() => { /* silent */ })
+  // Retirement data
+  const loadRetirementData = useCallback(async () => {
+    setRetirementLoading(true)
+    try {
+      const [retRes, retiredRes] = await Promise.all([
+        cemsApi.getRetirements('PENDING'),
+        cemsApi.getAssets({ status: 'RETIRED' }),
+      ])
+      setRetirements(retRes.data)
+      setRetiredAssets(retiredRes.data)
+    } catch {
+      // silently fail for secondary data
+    } finally {
+      setRetirementLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    if (showRetiredSection) {
+      loadRetirementData()
+    }
+  }, [showRetiredSection, loadRetirementData])
+
+  async function handleApproveRetirement(retirementId: string) {
+    try {
+      await cemsApi.approveRetirement(retirementId, approveNotes || undefined)
+      setApprovingId(null)
+      setApproveNotes('')
+      await Promise.all([loadRetirementData(), loadData()])
+    } catch {
+      // error handling is implicit via UI refresh
+    }
+  }
+
+  async function handleRejectRetirement(retirementId: string) {
+    if (!rejectReason.trim()) return
+    try {
+      await cemsApi.rejectRetirement(retirementId, rejectReason.trim())
+      setRejectingId(null)
+      setRejectReason('')
+      await loadRetirementData()
+    } catch {
+      // error handling is implicit via UI refresh
+    }
+  }
 
   async function toggleAssetHistory(assetId: string) {
     if (expandedAssetId === assetId) {
@@ -117,6 +221,56 @@ export default function AssetsPage() {
     }
   }
 
+  async function loadDocuments(assetId: string) {
+    setDocsLoading(true)
+    try {
+      const res = await cemsApi.getDocuments('fixed_asset', assetId)
+      setAssetDocs(res.data)
+    } catch {
+      setAssetDocs([])
+    } finally {
+      setDocsLoading(false)
+    }
+  }
+
+  function handleDocTabSwitch(assetId: string, tab: 'history' | 'docs') {
+    setDocTab((prev) => ({ ...prev, [assetId]: tab }))
+    if (tab === 'docs') {
+      loadDocuments(assetId)
+    }
+  }
+
+  async function handleDocumentUpload(assetId: string) {
+    if (!uploadFile) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+      formData.append('entity_type', 'fixed_asset')
+      formData.append('entity_id', assetId)
+      formData.append('document_type', uploadDocType)
+      if (uploadExpiry) formData.append('expiry_date', uploadExpiry)
+      await cemsApi.uploadDocument(formData)
+      setUploadFile(null)
+      setUploadExpiry('')
+      setUploadDocType('INVOICE')
+      await loadDocuments(assetId)
+    } catch {
+      // Error is handled silently; the user will see no new document appear
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleDocumentDelete(docId: string, assetId: string) {
+    try {
+      await cemsApi.deleteDocument(docId)
+      await loadDocuments(assetId)
+    } catch {
+      // silent
+    }
+  }
+
   function getCategoryName(categoryId: string): string {
     return categories.find((c) => c.id === categoryId)?.name || '-'
   }
@@ -126,14 +280,15 @@ export default function AssetsPage() {
     return users.find((u) => u.id === userId)?.full_name || '-'
   }
 
-  const filteredAssets = assets.filter((asset) => {
-    if (!searchTerm) return true
-    const term = searchTerm.toLowerCase()
-    return (
-      asset.name.toLowerCase().includes(term) ||
-      asset.serial_number.toLowerCase().includes(term)
-    )
-  })
+  const hasActiveFilters = statusFilter || warehouseFilter || projectFilter || categoryFilter || searchTerm
+
+  function clearAllFilters() {
+    setSearchTerm('')
+    setStatusFilter('')
+    setWarehouseFilter('')
+    setProjectFilter('')
+    setCategoryFilter('')
+  }
 
   if (loading) {
     return (
@@ -168,8 +323,8 @@ export default function AssetsPage() {
 
       {/* Filter Bar */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -182,14 +337,227 @@ export default function AssetsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className={`${INPUT_CLASS} w-full sm:w-48`}
+            className={`${INPUT_CLASS} w-full sm:w-40`}
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          <select
+            value={warehouseFilter}
+            onChange={(e) => setWarehouseFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל המחסנים</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל הפרויקטים</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={`${INPUT_CLASS} w-full sm:w-44`}
+          >
+            <option value="">כל הקטגוריות</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          {hasActiveFilters && (
+            <button
+              onClick={clearAllFilters}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              נקה פילטרים
+            </button>
+          )}
+          <button
+            onClick={() => setShowRetiredSection((prev) => !prev)}
+            className={BTN_SECONDARY}
+          >
+            <span className="flex items-center gap-2">
+              <History className="w-4 h-4" />
+              {showRetiredSection ? 'הסתר' : 'ציוד פרוש ובקשות'}
+            </span>
+          </button>
         </div>
       </div>
+
+      {/* Retired Assets & Pending Retirement Requests */}
+      {showRetiredSection && (
+        <div className="space-y-4">
+          {/* Section 1: Pending retirement requests -- managers only */}
+          {isManagerOrAdmin && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  בקשות פרישה ממתינות לאישור
+                </h2>
+              </div>
+              {retirementLoading ? (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
+              ) : retirements.length === 0 ? (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  אין בקשות פרישה ממתינות
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-700">
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מזהה ציוד</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">סיבה</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שיטת סילוק</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מבקש</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תאריך בקשה</th>
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">פעולות</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {retirements.map((ret) => (
+                        <tr key={ret.id}>
+                          <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-mono">
+                            {ret.asset_id.slice(0, 8)}...
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
+                            {ret.reason}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {ret.disposal_method}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {getUserName(ret.requested_by_id)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {new Date(ret.requested_at).toLocaleDateString('he-IL')}
+                          </td>
+                          <td className="px-4 py-3">
+                            {approvingId === ret.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="הערות (אופציונלי)"
+                                  value={approveNotes}
+                                  onChange={(e) => setApproveNotes(e.target.value)}
+                                  className={`${INPUT_CLASS} w-40`}
+                                />
+                                <button
+                                  onClick={() => handleApproveRetirement(ret.id)}
+                                  className="p-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors"
+                                  title="אשר"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => { setApprovingId(null); setApproveNotes('') }}
+                                  className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 transition-colors"
+                                  title="בטל"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : rejectingId === ret.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="סיבת דחייה *"
+                                  value={rejectReason}
+                                  onChange={(e) => setRejectReason(e.target.value)}
+                                  className={`${INPUT_CLASS} w-40`}
+                                />
+                                <button
+                                  onClick={() => handleRejectRetirement(ret.id)}
+                                  disabled={!rejectReason.trim()}
+                                  className="p-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                                  title="דחה"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => { setRejectingId(null); setRejectReason('') }}
+                                  className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 transition-colors"
+                                  title="בטל"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setApprovingId(ret.id)}
+                                  className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+                                  title="אשר פרישה"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setRejectingId(ret.id)}
+                                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                  title="דחה פרישה"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section 2: Retired assets -- visible to all */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ציוד פרוש</h2>
+            </div>
+            {retirementLoading ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
+            ) : retiredAssets.length === 0 ? (
+              <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                אין ציוד פרוש
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-700">
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מס' סידורי</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">הערות</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {retiredAssets.map((asset) => (
+                      <tr key={asset.id}>
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{asset.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(asset.category_id)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Assets Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -207,14 +575,14 @@ export default function AssetsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredAssets.length === 0 ? (
+              {assets.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     לא נמצאו פריטי ציוד
                   </td>
                 </tr>
               ) : (
-                filteredAssets.map((asset) => (
+                assets.map((asset) => (
                   <AssetRow
                     key={asset.id}
                     asset={asset}
@@ -227,7 +595,22 @@ export default function AssetsPage() {
                     onTransfer={() => setTransferAsset(asset)}
                     onRetire={() => setRetireAsset(asset)}
                     onMoveToWarehouse={() => setMoveAssetTarget(asset)}
+                    onAssignToEmployee={() => setAssignAssetTarget(asset)}
                     getUserName={getUserName}
+                    activeTab={docTab[asset.id] || 'history'}
+                    onTabSwitch={(tab) => handleDocTabSwitch(asset.id, tab)}
+                    documents={assetDocs}
+                    docsLoading={docsLoading}
+                    uploadFile={uploadFile}
+                    uploadDocType={uploadDocType}
+                    uploadExpiry={uploadExpiry}
+                    uploading={uploading}
+                    isManager={isManager}
+                    onUploadFileChange={setUploadFile}
+                    onUploadDocTypeChange={setUploadDocType}
+                    onUploadExpiryChange={setUploadExpiry}
+                    onDocumentUpload={() => handleDocumentUpload(asset.id)}
+                    onDocumentDelete={(docId) => handleDocumentDelete(docId, asset.id)}
                   />
                 ))
               )}
@@ -268,6 +651,14 @@ export default function AssetsPage() {
           onMoved={loadData}
         />
       )}
+      {assignAssetTarget && (
+        <AssignAssetModal
+          asset={assignAssetTarget}
+          users={users}
+          onClose={() => setAssignAssetTarget(null)}
+          onAssigned={loadData}
+        />
+      )}
     </div>
   )
 }
@@ -285,7 +676,22 @@ interface AssetRowProps {
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
+  onAssignToEmployee: () => void
   getUserName: (id: number | null) => string
+  activeTab: 'history' | 'docs'
+  onTabSwitch: (tab: 'history' | 'docs') => void
+  documents: CemsDocument[]
+  docsLoading: boolean
+  uploadFile: File | null
+  uploadDocType: DocumentType
+  uploadExpiry: string
+  uploading: boolean
+  isManager: boolean
+  onUploadFileChange: (f: File | null) => void
+  onUploadDocTypeChange: (t: DocumentType) => void
+  onUploadExpiryChange: (d: string) => void
+  onDocumentUpload: () => void
+  onDocumentDelete: (docId: string) => void
 }
 
 function AssetRow({
@@ -299,9 +705,26 @@ function AssetRow({
   onTransfer,
   onRetire,
   onMoveToWarehouse,
+  onAssignToEmployee,
   getUserName,
+  activeTab,
+  onTabSwitch,
+  documents,
+  docsLoading,
+  uploadFile,
+  uploadDocType,
+  uploadExpiry,
+  uploading,
+  isManager,
+  onUploadFileChange,
+  onUploadDocTypeChange,
+  onUploadExpiryChange,
+  onDocumentUpload,
+  onDocumentDelete,
 }: AssetRowProps) {
-  const canTransfer = asset.status === 'ACTIVE'
+  const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  const canAssignToEmployee = asset.status === 'IN_WAREHOUSE' || (asset.status === 'ACTIVE' && asset.current_custodian_id === null)
   const canRetire = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
 
   return (
@@ -334,13 +757,24 @@ function AssetRow({
                 <ArrowLeftRight className="w-4 h-4" />
               </button>
             )}
-            <button
-              onClick={onMoveToWarehouse}
-              className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
-              title="העבר למחסן"
-            >
-              <MapPin className="w-4 h-4" />
-            </button>
+            {canMoveToWarehouse && (
+              <button
+                onClick={onMoveToWarehouse}
+                className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+                title="החזר למחסן"
+              >
+                <MapPin className="w-4 h-4" />
+              </button>
+            )}
+            {canAssignToEmployee && (
+              <button
+                onClick={onAssignToEmployee}
+                className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
+                title="הקצה לעובד"
+              >
+                <UserCheck className="w-4 h-4" />
+              </button>
+            )}
             {canRetire && (
               <button
                 onClick={onRetire}
@@ -356,37 +790,234 @@ function AssetRow({
       {isExpanded && (
         <tr>
           <td colSpan={7} className="px-4 py-4 bg-gray-50 dark:bg-gray-750">
-            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">היסטוריית פעולות</h4>
-            {historyLoading ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">טוען היסטוריה...</p>
-            ) : history.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">אין היסטוריה זמינה</p>
-            ) : (
-              <div className="space-y-2">
-                {history.map((entry) => (
-                  <div key={entry.id} className="flex items-start gap-3 p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900 dark:text-white">{entry.action}</p>
-                      {entry.from_custodian_id && entry.to_custodian_id && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          מ: {getUserName(entry.from_custodian_id)} &larr; ל: {getUserName(entry.to_custodian_id)}
-                        </p>
-                      )}
-                      {entry.notes && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{entry.notes}</p>
-                      )}
-                    </div>
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
-                      {new Date(entry.timestamp).toLocaleString('he-IL')}
-                    </span>
+            {/* Tab navigation */}
+            <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 mb-4">
+              <button
+                onClick={() => onTabSwitch('history')}
+                className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'history'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                היסטוריה
+              </button>
+              <button
+                onClick={() => onTabSwitch('docs')}
+                className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'docs'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                מסמכים
+              </button>
+            </div>
+
+            {/* Tab content */}
+            {activeTab === 'history' ? (
+              <>
+                {historyLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">טוען היסטוריה...</p>
+                ) : history.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">אין היסטוריה זמינה</p>
+                ) : (
+                  <div className="space-y-2">
+                    {history.map((entry) => (
+                      <div key={entry.id} className="flex items-start gap-3 p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-900 dark:text-white">{entry.action}</p>
+                          {entry.from_custodian_id && entry.to_custodian_id && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              מ: {getUserName(entry.from_custodian_id)} &larr; ל: {getUserName(entry.to_custodian_id)}
+                            </p>
+                          )}
+                          {entry.notes && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{entry.notes}</p>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">
+                          {new Date(entry.timestamp).toLocaleString('he-IL')}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
+            ) : (
+              <AssetDocumentsPanel
+                documents={documents}
+                docsLoading={docsLoading}
+                uploadFile={uploadFile}
+                uploadDocType={uploadDocType}
+                uploadExpiry={uploadExpiry}
+                uploading={uploading}
+                isManager={isManager}
+                onUploadFileChange={onUploadFileChange}
+                onUploadDocTypeChange={onUploadDocTypeChange}
+                onUploadExpiryChange={onUploadExpiryChange}
+                onDocumentUpload={onDocumentUpload}
+                onDocumentDelete={onDocumentDelete}
+              />
             )}
           </td>
         </tr>
       )}
     </>
+  )
+}
+
+// ─── Asset Documents Panel ────────────────────────────────────────────────────
+
+interface AssetDocumentsPanelProps {
+  documents: CemsDocument[]
+  docsLoading: boolean
+  uploadFile: File | null
+  uploadDocType: DocumentType
+  uploadExpiry: string
+  uploading: boolean
+  isManager: boolean
+  onUploadFileChange: (f: File | null) => void
+  onUploadDocTypeChange: (t: DocumentType) => void
+  onUploadExpiryChange: (d: string) => void
+  onDocumentUpload: () => void
+  onDocumentDelete: (docId: string) => void
+}
+
+function AssetDocumentsPanel({
+  documents,
+  docsLoading,
+  uploadFile,
+  uploadDocType,
+  uploadExpiry,
+  uploading,
+  isManager,
+  onUploadFileChange,
+  onUploadDocTypeChange,
+  onUploadExpiryChange,
+  onDocumentUpload,
+  onDocumentDelete,
+}: AssetDocumentsPanelProps) {
+  if (docsLoading) {
+    return <p className="text-sm text-gray-500 dark:text-gray-400">טוען מסמכים...</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Document list */}
+      {documents.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">אין מסמכים מצורפים</p>
+      ) : (
+        <div className="space-y-2">
+          {documents.map((doc) => (
+            <div
+              key={doc.id}
+              className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+            >
+              {/* File type icon */}
+              <span className="text-lg flex-shrink-0">
+                {isImageFile(doc.filename) ? (
+                  <FileText className="w-5 h-5 text-purple-500" />
+                ) : (
+                  <FileText className="w-5 h-5 text-blue-500" />
+                )}
+              </span>
+
+              {/* File info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-900 dark:text-white truncate">{doc.filename}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${
+                    doc.document_type === 'WARRANTY'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                      : doc.document_type === 'INVOICE'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                  }`}>
+                    {DOC_TYPE_LABELS[doc.document_type]}
+                  </span>
+                  {doc.expiry_date && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      תוקף: {new Date(doc.expiry_date).toLocaleDateString('he-IL')}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    const url = fileAttachmentUrl(doc.file_url)
+                    if (url) window.open(url, '_blank')
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
+                  title="הורדה"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                {isManager && (
+                  <button
+                    onClick={() => onDocumentDelete(doc.id)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                    title="מחיקה"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Upload form */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+          <Upload className="w-4 h-4" />
+          העלאת מסמך חדש
+        </h5>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className={LABEL_CLASS}>קובץ</label>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+              onChange={(e) => onUploadFileChange(e.target.files?.[0] || null)}
+              className={`${INPUT_CLASS} text-xs`}
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>סוג מסמך</label>
+            <select
+              value={uploadDocType}
+              onChange={(e) => onUploadDocTypeChange(e.target.value as DocumentType)}
+              className={INPUT_CLASS}
+            >
+              {DOC_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>תאריך תוקף</label>
+            <input
+              type="date"
+              value={uploadExpiry}
+              onChange={(e) => onUploadExpiryChange(e.target.value)}
+              className={INPUT_CLASS}
+            />
+          </div>
+          <button
+            onClick={onDocumentUpload}
+            disabled={!uploadFile || uploading}
+            className={`${BTN_PRIMARY} disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {uploading ? 'מעלה...' : 'העלאה'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -409,6 +1040,28 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // When a warehouse is selected, show only categories that belong to that
+  // warehouse plus global categories (warehouse_id === null).  When no
+  // warehouse is selected, show all categories.
+  const filteredCategories = warehouseId
+    ? categories.filter((c) => c.warehouse_id === null || c.warehouse_id === warehouseId)
+    : categories
+
+  // Reset category selection when warehouse changes and the currently
+  // selected category is no longer in the filtered list.
+  function handleWarehouseChange(newWarehouseId: string) {
+    setWarehouseId(newWarehouseId)
+    if (categoryId) {
+      const stillValid = (newWarehouseId
+        ? categories.filter((c) => c.warehouse_id === null || c.warehouse_id === newWarehouseId)
+        : categories
+      ).some((c) => c.id === categoryId)
+      if (!stillValid) {
+        setCategoryId('')
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -465,12 +1118,12 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
             <label className={LABEL_CLASS}>קטגוריה</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר קטגוריה</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {filteredCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
             <label className={LABEL_CLASS}>מחסן</label>
-            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={INPUT_CLASS}>
+            <select value={warehouseId} onChange={(e) => handleWarehouseChange(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר מחסן</option>
               {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
@@ -604,8 +1257,6 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const me = useSelector((s: RootState) => s.auth.me)
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!reason.trim()) {
@@ -616,12 +1267,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
     setSubmitting(true)
     setError(null)
     try {
-      // Use the transfer mechanism to retire the asset
-      await cemsApi.initiateTransfer({
-        asset_id: asset.id,
-        to_user_id: me?.id || 0,
-        notes: `פרישה - סיבה: ${reason.trim()}${disposalMethod ? ` | שיטת סילוק: ${disposalMethod}` : ''}`,
-      })
+      await cemsApi.retireAsset(asset.id, reason.trim(), disposalMethod || 'אחר')
       onRetired()
       onClose()
     } catch {
@@ -649,7 +1295,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
             </div>
           )}
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 text-sm text-yellow-800 dark:text-yellow-300">
-            שים לב: פעולה זו תסמן את הציוד כ"בפרישה" ולא ניתן לבטל אותה בקלות.
+            שים לב: הבקשה תועבר לאישור מנהל.
           </div>
           <div>
             <label className={LABEL_CLASS}>סיבה לפרישה *</label>
@@ -758,6 +1404,82 @@ function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
               {submitting ? 'מעביר...' : 'העבר למחסן'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Assign Asset Modal ───────────────────────────────────────────────────────
+
+interface AssignAssetModalProps {
+  asset: FixedAsset
+  users: CemsUser[]
+  onClose: () => void
+  onAssigned: () => void
+}
+
+function AssignAssetModal({ asset, users, onClose, onAssigned }: AssignAssetModalProps) {
+  const [toUserId, setToUserId] = useState('')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!toUserId) {
+      setError('יש לבחור עובד')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      await cemsApi.assignAsset(asset.id, Number(toUserId), notes.trim() || undefined)
+      onAssigned()
+      onClose()
+    } catch {
+      setError('שגיאה בהקצאת הציוד לעובד')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            הקצאת ציוד לעובד: {asset.name}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className={LABEL_CLASS}>בחר עובד *</label>
+            <select value={toUserId} onChange={(e) => setToUserId(e.target.value)} className={INPUT_CLASS} required>
+              <option value="">בחר עובד</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>הערות</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={INPUT_CLASS} rows={2} placeholder="הערות (אופציונלי)" />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
+            <button type="submit" disabled={submitting || !toUserId} className={BTN_PRIMARY}>
+              {submitting ? 'מקצה...' : 'הקצה לעובד'}
             </button>
           </div>
         </form>

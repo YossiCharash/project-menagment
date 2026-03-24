@@ -7,6 +7,7 @@ export interface CemsUser {
   full_name: string
   email: string
   cems_role: string | null
+  cems_warehouse_id: string | null
 }
 
 export interface Warehouse {
@@ -22,6 +23,8 @@ export interface AssetCategory {
   id: string
   name: string
   description?: string
+  warehouse_id: string | null
+  warehouse_name: string | null
 }
 
 export interface CemsProject {
@@ -80,6 +83,52 @@ export interface StockAlert {
   created_at: string
 }
 
+export type RetirementStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface AssetRetirement {
+  id: string
+  asset_id: string
+  requested_by_id: number
+  approved_by_id: number | null
+  reason: string
+  disposal_method: string
+  status: RetirementStatus
+  requested_at: string
+  approved_at: string | null
+  notes: string | null
+}
+
+export type ReorderStatus = 'PENDING' | 'ORDERED' | 'RECEIVED' | 'CANCELLED'
+
+export interface ReorderRequest {
+  id: string
+  item_id: string
+  item_name: string
+  requested_by_id: number
+  quantity_requested: string
+  supplier: string | null
+  notes: string | null
+  status: ReorderStatus
+  requested_at: string
+  ordered_at: string | null
+  received_at: string | null
+  received_by_id: number | null
+  quantity_received: string | null
+}
+
+export interface ManagerHistoryEntry {
+  id: string
+  warehouse_id: string
+  previous_manager_id: number | null
+  new_manager_id: number
+  changed_by_id: number
+  changed_at: string
+  reason: string | null
+  previous_manager_name: string | null
+  new_manager_name: string
+  changed_by_name: string
+}
+
 export type TransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 export interface Transfer {
@@ -101,16 +150,39 @@ export interface InventoryReport {
   low_stock_count: number
 }
 
+export type DocumentType = 'WARRANTY' | 'INVOICE' | 'OTHER'
+
+export interface CemsDocument {
+  id: string
+  entity_type: string
+  entity_id: string
+  document_type: DocumentType
+  filename: string
+  file_url: string
+  uploaded_by_id: number
+  uploaded_at: string
+  expiry_date: string | null
+  created_at: string
+}
+
 // ─── Query Parameter Interfaces ──────────────────────────────────────────────
 
-interface AssetQueryParams {
+export interface AssetQueryParams {
+  warehouse_id?: string
+  project_id?: string
   status?: string
+  category_id?: string
+  custodian_id?: number
+  search?: string
   skip?: number
   limit?: number
 }
 
-interface ConsumableQueryParams {
+export interface ConsumableQueryParams {
   warehouse_id?: string
+  category_id?: string
+  low_stock?: boolean
+  search?: string
   skip?: number
   limit?: number
 }
@@ -167,8 +239,35 @@ export const cemsApi = {
   moveAsset: (assetId: string, toWarehouseId: string, notes?: string) =>
     api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/move`, { to_warehouse_id: toWarehouseId, notes }),
 
+  assignAsset: (assetId: string, toUserId: number, notes?: string) =>
+    api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/assign`, { to_user_id: toUserId, notes }),
+
   getExpiringWarranties: () =>
     api.get<FixedAsset[]>(`${CEMS_BASE}/assets/expiring-warranties`),
+
+  // ── Retirements ────────────────────────────────────────────────────────
+  retireAsset: (assetId: string, reason: string, disposalMethod: string) =>
+    api.post<AssetRetirement>(`${CEMS_BASE}/assets/${assetId}/retire`, {
+      reason,
+      disposal_method: disposalMethod,
+    }),
+
+  getRetirements: (status?: string) =>
+    api.get<AssetRetirement[]>(`${CEMS_BASE}/assets/retirements`, {
+      params: status ? { status } : undefined,
+    }),
+
+  approveRetirement: (id: string, notes?: string) =>
+    api.post<AssetRetirement>(
+      `${CEMS_BASE}/assets/retirements/${id}/approve`,
+      { notes },
+    ),
+
+  rejectRetirement: (id: string, reason: string) =>
+    api.post<AssetRetirement>(
+      `${CEMS_BASE}/assets/retirements/${id}/reject`,
+      { reason },
+    ),
 
   // ── Consumables ─────────────────────────────────────────────────────────
   getConsumables: (params?: ConsumableQueryParams) =>
@@ -221,15 +320,23 @@ export const cemsApi = {
       reason: reason || undefined,
     }),
 
+  getWarehouseManagerHistory: (warehouseId: string) =>
+    api.get<ManagerHistoryEntry[]>(`${CEMS_BASE}/warehouses/${warehouseId}/manager-history`),
+
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
     api.get<CemsUser[]>(`${CEMS_BASE}/users`),
 
-  // ── Categories ──────────────────────────────────────────────────────────
-  getCategories: () =>
-    api.get<AssetCategory[]>(`${CEMS_BASE}/categories`),
+  assignEmployeeWarehouse: (userId: number, warehouseId: string | null) =>
+    api.put<CemsUser>(`${CEMS_BASE}/users/${userId}/warehouse`, { warehouse_id: warehouseId }),
 
-  createCategory: (data: { name: string; description?: string }) =>
+  // ── Categories ──────────────────────────────────────────────────────────
+  getCategories: (warehouseId?: string) =>
+    api.get<AssetCategory[]>(`${CEMS_BASE}/categories`, {
+      params: warehouseId ? { warehouse_id: warehouseId } : undefined,
+    }),
+
+  createCategory: (data: { name: string; description?: string; warehouse_id?: string }) =>
     api.post<AssetCategory>(`${CEMS_BASE}/categories`, data),
 
   deleteCategory: (id: string) =>
@@ -245,4 +352,32 @@ export const cemsApi = {
 
   getAlerts: () =>
     api.get<StockAlert[]>(`${CEMS_BASE}/reports/alerts`),
+
+  // ── Documents ─────────────────────────────────────────────────────────
+  getDocuments: (entityType: string, entityId: string) =>
+    api.get<CemsDocument[]>(`${CEMS_BASE}/documents`, { params: { entity_type: entityType, entity_id: entityId } }),
+
+  uploadDocument: (formData: FormData) =>
+    api.post<CemsDocument>(`${CEMS_BASE}/documents/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+
+  deleteDocument: (id: string) =>
+    api.delete(`${CEMS_BASE}/documents/${id}`),
+
+  // ── Reorders ───────────────────────────────────────────────────────────
+  createReorderRequest: (data: { item_id: string; quantity_requested: number; supplier?: string; notes?: string }) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders`, data),
+
+  getReorderRequests: (params?: { status?: string; item_id?: string }) =>
+    api.get<ReorderRequest[]>(`${CEMS_BASE}/reorders`, { params }),
+
+  markReorderOrdered: (id: string, data?: { supplier?: string; notes?: string }) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/mark-ordered`, data ?? {}),
+
+  markReorderReceived: (id: string, quantityReceived: number, notes?: string) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/mark-received`, { quantity_received: quantityReceived, notes }),
+
+  cancelReorder: (id: string) =>
+    api.post<ReorderRequest>(`${CEMS_BASE}/reorders/${id}/cancel`, {}),
 }
