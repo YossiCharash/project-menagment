@@ -59,7 +59,8 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/projects',
     icon: FolderOpen,
     description: 'ניהול פרויקטים ותת-פרויקטים',
-    permission: { resource: 'project' }
+    permission: { resource: 'project' },
+    settingsHref: '/projects/settings'
   },
   {
     name: 'דוחות',
@@ -73,7 +74,8 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/price-quotes',
     icon: Receipt,
     description: 'בניית הצעות מחיר והמרה לפרויקטים',
-    permission: { resource: 'quote' }
+    permission: { resource: 'quote' },
+    settingsHref: '/price-quotes/settings'
   },
   {
     name: 'ניהול משימות',
@@ -267,7 +269,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
               {item.settingsHref && !isCollapsed && (
                 <Link
                   to={item.settingsHref}
-                  title="הגדרות מלאי"
+                  title={`הגדרות ${item.name}`}
                   className={cn(
                     "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-all",
                     settingsActive
@@ -423,7 +425,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                       <Link
                         to={item.settingsHref}
                         onClick={onClose}
-                        title="הגדרות מלאי"
+                        title={`הגדרות ${item.name}`}
                         className={cn(
                           "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors",
                           settingsActive
