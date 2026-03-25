@@ -42,11 +42,12 @@ const AssetsPage = React.lazy(() => import('./pages/inventory/AssetsPage'))
 const ConsumablesPage = React.lazy(() => import('./pages/inventory/ConsumablesPage'))
 const WarehousesPage = React.lazy(() => import('./pages/inventory/WarehousesPage'))
 const TransfersPage = React.lazy(() => import('./pages/inventory/TransfersPage'))
-const InventorySettings = React.lazy(() => import('./pages/inventory/InventorySettings'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { InventorySettingsProvider, useInventorySettings } from './contexts/InventorySettingsContext'
+import SettingsPanel from './pages/inventory/InventorySettingsPanel'
 import { LoadingOverlay } from './components/ui/Loading'
 import { Logo } from './components/ui/Logo'
 import { Menu, LogOut, User } from 'lucide-react'
@@ -108,6 +109,24 @@ function RequireAnyPermission({ children }: { children: JSX.Element }) {
   return children
 }
 
+function InventorySettingsModal() {
+  const { isOpen, close } = useInventorySettings()
+  if (!isOpen) return null
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 backdrop-blur-sm bg-white/10 dark:bg-black/10"
+        onClick={close}
+      />
+      <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="w-80 max-h-[80vh] overflow-y-auto shadow-2xl rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 pointer-events-auto">
+          <SettingsPanel onClose={close} />
+        </div>
+      </div>
+    </>
+  )
+}
+
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -163,18 +182,19 @@ function AppContent() {
   }
 
   return (
+    <InventorySettingsProvider>
     <div className="min-h-screen h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
-        <Sidebar 
-          isCollapsed={sidebarCollapsed} 
+        <Sidebar
+          isCollapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
       </div>
 
       {/* Mobile Sidebar */}
-      <MobileSidebar 
-        isOpen={mobileSidebarOpen} 
+      <MobileSidebar
+        isOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
       />
 
@@ -255,7 +275,6 @@ function AppContent() {
                 <Route path="consumables" element={<ConsumablesPage />} />
                 <Route path="warehouses" element={<WarehousesPage />} />
                 <Route path="transfers" element={<TransfersPage />} />
-                <Route path="settings" element={<InventorySettings />} />
               </Route>
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><RequirePermission resource="supplier"><SupplierDocuments /></RequirePermission></RequireAuth>} />
@@ -273,7 +292,10 @@ function AppContent() {
           </motion.div>
         </main>
       </div>
+
+      <InventorySettingsModal />
     </div>
+    </InventorySettingsProvider>
   )
 }
 
