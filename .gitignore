@@ -203,7 +203,7 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
-
+.local.json
 # PyPI configuration file
 .pypirc
 

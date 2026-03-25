@@ -323,6 +323,9 @@ export const cemsApi = {
   getWarehouseManagerHistory: (warehouseId: string) =>
     api.get<ManagerHistoryEntry[]>(`${CEMS_BASE}/warehouses/${warehouseId}/manager-history`),
 
+  deleteWarehouse: (id: string) =>
+    api.delete(`${CEMS_BASE}/warehouses/${id}`),
+
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
     api.get<CemsUser[]>(`${CEMS_BASE}/users`),

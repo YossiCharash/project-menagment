@@ -122,6 +122,18 @@ async def update_warehouse(
     return _warehouse_to_read(warehouse)
 
 
+@router.delete("/{warehouse_id}", status_code=204)
+async def delete_warehouse(
+    warehouse_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> None:
+    repo = WarehouseRepository(db)
+    deleted = await repo.delete(warehouse_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+
+
 @router.post("/{warehouse_id}/change-manager", response_model=WarehouseRead)
 async def change_manager(
     warehouse_id: uuid.UUID,
