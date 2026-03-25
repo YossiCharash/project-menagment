@@ -28,6 +28,8 @@ const QuoteDetail = React.lazy(() => import('./pages/QuoteDetail'))
 const Suppliers = React.lazy(() => import('./pages/Suppliers'))
 const SupplierDocuments = React.lazy(() => import('./pages/SupplierDocuments'))
 const Settings = React.lazy(() => import('./pages/Settings'))
+const PriceQuotesSettings = React.lazy(() => import('./pages/PriceQuotesSettings'))
+const ProjectsSettings = React.lazy(() => import('./pages/ProjectsSettings'))
 const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
 const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
@@ -241,6 +243,7 @@ function AppContent() {
               <Route path="/reports" element={<RequireAuth><RequirePermission resource="report"><Reports /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes" element={<RequireAuth><RequirePermission resource="quote"><PriceQuotes /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes/new" element={<RequireAuth><RequirePermission resource="quote"><CreateQuotePage /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/settings" element={<RequireAuth><RequirePermission resource="quote"><PriceQuotesSettings /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><RequirePermission resource="supplier"><Suppliers /></RequirePermission></RequireAuth>} />
               <Route path="/task-management" element={<RequireAuth><RequirePermission resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
@@ -257,6 +260,7 @@ function AppContent() {
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
               <Route path="/users/:userId/permissions" element={<RequireAuth><UserPermissions /></RequireAuth>} />
               <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
+              <Route path="/projects/settings" element={<RequireAuth><ProjectsSettings /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/admin-invites" element={<RequireAuth><AdminInviteManagement /></RequireAuth>} />
