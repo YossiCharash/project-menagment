@@ -202,6 +202,16 @@ function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
     }
   }
 
+  async function handleDeleteWarehouse(id: string, name: string) {
+    if (!window.confirm(`למחוק את המחסן "${name}"?`)) return
+    try {
+      await cemsApi.deleteWarehouse(id)
+      setWarehouses((prev) => prev.filter((w) => w.id !== id))
+    } catch {
+      setError('שגיאה במחיקת המחסן')
+    }
+  }
+
   function handleOpenAddModal(warehouseId?: string) {
     setAddCategoryWarehouseId(warehouseId)
     setShowAddCategory(true)
@@ -230,6 +240,7 @@ function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
           warehouses={warehouses}
           onAdd={handleOpenAddModal}
           onDelete={handleDeleteCategory}
+          onDeleteWarehouse={handleDeleteWarehouse}
         />
       )}
 
@@ -266,9 +277,10 @@ interface GroupedCategoriesViewProps {
   warehouses: Warehouse[]
   onAdd: (warehouseId?: string) => void
   onDelete: (id: string, name: string) => void
+  onDeleteWarehouse: (id: string, name: string) => void
 }
 
-function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete }: GroupedCategoriesViewProps) {
+function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete, onDeleteWarehouse }: GroupedCategoriesViewProps) {
   const globalCategories = categories.filter((c) => c.warehouse_id === null)
 
   const categoriesByWarehouse = new Map<string, AssetCategory[]>()
@@ -281,41 +293,81 @@ function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete }: Grou
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">קטגוריות</h3>
-        <button onClick={() => onAdd(undefined)} className={BTN_PRIMARY}>
-          <span className="flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            הוסף
-          </span>
-        </button>
+    <>
+      {/* Warehouses section */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-4">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">מחסנים</h3>
+        </div>
+        {warehouses.length === 0 ? (
+          <p className="p-4 text-gray-400 dark:text-gray-500 text-sm">אין מחסנים</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-750">
+                <tr>
+                  <th className={TABLE_HEAD}>שם</th>
+                  <th className={`${TABLE_HEAD} w-20`}>פעולות</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {warehouses.map((wh) => (
+                  <tr key={wh.id} className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                    <td className={TABLE_CELL}>{wh.name}</td>
+                    <td className={TABLE_CELL}>
+                      <button
+                        onClick={() => onDeleteWarehouse(wh.id, wh.name)}
+                        className={`${BTN_ICON} text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20`}
+                        title="מחק"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      <div className="divide-y divide-gray-200 dark:divide-gray-700">
-        {/* Global categories section */}
-        <CategorySection
-          title="קטגוריות גלובליות"
-          categories={globalCategories}
-          onAdd={() => onAdd(undefined)}
-          onDelete={onDelete}
-        />
+      {/* Categories section */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">קטגוריות</h3>
+          <button onClick={() => onAdd(undefined)} className={BTN_PRIMARY}>
+            <span className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              הוסף
+            </span>
+          </button>
+        </div>
 
-        {/* Per-warehouse sections */}
-        {warehouses.map((warehouse) => {
-          const warehouseCategories = categoriesByWarehouse.get(warehouse.id) ?? []
-          return (
-            <CategorySection
-              key={warehouse.id}
-              title={warehouse.name}
-              categories={warehouseCategories}
-              onAdd={() => onAdd(warehouse.id)}
-              onDelete={onDelete}
-            />
-          )
-        })}
+        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          {/* Global categories section */}
+          <CategorySection
+            title="קטגוריות גלובליות"
+            categories={globalCategories}
+            onAdd={() => onAdd(undefined)}
+            onDelete={onDelete}
+          />
+
+          {/* Per-warehouse sections */}
+          {warehouses.map((warehouse) => {
+            const warehouseCategories = categoriesByWarehouse.get(warehouse.id) ?? []
+            return (
+              <CategorySection
+                key={warehouse.id}
+                title={warehouse.name}
+                categories={warehouseCategories}
+                onAdd={() => onAdd(warehouse.id)}
+                onDelete={onDelete}
+              />
+            )
+          })}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 

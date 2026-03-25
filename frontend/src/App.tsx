@@ -42,6 +42,7 @@ const AssetsPage = React.lazy(() => import('./pages/inventory/AssetsPage'))
 const ConsumablesPage = React.lazy(() => import('./pages/inventory/ConsumablesPage'))
 const WarehousesPage = React.lazy(() => import('./pages/inventory/WarehousesPage'))
 const TransfersPage = React.lazy(() => import('./pages/inventory/TransfersPage'))
+const InventorySettings = React.lazy(() => import('./pages/inventory/InventorySettings'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
@@ -254,6 +255,7 @@ function AppContent() {
                 <Route path="consumables" element={<ConsumablesPage />} />
                 <Route path="warehouses" element={<WarehousesPage />} />
                 <Route path="transfers" element={<TransfersPage />} />
+                <Route path="settings" element={<InventorySettings />} />
               </Route>
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><RequirePermission resource="supplier"><SupplierDocuments /></RequirePermission></RequireAuth>} />
