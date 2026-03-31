@@ -75,7 +75,10 @@
       "Bash(npx --no tsc --noEmit --project tsconfig.app.json)",
       "Bash(./node_modules/.bin/tsc --noEmit --project tsconfig.app.json)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(find C:/Users/c0548/Projects/project-menagment/frontend/src -type f -name *.tsx -o -name *.ts)"
+      "Bash(find C:/Users/c0548/Projects/project-menagment/frontend/src -type f -name *.tsx -o -name *.ts)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/c0548/Projects/project-menagment/frontend/src -name *Dashboard* -o -name *Inventory*)",
+      "Bash(npx --no-install tsc --noEmit --pretty)"
     ]
   },
   "enabledPlugins": {
