@@ -56,6 +56,7 @@ class FixedAsset(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     warranty_expiry: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    photo_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
     current_custodian: Mapped[Optional["User"]] = relationship(

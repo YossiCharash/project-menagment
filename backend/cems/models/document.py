@@ -16,6 +16,7 @@ class DocumentType(str, enum.Enum):
     WARRANTY = "WARRANTY"
     INVOICE = "INVOICE"
     OTHER = "OTHER"
+    PHOTO = "PHOTO"
 
 
 class CemsDocument(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
