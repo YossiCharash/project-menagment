@@ -267,6 +267,18 @@ async def get_transaction_documents(tx_id: int, db: DBSessionDep, user=Depends(g
             "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
         })
 
+    # Fallback: include legacy file_path stored directly on the transaction row
+    if tx.file_path:
+        existing_paths = {d["file_path"] for d in result}
+        if tx.file_path not in existing_paths:
+            result.append({
+                "id": None,
+                "transaction_id": tx_id,
+                "file_path": tx.file_path,
+                "description": None,
+                "uploaded_at": None
+            })
+
     return result
 
 
