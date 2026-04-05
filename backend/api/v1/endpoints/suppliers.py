@@ -203,20 +203,11 @@ async def delete_supplier(
 @router.get("/{supplier_id}/documents", response_model=list[dict])
 async def list_supplier_documents(supplier_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """List all documents for a supplier (only from transactions) - accessible to all authenticated users"""
-    from sqlalchemy import select, and_
-
     supplier = await SupplierRepository(db).get(supplier_id)
     if not supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
 
-    # Get documents linked to transactions that belong to this supplier
-    docs_query = (
-        select(Document)
-        .join(Transaction, and_(Document.entity_type == "transaction", Document.entity_id == Transaction.id))
-        .where(Transaction.supplier_id == supplier_id)
-    )
-    docs_result = await db.execute(docs_query)
-    docs = docs_result.scalars().all()
+    docs = await DocumentRepository(db).list_by_supplier(supplier_id)
     # Convert file paths to relative URLs
     uploads_dir = get_uploads_dir()
     suppliers_dir = os.path.join(uploads_dir, 'suppliers')

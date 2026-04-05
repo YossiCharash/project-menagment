@@ -113,15 +113,16 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       return
     }
 
-    const file = e.target.files[0]
+    const files = Array.from(e.target.files)
     setUploadingDocument(true)
     setError(null)
 
     try {
-      console.log('Uploading document:', file.name, 'for transaction:', transaction.id)
-      const result = await TransactionAPI.uploadTransactionDocument(transaction.id, file)
-      console.log('Upload result:', result)
-      // Reload documents list after successful upload
+      for (const file of files) {
+        console.log('Uploading document:', file.name, 'for transaction:', transaction.id)
+        await TransactionAPI.uploadTransactionDocument(transaction.id, file)
+      }
+      // Reload documents list after all uploads complete
       await loadDocuments()
     } catch (err: any) {
       console.error('Upload error:', err)
@@ -730,17 +731,18 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 מסמכים
               </label>
-              <label 
-                className={`px-3 py-1.5 text-sm text-white rounded-md cursor-pointer transition-colors ${
-                  isAddDocumentButtonPressed 
-                    ? 'bg-green-800' 
-                    : 'bg-green-600 hover:bg-green-700'
+              <label
+                className={`px-3 py-1.5 text-sm text-white rounded-md transition-colors ${
+                  uploadingDocument
+                    ? 'bg-green-800 opacity-70 cursor-not-allowed pointer-events-none'
+                    : 'bg-green-600 hover:bg-green-700 cursor-pointer'
                 }`}
-                onClick={() => setIsAddDocumentButtonPressed(true)}
+                onClick={() => !uploadingDocument && setIsAddDocumentButtonPressed(true)}
               >
                 {uploadingDocument ? 'מעלה...' : 'הוסף מסמך'}
                 <input
                   type="file"
+                  multiple
                   onChange={handleUploadDocument}
                   disabled={uploadingDocument}
                   className="hidden"
