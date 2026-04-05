@@ -78,7 +78,9 @@
       "Bash(find C:/Users/c0548/Projects/project-menagment/frontend/src -type f -name *.tsx -o -name *.ts)",
       "Bash(npm run:*)",
       "Bash(find /c/Users/c0548/Projects/project-menagment/frontend/src -name *Dashboard* -o -name *Inventory*)",
-      "Bash(npx --no-install tsc --noEmit --pretty)"
+      "Bash(npx --no-install tsc --noEmit --pretty)",
+      "Bash(find /c/Users/c0548/Projects/project-menagment -name *migration* -o -name *alembic*)",
+      "Bash(find C:Usersc0548Projectsproject-menagment -type f \\\\\\(-name *.sql -o -name *.dump -o -name *.backup -o -name *.bak \\\\\\))"
     ]
   },
   "enabledPlugins": {
