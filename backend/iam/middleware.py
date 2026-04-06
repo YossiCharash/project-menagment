@@ -59,6 +59,12 @@ def register_iam_exception_handlers(app: FastAPI) -> None:
     async def role_not_found_handler(
         request: Request, exc: RoleNotFoundError
     ) -> JSONResponse:
+        logger.warning(
+            "RoleNotFoundError at %s %s: role=%s",
+            request.method,
+            request.url.path,
+            exc.role_name,
+        )
         return JSONResponse(
             status_code=404,
             content={
@@ -71,6 +77,12 @@ def register_iam_exception_handlers(app: FastAPI) -> None:
     async def invalid_assignment_handler(
         request: Request, exc: InvalidAssignmentError
     ) -> JSONResponse:
+        logger.warning(
+            "InvalidAssignmentError at %s %s: %s",
+            request.method,
+            request.url.path,
+            exc.message,
+        )
         return JSONResponse(
             status_code=400,
             content={
@@ -83,7 +95,7 @@ def register_iam_exception_handlers(app: FastAPI) -> None:
     async def iam_error_handler(
         request: Request, exc: IAMError
     ) -> JSONResponse:
-        logger.error("IAM error at %s: %s", request.url.path, exc.message)
+        logger.error("IAM error at %s %s: %s", request.method, request.url.path, exc.message)
         return JSONResponse(
             status_code=500,
             content={

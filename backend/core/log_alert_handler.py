@@ -32,7 +32,7 @@ class WhatsAppAlertHandler(logging.Handler):
         }
     )
 
-    def __init__(self, level: int = logging.ERROR) -> None:
+    def __init__(self, level: int = logging.WARNING) -> None:
         super().__init__(level)
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -47,11 +47,11 @@ class WhatsAppAlertHandler(logging.Handler):
 
             # Path is available when the record comes from a request handler
             path = getattr(record, "path", "")
-            error_type = f"{record.name}.{record.levelname}"
+            error_type = record.name
 
             threading.Thread(
                 target=self._fire,
-                args=(error_message, tb_str, path, error_type),
+                args=(error_message, tb_str, path, error_type, record.levelname),
                 daemon=True,
             ).start()
         except Exception:  # noqa: BLE001
@@ -63,6 +63,7 @@ class WhatsAppAlertHandler(logging.Handler):
         traceback_str: str,
         path: str,
         error_type: str,
+        level: str = "ERROR",
     ) -> None:
         from backend.services.error_notifier import send_whatsapp_alert
 
@@ -71,6 +72,7 @@ class WhatsAppAlertHandler(logging.Handler):
             traceback_str=traceback_str,
             path=path,
             error_type=error_type,
+            level=level,
         )
 
 
@@ -96,7 +98,7 @@ def setup_whatsapp_log_handler() -> None:
         if isinstance(existing, WhatsAppAlertHandler):
             return
 
-    handler = WhatsAppAlertHandler(level=logging.ERROR)
+    handler = WhatsAppAlertHandler(level=logging.WARNING)
     handler.setFormatter(
         logging.Formatter("%(levelname)s [%(name)s:%(lineno)d] %(message)s")
     )
@@ -119,7 +121,7 @@ def setup_console_log_handler() -> None:
             return
 
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.ERROR)
+    handler.setLevel(logging.WARNING)
     handler.setFormatter(
         logging.Formatter(
             "%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s"

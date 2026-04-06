@@ -61,12 +61,19 @@ def register_exception_handlers(app: FastAPI) -> None:
             detail = "שגיאת מסד נתונים."
             status_code = 400
 
-        logger.warning("Integrity Error at %s: %s", request.url.path, detail)
+        logger.warning(
+            "IntegrityError at %s %s: %s | raw=%s",
+            request.method,
+            request.url.path,
+            detail,
+            str(exc.orig)[:200] if exc.orig else str(exc)[:200],
+        )
         return JSONResponse(status_code=status_code, content={"detail": detail})
 
     @app.exception_handler(DataError)
     async def data_error_handler(request: Request, exc: DataError):
         """Handle database data errors (invalid types, values too long)"""
+        logger.error("DataError at %s %s", request.method, request.url.path, exc_info=True)
         return JSONResponse(
             status_code=400,
             content={"detail": "הנתונים שהוזנו אינם תקינים (סוג נתונים שגוי או ערך ארוך מדי)."},
@@ -76,7 +83,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ConnectionError)
     async def db_connection_refused_handler(request: Request, exc: Exception):
         """DB unreachable -- return 503 so frontend does not treat as auth failure."""
-        logger.error("Database connection failed at %s: %s", request.url.path, exc)
+        logger.exception("Database connection failed at %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=503,
             content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
@@ -86,7 +93,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DBAPIError)
     async def db_unavailable_handler(request: Request, exc: Exception):
         """DB connection/operation failed -- return 503."""
-        logger.error("Database error at %s: %s", request.url.path, exc)
+        logger.exception("Database error at %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=503,
             content={"detail": "מסד הנתונים לא זמין כרגע. נסה שוב בעוד רגע."},
@@ -96,8 +103,18 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def runtime_error_handler(request: Request, exc: RuntimeError):
         """Log when response was already started; cannot send new response so re-raise."""
         if "response already started" in str(exc):
-            logger.warning("%s: Exception after response already started: %s", request.url.path, exc)
-        raise exc
+            logger.warning(
+                "RuntimeError after response already started at %s %s: %s",
+                request.method,
+                request.url.path,
+                exc,
+            )
+            raise exc
+        logger.error("RuntimeError at %s %s", request.method, request.url.path, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error. Please contact support."},
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -108,6 +125,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             msg = error["msg"]
             errors.append(f"{field}: {msg}")
 
+        logger.warning("Validation error at %s %s: %s", request.method, request.url.path, errors)
         return JSONResponse(
             status_code=422,
             content={"detail": "שגיאת אימות נתונים", "errors": errors},
@@ -115,7 +133,16 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        logger.exception("Unhandled exception at %s", request.url.path)
+        client_host = request.client.host if request.client else "unknown"
+        user_agent = request.headers.get("user-agent", "unknown")
+        logger.exception(
+            "Unhandled %s at %s %s | client=%s ua=%s",
+            type(exc).__name__,
+            request.method,
+            request.url.path,
+            client_host,
+            user_agent,
+        )
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal Server Error. Please contact support."},
