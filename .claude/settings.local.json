@@ -80,7 +80,13 @@
       "Bash(find /c/Users/c0548/Projects/project-menagment/frontend/src -name *Dashboard* -o -name *Inventory*)",
       "Bash(npx --no-install tsc --noEmit --pretty)",
       "Bash(find /c/Users/c0548/Projects/project-menagment -name *migration* -o -name *alembic*)",
-      "Bash(find C:Usersc0548Projectsproject-menagment -type f \\\\\\(-name *.sql -o -name *.dump -o -name *.backup -o -name *.bak \\\\\\))"
+      "Bash(find C:Usersc0548Projectsproject-menagment -type f \\\\\\(-name *.sql -o -name *.dump -o -name *.backup -o -name *.bak \\\\\\))",
+      "Bash(git push:*)",
+      "Bash(gh pr:*)",
+      "Bash(winget install:*)",
+      "Bash(printf \"protocol=https\\\\nhost=github.com\\\\n\")",
+      "Bash(git credential:*)",
+      "Bash(python3 -c \":*)"
     ]
   },
   "enabledPlugins": {
