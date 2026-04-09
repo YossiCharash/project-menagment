@@ -71,6 +71,7 @@ def send_whatsapp_alert(
     traceback_str: str = "",
     path: str = "",
     error_type: str = "generic",
+    level: str = "ERROR",
 ) -> None:
     """
     Send a WhatsApp alert via Green API including AI error analysis.
@@ -94,18 +95,17 @@ def send_whatsapp_alert(
     if _is_rate_limited(error_key):
         return
 
-    # Get AI analysis
-    ai_analysis = analyze_error_with_claude(error_message, traceback_str)
-
     # Build the WhatsApp message
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    traceback_display = traceback_str[:2000] if traceback_str else "לא זמין"
+    traceback_display = traceback_str[:3000] if traceback_str else "לא זמין"
+    severity_icon = "⚠️" if level.upper() == "WARNING" else "🚨"
+    severity_label = level.upper()
     text = (
-        f"🚨 שגיאה במערכת BMS\n\n"
+        f"{severity_icon} [{severity_label}] שגיאה במערכת BMS\n\n"
         f"📍 נתיב: {path or 'לא ידוע'}\n"
-        f"❌ שגיאה: {error_message[:300]}\n\n"
+        f"⚡ מודול: {error_type}\n"
+        f"❌ שגיאה: {error_message[:500]}\n\n"
         f"📋 Traceback:\n{traceback_display}\n\n"
-        f"🤖 ניתוח AI:\n{ai_analysis}\n\n"
         f"⏰ {now}"
     )
 

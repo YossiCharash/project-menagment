@@ -24,6 +24,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
+import { useInventorySettings } from '../../contexts/InventorySettingsContext'
 import { cn } from '../../lib/utils'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState, AppDispatch } from '../../store'
@@ -39,6 +40,7 @@ interface NavigationItem {
   adminOnly?: boolean
   permission?: { resource: string }
   settingsHref?: string
+  onSettingsClick?: () => void
 }
 
 interface SidebarProps {
@@ -59,7 +61,8 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/projects',
     icon: FolderOpen,
     description: 'ניהול פרויקטים ותת-פרויקטים',
-    permission: { resource: 'project' }
+    permission: { resource: 'project' },
+    settingsHref: '/projects/settings'
   },
   {
     name: 'דוחות',
@@ -73,7 +76,8 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/price-quotes',
     icon: Receipt,
     description: 'בניית הצעות מחיר והמרה לפרויקטים',
-    permission: { resource: 'quote' }
+    permission: { resource: 'quote' },
+    settingsHref: '/price-quotes/settings'
   },
   {
     name: 'ניהול משימות',
@@ -87,7 +91,6 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/inventory',
     icon: Package,
     description: 'ציוד, מחסנים ומלאי',
-    settingsHref: '/inventory/settings',
   },
   {
     name: 'היסטורית פעילות',
@@ -142,7 +145,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const me = useSelector((state: RootState) => state.auth.me)
   const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
   const permissions = useSelector((state: RootState) => state.permissions.permissions)
+  const { open: openInventorySettings } = useInventorySettings()
   const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
+    .map(item => item.href === '/inventory' ? { ...item, onSettingsClick: openInventorySettings } : item)
 
   useEffect(() => {
     if (me) dispatch(fetchUnreadCount())
@@ -231,7 +236,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                   isActive
                     ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800",
-                  !isCollapsed && item.settingsHref ? "pr-3 pl-8" : ""
+                  !isCollapsed && (item.settingsHref || item.onSettingsClick) ? "pr-3 pl-8" : ""
                 )}
               >
                 <span className="relative flex-shrink-0">
@@ -264,10 +269,20 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 </AnimatePresence>
               </Link>
 
-              {item.settingsHref && !isCollapsed && (
+              {!isCollapsed && item.onSettingsClick && (
+                <button
+                  onClick={item.onSettingsClick}
+                  title={`הגדרות ${item.name}`}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-all text-gray-400 dark:text-gray-500 opacity-0 group-hover/nav:opacity-100 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {!isCollapsed && !item.onSettingsClick && item.settingsHref && (
                 <Link
                   to={item.settingsHref}
-                  title="הגדרות מלאי"
+                  title={`הגדרות ${item.name}`}
                   className={cn(
                     "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-all",
                     settingsActive
@@ -333,7 +348,9 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
   const me = useSelector((state: RootState) => state.auth.me)
   const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
   const permissions = useSelector((state: RootState) => state.permissions.permissions)
+  const { open: openInventorySettings } = useInventorySettings()
   const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
+    .map(item => item.href === '/inventory' ? { ...item, onSettingsClick: openInventorySettings } : item)
 
   return (
     <AnimatePresence>
@@ -397,7 +414,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                         isActive
                           ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                           : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800",
-                        item.settingsHref ? "pl-8" : ""
+                        (item.settingsHref || item.onSettingsClick) ? "pl-8" : ""
                       )}
                     >
                       <span className="relative flex-shrink-0">
@@ -419,11 +436,21 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                       </div>
                     </Link>
 
-                    {item.settingsHref && (
+                    {item.onSettingsClick && (
+                      <button
+                        onClick={() => { item.onSettingsClick!(); onClose() }}
+                        title={`הגדרות ${item.name}`}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {!item.onSettingsClick && item.settingsHref && (
                       <Link
                         to={item.settingsHref}
                         onClick={onClose}
-                        title="הגדרות מלאי"
+                        title={`הגדרות ${item.name}`}
                         className={cn(
                           "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors",
                           settingsActive

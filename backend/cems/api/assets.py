@@ -1,9 +1,12 @@
+import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.core.config import settings
 
 from backend.cems.api.deps import (
     check_warehouse_manager_access,
@@ -27,6 +30,20 @@ from backend.cems.schemas.fixed_asset import (
 from backend.cems.schemas.transfer import ApproveRetirementRequest, RetirementRead
 from backend.cems.services.retirement_service import RetirementService
 from backend.models import User
+
+
+_ALLOWED_PHOTO_EXT = {".jpg", ".jpeg", ".png"}
+_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _get_asset_photos_dir() -> str:
+    base = settings.FILE_UPLOAD_DIR
+    if not os.path.isabs(base):
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base = os.path.abspath(os.path.join(backend_dir, base))
+    d = os.path.join(base, "asset_photos")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 class MoveAssetRequest(PydanticBaseModel):
@@ -200,6 +217,7 @@ async def create_asset(
 
 
 @router.put("/{asset_id}", response_model=FixedAssetRead)
+@router.patch("/{asset_id}", response_model=FixedAssetRead)
 async def update_asset(
     asset_id: uuid.UUID,
     payload: FixedAssetUpdate,
@@ -294,6 +312,83 @@ async def assign_asset(
         to_custodian_id=payload.to_user_id,
         from_warehouse_id=from_warehouse_id,
         notes=payload.notes,
+    )
+    return FixedAssetRead.model_validate(asset)
+
+
+@router.post("/{asset_id}/upload-photo", response_model=FixedAssetRead)
+async def upload_asset_photo(
+    asset_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> FixedAssetRead:
+    """Upload or replace the primary photo for a fixed asset. Uses S3 if configured, otherwise local disk."""
+    import io as _io
+
+    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
+    if ext not in _ALLOWED_PHOTO_EXT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="סוג קובץ לא נתמך. מותרים: jpg, jpeg, png",
+        )
+    content = await file.read()
+    if len(content) > _MAX_PHOTO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="גודל תמונה מקסימלי: 10 MB",
+        )
+
+    repo = AssetRepository(db)
+    asset = await repo.get_by_id(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+
+    if settings.AWS_S3_BUCKET:
+        # ── S3 upload ────────────────────────────────────────────────────────
+        from backend.services.s3_service import S3Service
+        s3 = S3Service()
+        # Delete old photo from S3 (non-fatal)
+        if asset.photo_url and asset.photo_url.startswith("http"):
+            try:
+                s3.delete_file(asset.photo_url)
+            except Exception:
+                pass
+        new_photo_url = s3.upload_file(
+            prefix="asset_photos",
+            file_obj=_io.BytesIO(content),
+            filename=file.filename or "photo",
+            content_type=file.content_type,
+        )
+    else:
+        # ── Local disk fallback ───────────────────────────────────────────────
+        base = settings.FILE_UPLOAD_DIR
+        if not os.path.isabs(base):
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            base = os.path.abspath(os.path.join(backend_dir, base))
+
+        safe_name = (file.filename or "photo").strip().replace("/", "_").replace("\\", "_") or "photo"
+        stored_name = f"{uuid.uuid4().hex}_{safe_name}"
+        new_full_path = os.path.join(_get_asset_photos_dir(), stored_name)
+        with open(new_full_path, "wb") as fh:
+            fh.write(content)
+
+        # Delete old photo from disk (non-fatal)
+        if asset.photo_url and not asset.photo_url.startswith("http"):
+            old_path = os.path.join(base, asset.photo_url)
+            if os.path.isfile(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+        new_photo_url = f"asset_photos/{stored_name}"
+
+    asset = await repo.update(asset_id, {"photo_url": new_photo_url})
+    await repo.log_history(
+        asset_id=asset_id,
+        action="PHOTO_UPDATED",
+        actor_id=current_user.id,
+        notes="תמונת ציוד עודכנה",
     )
     return FixedAssetRead.model_validate(asset)
 

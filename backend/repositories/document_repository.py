@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.document import Document
 
@@ -27,11 +27,23 @@ class DocumentRepository:
         return list(res.scalars().all())
 
     async def list_by_supplier(self, supplier_id: int) -> list[Document]:
-        return await self.list_by_entity("supplier", supplier_id)
+        res = await self.db.execute(
+            select(Document).where(Document.supplier_id == supplier_id)
+        )
+        return list(res.scalars().all())
 
     async def get_by_transaction_id(self, transaction_id: int) -> list[Document]:
         res = await self.db.execute(
-            select(Document).where(Document.transaction_id == transaction_id)
+            select(Document).where(
+                or_(
+                    Document.transaction_id == transaction_id,
+                    and_(
+                        Document.entity_type == "transaction",
+                        Document.entity_id == transaction_id,
+                        Document.transaction_id.is_(None),
+                    ),
+                )
+            )
         )
         return list(res.scalars().all())
 

@@ -75,7 +75,18 @@
       "Bash(npx --no tsc --noEmit --project tsconfig.app.json)",
       "Bash(./node_modules/.bin/tsc --noEmit --project tsconfig.app.json)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(find C:/Users/c0548/Projects/project-menagment/frontend/src -type f -name *.tsx -o -name *.ts)"
+      "Bash(find C:/Users/c0548/Projects/project-menagment/frontend/src -type f -name *.tsx -o -name *.ts)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/c0548/Projects/project-menagment/frontend/src -name *Dashboard* -o -name *Inventory*)",
+      "Bash(npx --no-install tsc --noEmit --pretty)",
+      "Bash(find /c/Users/c0548/Projects/project-menagment -name *migration* -o -name *alembic*)",
+      "Bash(find C:Usersc0548Projectsproject-menagment -type f \\\\\\(-name *.sql -o -name *.dump -o -name *.backup -o -name *.bak \\\\\\))",
+      "Bash(git push:*)",
+      "Bash(gh pr:*)",
+      "Bash(winget install:*)",
+      "Bash(printf \"protocol=https\\\\nhost=github.com\\\\n\")",
+      "Bash(git credential:*)",
+      "Bash(python3 -c \":*)"
     ]
   },
   "enabledPlugins": {

@@ -28,6 +28,8 @@ const QuoteDetail = React.lazy(() => import('./pages/QuoteDetail'))
 const Suppliers = React.lazy(() => import('./pages/Suppliers'))
 const SupplierDocuments = React.lazy(() => import('./pages/SupplierDocuments'))
 const Settings = React.lazy(() => import('./pages/Settings'))
+const PriceQuotesSettings = React.lazy(() => import('./pages/PriceQuotesSettings'))
+const ProjectsSettings = React.lazy(() => import('./pages/ProjectsSettings'))
 const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
 const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
@@ -44,6 +46,8 @@ import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { InventorySettingsProvider, useInventorySettings } from './contexts/InventorySettingsContext'
+import SettingsPanel from './pages/inventory/InventorySettingsPanel'
 import { LoadingOverlay } from './components/ui/Loading'
 import { Logo } from './components/ui/Logo'
 import { Menu, LogOut, User } from 'lucide-react'
@@ -105,6 +109,24 @@ function RequireAnyPermission({ children }: { children: JSX.Element }) {
   return children
 }
 
+function InventorySettingsModal() {
+  const { isOpen, close } = useInventorySettings()
+  if (!isOpen) return null
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 backdrop-blur-sm bg-white/10 dark:bg-black/10"
+        onClick={close}
+      />
+      <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="w-80 max-h-[80vh] overflow-y-auto shadow-2xl rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 pointer-events-auto">
+          <SettingsPanel onClose={close} />
+        </div>
+      </div>
+    </>
+  )
+}
+
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -160,18 +182,19 @@ function AppContent() {
   }
 
   return (
+    <InventorySettingsProvider>
     <div className="min-h-screen h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
-        <Sidebar 
-          isCollapsed={sidebarCollapsed} 
+        <Sidebar
+          isCollapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
       </div>
 
       {/* Mobile Sidebar */}
-      <MobileSidebar 
-        isOpen={mobileSidebarOpen} 
+      <MobileSidebar
+        isOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
       />
 
@@ -241,6 +264,7 @@ function AppContent() {
               <Route path="/reports" element={<RequireAuth><RequirePermission resource="report"><Reports /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes" element={<RequireAuth><RequirePermission resource="quote"><PriceQuotes /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes/new" element={<RequireAuth><RequirePermission resource="quote"><CreateQuotePage /></RequirePermission></RequireAuth>} />
+              <Route path="/price-quotes/settings" element={<RequireAuth><RequirePermission resource="quote"><PriceQuotesSettings /></RequirePermission></RequireAuth>} />
               <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><RequirePermission resource="supplier"><Suppliers /></RequirePermission></RequireAuth>} />
               <Route path="/task-management" element={<RequireAuth><RequirePermission resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
@@ -257,6 +281,7 @@ function AppContent() {
               <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
               <Route path="/users/:userId/permissions" element={<RequireAuth><UserPermissions /></RequireAuth>} />
               <Route path="/my-profile" element={<Navigate to="/settings" replace />} />
+              <Route path="/projects/settings" element={<RequireAuth><ProjectsSettings /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/admin-invites" element={<RequireAuth><AdminInviteManagement /></RequireAuth>} />
@@ -267,7 +292,10 @@ function AppContent() {
           </motion.div>
         </main>
       </div>
+
+      <InventorySettingsModal />
     </div>
+    </InventorySettingsProvider>
   )
 }
 
