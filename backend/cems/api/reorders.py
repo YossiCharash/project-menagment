@@ -182,6 +182,7 @@ async def mark_reorder_ordered(
         reorder.notes = payload.notes
 
     await db.flush()
+    reorder = await _get_reorder_or_404(db, reorder_id)
     return ReorderRequestRead.from_model(reorder)
 
 
@@ -221,6 +222,7 @@ async def mark_reorder_received(
         db.add(item)
 
     await db.flush()
+    reorder = await _get_reorder_or_404(db, reorder_id)
     return ReorderRequestRead.from_model(reorder)
 
 
@@ -247,4 +249,5 @@ async def cancel_reorder(
 
     reorder.status = ReorderStatus.CANCELLED
     await db.flush()
+    reorder = await _get_reorder_or_404(db, reorder_id)
     return ReorderRequestRead.from_model(reorder)

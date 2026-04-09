@@ -60,15 +60,17 @@ class ReorderRequest(UUIDPrimaryKeyMixin, CEMSBase):
 
     # ── Relationships ────────────────────────────────────────────────────────
     item: Mapped["ConsumableItem"] = relationship(
-        "ConsumableItem", foreign_keys=[item_id]
+        "ConsumableItem", foreign_keys=[item_id], lazy="raise"
     )
     requested_by: Mapped["User"] = relationship(
         "User",
         foreign_keys=[requested_by_id],
         primaryjoin="ReorderRequest.requested_by_id == User.id",
+        lazy="raise",
     )
     received_by: Mapped[Optional["User"]] = relationship(
         "User",
         foreign_keys=[received_by_id],
         primaryjoin="ReorderRequest.received_by_id == User.id",
+        lazy="raise",
     )
