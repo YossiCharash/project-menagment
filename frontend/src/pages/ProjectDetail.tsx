@@ -287,7 +287,7 @@ export default function ProjectDetail() {
         try {
             await dispatch(archiveProject(Number(id))).unwrap()
             state.setShowArchiveDeleteModal(false)
-            navigate('/dashboard')
+            navigate('/projects')
         } catch (err: any) {
             alert('שגיאה בארכוב הפרויקט: ' + (err || 'Unknown error'))
         }
@@ -312,7 +312,7 @@ export default function ProjectDetail() {
             await dispatch(hardDeleteProject({id: Number(id), password: state.deletePassword})).unwrap()
             state.setShowDeleteConfirmModal(false)
             state.setDeletePassword('')
-            navigate('/dashboard')
+            navigate('/projects')
         } catch (err: any) {
             state.setDeletePasswordError(err || 'סיסמה שגויה או שגיאה במחיקה')
         } finally {

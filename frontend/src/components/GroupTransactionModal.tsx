@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { X, Plus, Trash2, Upload, File } from 'lucide-react'
+import { X, Plus, Trash2, Upload, File, Pencil } from 'lucide-react'
 import { TransactionCreate, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
 import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI, GroupTransactionDraftAPI, GroupTransactionDraftOut } from '../lib/apiClient'
 import api from '../lib/api'
@@ -71,7 +71,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   onSuccess
 }) => {
   const dispatch = useAppDispatch()
-  const { items: suppliers, loading: suppliersLoading } = useAppSelector(s => s.suppliers)
+  const { items: suppliers } = useAppSelector(s => s.suppliers)
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -95,35 +95,60 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   /** כשנטענה טיוטה שמורה – מזהה ושם ננעלים (לא ניתן להחליף שם) */
   const [currentDraftId, setCurrentDraftId] = useState<number | null>(null)
   const [currentDraftName, setCurrentDraftName] = useState('')
-  const [rows, setRows] = useState<TransactionRow[]>([
-    {
-      id: '1',
-      projectId: '',
-      subprojectId: '',
-      type: 'Expense',
-      txDate: new Date().toISOString().split('T')[0],
-      amount: '',
-      description: '',
-      categoryId: '',
-      supplierId: '',
-      paymentMethod: '',
-      notes: '',
-      isExceptional: false,
-      fromFund: false,
-      files: [],
-      dateError: null,
-      duplicateError: null,
-      checkingDuplicate: false,
-      period_start_date: '',
-      period_end_date: '',
-      periodError: null,
-      isUnforeseen: false,
-      unforeseenStatus: 'draft',
-      incomes: [{ amount: '', description: '', documentFiles: [] }],
-      expenses: [{ amount: '', description: '', documentFiles: [] }],
-      contractPeriodId: ''
+  const [rows, setRows] = useState<TransactionRow[]>([])
+
+  // New state for card-based UI
+  const [activePanelType, setActivePanelType] = useState<'regular' | 'unforeseen' | null>(null)
+  const [editingCardRowId, setEditingCardRowId] = useState<string | null>(null)
+
+  // Panel state for regular transaction
+  const defaultPanelRegular = (): Partial<TransactionRow> => ({
+    type: 'Expense',
+    txDate: new Date().toISOString().split('T')[0],
+    amount: '',
+    description: '',
+    categoryId: '',
+    supplierId: '',
+    paymentMethod: '',
+    notes: '',
+    isExceptional: false,
+    fromFund: false,
+    period_start_date: '',
+    period_end_date: '',
+    projectId: '',
+    subprojectId: '',
+    files: [],
+    dateError: null,
+    periodError: null,
+  })
+  const [panelRegular, setPanelRegular] = useState<Partial<TransactionRow>>(defaultPanelRegular())
+
+  // Panel state for unforeseen transaction
+  const defaultPanelUnforeseen = (): Partial<TransactionRow> => ({
+    projectId: '',
+    subprojectId: '',
+    contractPeriodId: '',
+    txDate: new Date().toISOString().split('T')[0],
+    description: '',
+    notes: '',
+    unforeseenStatus: 'draft',
+    incomes: [{ amount: '', description: '', documentFiles: [] }],
+    expenses: [{ amount: '', description: '', documentFiles: [] }],
+  })
+  const [panelUnforeseen, setPanelUnforeseen] = useState<Partial<TransactionRow>>(defaultPanelUnforeseen())
+
+  const draftsDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showLoadDraft) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (draftsDropdownRef.current && !draftsDropdownRef.current.contains(e.target as Node)) {
+        setShowLoadDraft(false)
+      }
     }
-  ])
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showLoadDraft])
 
   useEffect(() => {
     if (isOpen) {
@@ -432,9 +457,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   }
 
   const removeRow = (rowId: string) => {
-    if (rows.length > 1) {
-      setRows(rows.filter(row => row.id !== rowId))
-    }
+    setRows(rows.filter(row => row.id !== rowId))
   }
 
   const updateRow = (rowId: string, field: keyof TransactionRow, value: any) => {
@@ -971,11 +994,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         if (isPeriodTx) {
           transactionData.period_start_date = row.period_start_date!
           transactionData.period_end_date = row.period_end_date!
+          transactionData.allow_overlap = true
         }
+        transactionData.allow_duplicate = true
 
-        const transaction = forceAllowDuplicate && row.duplicateError
-          ? (await api.post('/transactions/', { ...transactionData, allow_duplicate: true })).data
-          : await TransactionAPI.createTransaction(transactionData)
+        const transaction = await TransactionAPI.createTransaction(transactionData)
 
         if (!transaction || !transaction.id) {
           console.error('[GROUP TX] Transaction created but no ID returned:', transaction)
@@ -1400,6 +1423,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   }
 
   const loadDraftsList = async () => {
+    if (showLoadDraft) {
+      setShowLoadDraft(false)
+      return
+    }
     try {
       const list = await GroupTransactionDraftAPI.list()
       setDraftsList(list)
@@ -1536,6 +1563,178 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     setEditorValue('')
   }
 
+  // Panel handlers
+  const handleSavePanelRegular = () => {
+    const data = panelRegular
+    if (!data.projectId) return
+    if (!data.txDate) return
+    if (!data.amount || Number(data.amount) <= 0) return
+
+    if (editingCardRowId) {
+      setRows(prev => prev.map(r => r.id === editingCardRowId ? {
+        ...r,
+        projectId: data.projectId as number,
+        subprojectId: data.subprojectId ?? '',
+        type: data.type as 'Income' | 'Expense',
+        txDate: data.txDate!,
+        amount: data.amount as number,
+        description: data.description ?? '',
+        categoryId: data.categoryId ?? '',
+        supplierId: data.supplierId ?? '',
+        paymentMethod: data.paymentMethod ?? '',
+        notes: data.notes ?? '',
+        isExceptional: data.isExceptional ?? false,
+        fromFund: data.fromFund ?? false,
+        period_start_date: data.period_start_date ?? '',
+        period_end_date: data.period_end_date ?? '',
+        files: data.files ?? [],
+        isUnforeseen: false,
+      } : r))
+    } else {
+      const newRow: TransactionRow = {
+        id: Date.now().toString(),
+        projectId: data.projectId as number,
+        subprojectId: data.subprojectId ?? '',
+        type: data.type as 'Income' | 'Expense',
+        txDate: data.txDate!,
+        amount: data.amount as number,
+        description: data.description ?? '',
+        categoryId: data.categoryId ?? '',
+        supplierId: data.supplierId ?? '',
+        paymentMethod: data.paymentMethod ?? '',
+        notes: data.notes ?? '',
+        isExceptional: data.isExceptional ?? false,
+        fromFund: data.fromFund ?? false,
+        files: data.files ?? [],
+        dateError: null,
+        duplicateError: null,
+        checkingDuplicate: false,
+        period_start_date: data.period_start_date ?? '',
+        period_end_date: data.period_end_date ?? '',
+        periodError: null,
+        isUnforeseen: false,
+        unforeseenStatus: 'draft',
+        incomes: [{ amount: '', description: '', documentFiles: [] }],
+        expenses: [{ amount: '', description: '', documentFiles: [] }],
+        contractPeriodId: '',
+      }
+      setRows(prev => [...prev, newRow])
+    }
+    setActivePanelType(null)
+    setEditingCardRowId(null)
+    setPanelRegular(defaultPanelRegular())
+  }
+
+  const handleSavePanelUnforeseen = () => {
+    const data = panelUnforeseen
+    if (!data.projectId) return
+
+    if (editingCardRowId) {
+      setRows(prev => prev.map(r => r.id === editingCardRowId ? {
+        ...r,
+        projectId: data.projectId as number,
+        subprojectId: data.subprojectId ?? '',
+        contractPeriodId: data.contractPeriodId ?? '',
+        txDate: data.txDate!,
+        description: data.description ?? '',
+        notes: data.notes ?? '',
+        incomes: data.incomes ?? [{ amount: '', description: '', documentFiles: [] }],
+        expenses: data.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
+        unforeseenStatus: data.unforeseenStatus ?? 'draft',
+        isUnforeseen: true,
+      } : r))
+    } else {
+      const newRow: TransactionRow = {
+        id: Date.now().toString(),
+        projectId: data.projectId as number,
+        subprojectId: data.subprojectId ?? '',
+        type: 'Expense',
+        txDate: data.txDate!,
+        amount: '',
+        description: data.description ?? '',
+        categoryId: '',
+        supplierId: '',
+        paymentMethod: '',
+        notes: data.notes ?? '',
+        isExceptional: false,
+        fromFund: false,
+        files: [],
+        dateError: null,
+        duplicateError: null,
+        checkingDuplicate: false,
+        period_start_date: '',
+        period_end_date: '',
+        periodError: null,
+        isUnforeseen: true,
+        unforeseenStatus: data.unforeseenStatus ?? 'draft',
+        incomes: data.incomes ?? [{ amount: '', description: '', documentFiles: [] }],
+        expenses: data.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
+        contractPeriodId: data.contractPeriodId ?? '',
+      }
+      setRows(prev => [...prev, newRow])
+    }
+    setActivePanelType(null)
+    setEditingCardRowId(null)
+    setPanelUnforeseen(defaultPanelUnforeseen())
+  }
+
+  const handleEditCard = (rowId: string) => {
+    const row = rows.find(r => r.id === rowId)
+    if (!row) return
+    setEditingCardRowId(rowId)
+    if (row.isUnforeseen) {
+      setPanelUnforeseen({
+        projectId: row.projectId,
+        subprojectId: row.subprojectId,
+        contractPeriodId: row.contractPeriodId,
+        txDate: row.txDate,
+        description: row.description,
+        notes: row.notes,
+        unforeseenStatus: row.unforeseenStatus,
+        incomes: row.incomes ?? [{ amount: '', description: '', documentFiles: [] }],
+        expenses: row.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
+      })
+      setActivePanelType('unforeseen')
+    } else {
+      setPanelRegular({
+        projectId: row.projectId,
+        subprojectId: row.subprojectId,
+        type: row.type,
+        txDate: row.txDate,
+        amount: row.amount,
+        description: row.description,
+        categoryId: row.categoryId,
+        supplierId: row.supplierId,
+        paymentMethod: row.paymentMethod,
+        notes: row.notes,
+        isExceptional: row.isExceptional,
+        fromFund: row.fromFund,
+        period_start_date: row.period_start_date,
+        period_end_date: row.period_end_date,
+        files: row.files,
+        dateError: null,
+        periodError: null,
+      })
+      setActivePanelType('regular')
+    }
+  }
+
+  // Helper to get project label for a row (project name + parent project name)
+  const getProjectLabel = (pId: number | '', spId: number | '') => {
+    const effectiveId = spId || pId
+    const project = projects.find(p => p.id === effectiveId) || projects.find(p => p.id === pId)
+    if (!project) return '\u2014'
+    if (spId) {
+      const subprojects = subprojectsMap[pId as number] || []
+      const sub = subprojects.find(s => s.id === spId)
+      if (sub) {
+        const parentProject = projects.find(p => p.id === pId)
+        return parentProject ? `${parentProject.name} \u203A ${sub.name}` : sub.name
+      }
+    }
+    return project.name
+  }
+
   if (!isOpen) return null
 
   return (
@@ -1554,7 +1753,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <span>עסקה קבוצתית</span>
               <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
             </h2>
-            <div className="relative flex items-center gap-2">
+            <div className="relative flex items-center gap-2" ref={draftsDropdownRef}>
               <button
                 type="button"
                 onClick={loadDraftsList}
@@ -1624,449 +1823,412 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="flex flex-col min-h-0 space-y-3">
-            <div className="flex-1 min-h-0 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-auto min-w-0" title="גלול אופקית לראות את כל השדות">
-              <table className="w-full border-collapse table-fixed min-w-[1350px]">
-                <thead>
-                  <tr className="bg-gray-100 dark:bg-gray-700/70 text-right text-xs font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
-                    <th className="px-2 py-2 w-[5%] min-w-[70px]">סוג עסקה</th>
-                    {rows.some(r => r.isUnforeseen) && <th className="px-2 py-2 w-[7%]">סטטוס</th>}
-                    <th className="px-2 py-2 w-[9%]">פרויקט</th>
-                    <th className="px-2 py-2 w-[8%]">תת-פרויקט</th>
-                    <th className="px-2 py-2 w-[7%]">תקופה/סוג</th>
-                    <th className="px-2 py-2 w-[12%]">תאריך</th>
-                    <th className="px-2 py-2 w-[7%]">סכום</th>
-                    <th className="px-2 py-2 w-[11%]">תיאור</th>
-                    <th className="px-2 py-2 w-[9%]">קטגוריה</th>
-                    <th className="px-2 py-2 w-[8%] min-w-[100px]">ספק</th>
-                    <th className="px-2 py-2 w-[9%] min-w-[115px]">אמצעי תשלום</th>
-                    <th className="px-2 py-2 w-[8%]">הערות</th>
-                    {rows.length > 1 && <th className="px-2 py-2 w-[4%]">פעולות</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => {
-                    const selectedProject = getSelectedProject(row)
-                    const isParentProject = selectedProject?.is_parent_project
-                    const subprojects = isParentProject && row.projectId
-                      ? getSubprojectsForProject(row.projectId as number)
-                      : []
-                    const contractPeriods = row.projectId ? (contractPeriodsMap[row.projectId as number] || []) : []
+          {/* Action buttons */}
+          <div className="flex gap-3 mb-5 justify-end flex-wrap" dir="rtl">
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => { setPanelRegular(defaultPanelRegular()); setEditingCardRowId(null); setActivePanelType('regular') }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              הוספת עסקה רגילה
+            </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => { setPanelUnforeseen(defaultPanelUnforeseen()); setEditingCardRowId(null); setActivePanelType('unforeseen') }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              הוספת עסקה לא צפויה
+            </motion.button>
+          </div>
 
-                    const rowBgClass = index % 2 === 0 
-                      ? 'bg-white dark:bg-gray-800' 
-                      : 'bg-gray-50/50 dark:bg-gray-800/50'
-
-                    if (row.isUnforeseen) {
-                      const contractPeriods = row.projectId ? (contractPeriodsMap[row.projectId as number] || []) : []
-                      const subprojects = isParentProject && row.projectId ? getSubprojectsForProject(row.projectId as number) : []
-
-                      return (
-                        <React.Fragment key={row.id}>
-                          <tr className={`transition-colors ${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700/70 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}>
-                            <td className="px-2 py-2 align-middle">
-                              <select value={row.isUnforeseen ? 'unforeseen' : 'regular'} onChange={(e) => setRowUnforeseen(row.id, e.target.value === 'unforeseen')} className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium h-[38px]">
-                                <option value="regular">רגילה</option>
-                                <option value="unforeseen">לא צפויה</option>
-                              </select>
-                            </td>
-                            <td className="px-2 py-2 align-middle">
-                              <select value={row.unforeseenStatus ?? 'draft'} onChange={(e) => updateRow(row.id, 'unforeseenStatus', e.target.value as 'draft' | 'waiting_for_approval' | 'executed')} className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium h-[38px]" title="סטטוס לעסקה לא צפויה">
-                                <option value="draft">טיוטה</option>
-                                <option value="waiting_for_approval">מחכה לאישור</option>
-                                <option value="executed">אשר כבוצע</option>
-                              </select>
-                            </td>
-                            <td className="px-2 py-2 align-middle"><select value={row.projectId} onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" required><option value="">בחר פרויקט</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                            <td className="px-2 py-2 align-middle">
-                              {isParentProject ? (
-                                <select value={row.subprojectId} onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" required><option value="">בחר תת-פרויקט</option>{subprojects.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select>
-                              ) : <span className="text-xs text-gray-400 leading-[38px] block">-</span>}
-                            </td>
-                            <td className="px-2 py-2 align-middle">
-                              <select value={row.contractPeriodId} onChange={(e) => updateRow(row.id, 'contractPeriodId', e.target.value ? Number(e.target.value) : '')} className="w-full min-w-[7.5rem] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]">
-                                <option value="">כל התקופות</option>
-                                {contractPeriods.map((period) => <option key={period.period_id} value={period.period_id}>{period.year_label}</option>)}
-                              </select>
-                            </td>
-                            <td className="px-2 py-2 align-middle">
-                              <input type="date" value={normalizeDateForInput(row.txDate) || new Date().toISOString().split('T')[0]} onChange={(e) => updateRow(row.id, 'txDate', e.target.value || new Date().toISOString().split('T')[0])} className={`w-full min-w-[140px] px-2 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 h-[38px] ${row.dateError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`} required />
-                              {row.dateError && <p className="text-[10px] text-red-600 mt-0.5">{row.dateError}</p>}
-                            </td>
-                            <td className="px-2 py-2 align-middle text-center text-gray-400 dark:text-gray-500 text-sm">—</td>
-                            <td className="px-2 py-2 align-middle"><input type="text" readOnly onClick={() => openTextEditor(row.id, 'description', row.description)} value={row.description} className="w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" placeholder="תיאור" /></td>
-                            <td className="px-2 py-2 align-middle"><input type="text" readOnly onClick={() => openTextEditor(row.id, 'notes', row.notes)} value={row.notes} className="w-full px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]" placeholder="הערות" /></td>
-                            {rows.length > 1 && (
-                            <td className="px-2 py-2 align-middle w-[90px] max-w-[90px]">
-                              <button type="button" onClick={() => removeRow(row.id)} className="p-1 text-red-500 hover:bg-red-500 hover:text-white rounded" title="מחק שורה"><Trash2 className="w-4 h-4" /></button>
-                            </td>
-                            )}
-                          </tr>
-                          <tr className={`${rowBgClass} border-b-4 border-gray-400 dark:border-gray-500`}>
-                            <td colSpan={rows.length > 1 ? 10 : 9} className="px-3 py-2">
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                <div className="space-y-2 p-3 rounded-lg bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-green-700 dark:text-green-400">הכנסות</span>
-                                    <button type="button" onClick={() => handleAddIncome(row.id)} className="flex items-center gap-1 px-2 py-1 text-[10px] bg-green-600 text-white rounded hover:bg-green-700"><Plus className="w-3 h-3" /> הוסף הכנסה</button>
-                                  </div>
-                                  {(row.incomes || []).map((income, incIdx) => (
-                                    <div key={incIdx} className="flex items-center gap-2 flex-wrap">
-                                      <input type="number" step="0.01" min="0" placeholder="סכום" value={income.amount} onChange={(e) => handleIncomeChange(row.id, incIdx, 'amount', e.target.value ? Number(e.target.value) : '')} className="w-20 px-2 py-1.5 text-xs border border-green-200 dark:border-green-800 rounded bg-white dark:bg-gray-700 font-semibold" />
-                                      <input type="text" placeholder="תיאור" value={income.description} onChange={(e) => handleIncomeChange(row.id, incIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-green-200 dark:border-green-800 rounded bg-white dark:bg-gray-700" />
-                                      <label className="cursor-pointer">
-                                        <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleIncomeFileUpload(row.id, incIdx, e.target.files)} id={`inc-f-${row.id}-${incIdx}`} />
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(income.documentFiles?.length || 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 border-green-300 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`}>
-                                          <Upload className="w-3.5 h-3.5" />{(income.documentFiles?.length || 0) > 0 ? income.documentFiles!.length : ''}
-                                        </span>
-                                      </label>
-                                      {(income.documentFiles || []).map((f, fi) => (
-                                        <span key={fi} className="flex items-center gap-1 text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border truncate max-w-[80px]">
-                                          <span className="truncate">{f.name}</span>
-                                          <button type="button" onClick={() => handleRemoveIncomeFile(row.id, incIdx, fi)} className="text-red-500"><X className="w-3 h-3" /></button>
-                                        </span>
-                                      ))}
-                                      {(row.incomes || []).length > 1 && <button type="button" onClick={() => handleRemoveIncome(row.id, incIdx)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><Trash2 className="w-3.5 h-3.5" /></button>}
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="space-y-2 p-3 rounded-lg bg-red-50/50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-red-700 dark:text-red-400">הוצאות</span>
-                                    <button type="button" onClick={() => handleAddExpense(row.id)} className="flex items-center gap-1 px-2 py-1 text-[10px] bg-red-600 text-white rounded hover:bg-red-700"><Plus className="w-3 h-3" /> הוסף הוצאה</button>
-                                  </div>
-                                  {(row.expenses || []).map((expense, expIdx) => (
-                                    <div key={expIdx} className="flex items-center gap-2 flex-wrap">
-                                      <input type="number" step="0.01" min="0" placeholder="סכום" value={expense.amount} onChange={(e) => handleExpenseChange(row.id, expIdx, 'amount', e.target.value ? Number(e.target.value) : '')} className="w-20 px-2 py-1.5 text-xs border border-red-200 dark:border-red-800 rounded bg-white dark:bg-gray-700 font-semibold" />
-                                      <input type="text" placeholder="תיאור" value={expense.description} onChange={(e) => handleExpenseChange(row.id, expIdx, 'description', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-red-200 dark:border-red-800 rounded bg-white dark:bg-gray-700" />
-                                      <label className="cursor-pointer">
-                                        <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleExpenseFileUpload(row.id, expIdx, e.target.files)} id={`exp-f-${row.id}-${expIdx}`} />
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs border ${(expense.documentFiles?.length || 0) > 0 ? 'bg-red-100 dark:bg-red-900/30 border-red-300 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 text-gray-600 dark:text-gray-400'}`}>
-                                          <Upload className="w-3.5 h-3.5" />{(expense.documentFiles?.length || 0) > 0 ? expense.documentFiles!.length : ''}
-                                        </span>
-                                      </label>
-                                      {(expense.documentFiles || []).map((f, fi) => (
-                                        <span key={fi} className="flex items-center gap-1 text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border truncate max-w-[80px]">
-                                          <span className="truncate">{f.name}</span>
-                                          <button type="button" onClick={() => handleRemoveExpenseFile(row.id, expIdx, fi)} className="text-red-500"><X className="w-3 h-3" /></button>
-                                        </span>
-                                      ))}
-                                      {(row.expenses || []).length > 1 && <button type="button" onClick={() => handleRemoveExpense(row.id, expIdx)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><Trash2 className="w-3.5 h-3.5" /></button>}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                          {index < rows.length - 1 && (
-                            <tr>
-                              <td colSpan={10} className="h-4 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      )
-                    }
-
-                    // Regular transaction row – עיצוב משופר
-                    return (
-                      <React.Fragment key={row.id}>
-                        {/* שורה ראשונה – פרטים עיקריים */}
-                        <tr 
-                          className={`transition-colors ${rowBgClass} hover:bg-blue-50/50 dark:hover:bg-gray-700/50 ${index === 0 ? 'border-t-2' : 'border-t-4'} border-gray-400 dark:border-gray-500`}
-                        >
-                          <td className="px-2 py-2 align-middle">
-                            <select value={row.isUnforeseen ? 'unforeseen' : 'regular'} onChange={(e) => setRowUnforeseen(row.id, e.target.value === 'unforeseen')} className="w-full min-w-0 px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium h-[40px] shadow-sm">
-                              <option value="regular">רגילה</option>
-                              <option value="unforeseen">לא צפויה</option>
-                            </select>
-                          </td>
-                          {rows.some(r => r.isUnforeseen) && <td className="px-2 py-2 align-middle text-center text-gray-400 dark:text-gray-500 text-sm">—</td>}
-                          <td className="px-2 py-2 align-middle">
-                            <select
-                              value={row.projectId}
-                              onChange={(e) => handleProjectChange(row.id, e.target.value ? Number(e.target.value) : '')}
-                              className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-[40px] shadow-sm"
-                              required
-                            >
-                              <option value="">בחר פרויקט</option>
-                              {projects.map((project) => (
-                                <option key={project.id} value={project.id}>
-                                  {project.name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            {isParentProject ? (
-                              <select
-                                value={row.subprojectId}
-                                onChange={(e) => updateRow(row.id, 'subprojectId', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full px-3 py-2.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-[40px] shadow-sm"
-                                required
-                              >
-                                <option value="">בחר תת-פרויקט</option>
-                                {subprojects.map((subproject) => (
-                                  <option key={subproject.id} value={subproject.id}>
-                                    {subproject.name}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center h-[40px]">—</span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <select
-                              value={row.type}
-                              onChange={(e) => {
-                                const newType = e.target.value as 'Income' | 'Expense'
-                                updateRow(row.id, 'type', newType)
-                                if (newType === 'Income') {
-                                  updateRow(row.id, 'supplierId', '')
-                                }
-                              }}
-                              className={`w-full min-w-[90px] px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] font-semibold shadow-sm ${
-                                row.type === 'Income' 
-                                  ? 'bg-green-50 dark:bg-green-900/25 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200' 
-                                  : 'bg-red-50 dark:bg-red-900/25 border-red-400 dark:border-red-600 text-red-800 dark:text-red-200'
-                              }`}
-                              required
-                            >
-                              <option value="Income">הכנסה</option>
-                              <option value="Expense">הוצאה</option>
-                            </select>
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <div className="min-w-0 w-full space-y-1">
-                              {(row.period_start_date && row.period_end_date) ? (
-                                <div className="flex flex-row items-center gap-1.5 flex-wrap">
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full shrink-0">
-                                    📅 תאריכית
-                                  </span>
-                                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 shrink-0">מ:</span>
-                                  <input
-                                    type="date"
-                                    value={normalizeDateForInput(row.period_start_date) || new Date().toISOString().split('T')[0]}
-                                    onChange={(e) => updateRow(row.id, 'period_start_date', e.target.value || new Date().toISOString().split('T')[0])}
-                                    title="מתאריך"
-                                    className={`px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm shrink-0 ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
-                                  />
-                                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 shrink-0">עד:</span>
-                                  <input
-                                    type="date"
-                                    value={normalizeDateForInput(row.period_end_date) || new Date().toISOString().split('T')[0]}
-                                    onChange={(e) => updateRow(row.id, 'period_end_date', e.target.value || new Date().toISOString().split('T')[0])}
-                                    title="עד תאריך"
-                                    className={`px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border rounded focus:outline-none focus:ring-2 h-[36px] shadow-sm shrink-0 ${row.periodError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'}`}
-                                  />
-                                  <button type="button" onClick={() => { updateRow(row.id, 'period_start_date', ''); updateRow(row.id, 'period_end_date', '') }} className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline shrink-0">בודד</button>
-                                </div>
-                              ) : (
-                                <div className="space-y-1">
-                                  <input
-                                    type="date"
-                                    value={normalizeDateForInput(row.txDate) || new Date().toISOString().split('T')[0]}
-                                    onChange={(e) => updateRow(row.id, 'txDate', e.target.value || new Date().toISOString().split('T')[0])}
-                                    className={`w-full min-w-[140px] px-2 py-2 text-sm bg-white dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 h-[40px] shadow-sm ${
-                                      row.dateError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500'
-                                    }`}
-                                    required
-                                  />
-                                  <button type="button" title="עסקה תאריכית (מתאריך–עד תאריך)" onClick={() => { const d = normalizeDateForInput(row.txDate) || new Date().toISOString().split('T')[0]; updateRow(row.id, 'period_start_date', d); updateRow(row.id, 'period_end_date', d) }} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline block w-full text-right">מתאריך–עד תאריך</button>
-                                </div>
-                              )}
-                              {row.dateError && <p className="text-[10px] text-red-600 dark:text-red-400">{row.dateError}</p>}
-                              {row.periodError && <p className="text-[10px] text-red-600 dark:text-red-400">{row.periodError}</p>}
-                            </div>
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <div className="relative">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={row.amount}
-                                onChange={(e) => updateRow(row.id, 'amount', e.target.value ? Number(e.target.value) : '')}
-                                className={`w-full min-w-[90px] px-3 py-2.5 text-sm bg-gray-50 dark:bg-gray-700/80 border-2 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-bold h-[40px] shadow-sm ${
-                                  row.duplicateError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600'
-                                } ${row.amount ? (row.type === 'Income' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300') : ''}`}
-                                placeholder="0.00"
-                                required
-                              />
-                              {row.checkingDuplicate && (
-                                <div className="absolute left-2 top-1/2 -translate-y-1/2">
-                                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
-                                </div>
-                              )}
-                            </div>
-                            {row.duplicateError && (
-                              <div className="p-2 mt-1.5 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg text-[11px]">
-                                <pre className="text-red-800 dark:text-red-200 whitespace-pre-wrap font-medium">{row.duplicateError}</pre>
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <input
-                              type="text"
-                              readOnly
-                              onClick={() => openTextEditor(row.id, 'description', row.description)}
-                              value={row.description}
-                              className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] cursor-pointer shadow-sm"
-                              placeholder="תיאור העסקה"
-                              title="תיאור העסקה"
-                            />
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <select
-                              value={row.categoryId}
-                              onChange={(e) => updateRow(row.id, 'categoryId', e.target.value ? Number(e.target.value) : '')}
-                              className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm"
-                              title="בחר קטגוריה"
-                            >
-                              <option value="">בחר קטגוריה</option>
-                              {availableCategories.map((category) => (
-                                <option key={category.id} value={category.id}>{category.name}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            {row.type === 'Expense' && !row.fromFund ? (
-                              <select
-                                value={row.supplierId}
-                                onChange={(e) => updateRow(row.id, 'supplierId', e.target.value ? Number(e.target.value) : '')}
-                                className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={!row.categoryId}
-                                title={row.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}
-                              >
-                                <option value="">{row.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}</option>
-                                {(() => {
-                                  const selectedCategory = availableCategories.find(c => c.id === row.categoryId)
-                                  if (!selectedCategory) return <option value="" disabled>בחר קודם קטגוריה</option>
-                                  if (suppliersLoading) return <option value="" disabled>טוען ספקים...</option>
-                                  const filteredSuppliers = suppliers.filter(s => s.is_active !== false && s.category_id === selectedCategory.id)
-                                  if (filteredSuppliers.length === 0) return <option value="" disabled>אין ספקים</option>
-                                  return filteredSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)
-                                })()}
-                              </select>
-                            ) : (
-                              <span className="text-sm text-gray-400 dark:text-gray-500 flex items-center h-[40px]">—</span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <select
-                              value={row.paymentMethod}
-                              onChange={(e) => updateRow(row.id, 'paymentMethod', e.target.value)}
-                              className="w-full min-w-0 px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] shadow-sm"
-                              title="בחר אמצעי תשלום"
-                            >
-                              <option value="">בחר אמצעי תשלום</option>
-                              <option value="הוראת קבע">הוראת קבע</option>
-                              <option value="אשראי">אשראי</option>
-                              <option value="שיק">שיק</option>
-                              <option value="מזומן">מזומן</option>
-                              <option value="העברה בנקאית">העברה בנקאית</option>
-                              <option value="גבייה מרוכזת סוף שנה">גבייה מרוכזת סוף שנה</option>
-                            </select>
-                          </td>
-                          <td className="px-2 py-2 align-middle">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="text"
-                                readOnly
-                                onClick={() => openTextEditor(row.id, 'notes', row.notes)}
-                                value={row.notes}
-                                className="flex-1 min-w-[60px] px-2 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[40px] cursor-pointer shadow-sm"
-                                placeholder="הערות"
-                                title="הערות"
-                              />
-                              {row.type === 'Expense' && hasFundForRow(row) && (
-                                <label className="flex items-center gap-1.5 text-sm cursor-pointer shrink-0">
-                                  <input type="checkbox" checked={row.fromFund} onChange={(e) => { const fromFund = e.target.checked; updateRow(row.id, 'fromFund', fromFund); if (fromFund) updateRow(row.id, 'supplierId', '') }} className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-2 focus:ring-blue-500 cursor-pointer" />
-                                  <span className="text-gray-700 dark:text-gray-300 text-xs whitespace-nowrap">קופה</span>
-                                </label>
-                              )}
-                              <label className="cursor-pointer shrink-0">
-                                <input type="file" multiple onChange={(e) => handleFileUpload(row.id, e.target.files)} className="hidden" id={`file-upload-${row.id}`} />
-                                <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => document.getElementById(`file-upload-${row.id}`)?.click()} className="p-1.5 text-blue-500 hover:text-white hover:bg-blue-500 rounded transition-all" title="הוסף מסמכים"><Upload className="w-3.5 h-3.5" /></motion.button>
-                              </label>
-                              {row.files.length > 0 && <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{row.files.length}</span>}
-                            </div>
-                          </td>
-                          {rows.length > 1 && (
-                          <td className="px-2 py-2 align-middle">
-                            <button type="button" onClick={() => removeRow(row.id)} className="p-1.5 text-red-500 hover:text-white hover:bg-red-500 rounded transition-all" title="מחק שורה"><Trash2 className="w-4 h-4" /></button>
-                          </td>
-                          )}
-                        </tr>
-                        {/* רשימת קבצים מצורפים – רק כשקיימים קבצים */}
-                        {row.files.length > 0 && (
-                        <tr className={`${rowBgClass} border-b border-gray-200 dark:border-gray-600`}>
-                          <td colSpan={15} className="px-2 py-1">
-                            <div className="flex flex-wrap gap-2">
-                              {row.files.map((file, idx) => (
-                                <div key={idx} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                                  <File className="w-3 h-3 flex-shrink-0" />
-                                  <span className="truncate max-w-[120px]">{file.name}</span>
-                                  <button type="button" onClick={() => removeFile(row.id, idx)} className="text-red-500 hover:text-red-700"><X className="w-3 h-3" /></button>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                        )}
-                        {/* רווח בין עסקאות */}
-                        {index < rows.length - 1 && (
-                          <tr>
-                            <td colSpan={15} className="h-2 bg-gray-100 dark:bg-gray-900 border-0 p-0"></td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+          {/* Transaction cards grid */}
+          {rows.length === 0 ? (
+            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-10 text-center text-gray-400 dark:text-gray-500 text-base">
+              אין עסקאות עדיין — לחץ על אחד הכפתורים למעלה להוספה
             </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+              {rows.map(row => {
+                const projectLabel = getProjectLabel(row.projectId, row.subprojectId)
+                const isDateRange = !!(row.period_start_date && row.period_end_date)
+                const dateTypeLabel = isDateRange ? 'תאריכית' : 'רגילה'
+                const accentClass = row.isUnforeseen
+                  ? 'border-r-4 border-purple-500'
+                  : row.type === 'Income'
+                  ? 'border-r-4 border-green-500'
+                  : 'border-r-4 border-red-500'
+                return (
+                  <motion.div
+                    key={row.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 ${accentClass}`}
+                    dir="rtl"
+                  >
+                    <div className="flex justify-between items-start mb-2 gap-2">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate flex-1" title={projectLabel}>{projectLabel}</span>
+                      <div className="flex gap-1 shrink-0">
+                        <button type="button" onClick={() => handleEditCard(row.id)} className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors rounded"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => removeRow(row.id)} className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                    {row.isUnforeseen ? (
+                      <div className="space-y-1">
+                        <span className="inline-block px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-[11px] font-medium">לא צפויה</span>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">הכנסות: <strong className="text-green-600">{(row.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0).toLocaleString('he-IL')} ₪</strong></div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">הוצאות: <strong className="text-red-600">{(row.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString('he-IL')} ₪</strong></div>
+                        <div className="text-xs text-gray-400">{row.txDate}</div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex gap-2 flex-wrap">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${row.type === 'Income' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'}`}>
+                            {row.type === 'Income' ? 'הכנסה' : 'הוצאה'}
+                          </span>
+                          <span className="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 rounded-full text-[11px]">{dateTypeLabel}</span>
+                        </div>
+                        <div className={`text-base font-bold ${row.type === 'Income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {Number(row.amount).toLocaleString('he-IL')} ₪
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {isDateRange ? `${row.period_start_date} \u2013 ${row.period_end_date}` : row.txDate}
+                        </div>
+                        {row.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{row.description}</div>}
+                      </div>
+                    )}
+                  </motion.div>
+                )
+              })}
+            </div>
+          )}
 
-            {/* סיכום כספי גלובלי – שורה אחת קומפקטית */}
-            {(() => {
-              let totalIncome = 0
-              let totalExpense = 0
-              rows.forEach(row => {
-                if (row.isUnforeseen) {
-                  totalIncome += (row.incomes || []).reduce((s, i) => s + (Number(i.amount) || 0), 0)
-                  totalExpense += (row.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0)
-                } else {
-                  if (row.type === 'Income') totalIncome += Number(row.amount) || 0
-                  else totalExpense += Number(row.amount) || 0
-                }
-              })
-              const balance = totalIncome - totalExpense
-              return (
-                <div className="mt-1 flex items-center justify-end gap-4 py-1.5 px-3 rounded-lg bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">סה"כ הכנסות: <strong className="text-green-600 dark:text-green-400">₪{totalIncome.toLocaleString('he-IL')}</strong></span>
-                  <span className="text-gray-600 dark:text-gray-400">סה"כ הוצאות: <strong className="text-red-600 dark:text-red-400">₪{totalExpense.toLocaleString('he-IL')}</strong></span>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">יתרה: <strong className={balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>₪{balance.toLocaleString('he-IL')}</strong></span>
-                </div>
-              )
-            })()}
-
-            <div className="flex justify-between items-center pt-1">
-              <motion.button
-                type="button"
-                onClick={addRow}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg font-medium"
-              >
-                <Plus className="w-5 h-5" />
-                הוסף שורה
-              </motion.button>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                סה"כ {rows.length} {rows.length === 1 ? 'עסקה' : 'עסקאות'}
+          {/* Financial summary */}
+          {rows.length > 0 && (() => {
+            let totalIncome = 0
+            let totalExpense = 0
+            rows.forEach(row => {
+              if (row.isUnforeseen) {
+                totalIncome += (row.incomes || []).reduce((s, i) => s + (Number(i.amount) || 0), 0)
+                totalExpense += (row.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+              } else {
+                if (row.type === 'Income') totalIncome += Number(row.amount) || 0
+                else totalExpense += Number(row.amount) || 0
+              }
+            })
+            const balance = totalIncome - totalExpense
+            return (
+              <div className="mt-1 flex items-center justify-end gap-4 py-1.5 px-3 rounded-lg bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm" dir="rtl">
+                <span className="text-gray-600 dark:text-gray-400">סה"כ הכנסות: <strong className="text-green-600 dark:text-green-400">₪{totalIncome.toLocaleString('he-IL')}</strong></span>
+                <span className="text-gray-600 dark:text-gray-400">סה"כ הוצאות: <strong className="text-red-600 dark:text-red-400">₪{totalExpense.toLocaleString('he-IL')}</strong></span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">יתרה: <strong className={balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>₪{balance.toLocaleString('he-IL')}</strong></span>
               </div>
-            </div>
-          </form>
+            )
+          })()}
         </div>
+
+        {/* Regular transaction panel - floating overlay */}
+        {activePanelType === 'regular' && (
+          <div className="absolute inset-0 z-[55] flex items-start justify-center bg-black/40 backdrop-blur-sm overflow-auto py-6 rounded-2xl" onClick={() => setActivePanelType(null)}>
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 border border-gray-200 dark:border-gray-700"
+              dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-l from-blue-50 to-white dark:from-blue-900/20 dark:to-gray-800 rounded-t-2xl">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">{editingCardRowId ? 'עריכת עסקה רגילה' : 'עסקה רגילה חדשה'}</h3>
+                  {(panelRegular.projectId || panelRegular.subprojectId) && (
+                    <p className="text-sm text-blue-600 dark:text-blue-400 mt-0.5 font-medium">{getProjectLabel(panelRegular.projectId ?? '', panelRegular.subprojectId ?? '')}</p>
+                  )}
+                </div>
+                <button type="button" onClick={() => setActivePanelType(null)} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-5 space-y-4 overflow-y-auto max-h-[70vh]">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">פרויקט *</label>
+                    <select value={panelRegular.projectId ?? ''} onChange={e => { const pid = e.target.value ? Number(e.target.value) : ''; setPanelRegular(prev => ({ ...prev, projectId: pid, subprojectId: '' })); if (pid) { const proj = projects.find(p => p.id === pid); if (proj?.is_parent_project) loadSubprojects(pid as number) } }} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">בחר פרויקט</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  {panelRegular.projectId && projects.find(p => p.id === panelRegular.projectId)?.is_parent_project && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תת-פרויקט</label>
+                      <select value={panelRegular.subprojectId ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, subprojectId: e.target.value ? Number(e.target.value) : '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">בחר תת-פרויקט</option>
+                        {(subprojectsMap[panelRegular.projectId as number] || []).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סוג עסקה</label>
+                  <div className="flex gap-3">
+                    {(['Expense', 'Income'] as const).map(t => (
+                      <button key={t} type="button" onClick={() => setPanelRegular(prev => ({ ...prev, type: t, supplierId: '' }))} className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-all ${panelRegular.type === t ? (t === 'Income' ? 'bg-green-500 border-green-500 text-white' : 'bg-red-500 border-red-500 text-white') : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400'}`}>
+                        {t === 'Income' ? 'הכנסה' : 'הוצאה'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך עסקה *</label>
+                    <input type="date" value={panelRegular.txDate ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, txDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סכום *</label>
+                    <input type="number" min="0" step="0.01" value={panelRegular.amount ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, amount: e.target.value ? Number(e.target.value) : '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="0.00" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">עסקה תאריכית (אופציונלי)</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="date" value={panelRegular.period_start_date ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, period_start_date: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="מתאריך" />
+                    <input type="date" value={panelRegular.period_end_date ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, period_end_date: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="עד תאריך" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
+                  <input type="text" value={panelRegular.description ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="תיאור העסקה" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה</label>
+                    <select value={panelRegular.categoryId ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, categoryId: e.target.value ? Number(e.target.value) : '', supplierId: '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">בחר קטגוריה</option>
+                      {availableCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  {panelRegular.type === 'Expense' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ספק</label>
+                      <select value={panelRegular.supplierId ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, supplierId: e.target.value ? Number(e.target.value) : '' }))} disabled={!panelRegular.categoryId} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
+                        <option value="">{panelRegular.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}</option>
+                        {panelRegular.categoryId ? suppliers.filter(s => s.is_active !== false && s.category_id === panelRegular.categoryId).map(s => <option key={s.id} value={s.id}>{s.name}</option>) : null}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">אמצעי תשלום</label>
+                    <select value={panelRegular.paymentMethod ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, paymentMethod: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">בחר אמצעי תשלום</option>
+                      <option value="הוראת קבע">הוראת קבע</option>
+                      <option value="אשראי">אשראי</option>
+                      <option value="שיק">שיק</option>
+                      <option value="מזומן">מזומן</option>
+                      <option value="העברה בנקאית">העברה בנקאית</option>
+                      <option value="גבייה מרוכזת סוף שנה">גבייה מרוכזת סוף שנה</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">הערות</label>
+                    <input type="text" value={panelRegular.notes ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, notes: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="הערות" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מסמכים</label>
+                  <div className="flex items-center gap-3">
+                    <label className="cursor-pointer flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors">
+                      <Upload className="w-4 h-4" />
+                      הוסף קבצים
+                      <input type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); setPanelRegular(prev => ({ ...prev, files: [...(prev.files || []), ...files] })); e.currentTarget.value = '' }} />
+                    </label>
+                    {(panelRegular.files || []).length > 0 && <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">{(panelRegular.files || []).length} קבצים</span>}
+                  </div>
+                  {(panelRegular.files || []).length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {(panelRegular.files || []).map((f, i) => (
+                        <div key={i} className="flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
+                          <File className="w-3 h-3" />
+                          <span className="truncate max-w-[100px]">{f.name}</span>
+                          <button type="button" onClick={() => setPanelRegular(prev => ({ ...prev, files: (prev.files || []).filter((_, idx) => idx !== i) }))} className="text-red-500 hover:text-red-700 mr-1"><X className="w-3 h-3" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" onClick={() => setActivePanelType(null)} className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
+                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelRegular} disabled={!panelRegular.projectId || !panelRegular.txDate || !panelRegular.amount || Number(panelRegular.amount) <= 0} className="px-8 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Unforeseen transaction panel */}
+        {activePanelType === 'unforeseen' && (
+          <div className="absolute inset-0 z-[55] flex items-start justify-center bg-black/40 backdrop-blur-sm overflow-auto py-6 rounded-2xl" onClick={() => setActivePanelType(null)}>
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 border border-gray-200 dark:border-gray-700"
+              dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-l from-amber-50 to-white dark:from-amber-900/20 dark:to-gray-800 rounded-t-2xl">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">{editingCardRowId ? 'עריכת עסקה לא צפויה' : 'עסקה לא צפויה חדשה'}</h3>
+                  {(panelUnforeseen.projectId || panelUnforeseen.subprojectId) && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 mt-0.5 font-medium">{getProjectLabel(panelUnforeseen.projectId ?? '', panelUnforeseen.subprojectId ?? '')}</p>
+                  )}
+                </div>
+                <button type="button" onClick={() => setActivePanelType(null)} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-5 space-y-5 overflow-y-auto max-h-[70vh]">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">פרויקט *</label>
+                    <select value={panelUnforeseen.projectId ?? ''} onChange={e => { const pid = e.target.value ? Number(e.target.value) : ''; setPanelUnforeseen(prev => ({ ...prev, projectId: pid, subprojectId: '', contractPeriodId: '' })); if (pid) { const proj = projects.find(p => p.id === pid); if (proj?.is_parent_project) loadSubprojects(pid as number); loadContractPeriods(pid as number) } }} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+                      <option value="">בחר פרויקט</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  {panelUnforeseen.projectId && projects.find(p => p.id === panelUnforeseen.projectId)?.is_parent_project && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תת-פרויקט</label>
+                      <select value={panelUnforeseen.subprojectId ?? ''} onChange={e => setPanelUnforeseen(prev => ({ ...prev, subprojectId: e.target.value ? Number(e.target.value) : '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">בחר תת-פרויקט</option>
+                        {(subprojectsMap[panelUnforeseen.projectId as number] || []).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך עסקה *</label>
+                    <input type="date" value={panelUnforeseen.txDate ?? ''} onChange={e => setPanelUnforeseen(prev => ({ ...prev, txDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                  </div>
+                  {panelUnforeseen.projectId && (contractPeriodsMap[panelUnforeseen.projectId as number] || []).length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תקופה</label>
+                      <select value={panelUnforeseen.contractPeriodId ?? ''} onChange={e => setPanelUnforeseen(prev => ({ ...prev, contractPeriodId: e.target.value ? Number(e.target.value) : '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">כל התקופות</option>
+                        {(contractPeriodsMap[panelUnforeseen.projectId as number] || []).map(p => <option key={p.period_id} value={p.period_id}>{p.year_label}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
+                    <input type="text" value={panelUnforeseen.description ?? ''} onChange={e => setPanelUnforeseen(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="תיאור העסקה" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">הערות</label>
+                    <input type="text" value={panelUnforeseen.notes ?? ''} onChange={e => setPanelUnforeseen(prev => ({ ...prev, notes: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="הערות" />
+                  </div>
+                </div>
+                {/* Expenses */}
+                <div className="rounded-xl border border-red-200 dark:border-red-800/50 border-r-4 border-r-red-500 bg-red-50/40 dark:bg-red-900/10 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800/50">
+                    <h4 className="text-sm font-semibold text-red-700 dark:text-red-400">הוצאות</h4>
+                    <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, expenses: [...(prev.expenses ?? []), { amount: '', description: '', documentFiles: [] }] }))} className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:text-red-800 font-medium transition-colors"><Plus className="w-3.5 h-3.5" /> הוסף הוצאה</button>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {(panelUnforeseen.expenses ?? []).map((exp, idx) => (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex gap-2 items-center">
+                          <input type="number" min="0" step="0.01" value={exp.amount} onChange={e => setPanelUnforeseen(prev => { const arr = [...(prev.expenses ?? [])]; arr[idx] = { ...arr[idx], amount: e.target.value ? Number(e.target.value) : '' }; return { ...prev, expenses: arr } })} className="w-28 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400" placeholder="סכום" />
+                          <input type="text" value={exp.description} onChange={e => setPanelUnforeseen(prev => { const arr = [...(prev.expenses ?? [])]; arr[idx] = { ...arr[idx], description: e.target.value }; return { ...prev, expenses: arr } })} className="flex-1 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400" placeholder="תיאור" />
+                          <label className="cursor-pointer p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded" title="הוסף מסמכים">
+                            <Upload className="w-4 h-4" />
+                            <input type="file" multiple className="hidden" onChange={e => {
+                              const files = Array.from(e.target.files || [])
+                              if (!files.length) return
+                              setPanelUnforeseen(prev => { const arr = [...(prev.expenses ?? [])]; arr[idx] = { ...arr[idx], documentFiles: [...(arr[idx].documentFiles || []), ...files] }; return { ...prev, expenses: arr } })
+                              e.currentTarget.value = ''
+                            }} />
+                          </label>
+                          {(panelUnforeseen.expenses ?? []).length > 1 && <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, expenses: (prev.expenses ?? []).filter((_, i) => i !== idx) }))} className="p-1 text-red-400 hover:text-red-600 transition-colors"><X className="w-4 h-4" /></button>}
+                        </div>
+                        {(exp.documentFiles || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pr-1">
+                            {(exp.documentFiles || []).map((f, fi) => (
+                              <div key={fi} className="flex items-center gap-1 text-[11px] bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded text-red-700 dark:text-red-300">
+                                <File className="w-3 h-3 shrink-0" />
+                                <span className="truncate max-w-[90px]">{f.name}</span>
+                                <button type="button" onClick={() => setPanelUnforeseen(prev => { const arr = [...(prev.expenses ?? [])]; arr[idx] = { ...arr[idx], documentFiles: arr[idx].documentFiles.filter((_, i) => i !== fi) }; return { ...prev, expenses: arr } })} className="text-red-400 hover:text-red-600"><X className="w-2.5 h-2.5" /></button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <div className="text-xs text-red-600 dark:text-red-400 font-medium pt-1">סה"כ: {(panelUnforeseen.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString('he-IL')} ₪</div>
+                  </div>
+                </div>
+                {/* Incomes */}
+                <div className="rounded-xl border border-green-200 dark:border-green-800/50 border-r-4 border-r-green-500 bg-green-50/40 dark:bg-green-900/10 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800/50">
+                    <h4 className="text-sm font-semibold text-green-700 dark:text-green-400">הכנסות</h4>
+                    <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, incomes: [...(prev.incomes ?? []), { amount: '', description: '', documentFiles: [] }] }))} className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:text-green-800 font-medium transition-colors"><Plus className="w-3.5 h-3.5" /> הוסף הכנסה</button>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {(panelUnforeseen.incomes ?? []).map((inc, idx) => (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex gap-2 items-center">
+                          <input type="number" min="0" step="0.01" value={inc.amount} onChange={e => setPanelUnforeseen(prev => { const arr = [...(prev.incomes ?? [])]; arr[idx] = { ...arr[idx], amount: e.target.value ? Number(e.target.value) : '' }; return { ...prev, incomes: arr } })} className="w-28 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="סכום" />
+                          <input type="text" value={inc.description} onChange={e => setPanelUnforeseen(prev => { const arr = [...(prev.incomes ?? [])]; arr[idx] = { ...arr[idx], description: e.target.value }; return { ...prev, incomes: arr } })} className="flex-1 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="תיאור" />
+                          <label className="cursor-pointer p-1.5 text-gray-400 hover:text-green-500 transition-colors rounded" title="הוסף מסמכים">
+                            <Upload className="w-4 h-4" />
+                            <input type="file" multiple className="hidden" onChange={e => {
+                              const files = Array.from(e.target.files || [])
+                              if (!files.length) return
+                              setPanelUnforeseen(prev => { const arr = [...(prev.incomes ?? [])]; arr[idx] = { ...arr[idx], documentFiles: [...(arr[idx].documentFiles || []), ...files] }; return { ...prev, incomes: arr } })
+                              e.currentTarget.value = ''
+                            }} />
+                          </label>
+                          {(panelUnforeseen.incomes ?? []).length > 1 && <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, incomes: (prev.incomes ?? []).filter((_, i) => i !== idx) }))} className="p-1 text-red-400 hover:text-red-600 transition-colors"><X className="w-4 h-4" /></button>}
+                        </div>
+                        {(inc.documentFiles || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pr-1">
+                            {(inc.documentFiles || []).map((f, fi) => (
+                              <div key={fi} className="flex items-center gap-1 text-[11px] bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-1.5 py-0.5 rounded text-green-700 dark:text-green-300">
+                                <File className="w-3 h-3 shrink-0" />
+                                <span className="truncate max-w-[90px]">{f.name}</span>
+                                <button type="button" onClick={() => setPanelUnforeseen(prev => { const arr = [...(prev.incomes ?? [])]; arr[idx] = { ...arr[idx], documentFiles: arr[idx].documentFiles.filter((_, i) => i !== fi) }; return { ...prev, incomes: arr } })} className="text-red-400 hover:text-red-600"><X className="w-2.5 h-2.5" /></button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <div className="text-xs text-green-600 dark:text-green-400 font-medium pt-1">סה"כ: {(panelUnforeseen.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0).toLocaleString('he-IL')} ₪</div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סטטוס</label>
+                  <select value={panelUnforeseen.unforeseenStatus ?? 'draft'} onChange={e => setPanelUnforeseen(prev => ({ ...prev, unforeseenStatus: e.target.value as 'draft' | 'waiting_for_approval' | 'executed' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="draft">טיוטה</option>
+                    <option value="waiting_for_approval">מחכה לאישור</option>
+                    <option value="executed">אשר כבוצע</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" onClick={() => setActivePanelType(null)} className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
+                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelUnforeseen} disabled={!panelUnforeseen.projectId || !panelUnforeseen.txDate} className="px-8 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
 
         {/* Text Editor Modal for Description/Notes */}
         {textEditorOpen && (
@@ -2161,10 +2323,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 />
                 {submitProgress
                   ? `מעבד ${submitProgress.done} מתוך ${submitProgress.total}...`
-                  : 'יוצר עסקאות...'}
+                  : 'שומר עסקאות...'}
               </span>
             ) : (
-              `צור ${rows.length} עסקאות`
+              `שמור כל העסקאות (${rows.length})`
             )}
           </motion.button>
         </div>

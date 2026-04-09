@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import {
@@ -13,6 +14,9 @@ import {
   Check,
   XCircle,
   UserCheck,
+  Eye,
+  Pencil,
+  Image as ImageIcon,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -34,7 +38,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'ACTIVE', label: 'פעיל' },
   { value: 'IN_TRANSFER', label: 'בהעברה' },
   { value: 'IN_WAREHOUSE', label: 'במחסן' },
-  { value: 'RETIRED', label: 'בפרישה' },
+  { value: 'RETIRED', label: 'נגרט' },
 ]
 
 const MODAL_OVERLAY = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4'
@@ -44,6 +48,52 @@ const LABEL_CLASS = 'block text-sm font-medium text-gray-700 dark:text-gray-300 
 const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_DANGER = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
+
+const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  WARRANTY: 'תעודת אחריות',
+  INVOICE: 'חשבונית',
+  OTHER: 'אחר',
+  PHOTO: 'תמונה',
+}
+
+const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
+  { value: 'INVOICE', label: 'חשבונית' },
+  { value: 'WARRANTY', label: 'תעודת אחריות' },
+  { value: 'OTHER', label: 'אחר' },
+  { value: 'PHOTO', label: 'תמונה' },
+]
+
+const HISTORY_ACTION_LABELS: Record<string, string> = {
+  ASSET_CREATED: 'ציוד נוצר',
+  ASSET_UPDATED: 'ציוד עודכן',
+  PHOTO_UPDATED: 'תמונה עודכנה',
+  ASSIGNED_TO_EMPLOYEE: 'הוקצה לעובד',
+  WAREHOUSE_MOVE: 'הועבר למחסן',
+  TRANSFER_INITIATED: 'העברה יזומה',
+  TRANSFER_COMPLETED: 'העברה הושלמה',
+  TRANSFER_CANCELLED: 'העברה בוטלה',
+  ASSET_RETIRED: 'ציוד הוצא מכלל שימוש',
+  RETIREMENT_REQUESTED: 'בקשת גריטה הוגשה',
+  RETIREMENT_APPROVED: 'גריטה אושרה',
+  RETIREMENT_REJECTED: 'גריטה נדחתה',
+}
+
+const SUPPRESS_NOTE_ACTIONS = new Set([
+  'TRANSFER_COMPLETED', 'TRANSFER_INITIATED', 'TRANSFER_CANCELLED',
+  'ASSET_CREATED',
+])
+
+function buildHistoryNote(entry: AssetHistory, getUserName: (id: number | null) => string): string {
+  const parts: string[] = []
+  if (entry.from_custodian_id != null) parts.push(`ממי: ${getUserName(entry.from_custodian_id)}`)
+  if (entry.to_custodian_id != null) parts.push(`למי: ${getUserName(entry.to_custodian_id)}`)
+  if (parts.length > 0) return parts.join(' \u2192 ')
+  // For transfer/creation actions, never show raw auto-generated notes
+  if (SUPPRESS_NOTE_ACTIONS.has(entry.action)) return ''
+  if (!entry.notes) return ''
+  if (/transfer.*completed.*signature|created with serial|Asset '.*' created/i.test(entry.notes)) return ''
+  return entry.notes
+}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
@@ -67,9 +117,9 @@ export default function AssetsPage() {
   const [viewAsset, setViewAsset] = useState<FixedAsset | null>(null)
 
   const me = useSelector((s: RootState) => s.auth.me)
-  const isManager = me?.role === 'Admin'
   const isManagerOrAdmin =
     me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
+  const isManager = isManagerOrAdmin
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
@@ -187,6 +237,90 @@ export default function AssetsPage() {
     setCategoryFilter('')
   }
 
+  async function openAssetDetail(asset: FixedAsset) {
+    setDetailAsset(asset)
+    setDetailActiveTab('details')
+    setDetailHistory([])
+    setDetailHistoryLoading(true)
+    setDetailDocs([])
+    setEditName(asset.name)
+    setEditNotes(asset.notes || '')
+    setEditCategoryId(asset.category_id || '')
+    setEditPurchaseDate(asset.purchase_date || '')
+    setEditWarrantyExpiry(asset.warranty_expiry || '')
+    loadDetailDocs(asset.id)
+    try {
+      const res = await cemsApi.getAssetHistory(asset.id)
+      setDetailHistory(res.data)
+    } catch { /* silent */ }
+    finally { setDetailHistoryLoading(false) }
+  }
+
+  async function loadDetailDocs(assetId: string) {
+    setDetailDocsLoading(true)
+    try {
+      const res = await cemsApi.getDocuments('fixed_asset', assetId)
+      setDetailDocs(res.data)
+    } catch { setDetailDocs([]) }
+    finally { setDetailDocsLoading(false) }
+  }
+
+  async function handleDetailDocUpload() {
+    if (!detailUploadFile || !detailAsset) return
+    setDetailUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', detailUploadFile)
+      formData.append('entity_type', 'fixed_asset')
+      formData.append('entity_id', detailAsset.id)
+      formData.append('document_type', detailUploadDocType)
+      if (detailUploadExpiry) formData.append('expiry_date', detailUploadExpiry)
+      await cemsApi.uploadDocument(formData)
+      setDetailUploadFile(null)
+      setDetailUploadExpiry('')
+      setDetailUploadDocType('INVOICE')
+      await loadDetailDocs(detailAsset.id)
+    } catch { /* silent */ }
+    finally { setDetailUploading(false) }
+  }
+
+  async function handleDetailDocDelete(docId: string) {
+    if (!detailAsset) return
+    try {
+      await cemsApi.deleteDocument(docId)
+      await loadDetailDocs(detailAsset.id)
+    } catch { /* silent */ }
+  }
+
+  async function handleDetailPhotoUpload(file: File) {
+    if (!detailAsset) return
+    setDetailUploadingPhoto(true)
+    try {
+      const res = await cemsApi.uploadAssetPhoto(detailAsset.id, file)
+      setDetailAsset(res.data)
+      setAssets((prev) => prev.map((a) => a.id === detailAsset.id ? res.data : a))
+    } catch { /* silent */ }
+    finally { setDetailUploadingPhoto(false) }
+  }
+
+  async function handleDetailSaveEdit() {
+    if (!detailAsset) return
+    setEditSaving(true)
+    try {
+      const res = await cemsApi.updateAsset(detailAsset.id, {
+        name: editName.trim() || undefined,
+        notes: editNotes.trim() || undefined,
+        category_id: (editCategoryId as any) || undefined,
+        purchase_date: (editPurchaseDate as any) || undefined,
+        warranty_expiry: (editWarrantyExpiry as any) || undefined,
+      })
+      setDetailAsset(res.data)
+      setAssets((prev) => prev.map((a) => a.id === detailAsset.id ? res.data : a))
+      setDetailActiveTab('details')
+    } catch { /* silent */ }
+    finally { setEditSaving(false) }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -285,7 +419,7 @@ export default function AssetsPage() {
           >
             <span className="flex items-center gap-2">
               <History className="w-4 h-4" />
-              {showRetiredSection ? 'הסתר' : 'ציוד פרוש ובקשות'}
+              {showRetiredSection ? 'הסתר' : 'ציוד נגרט ובקשות'}
             </span>
           </button>
         </div>
@@ -299,14 +433,14 @@ export default function AssetsPage() {
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
               <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  בקשות פרישה ממתינות לאישור
+                  בקשות גריטה ממתינות לאישור
                 </h2>
               </div>
               {retirementLoading ? (
                 <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
               ) : retirements.length === 0 ? (
                 <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                  אין בקשות פרישה ממתינות
+                  אין בקשות גריטה ממתינות
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -394,14 +528,14 @@ export default function AssetsPage() {
                                 <button
                                   onClick={() => setApprovingId(ret.id)}
                                   className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
-                                  title="אשר פרישה"
+                                  title="אשר גריטה"
                                 >
                                   <Check className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => setRejectingId(ret.id)}
                                   className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                                  title="דחה פרישה"
+                                  title="דחה גריטה"
                                 >
                                   <XCircle className="w-4 h-4" />
                                 </button>
@@ -420,13 +554,13 @@ export default function AssetsPage() {
           {/* Section 2: Retired assets -- visible to all */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ציוד פרוש</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ציוד נגרט</h2>
             </div>
             {retirementLoading ? (
               <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
             ) : retiredAssets.length === 0 ? (
               <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                אין ציוד פרוש
+                אין ציוד נגרט
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -434,7 +568,7 @@ export default function AssetsPage() {
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700">
                       <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
-                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מס' סידורי</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תיאור</th>
                       <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
                       <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">הערות</th>
                     </tr>
@@ -443,7 +577,7 @@ export default function AssetsPage() {
                     {retiredAssets.map((asset) => (
                       <tr key={asset.id}>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{asset.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '—'}</td>
                         <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(asset.category_id)}</td>
                         <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '-'}</td>
                       </tr>
@@ -463,7 +597,7 @@ export default function AssetsPage() {
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-700">
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
-                <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מס' סידורי</th>
+                <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תיאור</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מחזיק</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">סטטוס</th>
@@ -556,6 +690,315 @@ export default function AssetsPage() {
           onAssigned={loadData}
         />
       )}
+      <DocumentViewerModal
+        isOpen={viewingDoc !== null}
+        document={viewingDoc ? { file_path: viewingDoc.file_url, description: viewingDoc.filename } : null}
+        onClose={() => setViewingDoc(null)}
+      />
+
+      {detailAsset && createPortal(
+        <div
+          dir="rtl"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 backdrop-blur-sm bg-black/50"
+          onClick={() => setDetailAsset(null)}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{detailAsset.name}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{getCategoryName(detailAsset.category_id)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isManagerOrAdmin && detailActiveTab !== 'edit' && (
+                  <button
+                    onClick={() => setDetailActiveTab('edit')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
+                    title="ערוך ציוד"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    עריכה
+                  </button>
+                )}
+                <button
+                  onClick={() => setDetailAsset(null)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs — only shown when not in edit mode */}
+            {detailActiveTab !== 'edit' && (
+              <div className="flex border-b border-gray-200 dark:border-gray-700 shrink-0 px-6">
+                {(['details', 'docs', 'history'] as const).map((tab) => {
+                  const labels: Record<string, string> = { details: 'פרטים', docs: 'מסמכים', history: 'היסטוריה' }
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setDetailActiveTab(tab)}
+                      className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${
+                        detailActiveTab === tab
+                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      {labels[tab]}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+
+              {/* ── DETAILS TAB ── */}
+              {detailActiveTab === 'details' && (
+                <div className="space-y-5">
+                  {/* Photo (full width, prominent) */}
+                  <div className="w-full rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 shadow-sm bg-gray-50 dark:bg-gray-700/30">
+                    {detailAsset.photo_url ? (
+                      <img
+                        src={detailAsset.photo_url.startsWith('http') ? detailAsset.photo_url : `/uploads/${detailAsset.photo_url}`}
+                        alt={detailAsset.name}
+                        className="max-h-52 w-full object-contain"
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement
+                          img.style.display = 'none'
+                          img.nextElementSibling?.removeAttribute('style')
+                        }}
+                      />
+                    ) : null}
+                    {!detailAsset.photo_url && (
+                      <div className="flex flex-col items-center justify-center h-36 gap-2 text-gray-400 dark:text-gray-500">
+                        <ImageIcon className="w-10 h-10 opacity-40" />
+                        <span className="text-xs">אין תמונה — ניתן להוסיף בעריכה</span>
+                      </div>
+                    )}
+                  </div>
+                  {/* Description */}
+                  {detailAsset.notes && (
+                    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">תיאור</p>
+                      <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">{detailAsset.notes}</p>
+                    </div>
+                  )}
+                  {/* Details grid */}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {([
+                      { label: 'סטטוס', value: <StatusBadge status={detailAsset.status} /> },
+                      { label: 'מחזיק', value: getUserName(detailAsset.current_custodian_id) },
+                      { label: 'קטגוריה', value: getCategoryName(detailAsset.category_id) },
+                      { label: 'תאריך רכישה', value: detailAsset.purchase_date ? new Date(detailAsset.purchase_date).toLocaleDateString('he-IL') : '—' },
+                      { label: 'תפוגת אחריות', value: detailAsset.warranty_expiry ? new Date(detailAsset.warranty_expiry).toLocaleDateString('he-IL') : '—' },
+                    ] as { label: string; value: React.ReactNode }[]).map(({ label, value }) => (
+                      <div key={label} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+                        <div className="font-medium text-gray-900 dark:text-white">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── HISTORY TAB ── */}
+              {detailActiveTab === 'history' && (
+                <div>
+                  {detailHistoryLoading ? (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">טוען היסטוריה...</p>
+                  ) : detailHistory.length === 0 ? (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">אין היסטוריה</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detailHistory.map((entry) => {
+                        const note = buildHistoryNote(entry, getUserName)
+                        return (
+                          <div key={entry.id} className="flex items-start gap-3 text-xs p-3 bg-gray-50 dark:bg-gray-700/40 rounded-lg">
+                            <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0 mt-1" />
+                            <div className="flex-1 min-w-0">
+                              <span className="font-medium text-gray-800 dark:text-gray-200">
+                                {HISTORY_ACTION_LABELS[entry.action] ?? entry.action}
+                              </span>
+                              {note && <p className="text-gray-500 dark:text-gray-400 mt-0.5">{note}</p>}
+                            </div>
+                            <span className="text-gray-400 dark:text-gray-500 whitespace-nowrap flex-shrink-0">
+                              {new Date(entry.timestamp).toLocaleDateString('he-IL', {
+                                day: '2-digit', month: '2-digit', year: '2-digit',
+                                hour: '2-digit', minute: '2-digit',
+                              })}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── DOCS TAB ── */}
+              {detailActiveTab === 'docs' && (
+                <div className="space-y-5">
+                  {/* Document list */}
+                  <div>
+                    {detailDocsLoading ? (
+                      <p className="text-sm text-gray-400 dark:text-gray-500">טוען מסמכים...</p>
+                    ) : detailDocs.length === 0 ? (
+                      <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">אין מסמכים מצורפים</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {detailDocs.map((doc) => (
+                          <div key={doc.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <FileText className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-900 dark:text-white truncate">{doc.filename}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                                  {DOC_TYPE_LABELS[doc.document_type]}
+                                </span>
+                                {doc.expiry_date && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    תוקף: {new Date(doc.expiry_date).toLocaleDateString('he-IL')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                onClick={() => setViewingDoc(doc)}
+                                className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
+                                title="פתח"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              {isManagerOrAdmin && (
+                                <button
+                                  onClick={() => handleDetailDocDelete(doc.id)}
+                                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                  title="מחק"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload new document */}
+                  {isManagerOrAdmin && (
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                        <Upload className="w-4 h-4" />
+                        העלאת מסמך חדש
+                      </h5>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className={LABEL_CLASS}>סוג מסמך</label>
+                            <select value={detailUploadDocType} onChange={(e) => setDetailUploadDocType(e.target.value as DocumentType)} className={INPUT_CLASS}>
+                              {DOC_TYPE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className={LABEL_CLASS}>תאריך תוקף</label>
+                            <input type="date" value={detailUploadExpiry} onChange={(e) => setDetailUploadExpiry(e.target.value)} className={INPUT_CLASS} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className={LABEL_CLASS}>קובץ</label>
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" onChange={(e) => setDetailUploadFile(e.target.files?.[0] || null)} className={`${INPUT_CLASS} text-xs`} />
+                        </div>
+                        <button onClick={handleDetailDocUpload} disabled={!detailUploadFile || detailUploading} className={`${BTN_PRIMARY} w-full disabled:opacity-50 disabled:cursor-not-allowed`}>
+                          {detailUploading ? 'מעלה...' : 'העלאה'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── EDIT TAB ── */}
+              {detailActiveTab === 'edit' && (
+                isManagerOrAdmin ? (
+                  <form onSubmit={(e) => { e.preventDefault(); handleDetailSaveEdit() }} className="space-y-4">
+                    <div>
+                      <label className={LABEL_CLASS}>תמונת ציוד</label>
+                      {detailAsset?.photo_url && (
+                        <img
+                          src={detailAsset.photo_url.startsWith('http') ? detailAsset.photo_url : `/uploads/${detailAsset.photo_url}`}
+                          alt="תמונת ציוד"
+                          className="w-full max-h-40 object-cover rounded-lg mb-2 border border-gray-200 dark:border-gray-700"
+                        />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={detailUploadingPhoto}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleDetailPhotoUpload(file);
+                        }}
+                        className={INPUT_CLASS}
+                      />
+                      {detailUploadingPhoto && (
+                        <p className="text-sm text-blue-500 mt-1 animate-pulse">מעלה תמונה...</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className={LABEL_CLASS}>שם הציוד *</label>
+                      <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className={INPUT_CLASS} required />
+                    </div>
+                    <div>
+                      <label className={LABEL_CLASS}>תיאור / הערות</label>
+                      <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className={INPUT_CLASS} rows={3} />
+                    </div>
+                    <div>
+                      <label className={LABEL_CLASS}>קטגוריה</label>
+                      <select value={editCategoryId} onChange={(e) => setEditCategoryId(e.target.value)} className={INPUT_CLASS}>
+                        <option value="">ללא קטגוריה</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={LABEL_CLASS}>תאריך רכישה</label>
+                        <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} className={INPUT_CLASS} />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLASS}>תפוגת אחריות</label>
+                        <input type="date" value={editWarrantyExpiry} onChange={(e) => setEditWarrantyExpiry(e.target.value)} className={INPUT_CLASS} />
+                      </div>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button type="submit" disabled={editSaving} className={`${BTN_PRIMARY} flex-1 disabled:opacity-50 disabled:cursor-not-allowed`}>
+                        {editSaving ? 'שומר...' : 'שמור שינויים'}
+                      </button>
+                      <button type="button" onClick={() => setDetailActiveTab('details')} className={BTN_SECONDARY}>
+                        ביטול
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין הרשאה לעריכה</p>
+                )
+              )}
+
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -594,9 +1037,19 @@ function AssetRow({
       onClick={onViewAsset}
     >
       <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-        {asset.name}
+        <div className="flex items-center gap-2">
+          {asset.photo_url && (
+            <img
+              src={asset.photo_url?.startsWith('http') ? asset.photo_url : `/uploads/${asset.photo_url}`}
+              alt={asset.name}
+              className="w-10 h-10 object-cover rounded-md border border-gray-200 dark:border-gray-700 flex-shrink-0"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+          )}
+          {asset.name}
+        </div>
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[180px] truncate" title={asset.notes ?? ''}>{asset.notes || '—'}</td>
       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{categoryName}</td>
       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{custodianName}</td>
       <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
@@ -636,7 +1089,7 @@ function AssetRow({
             <button
               onClick={onRetire}
               className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-              title="פרישה"
+              title="גריטה"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -886,7 +1339,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!reason.trim()) {
-      setError('יש למלא סיבה לפרישה')
+      setError('יש למלא סיבה לגריטה')
       return
     }
 
@@ -897,7 +1350,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
       onRetired()
       onClose()
     } catch {
-      setError('שגיאה בביצוע פרישה')
+      setError('שגיאה בביצוע גריטה')
     } finally {
       setSubmitting(false)
     }
@@ -924,7 +1377,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
             שים לב: הבקשה תועבר לאישור מנהל.
           </div>
           <div>
-            <label className={LABEL_CLASS}>סיבה לפרישה *</label>
+            <label className={LABEL_CLASS}>סיבה לגריטה *</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -948,7 +1401,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting} className={BTN_DANGER}>
-              {submitting ? 'מבצע פרישה...' : 'בצע פרישה'}
+              {submitting ? 'מבצע גריטה...' : 'בצע גריטה'}
             </button>
           </div>
         </form>

@@ -202,27 +202,6 @@ class TransactionService:
         tx = Transaction(**data)
         return await self.transactions.create(tx)
 
-    async def attach_file(self, tx: Transaction, file: UploadFile | None) -> Transaction:
-        if not file:
-            return tx
-
-        import asyncio
-        from backend.services.s3_service import S3Service
-
-        await file.seek(0)
-
-        s3 = S3Service()
-
-        file_url = await asyncio.to_thread(
-            s3.upload_file,
-            prefix="transactions",
-            file_obj=file.file,
-            filename=file.filename or "transaction-file",
-            content_type=file.content_type,
-        )
-        tx.file_path = file_url
-        return await self.transactions.update(tx)
-
     async def list_by_project(
         self,
         project_id: int,

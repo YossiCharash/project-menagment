@@ -36,3 +36,11 @@ class Document(Base):
         index=True,
         default=None,
     )
+
+    # Direct FK to suppliers table (nullable for non-supplier documents)
+    supplier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        default=None,
+    )

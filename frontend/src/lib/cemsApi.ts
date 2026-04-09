@@ -48,6 +48,7 @@ export interface FixedAsset {
   purchase_date: string | null
   warranty_expiry: string | null
   notes: string | null
+  photo_url: string | null
 }
 
 export interface AssetHistory {
@@ -150,7 +151,7 @@ export interface InventoryReport {
   low_stock_count: number
 }
 
-export type DocumentType = 'WARRANTY' | 'INVOICE' | 'OTHER'
+export type DocumentType = 'WARRANTY' | 'INVOICE' | 'OTHER' | 'PHOTO'
 
 export interface CemsDocument {
   id: string
@@ -326,6 +327,9 @@ export const cemsApi = {
   getWarehouseManagerHistory: (warehouseId: string) =>
     api.get<ManagerHistoryEntry[]>(`${CEMS_BASE}/warehouses/${warehouseId}/manager-history`),
 
+  deleteWarehouse: (id: string) =>
+    api.delete(`${CEMS_BASE}/warehouses/${id}`),
+
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>
     api.get<CemsUser[]>(`${CEMS_BASE}/users`),
@@ -359,6 +363,14 @@ export const cemsApi = {
   // ── Documents ─────────────────────────────────────────────────────────
   getDocuments: (entityType: string, entityId: string) =>
     api.get<CemsDocument[]>(`${CEMS_BASE}/documents`, { params: { entity_type: entityType, entity_id: entityId } }),
+
+  uploadAssetPhoto: (assetId: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/upload-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 
   uploadDocument: (formData: FormData) =>
     api.post<CemsDocument>(`${CEMS_BASE}/documents/upload`, formData, {

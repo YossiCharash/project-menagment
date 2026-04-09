@@ -218,32 +218,6 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
     return result
 
 
-@router.post("/{tx_id}/upload", response_model=TransactionOut)
-async def upload_receipt(
-    tx_id: int,
-    db: DBSessionDep,
-    file: UploadFile = File(...),
-    user=Depends(require_permission("read", "transaction", resource_id_param="tx_id")),
-):
-    """Upload receipt for transaction - allowed to anyone who can read transactions"""
-    tx = await TransactionRepository(db).get_by_id(tx_id)
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-
-    result = await TransactionService(db).attach_file(tx, file)
-
-    # Log upload action
-    await AuditService(db).log_transaction_action(
-        user_id=user.id,
-        action='upload_receipt',
-        transaction_id=tx_id,
-        details={'filename': file.filename}
-    )
-
-    # Convert to dict with user info using shared mapper
-    user_repo = UserRepository(db)
-    return await transaction_to_dict_with_user(result, user_repo)
-
 
 @router.get("/{tx_id}/documents", response_model=list[dict])
 async def get_transaction_documents(tx_id: int, db: DBSessionDep, user=Depends(get_current_user)):
@@ -266,6 +240,18 @@ async def get_transaction_documents(tx_id: int, db: DBSessionDep, user=Depends(g
             "description": doc.description,
             "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
         })
+
+    # Fallback: include legacy file_path stored directly on the transaction row
+    if tx.file_path:
+        existing_paths = {d["file_path"] for d in result}
+        if tx.file_path not in existing_paths:
+            result.append({
+                "id": None,
+                "transaction_id": tx_id,
+                "file_path": tx.file_path,
+                "description": None,
+                "uploaded_at": None
+            })
 
     return result
 
@@ -317,19 +303,8 @@ async def upload_supplier_document(
 
     # Prepare upload prefix
     s3 = S3Service()
-
-    # If transaction has supplier, use supplier prefix structure
-    if tx.supplier_id:
-        supplier = await SupplierRepository(db).get(tx.supplier_id)
-        if not supplier:
-            raise HTTPException(status_code=404, detail="Supplier not found")
-        supplier_name_sanitized = sanitize_filename(supplier.name)
-        prefix = f"suppliers/{supplier_name_sanitized}"
-        supplier_id = tx.supplier_id
-    else:
-        # If no supplier, use a generic transactions prefix
-        prefix = "transactions"
-        supplier_id = None
+    prefix = "transactions"
+    supplier_id = tx.supplier_id
 
     # Upload to S3 (using thread to avoid blocking loop)
     # Reset file pointer
@@ -346,7 +321,15 @@ async def upload_supplier_document(
     )
 
     # Create document linked to transaction
-    doc = Document(transaction_id=tx_id, entity_type="transaction", entity_id=tx_id, file_path=file_url, source_table="transaction", source_id=tx_id)
+    doc = Document(
+        transaction_id=tx_id,
+        entity_type="transaction",
+        entity_id=tx_id,
+        supplier_id=supplier_id,
+        file_path=file_url,
+        source_table="transaction",
+        source_id=tx_id,
+    )
     await DocumentRepository(db).create(doc)
 
     return {

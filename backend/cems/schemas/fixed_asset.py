@@ -30,6 +30,7 @@ class FixedAssetUpdate(BaseModel):
     purchase_date: Optional[date] = None
     warranty_expiry: Optional[date] = None
     notes: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 class FixedAssetRead(FixedAssetBase):
@@ -39,6 +40,7 @@ class FixedAssetRead(FixedAssetBase):
     status: AssetStatus
     current_custodian_id: Optional[int]
     current_warehouse_id: Optional[uuid.UUID]
+    photo_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
