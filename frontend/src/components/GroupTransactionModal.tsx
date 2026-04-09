@@ -996,11 +996,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         if (isPeriodTx) {
           transactionData.period_start_date = row.period_start_date!
           transactionData.period_end_date = row.period_end_date!
+          transactionData.allow_overlap = true
         }
+        transactionData.allow_duplicate = true
 
-        const transaction = forceAllowDuplicate && row.duplicateError
-          ? (await api.post('/transactions/', { ...transactionData, allow_duplicate: true })).data
-          : await TransactionAPI.createTransaction(transactionData)
+        const transaction = await TransactionAPI.createTransaction(transactionData)
 
         if (!transaction || !transaction.id) {
           console.error('[GROUP TX] Transaction created but no ID returned:', transaction)

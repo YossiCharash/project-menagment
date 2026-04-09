@@ -606,7 +606,7 @@ async def get_project_full(
             else:
                 # If no null budgets, keep all budgets (they might all be assigned to periods)
                 # This ensures budgets are visible even if period detection fails
-                logger.warning("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
+                logger.debug("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
         for budget in budgets:
             # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
