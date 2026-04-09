@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.cems.api.deps import get_current_user, get_db, require_admin, require_admin_or_manager
 from backend.cems.models.category import AssetCategory
@@ -14,6 +15,16 @@ from backend.models.user import User
 router = APIRouter(prefix="/categories", tags=["CEMS Categories"])
 
 
+async def _load_category(db: AsyncSession, category_id: uuid.UUID) -> AssetCategory:
+    stmt = (
+        select(AssetCategory)
+        .options(selectinload(AssetCategory.warehouse))
+        .where(AssetCategory.id == category_id)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
 @router.get("", response_model=List[AssetCategoryRead])
 async def list_categories(
     warehouse_id: Optional[uuid.UUID] = Query(None, description="Filter by warehouse"),
@@ -22,7 +33,7 @@ async def list_categories(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[AssetCategoryRead]:
-    stmt = select(AssetCategory)
+    stmt = select(AssetCategory).options(selectinload(AssetCategory.warehouse))
     if warehouse_id is not None:
         stmt = stmt.where(AssetCategory.warehouse_id == warehouse_id)
     stmt = stmt.order_by(AssetCategory.name).offset(skip).limit(limit)
@@ -39,6 +50,7 @@ async def create_category(
 ) -> AssetCategoryRead:
     repo = BaseRepository(AssetCategory, db)
     category = await repo.create(payload.model_dump())
+    category = await _load_category(db, category.id)
     return AssetCategoryRead.from_orm_with_warehouse(category)
 
 
@@ -54,6 +66,7 @@ async def update_category(
     category = await repo.update(category_id, data)
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+    category = await _load_category(db, category_id)
     return AssetCategoryRead.from_orm_with_warehouse(category)
 
 

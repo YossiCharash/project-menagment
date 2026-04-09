@@ -62,16 +62,18 @@ class FixedAsset(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         "User",
         foreign_keys=[current_custodian_id],
         primaryjoin="FixedAsset.current_custodian_id == User.id",
+        lazy="raise",
     )
     current_warehouse: Mapped[Optional["Warehouse"]] = relationship(
-        "Warehouse", foreign_keys=[current_warehouse_id]
+        "Warehouse", foreign_keys=[current_warehouse_id], lazy="raise"
     )
-    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id])
+    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id], lazy="raise")
     history: Mapped[List["AssetHistory"]] = relationship(
         "AssetHistory",
         back_populates="asset",
         cascade="all, delete-orphan",
         order_by="AssetHistory.timestamp",
+        lazy="raise",
     )
 
 
@@ -107,19 +109,22 @@ class AssetHistory(UUIDPrimaryKeyMixin, CEMSBase):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False, index=True)
 
-    asset: Mapped["FixedAsset"] = relationship("FixedAsset", back_populates="history")
+    asset: Mapped["FixedAsset"] = relationship("FixedAsset", back_populates="history", lazy="raise")
     actor: Mapped[Optional["User"]] = relationship(
         "User",
         foreign_keys=[actor_id],
         primaryjoin="AssetHistory.actor_id == User.id",
+        lazy="raise",
     )
     from_custodian: Mapped[Optional["User"]] = relationship(
         "User",
         foreign_keys=[from_custodian_id],
         primaryjoin="AssetHistory.from_custodian_id == User.id",
+        lazy="raise",
     )
     to_custodian: Mapped[Optional["User"]] = relationship(
         "User",
         foreign_keys=[to_custodian_id],
         primaryjoin="AssetHistory.to_custodian_id == User.id",
+        lazy="raise",
     )

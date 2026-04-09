@@ -150,7 +150,7 @@ class TransferService:
             to_custodian_id=transfer.to_user_id,
             from_warehouse_id=transfer.from_warehouse_id,
             to_warehouse_id=transfer.to_warehouse_id,
-            notes=f"Transfer {transfer_id} completed with signature.",
+            notes=f"העברה הושלמה עם חתימה.",
         )
 
         # Re-fetch to get updated state
@@ -190,7 +190,7 @@ class TransferService:
             asset_id=transfer.asset_id,
             action="TRANSFER_REJECTED",
             actor_id=rejected_by_id,
-            notes=f"Transfer {transfer_id} rejected. Reason: {reason}",
+            notes=f"העברה נדחתה. סיבה: {reason}",
         )
 
         return await self._transfer_repo.get_by_id(transfer_id)  # type: ignore[return-value]

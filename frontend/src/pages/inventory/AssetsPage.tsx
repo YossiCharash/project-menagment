@@ -6,14 +6,9 @@ import {
   Search,
   ArrowLeftRight,
   Trash2,
-  ChevronDown,
-  ChevronUp,
   X,
   AlertTriangle,
   MapPin,
-  FileText,
-  Upload,
-  Download,
   History,
   Check,
   XCircle,
@@ -22,18 +17,15 @@ import {
 import {
   cemsApi,
   type FixedAsset,
-  type AssetHistory,
   type AssetRetirement,
   type AssetQueryParams,
   type CemsUser,
   type AssetCategory,
   type CemsProject,
   type Warehouse,
-  type CemsDocument,
-  type DocumentType,
 } from '../../lib/cemsApi'
-import { fileAttachmentUrl } from '../../lib/api'
 import { StatusBadge } from './InventoryDashboard'
+import { AssetViewModal } from './AssetViewModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -53,23 +45,6 @@ const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-
 const BTN_DANGER = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 
-const DOC_TYPE_LABELS: Record<DocumentType, string> = {
-  WARRANTY: 'תעודת אחריות',
-  INVOICE: 'חשבונית',
-  OTHER: 'אחר',
-}
-
-const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
-  { value: 'INVOICE', label: 'חשבונית' },
-  { value: 'WARRANTY', label: 'תעודת אחריות' },
-  { value: 'OTHER', label: 'אחר' },
-]
-
-function isImageFile(filename: string): boolean {
-  const ext = filename.split('.').pop()?.toLowerCase() || ''
-  return ['jpg', 'jpeg', 'png'].includes(ext)
-}
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AssetsPage() {
@@ -88,19 +63,8 @@ export default function AssetsPage() {
   const [projectFilter, setProjectFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
-  // Expanded rows (asset history)
-  const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null)
-  const [assetHistory, setAssetHistory] = useState<AssetHistory[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-
-  // Documents (per-asset tab + shared doc state)
-  const [docTab, setDocTab] = useState<Record<string, 'history' | 'docs'>>({})
-  const [assetDocs, setAssetDocs] = useState<CemsDocument[]>([])
-  const [docsLoading, setDocsLoading] = useState(false)
-  const [uploadDocType, setUploadDocType] = useState<DocumentType>('INVOICE')
-  const [uploadExpiry, setUploadExpiry] = useState('')
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
+  // View modal
+  const [viewAsset, setViewAsset] = useState<FixedAsset | null>(null)
 
   const me = useSelector((s: RootState) => s.auth.me)
   const isManager = me?.role === 'Admin'
@@ -201,73 +165,6 @@ export default function AssetsPage() {
       await loadRetirementData()
     } catch {
       // error handling is implicit via UI refresh
-    }
-  }
-
-  async function toggleAssetHistory(assetId: string) {
-    if (expandedAssetId === assetId) {
-      setExpandedAssetId(null)
-      return
-    }
-    setExpandedAssetId(assetId)
-    setHistoryLoading(true)
-    try {
-      const res = await cemsApi.getAssetHistory(assetId)
-      setAssetHistory(res.data)
-    } catch {
-      setAssetHistory([])
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  async function loadDocuments(assetId: string) {
-    setDocsLoading(true)
-    try {
-      const res = await cemsApi.getDocuments('fixed_asset', assetId)
-      setAssetDocs(res.data)
-    } catch {
-      setAssetDocs([])
-    } finally {
-      setDocsLoading(false)
-    }
-  }
-
-  function handleDocTabSwitch(assetId: string, tab: 'history' | 'docs') {
-    setDocTab((prev) => ({ ...prev, [assetId]: tab }))
-    if (tab === 'docs') {
-      loadDocuments(assetId)
-    }
-  }
-
-  async function handleDocumentUpload(assetId: string) {
-    if (!uploadFile) return
-    setUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', uploadFile)
-      formData.append('entity_type', 'fixed_asset')
-      formData.append('entity_id', assetId)
-      formData.append('document_type', uploadDocType)
-      if (uploadExpiry) formData.append('expiry_date', uploadExpiry)
-      await cemsApi.uploadDocument(formData)
-      setUploadFile(null)
-      setUploadExpiry('')
-      setUploadDocType('INVOICE')
-      await loadDocuments(assetId)
-    } catch {
-      // Error is handled silently; the user will see no new document appear
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  async function handleDocumentDelete(docId: string, assetId: string) {
-    try {
-      await cemsApi.deleteDocument(docId)
-      await loadDocuments(assetId)
-    } catch {
-      // silent
     }
   }
 
@@ -588,29 +485,11 @@ export default function AssetsPage() {
                     asset={asset}
                     categoryName={getCategoryName(asset.category_id)}
                     custodianName={getUserName(asset.current_custodian_id)}
-                    isExpanded={expandedAssetId === asset.id}
-                    history={expandedAssetId === asset.id ? assetHistory : []}
-                    historyLoading={historyLoading && expandedAssetId === asset.id}
-                    onToggleHistory={() => toggleAssetHistory(asset.id)}
+                    onViewAsset={() => setViewAsset(asset)}
                     onTransfer={() => setTransferAsset(asset)}
                     onRetire={() => setRetireAsset(asset)}
                     onMoveToWarehouse={() => setMoveAssetTarget(asset)}
                     onAssignToEmployee={() => setAssignAssetTarget(asset)}
-                    getUserName={getUserName}
-                    activeTab={docTab[asset.id] || 'history'}
-                    onTabSwitch={(tab) => handleDocTabSwitch(asset.id, tab)}
-                    documents={assetDocs}
-                    docsLoading={docsLoading}
-                    uploadFile={uploadFile}
-                    uploadDocType={uploadDocType}
-                    uploadExpiry={uploadExpiry}
-                    uploading={uploading}
-                    isManager={isManager}
-                    onUploadFileChange={setUploadFile}
-                    onUploadDocTypeChange={setUploadDocType}
-                    onUploadExpiryChange={setUploadExpiry}
-                    onDocumentUpload={() => handleDocumentUpload(asset.id)}
-                    onDocumentDelete={(docId) => handleDocumentDelete(docId, asset.id)}
                   />
                 ))
               )}
@@ -620,6 +499,24 @@ export default function AssetsPage() {
       </div>
 
       {/* Modals */}
+      {viewAsset && (
+        <AssetViewModal
+          asset={viewAsset}
+          categoryName={getCategoryName(viewAsset.category_id)}
+          custodianName={getUserName(viewAsset.current_custodian_id)}
+          categories={categories}
+          isManager={isManager}
+          onClose={() => setViewAsset(null)}
+          onUpdated={(updated) => {
+            setAssets((prev) => prev.map((a) => a.id === updated.id ? updated : a))
+            setViewAsset(updated)
+          }}
+          onTransfer={() => { setTransferAsset(viewAsset); setViewAsset(null) }}
+          onRetire={() => { setRetireAsset(viewAsset); setViewAsset(null) }}
+          onMoveToWarehouse={() => { setMoveAssetTarget(viewAsset); setViewAsset(null) }}
+          onAssignToEmployee={() => { setAssignAssetTarget(viewAsset); setViewAsset(null) }}
+        />
+      )}
       {showAddModal && (
         <AddAssetModal
           categories={categories}
@@ -669,58 +566,22 @@ interface AssetRowProps {
   asset: FixedAsset
   categoryName: string
   custodianName: string
-  isExpanded: boolean
-  history: AssetHistory[]
-  historyLoading: boolean
-  onToggleHistory: () => void
+  onViewAsset: () => void
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
   onAssignToEmployee: () => void
-  getUserName: (id: number | null) => string
-  activeTab: 'history' | 'docs'
-  onTabSwitch: (tab: 'history' | 'docs') => void
-  documents: CemsDocument[]
-  docsLoading: boolean
-  uploadFile: File | null
-  uploadDocType: DocumentType
-  uploadExpiry: string
-  uploading: boolean
-  isManager: boolean
-  onUploadFileChange: (f: File | null) => void
-  onUploadDocTypeChange: (t: DocumentType) => void
-  onUploadExpiryChange: (d: string) => void
-  onDocumentUpload: () => void
-  onDocumentDelete: (docId: string) => void
 }
 
 function AssetRow({
   asset,
   categoryName,
   custodianName,
-  isExpanded,
-  history,
-  historyLoading,
-  onToggleHistory,
+  onViewAsset,
   onTransfer,
   onRetire,
   onMoveToWarehouse,
   onAssignToEmployee,
-  getUserName,
-  activeTab,
-  onTabSwitch,
-  documents,
-  docsLoading,
-  uploadFile,
-  uploadDocType,
-  uploadExpiry,
-  uploading,
-  isManager,
-  onUploadFileChange,
-  onUploadDocTypeChange,
-  onUploadExpiryChange,
-  onDocumentUpload,
-  onDocumentDelete,
 }: AssetRowProps) {
   const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
   const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
@@ -728,296 +589,61 @@ function AssetRow({
   const canRetire = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
 
   return (
-    <>
-      <tr
-        className="hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
-        onClick={onToggleHistory}
-      >
-        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-          <div className="flex items-center gap-2">
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-            {asset.name}
-          </div>
-        </td>
-        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
-        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{categoryName}</td>
-        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{custodianName}</td>
-        <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
-        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-          {asset.warranty_expiry ? new Date(asset.warranty_expiry).toLocaleDateString('he-IL') : '-'}
-        </td>
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {canTransfer && (
-              <button
-                onClick={onTransfer}
-                className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
-                title="העבר ציוד"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-              </button>
-            )}
-            {canMoveToWarehouse && (
-              <button
-                onClick={onMoveToWarehouse}
-                className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
-                title="החזר למחסן"
-              >
-                <MapPin className="w-4 h-4" />
-              </button>
-            )}
-            {canAssignToEmployee && (
-              <button
-                onClick={onAssignToEmployee}
-                className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
-                title="הקצה לעובד"
-              >
-                <UserCheck className="w-4 h-4" />
-              </button>
-            )}
-            {canRetire && (
-              <button
-                onClick={onRetire}
-                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                title="פרישה"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-      {isExpanded && (
-        <tr>
-          <td colSpan={7} className="px-4 py-4 bg-gray-50 dark:bg-gray-750">
-            {/* Tab navigation */}
-            <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 mb-4">
-              <button
-                onClick={() => onTabSwitch('history')}
-                className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'history'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
-              >
-                היסטוריה
-              </button>
-              <button
-                onClick={() => onTabSwitch('docs')}
-                className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'docs'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
-              >
-                מסמכים
-              </button>
-            </div>
-
-            {/* Tab content */}
-            {activeTab === 'history' ? (
-              <>
-                {historyLoading ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">טוען היסטוריה...</p>
-                ) : history.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">אין היסטוריה זמינה</p>
-                ) : (
-                  <div className="space-y-2">
-                    {history.map((entry) => (
-                      <div key={entry.id} className="flex items-start gap-3 p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900 dark:text-white">{entry.action}</p>
-                          {entry.from_custodian_id && entry.to_custodian_id && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              מ: {getUserName(entry.from_custodian_id)} &larr; ל: {getUserName(entry.to_custodian_id)}
-                            </p>
-                          )}
-                          {entry.notes && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{entry.notes}</p>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-400 whitespace-nowrap">
-                          {new Date(entry.timestamp).toLocaleString('he-IL')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <AssetDocumentsPanel
-                documents={documents}
-                docsLoading={docsLoading}
-                uploadFile={uploadFile}
-                uploadDocType={uploadDocType}
-                uploadExpiry={uploadExpiry}
-                uploading={uploading}
-                isManager={isManager}
-                onUploadFileChange={onUploadFileChange}
-                onUploadDocTypeChange={onUploadDocTypeChange}
-                onUploadExpiryChange={onUploadExpiryChange}
-                onDocumentUpload={onDocumentUpload}
-                onDocumentDelete={onDocumentDelete}
-              />
-            )}
-          </td>
-        </tr>
-      )}
-    </>
-  )
-}
-
-// ─── Asset Documents Panel ────────────────────────────────────────────────────
-
-interface AssetDocumentsPanelProps {
-  documents: CemsDocument[]
-  docsLoading: boolean
-  uploadFile: File | null
-  uploadDocType: DocumentType
-  uploadExpiry: string
-  uploading: boolean
-  isManager: boolean
-  onUploadFileChange: (f: File | null) => void
-  onUploadDocTypeChange: (t: DocumentType) => void
-  onUploadExpiryChange: (d: string) => void
-  onDocumentUpload: () => void
-  onDocumentDelete: (docId: string) => void
-}
-
-function AssetDocumentsPanel({
-  documents,
-  docsLoading,
-  uploadFile,
-  uploadDocType,
-  uploadExpiry,
-  uploading,
-  isManager,
-  onUploadFileChange,
-  onUploadDocTypeChange,
-  onUploadExpiryChange,
-  onDocumentUpload,
-  onDocumentDelete,
-}: AssetDocumentsPanelProps) {
-  if (docsLoading) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">טוען מסמכים...</p>
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Document list */}
-      {documents.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">אין מסמכים מצורפים</p>
-      ) : (
-        <div className="space-y-2">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+    <tr
+      className="hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
+      onClick={onViewAsset}
+    >
+      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
+        {asset.name}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">{asset.serial_number}</td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{categoryName}</td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{custodianName}</td>
+      <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+        {asset.warranty_expiry ? new Date(asset.warranty_expiry).toLocaleDateString('he-IL') : '-'}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {canTransfer && (
+            <button
+              onClick={onTransfer}
+              className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
+              title="העבר ציוד"
             >
-              {/* File type icon */}
-              <span className="text-lg flex-shrink-0">
-                {isImageFile(doc.filename) ? (
-                  <FileText className="w-5 h-5 text-purple-500" />
-                ) : (
-                  <FileText className="w-5 h-5 text-blue-500" />
-                )}
-              </span>
-
-              {/* File info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-900 dark:text-white truncate">{doc.filename}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${
-                    doc.document_type === 'WARRANTY'
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                      : doc.document_type === 'INVOICE'
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                  }`}>
-                    {DOC_TYPE_LABELS[doc.document_type]}
-                  </span>
-                  {doc.expiry_date && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      תוקף: {new Date(doc.expiry_date).toLocaleDateString('he-IL')}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={() => {
-                    const url = fileAttachmentUrl(doc.file_url)
-                    if (url) window.open(url, '_blank')
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
-                  title="הורדה"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-                {isManager && (
-                  <button
-                    onClick={() => onDocumentDelete(doc.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                    title="מחיקה"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Upload form */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-          <Upload className="w-4 h-4" />
-          העלאת מסמך חדש
-        </h5>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-          <div>
-            <label className={LABEL_CLASS}>קובץ</label>
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-              onChange={(e) => onUploadFileChange(e.target.files?.[0] || null)}
-              className={`${INPUT_CLASS} text-xs`}
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>סוג מסמך</label>
-            <select
-              value={uploadDocType}
-              onChange={(e) => onUploadDocTypeChange(e.target.value as DocumentType)}
-              className={INPUT_CLASS}
+              <ArrowLeftRight className="w-4 h-4" />
+            </button>
+          )}
+          {canMoveToWarehouse && (
+            <button
+              onClick={onMoveToWarehouse}
+              className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+              title="החזר למחסן"
             >
-              {DOC_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>תאריך תוקף</label>
-            <input
-              type="date"
-              value={uploadExpiry}
-              onChange={(e) => onUploadExpiryChange(e.target.value)}
-              className={INPUT_CLASS}
-            />
-          </div>
-          <button
-            onClick={onDocumentUpload}
-            disabled={!uploadFile || uploading}
-            className={`${BTN_PRIMARY} disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {uploading ? 'מעלה...' : 'העלאה'}
-          </button>
+              <MapPin className="w-4 h-4" />
+            </button>
+          )}
+          {canAssignToEmployee && (
+            <button
+              onClick={onAssignToEmployee}
+              className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
+              title="הקצה לעובד"
+            >
+              <UserCheck className="w-4 h-4" />
+            </button>
+          )}
+          {canRetire && (
+            <button
+              onClick={onRetire}
+              className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+              title="פרישה"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   )
 }
 
