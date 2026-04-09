@@ -457,9 +457,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   }
 
   const removeRow = (rowId: string) => {
-    if (rows.length > 1) {
-      setRows(rows.filter(row => row.id !== rowId))
-    }
+    setRows(rows.filter(row => row.id !== rowId))
   }
 
   const updateRow = (rowId: string, field: keyof TransactionRow, value: any) => {
