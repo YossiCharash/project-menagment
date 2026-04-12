@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Package,
-  Warehouse,
+  Warehouse as WarehouseIcon,
   ArrowLeftRight,
   AlertTriangle,
   Archive,
@@ -18,6 +18,8 @@ import {
   type FixedAsset,
   type ConsumableItem,
   type AssetHistory,
+  type AssetCategory,
+  type Warehouse,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
 
@@ -45,7 +47,7 @@ interface StatCardConfig {
 const STAT_CARDS: StatCardConfig[] = [
   { label: 'סה"כ ציוד', key: 'total_assets', icon: Package, color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   { label: 'ציוד פעיל', key: 'active_assets', icon: CheckCircle, color: 'text-green-600 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
-  { label: 'במחסן', key: 'in_warehouse', icon: Warehouse, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
+  { label: 'במחסן', key: 'in_warehouse', icon: WarehouseIcon, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   { label: 'בהעברה', key: 'in_transfer', icon: ArrowLeftRight, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
   { label: 'נגרט', key: 'retired', icon: Archive, color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-700' },
   { label: 'התראות מלאי', key: 'low_stock_count', icon: Bell, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-100 dark:bg-red-900/30' },
@@ -89,6 +91,12 @@ export default function InventoryDashboard() {
   const [cardConsumables, setCardConsumables] = useState<ConsumableItem[]>([])
   const [cardLoading, setCardLoading] = useState(false)
 
+  // Lookup maps for grouping
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [categories, setCategories] = useState<AssetCategory[]>([])
+  // Grouping toggle for asset modal
+  const [groupBy, setGroupBy] = useState<'none' | 'warehouse' | 'category'>('none')
+
   // Item detail panel state
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null)
   const [selectedConsumable, setSelectedConsumable] = useState<ConsumableItem | null>(null)
@@ -104,15 +112,19 @@ export default function InventoryDashboard() {
     setError(null)
     try {
       // Use allSettled so a single failed endpoint doesn't kill the whole dashboard
-      const [dashRes, warrantiesRes, consumablesRes] = await Promise.allSettled([
+      const [dashRes, warrantiesRes, consumablesRes, warehousesRes, categoriesRes] = await Promise.allSettled([
         cemsApi.getDashboard(),
         cemsApi.getExpiringWarranties(),
         cemsApi.getConsumables(),
+        cemsApi.getWarehouses(),
+        cemsApi.getCategories(),
       ])
       if (dashRes.status === 'fulfilled') setReport(dashRes.value.data)
       else { setError('שגיאה בטעינת נתוני לוח הבקרה'); return }
       if (warrantiesRes.status === 'fulfilled') setExpiringWarranties(warrantiesRes.value.data)
       if (consumablesRes.status === 'fulfilled') setConsumables(consumablesRes.value.data)
+      if (warehousesRes.status === 'fulfilled') setWarehouses(warehousesRes.value.data)
+      if (categoriesRes.status === 'fulfilled') setCategories(categoriesRes.value.data)
     } catch {
       setError('שגיאה בטעינת נתוני לוח הבקרה')
     } finally {
@@ -134,6 +146,7 @@ export default function InventoryDashboard() {
       return
     }
     setSelectedCard(key)
+    setGroupBy('none')
     setCardLoading(true)
     setCardAssets([])
     setCardAlerts([])
@@ -396,6 +409,27 @@ export default function InventoryDashboard() {
                 )
               ) : (
                 <div className="space-y-6">
+                  {/* Grouping toggle */}
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-full p-1 w-fit">
+                    {([
+                      { value: 'none' as const, label: 'הכל' },
+                      { value: 'warehouse' as const, label: 'לפי מחסן' },
+                      { value: 'category' as const, label: 'לפי קטגוריה' },
+                    ]).map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setGroupBy(opt.value)}
+                        className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                          groupBy === opt.value
+                            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Fixed assets section */}
                   <div>
                     {selectedCard === 'in_warehouse' && (
@@ -406,7 +440,7 @@ export default function InventoryDashboard() {
                     )}
                     {cardAssets.length === 0 ? (
                       <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">אין ציוד קבוע</p>
-                    ) : (
+                    ) : groupBy === 'none' ? (
                       <table className="w-full text-sm border-collapse">
                         <thead className="sticky top-0 bg-white dark:bg-gray-800">
                           <tr className="bg-gray-50 dark:bg-gray-700">
@@ -431,6 +465,60 @@ export default function InventoryDashboard() {
                           ))}
                         </tbody>
                       </table>
+                    ) : (
+                      <div>
+                        {Array.from(
+                          cardAssets.reduce((groups, asset) => {
+                            const key = groupBy === 'warehouse'
+                              ? (asset.current_warehouse_id ?? '__none__')
+                              : (asset.category_id ?? '__none__')
+                            const existing = groups.get(key) ?? []
+                            existing.push(asset)
+                            groups.set(key, existing)
+                            return groups
+                          }, new Map<string, FixedAsset[]>())
+                        ).map(([groupKey, items]) => {
+                          const groupLabel = groupBy === 'warehouse'
+                            ? (groupKey === '__none__'
+                              ? 'ללא מחסן'
+                              : warehouses.find(w => w.id === groupKey)?.name ?? groupKey.slice(0, 8))
+                            : (groupKey === '__none__'
+                              ? 'ללא קטגוריה'
+                              : categories.find(c => c.id === groupKey)?.name ?? groupKey.slice(0, 8))
+                          return (
+                            <div key={groupKey}>
+                              <div className="flex items-center gap-2 mb-2 mt-4 first:mt-0">
+                                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide">{groupLabel}</span>
+                                <span className="text-xs text-gray-400">({items.length})</span>
+                              </div>
+                              <table className="w-full text-sm border-collapse mb-2">
+                                <thead className="sticky top-0 bg-white dark:bg-gray-800">
+                                  <tr className="bg-gray-50 dark:bg-gray-700">
+                                    <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">#</th>
+                                    <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">שם</th>
+                                    <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">מס' סידורי</th>
+                                    <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סטטוס</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                  {items.map((asset, idx) => (
+                                    <tr
+                                      key={asset.id}
+                                      className="hover:bg-blue-50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors"
+                                      onClick={() => openAssetDetail(asset)}
+                                    >
+                                      <td className="px-3 py-2 text-gray-400 dark:text-gray-500">{idx + 1}</td>
+                                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{asset.name}</td>
+                                      <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 text-xs">{asset.serial_number}</td>
+                                      <td className="px-3 py-2"><StatusBadge status={asset.status} /></td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )
+                        })}
+                      </div>
                     )}
                   </div>
 
