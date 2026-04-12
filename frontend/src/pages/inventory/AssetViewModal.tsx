@@ -45,7 +45,19 @@ function isImageFile(filename: string): boolean {
   return ['jpg', 'jpeg', 'png'].includes(ext)
 }
 
-function translateNote(note: string): string {
+export function translateNote(note: string): string {
+  const FIELD_LABELS: Record<string, string> = {
+    name: 'שם',
+    category_id: 'קטגוריה',
+    purchase_date: 'תאריך רכישה',
+    warranty_expiry: 'תפוגת אחריות',
+    notes: 'הערות',
+    serial_number: "מס' סידורי",
+    status: 'סטטוס',
+    photo_url: 'תמונה',
+    project_id: 'פרויקט',
+  }
+
   return note
     .replace(/^Asset '(.+?)' created with serial '(.+?)'\.?$/, "נכס '$1' נוצר עם מס' סידורי '$2'.")
     .replace(/^Updated fields:\s*(.+)$/, 'שדות שעודכנו: $1')
@@ -56,6 +68,12 @@ function translateNote(note: string): string {
     .replace(/^Rejected retirement\. Reason: (.+)$/, 'פרישה נדחתה. סיבה: $1')
     .replace(/^Return to warehouse requested\. Reason: (.+)$/, 'בקשת החזרה למחסן. סיבה: $1')
     .replace(/^Return approved by manager\. Return reason: (.+)$/, 'החזרה אושרה על ידי מנהל. סיבת החזרה: $1')
+    .replace(/שדות שעודכנו:\s*(.+)/, (_, fields) => {
+      const translated = fields.replace(/'([^']+)'/g, (_: string, f: string) =>
+        `'${FIELD_LABELS[f] ?? f}'`
+      )
+      return `שדות שעודכנו: ${translated}`
+    })
 }
 
 const ACTION_LABELS: Record<string, string> = {

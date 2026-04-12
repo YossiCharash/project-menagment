@@ -22,6 +22,7 @@ import {
   type Warehouse,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
+import { translateNote } from './AssetViewModal'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -659,7 +660,7 @@ export default function InventoryDashboard() {
                             {HISTORY_ACTION_LABELS[entry.action] ?? entry.action}
                           </span>
                           {entry.notes && (
-                            <p className="text-gray-500 dark:text-gray-400 truncate mt-0.5">{entry.notes}</p>
+                            <p className="text-gray-500 dark:text-gray-400 truncate mt-0.5">{translateNote(entry.notes)}</p>
                           )}
                         </div>
                         <span className="text-gray-400 dark:text-gray-500 whitespace-nowrap flex-shrink-0">
