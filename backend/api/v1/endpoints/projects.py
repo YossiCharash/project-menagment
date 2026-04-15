@@ -591,10 +591,6 @@ async def get_project_full(
                 null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
                 if null_budgets:
                     budgets = null_budgets
-                    logger.warning("No budgets for period_id=%s, using %d budgets with NULL contract_period_id as fallback", effective_period_id, len(budgets))
-                else:
-                    # If no null budgets either, keep all budgets as last resort
-                    logger.warning("No budgets for period_id=%s and no NULL budgets, showing all %d budgets as fallback", effective_period_id, len(budgets))
         else:
             # When viewing current period but no period_id found:
             # Show budgets with NULL contract_period_id (old budgets)
