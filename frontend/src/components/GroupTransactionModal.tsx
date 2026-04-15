@@ -44,6 +44,31 @@ interface TransactionRow {
   incomes?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
   expenses?: Array<{ amount: number | ''; description: string; documentFiles: File[] }>
   contractPeriodId?: number | ''
+  isSplitTransaction?: boolean
+  splitGroupId?: string
+}
+
+interface SplitProjectEntry {
+  id: string
+  projectId: number | ''
+  subprojectId: number | ''
+  amount: number | ''
+  files: File[]
+}
+
+interface PanelSplitState {
+  type: 'Income' | 'Expense'
+  txDate: string
+  description: string
+  categoryId: number | ''
+  supplierId: number | ''
+  notes: string
+  isExceptional: boolean
+  fromFund: boolean
+  period_start_date: string
+  period_end_date: string
+  generalFiles: File[]
+  entries: SplitProjectEntry[]
 }
 
 /** מנרמל תאריך לפורמט YYYY-MM-DD לתצוגה ב-input type="date". מחזיר רק מחרוזת תקינה או ריקה. */
@@ -98,7 +123,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [rows, setRows] = useState<TransactionRow[]>([])
 
   // New state for card-based UI
-  const [activePanelType, setActivePanelType] = useState<'regular' | 'unforeseen' | null>(null)
+  const [activePanelType, setActivePanelType] = useState<'regular' | 'unforeseen' | 'split' | null>(null)
   const [editingCardRowId, setEditingCardRowId] = useState<string | null>(null)
 
   // Panel state for regular transaction
@@ -136,6 +161,30 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     expenses: [{ amount: '', description: '', documentFiles: [] }],
   })
   const [panelUnforeseen, setPanelUnforeseen] = useState<Partial<TransactionRow>>(defaultPanelUnforeseen())
+
+  const defaultSplitEntry = (): SplitProjectEntry => ({
+    id: Date.now().toString(),
+    projectId: '',
+    subprojectId: '',
+    amount: '',
+    files: [],
+  })
+
+  const defaultPanelSplit = (): PanelSplitState => ({
+    type: 'Expense',
+    txDate: new Date().toISOString().split('T')[0],
+    description: '',
+    categoryId: '',
+    supplierId: '',
+    notes: '',
+    isExceptional: false,
+    fromFund: false,
+    period_start_date: '',
+    period_end_date: '',
+    generalFiles: [],
+    entries: [defaultSplitEntry()],
+  })
+  const [panelSplit, setPanelSplit] = useState<PanelSplitState>(defaultPanelSplit())
 
   const draftsDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -1678,6 +1727,42 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     setPanelUnforeseen(defaultPanelUnforeseen())
   }
 
+  const handleSavePanelSplit = () => {
+    const data = panelSplit
+    const validEntries = data.entries.filter(e => e.projectId && e.amount && Number(e.amount) > 0)
+    if (validEntries.length === 0) return
+
+    const groupId = Date.now().toString() + '_split'
+    const newRows: TransactionRow[] = validEntries.map(entry => ({
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+      projectId: entry.projectId as number,
+      subprojectId: entry.subprojectId || '',
+      type: data.type,
+      txDate: data.txDate,
+      amount: entry.amount as number,
+      description: data.description,
+      categoryId: data.categoryId,
+      supplierId: data.supplierId,
+      paymentMethod: '',
+      notes: data.notes,
+      isExceptional: data.isExceptional,
+      fromFund: data.fromFund,
+      files: [...entry.files, ...data.generalFiles],
+      dateError: null,
+      duplicateError: null,
+      checkingDuplicate: false,
+      period_start_date: data.period_start_date,
+      period_end_date: data.period_end_date,
+      periodError: null,
+      isUnforeseen: false,
+      isSplitTransaction: true,
+      splitGroupId: groupId,
+    }))
+    setRows(prev => [...prev, ...newRows])
+    setActivePanelType(null)
+    setPanelSplit(defaultPanelSplit())
+  }
+
   const handleEditCard = (rowId: string) => {
     const row = rows.find(r => r.id === rowId)
     if (!row) return
@@ -1845,6 +1930,16 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <Plus className="w-4 h-4" />
               הוספת עסקה לא צפויה
             </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => { setPanelSplit(defaultPanelSplit()); setEditingCardRowId(null); setActivePanelType('split') }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl shadow font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              עסקה מתפצלת
+            </motion.button>
           </div>
 
           {/* Transaction cards grid */}
@@ -1860,6 +1955,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 const dateTypeLabel = isDateRange ? 'תאריכית' : 'רגילה'
                 const accentClass = row.isUnforeseen
                   ? 'border-r-4 border-purple-500'
+                  : row.isSplitTransaction
+                  ? 'border-r-4 border-teal-500'
                   : row.type === 'Income'
                   ? 'border-r-4 border-green-500'
                   : 'border-r-4 border-red-500'
@@ -1892,6 +1989,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                             {row.type === 'Income' ? 'הכנסה' : 'הוצאה'}
                           </span>
                           <span className="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 rounded-full text-[11px]">{dateTypeLabel}</span>
+                          {row.isSplitTransaction && (
+                            <span className="inline-block px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded-full text-[11px] font-medium">מתפצלת</span>
+                          )}
                         </div>
                         <div className={`text-base font-bold ${row.type === 'Income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                           {Number(row.amount).toLocaleString('he-IL')} ₪
@@ -2225,6 +2325,183 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
                 <button type="button" onClick={() => setActivePanelType(null)} className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
                 <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelUnforeseen} disabled={!panelUnforeseen.projectId || !panelUnforeseen.txDate} className="px-8 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Split Transaction Panel */}
+        {activePanelType === 'split' && (
+          <div className="absolute inset-0 z-[55] flex items-start justify-center bg-black/40 backdrop-blur-sm overflow-auto py-6 rounded-2xl" onClick={() => setActivePanelType(null)}>
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg mx-4 border border-gray-200 dark:border-gray-700"
+              dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-l from-teal-50 to-white dark:from-teal-900/20 dark:to-gray-800 rounded-t-2xl">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">עסקה מתפצלת חדשה</h3>
+                  <p className="text-xs text-teal-600 dark:text-teal-400">עסקה אחת המתחלקת בין מספר פרויקטים</p>
+                </div>
+                <button type="button" onClick={() => setActivePanelType(null)} className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="px-4 py-3 space-y-3 overflow-y-auto max-h-[70vh]">
+                {/* Type toggle */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">סוג עסקה</label>
+                  <div className="flex gap-2">
+                    {(['Expense', 'Income'] as const).map(t => (
+                      <button key={t} type="button" onClick={() => setPanelSplit(prev => ({ ...prev, type: t, supplierId: '' }))} className={`flex-1 py-1.5 rounded-lg text-xs font-medium border-2 transition-all ${panelSplit.type === t ? (t === 'Income' ? 'bg-green-500 border-green-500 text-white' : 'bg-red-500 border-red-500 text-white') : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400'}`}>
+                        {t === 'Income' ? 'הכנסה' : 'הוצאה'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Date + Period */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך עסקה *</label>
+                    <input type="date" value={panelSplit.txDate} onChange={e => setPanelSplit(prev => ({ ...prev, txDate: e.target.value }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">תאריכית (אופציונלי)</label>
+                    <div className="grid grid-cols-2 gap-1">
+                      <input type="date" value={panelSplit.period_start_date} onChange={e => setPanelSplit(prev => ({ ...prev, period_start_date: e.target.value }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                      <input type="date" value={panelSplit.period_end_date} onChange={e => setPanelSplit(prev => ({ ...prev, period_end_date: e.target.value }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
+                  <input type="text" value={panelSplit.description} onChange={e => setPanelSplit(prev => ({ ...prev, description: e.target.value }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="תיאור העסקה" />
+                </div>
+
+                {/* Category + Supplier */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה</label>
+                    <select value={panelSplit.categoryId} onChange={e => setPanelSplit(prev => ({ ...prev, categoryId: e.target.value ? Number(e.target.value) : '', supplierId: '' }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                      <option value="">בחר קטגוריה</option>
+                      {availableCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  {panelSplit.type === 'Expense' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">ספק</label>
+                      <select value={panelSplit.supplierId} onChange={e => setPanelSplit(prev => ({ ...prev, supplierId: e.target.value ? Number(e.target.value) : '' }))} disabled={!panelSplit.categoryId} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50">
+                        <option value="">{panelSplit.categoryId ? 'בחר ספק' : 'בחר קודם קטגוריה'}</option>
+                        {panelSplit.categoryId ? suppliers.filter(s => s.is_active !== false && s.category_id === panelSplit.categoryId).map(s => <option key={s.id} value={s.id}>{s.name}</option>) : null}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">הערות</label>
+                  <input type="text" value={panelSplit.notes} onChange={e => setPanelSplit(prev => ({ ...prev, notes: e.target.value }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="הערות" />
+                </div>
+
+                {/* Project entries section */}
+                <div className="border border-teal-200 dark:border-teal-800 rounded-lg p-3 bg-teal-50/50 dark:bg-teal-900/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-teal-700 dark:text-teal-300">פרויקטים וסכומים</h4>
+                    <button
+                      type="button"
+                      onClick={() => setPanelSplit(prev => ({ ...prev, entries: [...prev.entries, defaultSplitEntry()] }))}
+                      className="flex items-center gap-1 px-2 py-1 text-[11px] bg-teal-500 hover:bg-teal-600 text-white rounded-md transition-colors font-medium"
+                    >
+                      <Plus className="w-3 h-3" />
+                      הוסף פרויקט
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {panelSplit.entries.map((entry, entryIdx) => (
+                      <div key={entry.id} className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">פרויקט {entryIdx + 1}</span>
+                          {panelSplit.entries.length > 1 && (
+                            <button type="button" onClick={() => setPanelSplit(prev => ({ ...prev, entries: prev.entries.filter((_, i) => i !== entryIdx) }))} className="p-0.5 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-3 h-3" /></button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <select value={entry.projectId} onChange={e => { const pid = e.target.value ? Number(e.target.value) : ''; setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, projectId: pid, subprojectId: '' } : en) })); if (pid) { const proj = projects.find(p => p.id === pid); if (proj?.is_parent_project) loadSubprojects(pid as number) } }} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            <option value="">פרויקט *</option>
+                            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          {entry.projectId && projects.find(p => p.id === entry.projectId)?.is_parent_project ? (
+                            <select value={entry.subprojectId} onChange={e => setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, subprojectId: e.target.value ? Number(e.target.value) : '' } : en) }))} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                              <option value="">תת-פרויקט</option>
+                              {(subprojectsMap[entry.projectId as number] || []).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                            </select>
+                          ) : <div />}
+                          <input type="number" min="0" step="0.01" value={entry.amount} onChange={e => setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, amount: e.target.value ? Number(e.target.value) : '' } : en) }))} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="סכום *" />
+                        </div>
+                        {/* Entry-specific documents */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <label className="cursor-pointer flex items-center gap-1 px-2 py-1 border border-dashed border-gray-300 dark:border-gray-600 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
+                            <Upload className="w-3 h-3" />
+                            מסמכים
+                            <input type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, files: [...en.files, ...files] } : en) })); e.currentTarget.value = '' }} />
+                          </label>
+                          {entry.files.map((f, fi) => (
+                            <div key={fi} className="flex items-center gap-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
+                              <File className="w-2.5 h-2.5" />
+                              <span className="truncate max-w-[60px]">{f.name}</span>
+                              <button type="button" onClick={() => setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, files: en.files.filter((_, idx) => idx !== fi) } : en) }))} className="text-red-500 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Total amount */}
+                  {panelSplit.entries.some(e => e.amount) && (
+                    <div className="mt-2 pt-1.5 border-t border-teal-200 dark:border-teal-800 text-xs text-right">
+                      <span className="text-gray-600 dark:text-gray-400">סה"כ: </span>
+                      <strong className="text-teal-700 dark:text-teal-300">{panelSplit.entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toLocaleString('he-IL')} ₪</strong>
+                    </div>
+                  )}
+                </div>
+
+                {/* General documents */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">מסמכים כלליים (לכל הפרויקטים)</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      הוסף קבצים לכולם
+                      <input type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); setPanelSplit(prev => ({ ...prev, generalFiles: [...prev.generalFiles, ...files] })); e.currentTarget.value = '' }} />
+                    </label>
+                    {panelSplit.generalFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
+                        <File className="w-2.5 h-2.5" />
+                        <span className="truncate max-w-[70px]">{f.name}</span>
+                        <button type="button" onClick={() => setPanelSplit(prev => ({ ...prev, generalFiles: prev.generalFiles.filter((_, idx) => idx !== i) }))} className="text-red-500 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" onClick={() => setActivePanelType(null)} className="px-4 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleSavePanelSplit}
+                  disabled={!panelSplit.txDate || !panelSplit.entries.some(e => e.projectId && e.amount && Number(e.amount) > 0)}
+                  className="px-6 py-2 text-xs bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg hover:from-teal-600 hover:to-teal-700 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  שמור
+                </motion.button>
               </div>
             </motion.div>
           </div>
