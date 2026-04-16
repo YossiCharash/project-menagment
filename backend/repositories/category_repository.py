@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from backend.models import Category
+from backend.models.transaction import Transaction
+from backend.models.recurring_transaction import RecurringTransactionTemplate
 from backend.repositories.base import BaseRepository
 
 
@@ -69,3 +71,19 @@ class CategoryRepository(BaseRepository[Category]):
         """Update an existing category"""
         await self.db.commit()
         return await self.get(entity.id)
+
+    async def count_transactions_referencing_category(self, category_id: int) -> int:
+        """Count transactions whose ``category_id`` equals the given id."""
+        query = select(func.count(Transaction.id)).where(
+            Transaction.category_id == category_id
+        )
+        result = await self.db.execute(query)
+        return int(result.scalar_one() or 0)
+
+    async def count_recurring_templates_referencing_category(self, category_id: int) -> int:
+        """Count recurring-transaction templates whose ``category_id`` equals the given id."""
+        query = select(func.count(RecurringTransactionTemplate.id)).where(
+            RecurringTransactionTemplate.category_id == category_id
+        )
+        result = await self.db.execute(query)
+        return int(result.scalar_one() or 0)

@@ -39,3 +39,14 @@ class CategoryOut(CategoryBase):
 # Update forward reference
 CategoryOut.model_rebuild()
 
+
+class SupplierWithTransactionCountOut(BaseModel):
+    """Supplier row enriched with its transaction count for category pages."""
+
+    id: int
+    name: str
+    category: str  # category name (flat string, matching legacy response shape)
+    transaction_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
