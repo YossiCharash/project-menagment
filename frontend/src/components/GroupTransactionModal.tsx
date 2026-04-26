@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Upload, File, Pencil } from 'lucide-react'
-import { TransactionCreate, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
+import { TransactionCreate, Transaction, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
 import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI, GroupTransactionDraftAPI, GroupTransactionDraftOut } from '../lib/apiClient'
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
@@ -909,8 +909,31 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
     const succeededRowIndices = new Set<number>()
 
-    // Process a single row (unforeseen or regular transaction + file uploads)
-    const processRow = async (row: TransactionRow, i: number): Promise<{ succeeded: boolean; rowErrors: string[] }> => {
+    const buildRegularPayload = (row: TransactionRow): TransactionCreate => {
+      const projectId = row.subprojectId || row.projectId as number
+      const isPeriodTx = !!(row.period_start_date && row.period_end_date)
+      const tx_date = isPeriodTx ? row.period_start_date! : row.txDate
+      const payload: TransactionCreate = {
+        project_id: projectId,
+        tx_date,
+        type: row.type,
+        amount: Number(row.amount),
+        description: row.description || undefined,
+        category_id: row.categoryId ? Number(row.categoryId) : undefined,
+        supplier_id: row.supplierId ? Number(row.supplierId) : undefined,
+        payment_method: row.paymentMethod || undefined,
+        notes: row.notes || undefined,
+        is_exceptional: row.isExceptional,
+        from_fund: row.fromFund
+      }
+      if (isPeriodTx) {
+        payload.period_start_date = row.period_start_date!
+        payload.period_end_date = row.period_end_date!
+      }
+      return payload
+    }
+
+    const processUnforeseenRow = async (row: TransactionRow, i: number): Promise<{ succeeded: boolean; rowErrors: string[] }> => {
       const rowErrors: string[] = []
       try {
         if (row.isUnforeseen) {
@@ -1022,53 +1045,33 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
           return { succeeded: true, rowErrors }
         }
+        return { succeeded: true, rowErrors }
+      } catch (err: any) {
+        const errDetail = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
+        const errFields: string[] | undefined = err.response?.data?.errors
+        const errMsg = errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail
+        rowErrors.push(`שורה ${i + 1}: ${errMsg}`)
+        return { succeeded: false, rowErrors }
+      }
+    }
 
-        // Create regular transaction
-        // Subprojects are actually projects with relation_project set
-        // So we use the subproject's ID directly as project_id
-        const projectId = row.subprojectId || row.projectId as number
-        const isPeriodTx = !!(row.period_start_date && row.period_end_date)
-        const tx_date = isPeriodTx ? row.period_start_date! : row.txDate
-        const transactionData: TransactionCreate = {
-          project_id: projectId,
-          tx_date,
-          type: row.type,
-          amount: Number(row.amount),
-          description: row.description || undefined,
-          category_id: row.categoryId ? Number(row.categoryId) : undefined,
-          supplier_id: row.supplierId ? Number(row.supplierId) : undefined,
-          payment_method: row.paymentMethod || undefined,
-          notes: row.notes || undefined,
-          is_exceptional: row.isExceptional,
-          from_fund: row.fromFund
-        }
-        if (isPeriodTx) {
-          transactionData.period_start_date = row.period_start_date!
-          transactionData.period_end_date = row.period_end_date!
-        }
-
-        const transaction = forceAllowDuplicate && row.duplicateError
-          ? (await api.post('/transactions/', { ...transactionData, allow_duplicate: true })).data
-          : await TransactionAPI.createTransaction(transactionData)
-
+    const processRegularRowFiles = async (row: TransactionRow, i: number, transaction: Transaction): Promise<{ succeeded: boolean; rowErrors: string[] }> => {
+      const rowErrors: string[] = []
+      try {
         if (!transaction || !transaction.id) {
           console.error('[GROUP TX] Transaction created but no ID returned:', transaction)
           throw new Error('Transaction was created but did not return an ID')
         }
 
-        // Ensure transaction ID is a number
         const transactionId = typeof transaction.id === 'number' ? transaction.id : parseInt(String(transaction.id), 10)
         if (isNaN(transactionId)) {
           console.error('[GROUP TX] Invalid transaction ID:', transaction.id)
           throw new Error(`Invalid transaction ID: ${transaction.id}`)
         }
 
-        // Upload files for this transaction if any; if any upload fails, rollback this transaction so the deal is not performed
         if (row.files.length > 0) {
           console.log(`[GROUP TX] Starting upload of ${row.files.length} files for transaction ${transactionId}`)
 
-          // Add a delay to ensure transaction is committed to database
-          // This helps avoid race conditions where the transaction might not be immediately available
           await new Promise(resolve => setTimeout(resolve, 300))
 
           let fileSuccessCount = 0
@@ -1081,7 +1084,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2)
               console.log(`[GROUP TX] [${fileIndex + 1}/${row.files.length}] Uploading file: ${file.name} (${fileSizeMB} MB) for transaction ${transactionId}`)
 
-              // Check file size (max 50MB)
               if (file.size > 50 * 1024 * 1024) {
                 console.error(`[GROUP TX] File ${file.name} is too large: ${fileSizeMB} MB (max 50MB)`)
                 fileErrorCount++
@@ -1091,7 +1093,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
               const uploadStartTime = Date.now()
 
-              // Retry upload if we get a 404 (transaction not found) - might be a race condition
               let uploadResult = null
               let uploadAttempts = 0
               const maxUploadAttempts = 3
@@ -1099,16 +1100,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               while (uploadAttempts < maxUploadAttempts) {
                 try {
                   uploadResult = await TransactionAPI.uploadTransactionDocument(transactionId, file)
-                  break // Success, exit retry loop
+                  break
                 } catch (uploadErr: any) {
                   uploadAttempts++
-                  // If 404 and not last attempt, wait and retry
                   if (uploadErr.response?.status === 404 && uploadAttempts < maxUploadAttempts) {
                     console.warn(`[GROUP TX] Transaction ${transactionId} not found (attempt ${uploadAttempts}/${maxUploadAttempts}), waiting 200ms before retry...`)
                     await new Promise(resolve => setTimeout(resolve, 200))
                     continue
                   }
-                  // Otherwise, rethrow the error to be caught by outer catch
                   throw uploadErr
                 }
               }
@@ -1116,9 +1115,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               const uploadDuration = Date.now() - uploadStartTime
               console.log(`[GROUP TX] File upload completed in ${uploadDuration}ms. Result:`, uploadResult)
 
-              // Verify the upload was successful - only require uploadResult.id
               if (uploadResult && uploadResult.id) {
-                // Log a warning if transaction_id doesn't match, but don't fail
                 if (uploadResult.transaction_id && uploadResult.transaction_id !== transactionId) {
                   console.warn(`[GROUP TX] Transaction ID mismatch in response: expected ${transactionId}, got ${uploadResult.transaction_id}. Document was still created with id ${uploadResult.id}.`)
                 }
@@ -1143,7 +1140,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
               fileErrorCount++
 
-              // Better error messages
               let errorMsg = 'שגיאה לא ידועה'
               if (fileErr.code === 'ECONNABORTED' || fileErr.message?.includes('timeout')) {
                 errorMsg = 'העלאה נכשלה - זמן ההמתנה פג (הקובץ גדול מדי או חיבור איטי)'
@@ -1173,7 +1169,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           })
 
           if (fileErrorCount > 0) {
-            // אם חלק מהמסמכים לא הועלו – מבטלים את העסקה (rollback) כדי שהעסקה לא תתבצע
             try {
               await TransactionAPI.rollbackTransaction(transactionId)
             } catch (rollbackErr: any) {
@@ -1198,15 +1193,77 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
     }
 
-    // Process ALL rows concurrently
+    const indexed = rows.map((row, i) => ({ row, i }))
+    const unforeseenIndexed = indexed.filter(({ row }) => row.isUnforeseen)
+    const regularIndexed = indexed.filter(({ row }) => !row.isUnforeseen)
+
+    const regularPayloads: TransactionCreate[] = regularIndexed.map(({ row }) => {
+      const payload = buildRegularPayload(row)
+      if (forceAllowDuplicate && row.duplicateError) payload.allow_duplicate = true
+      return payload
+    })
+
     setSubmitProgress({ done: 0, total: rows.length })
-    const rowPromises = rows.map((row, i) =>
-      processRow(row, i).then(result => {
-        setSubmitProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null)
+
+    const incrementProgress = () => setSubmitProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null)
+
+    const unforeseenPromises = unforeseenIndexed.map(({ row, i }) =>
+      processUnforeseenRow(row, i).then(result => {
+        incrementProgress()
         return { index: i, ...result }
       })
     )
-    const settled = await Promise.allSettled(rowPromises)
+
+    const regularWorkstream = (async (): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
+      if (regularIndexed.length === 0) return []
+      let createdTransactions: Transaction[]
+      try {
+        createdTransactions = await TransactionAPI.createBatch(regularPayloads)
+      } catch (err: any) {
+        const detail: string = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
+        // If server already prefixed "שורה N:", attribute that error to row N-1; other regular rows get a generic batch-failure message.
+        const match = typeof detail === 'string' ? detail.match(/^שורה (\d+):/) : null
+        const failures = regularIndexed.map(({ i }) => {
+          if (match) {
+            const failingIndex = Number(match[1]) - 1
+            if (i === failingIndex) {
+              return { index: i, succeeded: false, rowErrors: [detail] }
+            }
+            return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: הבאץ' נכשל - אף עסקה לא נוצרה`] }
+          }
+          return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${detail}`] }
+        })
+        for (let k = 0; k < regularIndexed.length; k++) incrementProgress()
+        return failures
+      }
+
+      const fileResults = await Promise.all(
+        regularIndexed.map(({ row, i }, k) =>
+          processRegularRowFiles(row, i, createdTransactions[k]).then(result => {
+            incrementProgress()
+            return { index: i, ...result }
+          })
+        )
+      )
+      return fileResults
+    })()
+
+    const outerSettled = await Promise.allSettled<Array<{ index: number; succeeded: boolean; rowErrors: string[] }> | { index: number; succeeded: boolean; rowErrors: string[] }>([
+      ...unforeseenPromises,
+      regularWorkstream
+    ])
+    const settled: Array<PromiseSettledResult<{ index: number; succeeded: boolean; rowErrors: string[] }>> = []
+    for (const outcome of outerSettled) {
+      if (outcome.status === 'fulfilled') {
+        if (Array.isArray(outcome.value)) {
+          for (const item of outcome.value) settled.push({ status: 'fulfilled', value: item })
+        } else {
+          settled.push({ status: 'fulfilled', value: outcome.value })
+        }
+      } else {
+        settled.push(outcome)
+      }
+    }
 
     for (const outcome of settled) {
       if (outcome.status === 'fulfilled') {
