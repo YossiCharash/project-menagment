@@ -335,6 +335,14 @@ export class TransactionAPI {
     return data
   }
 
+  static async createBatch(transactions: TransactionCreate[]): Promise<Transaction[]> {
+    const payload = {
+      transactions: transactions.map(t => ({ ...t, amount: Math.abs(t.amount) }))
+    }
+    const { data } = await api.post<Transaction[]>('/transactions/batch', payload)
+    return data
+  }
+
   // Update transaction
   static async updateTransaction(transactionId: number, updates: Partial<TransactionCreate>): Promise<Transaction> {
     const { data } = await api.put<Transaction>(`/transactions/${transactionId}`, updates)
