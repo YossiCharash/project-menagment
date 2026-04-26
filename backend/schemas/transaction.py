@@ -25,6 +25,10 @@ class TransactionCreate(TransactionBase):
     pass
 
 
+class TransactionBatchCreate(BaseModel):
+    transactions: list[TransactionCreate] = Field(..., min_length=1)
+
+
 class TransactionUpdate(BaseModel):
     tx_date: date | None = None
     type: Literal["Income", "Expense"] | None = None
