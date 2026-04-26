@@ -1615,24 +1615,26 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
     })
     const docs = draft.documents || []
-    for (const doc of docs) {
-      try {
-        const blob = await GroupTransactionDraftAPI.downloadDocument(draft.id, doc.id)
-        const file = new File([blob], doc.original_filename, { type: blob.type || 'application/octet-stream' })
-        if (doc.row_index < 0 || doc.row_index >= loaded.length) continue
-        const row = loaded[doc.row_index]
-        if (doc.sub_type === 'income' && doc.sub_index != null && row.incomes && row.incomes[doc.sub_index]) {
-          row.incomes[doc.sub_index].documentFiles = row.incomes[doc.sub_index].documentFiles || []
-          row.incomes[doc.sub_index].documentFiles!.push(file)
-        } else if (doc.sub_type === 'expense' && doc.sub_index != null && row.expenses && row.expenses[doc.sub_index]) {
-          row.expenses[doc.sub_index].documentFiles = row.expenses[doc.sub_index].documentFiles || []
-          row.expenses[doc.sub_index].documentFiles!.push(file)
-        } else {
-          row.files = row.files || []
-          row.files.push(file)
-        }
-      } catch (_) {
-        // skip failed document
+    const blobs = await Promise.allSettled(
+      docs.map(doc => GroupTransactionDraftAPI.downloadDocument(draft.id, doc.id))
+    )
+    for (let i = 0; i < docs.length; i++) {
+      const result = blobs[i]
+      if (result.status !== 'fulfilled') continue
+      const doc = docs[i]
+      const blob = result.value
+      const file = new File([blob], doc.original_filename, { type: blob.type || 'application/octet-stream' })
+      if (doc.row_index < 0 || doc.row_index >= loaded.length) continue
+      const row = loaded[doc.row_index]
+      if (doc.sub_type === 'income' && doc.sub_index != null && row.incomes && row.incomes[doc.sub_index]) {
+        row.incomes[doc.sub_index].documentFiles = row.incomes[doc.sub_index].documentFiles || []
+        row.incomes[doc.sub_index].documentFiles!.push(file)
+      } else if (doc.sub_type === 'expense' && doc.sub_index != null && row.expenses && row.expenses[doc.sub_index]) {
+        row.expenses[doc.sub_index].documentFiles = row.expenses[doc.sub_index].documentFiles || []
+        row.expenses[doc.sub_index].documentFiles!.push(file)
+      } else {
+        row.files = row.files || []
+        row.files.push(file)
       }
     }
     setRows(loaded.length > 0 ? loaded : [defaultRow(0)])
