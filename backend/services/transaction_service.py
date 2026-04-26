@@ -121,18 +121,17 @@ class TransactionService:
             msg += "\nלפתרון: ערוך את העסקה הקיימת, או בחר תקופה / קטגוריה שאינה חופפת."
             raise ValueError(msg)
 
-    async def create(self, **data) -> Transaction:
+    async def _validate_and_build(self, data: dict) -> Transaction:
+        """Validate a single row (date, category, overlap, duplicates) and build a Transaction (unpersisted)."""
         project_id = data.get('project_id')
         tx_date = data.get('tx_date')
 
-        # Validate transaction date against first contract start
         first_start: date | None = None
         if project_id:
             first_start = await get_first_contract_start(self.db, project_id)
         if tx_date:
             validate_date_not_before_contract(tx_date, first_start)
 
-        # Validate category
         from_fund = data.get('from_fund', False)
         category_id = data.get('category_id')
 
@@ -146,7 +145,6 @@ class TransactionService:
 
         data['category_id'] = resolved_category.id if resolved_category else None
 
-        # Check period overlap if dates provided
         allow_overlap = data.pop('allow_overlap', False)
         if data.get('period_start_date') and data.get('period_end_date'):
             if data['period_start_date'] > data['period_end_date']:
@@ -165,7 +163,6 @@ class TransactionService:
                     period_end=data['period_end_date']
                 )
 
-        # Check for duplicate transactions
         allow_duplicate = data.pop('allow_duplicate', False)
 
         if data.get('type') == 'Expense' and not from_fund and not allow_duplicate:
@@ -195,12 +192,50 @@ class TransactionService:
                     f"אם זה אותו תשלום, אנא בדוק את הרשומות הקיימות."
                 )
 
-        # Normalize payment_method
         if "payment_method" in data:
             data["payment_method"] = normalize_payment_method_for_db(data.get("payment_method"))
 
-        tx = Transaction(**data)
+        return Transaction(**data)
+
+    async def create(self, **data) -> Transaction:
+        tx = await self._validate_and_build(data)
         return await self.transactions.create(tx)
+
+    async def create_batch(self, rows: list[dict]) -> list[Transaction]:
+        """Validate all rows (including intra-batch duplicate detection), then add_all + flush atomically."""
+        intra_batch_keys: set[tuple] = set()
+        built: list[Transaction] = []
+
+        for idx, row in enumerate(rows, start=1):
+            row_copy = dict(row)
+            is_expense = row_copy.get('type') == 'Expense'
+            allow_dup = row_copy.get('allow_duplicate', False)
+
+            if is_expense and not allow_dup:
+                dup_key = (
+                    row_copy.get('project_id'),
+                    row_copy.get('tx_date'),
+                    row_copy.get('amount'),
+                    row_copy.get('supplier_id'),
+                    'Expense',
+                )
+                if dup_key in intra_batch_keys:
+                    raise ValueError(
+                        f"שורה {idx}: זוהתה עסקה כפולה בתוך הבאץ' (אותו תאריך, סכום, ספק וסוג)"
+                    )
+                intra_batch_keys.add(dup_key)
+
+            try:
+                tx = await self._validate_and_build(row_copy)
+            except ValueError as e:
+                raise ValueError(f"שורה {idx}: {e}") from e
+            built.append(tx)
+
+        self.db.add_all(built)
+        await self.db.flush()
+        for tx in built:
+            await self.db.refresh(tx)
+        return built
 
     async def list_by_project(
         self,

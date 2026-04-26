@@ -13,7 +13,7 @@ from backend.repositories.document_repository import DocumentRepository
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.user_repository import UserRepository
 from backend.models.document import Document
-from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate
+from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate, TransactionBatchCreate
 from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
 from backend.services.mappers import transaction_to_dict, transaction_to_dict_with_user
@@ -217,6 +217,128 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
 
     return result
 
+
+@router.post("/batch", response_model=list[TransactionOut])
+async def create_transactions_batch(
+    db: DBSessionDep,
+    data: TransactionBatchCreate,
+    user=Depends(require_permission("write", "transaction", project_id_param=None)),
+):
+    """Atomically create multiple transactions for a single project (all-or-nothing)."""
+    rows = data.transactions
+
+    project_ids = {r.project_id for r in rows}
+    if len(project_ids) != 1:
+        raise HTTPException(status_code=400, detail="כל העסקאות בבאץ' חייבות להיות לאותו פרויקט")
+    project_id = next(iter(project_ids))
+
+    project = await ProjectRepository(db).get_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Per-row pre-service checks (supplier existence/active, supplier-required-for-Expense rule)
+    supplier_repo = SupplierRepository(db)
+    category_repo = CategoryRepository(db)
+    category_cache: dict[int, object] = {}
+    supplier_cache: dict[int, object] = {}
+
+    fund_delta_expense = 0.0
+    fund_delta_income = 0.0
+
+    for idx, row in enumerate(rows, start=1):
+        is_other_category = False
+        if row.category_id is not None:
+            cat = category_cache.get(row.category_id)
+            if cat is None:
+                cat = await category_repo.get(row.category_id)
+                category_cache[row.category_id] = cat
+            if cat and cat.name == 'אחר':
+                is_other_category = True
+
+        if row.supplier_id is not None:
+            sup = supplier_cache.get(row.supplier_id)
+            if sup is None:
+                sup = await supplier_repo.get(row.supplier_id)
+                supplier_cache[row.supplier_id] = sup
+            if not sup:
+                raise HTTPException(status_code=404, detail=f"שורה {idx}: ספק לא נמצא")
+            if not sup.is_active:
+                raise HTTPException(status_code=400, detail=f"שורה {idx}: לא ניתן ליצור עסקה עם ספק לא פעיל")
+        elif row.type == 'Expense' and not row.from_fund and not is_other_category:
+            raise HTTPException(status_code=400, detail=f"שורה {idx}: ספק הוא שדה חובה לעסקאות הוצאה")
+
+        if row.from_fund:
+            if row.type == 'Expense':
+                fund_delta_expense += float(row.amount)
+            elif row.type == 'Income':
+                fund_delta_income += float(row.amount)
+
+    # One fund call per direction (not N)
+    if fund_delta_expense > 0 or fund_delta_income > 0:
+        from backend.services.fund_service import FundService
+        fund_service = FundService(db)
+        fund = await fund_service.get_fund_by_project(project_id)
+        if not fund:
+            raise HTTPException(status_code=400, detail="Fund not found for this project")
+        if fund_delta_expense > 0:
+            await fund_service.deduct_from_fund(project_id, fund_delta_expense)
+        if fund_delta_income > 0:
+            await fund_service.add_to_fund(project_id, fund_delta_income)
+
+    rows_data = []
+    for row in rows:
+        row_dict = row.model_dump()
+        row_dict['created_by_user_id'] = user.id
+        rows_data.append(row_dict)
+
+    try:
+        transactions = await TransactionService(db).create_batch(rows_data)
+    except ValueError as e:
+        error_msg = str(e)
+        if (
+            "זוהתה עסקה כפולה" in error_msg
+            or "נמצאה חפיפה" in error_msg
+            or "לא ניתן ליצור עסקה לתקופה" in error_msg
+        ):
+            raise HTTPException(status_code=409, detail=error_msg)
+        logger.exception("שגיאה ביצירת באץ' עסקאות")
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    project_name = project.name
+    audit = AuditService(db)
+    for tx in transactions:
+        await audit.log_transaction_action(
+            user_id=user.id,
+            action='create',
+            transaction_id=tx.id,
+            details={
+                'project_id': tx.project_id,
+                'project_name': project_name,
+                'type': tx.type,
+                'amount': str(tx.amount),
+                'category': tx.category.name if tx.category else None,
+                'description': tx.description,
+                'tx_date': str(tx.tx_date),
+                'supplier_id': tx.supplier_id,
+                'payment_method': tx.payment_method,
+                'notes': tx.notes,
+                'is_exceptional': tx.is_exceptional,
+                'is_generated': tx.is_generated,
+                'file_path': tx.file_path,
+            }
+        )
+
+    user_repo = UserRepository(db)
+    results = []
+    for tx in transactions:
+        item = await transaction_to_dict_with_user(tx, user_repo)
+        if item.get('category') is None and tx.category_id is not None:
+            cat = category_cache.get(tx.category_id)
+            if cat:
+                item['category'] = cat.name
+        results.append(item)
+
+    return results
 
 
 @router.get("/{tx_id}/documents", response_model=list[dict])
