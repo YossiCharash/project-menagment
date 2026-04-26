@@ -24,5 +24,5 @@ class AssetCategory(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     warehouse: Mapped[Optional["Warehouse"]] = relationship(
         "Warehouse",
         foreign_keys=[warehouse_id],
-        lazy="joined",
+        lazy="raise",
     )

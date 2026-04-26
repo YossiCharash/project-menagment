@@ -50,9 +50,9 @@ class PaymentMethodType(TypeDecorator):
     On read: convert English from DB -> Hebrew for app (and accept legacy Hebrew if present).
     """
     impl = PgENUM(
-        *_PAYMENT_METHOD_DB_VALUES,
+        *[e.name for e in PaymentMethod],
         name="payment_method",
-        create_type=False,
+        create_type=True,
     )
     cache_ok = True
 

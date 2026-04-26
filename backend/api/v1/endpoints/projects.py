@@ -591,10 +591,6 @@ async def get_project_full(
                 null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
                 if null_budgets:
                     budgets = null_budgets
-                    logger.warning("No budgets for period_id=%s, using %d budgets with NULL contract_period_id as fallback", effective_period_id, len(budgets))
-                else:
-                    # If no null budgets either, keep all budgets as last resort
-                    logger.warning("No budgets for period_id=%s and no NULL budgets, showing all %d budgets as fallback", effective_period_id, len(budgets))
         else:
             # When viewing current period but no period_id found:
             # Show budgets with NULL contract_period_id (old budgets)
@@ -606,7 +602,7 @@ async def get_project_full(
             else:
                 # If no null budgets, keep all budgets (they might all be assigned to periods)
                 # This ensures budgets are visible even if period detection fails
-                logger.warning("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
+                logger.debug("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
         for budget in budgets:
             # Calculate spent amount from already-loaded transactions for this budget's category
             spent = sum(
@@ -1540,27 +1536,57 @@ async def hard_delete_project(
     tx_repo = TransactionRepository(db)
     transactions = await tx_repo.list_by_project(project_id)
     
-    # Delete all transaction files from S3 (only if S3 is configured)
+    # Delete all project files from S3 (only if S3 is configured)
+    # NOTE: project.contract_file_url is intentionally NOT deleted from S3
     if settings.AWS_S3_BUCKET:
         try:
+            from sqlalchemy import select, and_
+            from backend.models.document import Document as DocumentModel
+            from backend.models.unforeseen_transaction import UnforeseenTransaction as UnforeseenTx, UnforeseenTransactionLine
+
             s3_service = S3Service()
+            files_to_delete: list[str] = []
+
+            # 1. Transaction direct file_path
             for tx in transactions:
                 if tx.file_path:
-                    try:
-                        s3_service.delete_file(tx.file_path)
-                    except Exception as e:
-                        # Log error but continue deletion
-                        logger.warning("Failed to delete transaction file %s from S3: %s", tx.file_path, e)
-            
-            # Delete project contract file if exists
-            if project.contract_file_url:
+                    files_to_delete.append(tx.file_path)
+
+            # 2. Documents linked to transactions of this project
+            if transactions:
+                tx_ids = [tx.id for tx in transactions]
+                result = await db.execute(
+                    select(DocumentModel.file_path).where(DocumentModel.transaction_id.in_(tx_ids))
+                )
+                files_to_delete.extend(fp for fp in result.scalars().all() if fp)
+
+            # 3. Documents linked to unforeseen transaction lines of this project
+            result = await db.execute(
+                select(DocumentModel.file_path)
+                .join(UnforeseenTransactionLine, DocumentModel.unforeseen_transaction_line_id == UnforeseenTransactionLine.id)
+                .join(UnforeseenTx, UnforeseenTransactionLine.unforeseen_transaction_id == UnforeseenTx.id)
+                .where(UnforeseenTx.project_id == project_id)
+            )
+            files_to_delete.extend(fp for fp in result.scalars().all() if fp)
+
+            # 4. Project documents (entity_type='project')
+            result = await db.execute(
+                select(DocumentModel.file_path).where(
+                    and_(
+                        DocumentModel.entity_type == "project",
+                        DocumentModel.entity_id == project_id,
+                    )
+                )
+            )
+            files_to_delete.extend(fp for fp in result.scalars().all() if fp)
+
+            for file_path in files_to_delete:
                 try:
-                    s3_service.delete_file(project.contract_file_url)
+                    s3_service.delete_file(file_path)
                 except Exception as e:
-                    # Log error but continue deletion
-                    logger.warning("Failed to delete project contract file %s from S3: %s", project.contract_file_url, e)
+                    logger.warning("Failed to delete file %s from S3: %s", file_path, e)
+
         except (ValueError, Exception) as e:
-            # If S3Service initialization fails (e.g., S3 not configured), log but continue with database deletion
             logger.warning("S3 service unavailable, skipping file deletion: %s", e)
     
     # Delete all related records before deleting the project
@@ -1581,7 +1607,11 @@ async def hard_delete_project(
     # 6. Delete fund
     await db.execute(delete(Fund).where(Fund.project_id == project_id))
     
-    # 7. Delete transactions
+    # 7a. Delete unforeseen transactions (FK: resulting_transaction_id → transactions.id)
+    from backend.models.unforeseen_transaction import UnforeseenTransaction
+    await db.execute(delete(UnforeseenTransaction).where(UnforeseenTransaction.project_id == project_id))
+
+    # 7b. Delete transactions
     await tx_repo.delete_by_project(project_id)
     
     # 8. Nullify quote_projects references (project_id and converted_project_id) so quotes remain but project can be deleted
