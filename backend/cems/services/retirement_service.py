@@ -59,7 +59,7 @@ class RetirementService:
             asset_id=asset_id,
             action="RETIREMENT_REQUESTED",
             actor_id=requested_by_id,
-            notes=f"Reason: {reason}. Disposal: {disposal_method}.",
+            notes=f"סיבה: {reason}. שיטת סילוק: {disposal_method}.",
         )
 
         return retirement
@@ -116,9 +116,9 @@ class RetirementService:
             asset_id=retirement.asset_id,
             action="ASSET_RETIRED",
             actor_id=manager_id,
-            notes=f"Approved retirement. Reason: {retirement.reason}. "
-                  f"Disposal: {retirement.disposal_method}. "
-                  f"Notes: {notes or 'N/A'}.",
+            notes=f"פרישה אושרה. סיבה: {retirement.reason}. "
+                  f"שיטת סילוק: {retirement.disposal_method}. "
+                  f"הערות: {notes or 'ללא'}.",
         )
 
         return retirement
@@ -157,7 +157,7 @@ class RetirementService:
             asset_id=retirement.asset_id,
             action="RETIREMENT_REJECTED",
             actor_id=manager_id,
-            notes=f"Rejected retirement. Reason: {reason}",
+            notes=f"פרישה נדחתה. סיבה: {reason}",
         )
 
         return retirement

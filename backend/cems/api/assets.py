@@ -211,7 +211,7 @@ async def create_asset(
         asset_id=asset.id,
         action="ASSET_CREATED",
         actor_id=current_user.id,
-        notes=f"Asset '{asset.name}' created with serial '{asset.serial_number}'.",
+        notes=f"נכס '{asset.name}' נוצר עם מס' סידורי '{asset.serial_number}'.",
     )
     return FixedAssetRead.model_validate(asset)
 
@@ -236,7 +236,7 @@ async def update_asset(
         asset_id=asset_id,
         action="ASSET_UPDATED",
         actor_id=current_user.id,
-        notes=f"Updated fields: {list(data.keys())}",
+        notes=f"שדות שעודכנו: {list(data.keys())}",
     )
     return FixedAssetRead.model_validate(asset)
 

@@ -10,8 +10,6 @@ import {
   X,
   AlertTriangle,
   MapPin,
-  FileText,
-  Upload,
   History,
   Check,
   XCircle,
@@ -23,18 +21,15 @@ import {
 import {
   cemsApi,
   type FixedAsset,
-  type AssetHistory,
   type AssetRetirement,
   type AssetQueryParams,
   type CemsUser,
   type AssetCategory,
   type CemsProject,
   type Warehouse,
-  type CemsDocument,
-  type DocumentType,
 } from '../../lib/cemsApi'
 import { StatusBadge } from './InventoryDashboard'
-import DocumentViewerModal from '../../components/DocumentViewerModal'
+import { AssetViewModal } from './AssetViewModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -118,31 +113,13 @@ export default function AssetsPage() {
   const [projectFilter, setProjectFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
-  const [viewingDoc, setViewingDoc] = useState<CemsDocument | null>(null)
-
-  // Detail modal
-  const [detailAsset, setDetailAsset] = useState<FixedAsset | null>(null)
-  const [detailHistory, setDetailHistory] = useState<AssetHistory[]>([])
-  const [detailHistoryLoading, setDetailHistoryLoading] = useState(false)
-  const [detailActiveTab, setDetailActiveTab] = useState<'details' | 'docs' | 'history' | 'edit'>('details')
-  const [detailDocs, setDetailDocs] = useState<CemsDocument[]>([])
-  const [detailDocsLoading, setDetailDocsLoading] = useState(false)
-  const [detailUploadFile, setDetailUploadFile] = useState<File | null>(null)
-  const [detailUploadDocType, setDetailUploadDocType] = useState<DocumentType>('INVOICE')
-  const [detailUploadExpiry, setDetailUploadExpiry] = useState('')
-  const [detailUploading, setDetailUploading] = useState(false)
-  const [detailUploadingPhoto, setDetailUploadingPhoto] = useState(false)
-  // Edit form
-  const [editName, setEditName] = useState('')
-  const [editNotes, setEditNotes] = useState('')
-  const [editCategoryId, setEditCategoryId] = useState('')
-  const [editPurchaseDate, setEditPurchaseDate] = useState('')
-  const [editWarrantyExpiry, setEditWarrantyExpiry] = useState('')
-  const [editSaving, setEditSaving] = useState(false)
+  // View modal
+  const [viewAsset, setViewAsset] = useState<FixedAsset | null>(null)
 
   const me = useSelector((s: RootState) => s.auth.me)
   const isManagerOrAdmin =
     me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
+  const isManager = isManagerOrAdmin
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
@@ -642,7 +619,7 @@ export default function AssetsPage() {
                     asset={asset}
                     categoryName={getCategoryName(asset.category_id)}
                     custodianName={getUserName(asset.current_custodian_id)}
-                    onOpenDetail={openAssetDetail}
+                    onViewAsset={() => setViewAsset(asset)}
                     onTransfer={() => setTransferAsset(asset)}
                     onRetire={() => setRetireAsset(asset)}
                     onMoveToWarehouse={() => setMoveAssetTarget(asset)}
@@ -656,6 +633,24 @@ export default function AssetsPage() {
       </div>
 
       {/* Modals */}
+      {viewAsset && (
+        <AssetViewModal
+          asset={viewAsset}
+          categoryName={getCategoryName(viewAsset.category_id)}
+          custodianName={getUserName(viewAsset.current_custodian_id)}
+          categories={categories}
+          isManager={isManager}
+          onClose={() => setViewAsset(null)}
+          onUpdated={(updated) => {
+            setAssets((prev) => prev.map((a) => a.id === updated.id ? updated : a))
+            setViewAsset(updated)
+          }}
+          onTransfer={() => { setTransferAsset(viewAsset); setViewAsset(null) }}
+          onRetire={() => { setRetireAsset(viewAsset); setViewAsset(null) }}
+          onMoveToWarehouse={() => { setMoveAssetTarget(viewAsset); setViewAsset(null) }}
+          onAssignToEmployee={() => { setAssignAssetTarget(viewAsset); setViewAsset(null) }}
+        />
+      )}
       {showAddModal && (
         <AddAssetModal
           categories={categories}
@@ -1014,7 +1009,7 @@ interface AssetRowProps {
   asset: FixedAsset
   categoryName: string
   custodianName: string
-  onOpenDetail: (asset: FixedAsset) => void
+  onViewAsset: () => void
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
@@ -1025,7 +1020,7 @@ function AssetRow({
   asset,
   categoryName,
   custodianName,
-  onOpenDetail,
+  onViewAsset,
   onTransfer,
   onRetire,
   onMoveToWarehouse,
@@ -1039,7 +1034,7 @@ function AssetRow({
   return (
     <tr
       className="hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
-      onClick={() => onOpenDetail(asset)}
+      onClick={onViewAsset}
     >
       <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
         <div className="flex items-center gap-2">
@@ -1054,7 +1049,7 @@ function AssetRow({
           {asset.name}
         </div>
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[180px] truncate" title={asset.notes ?? ''}>{asset.notes || '\u2014'}</td>
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[180px] truncate" title={asset.notes ?? ''}>{asset.notes || '—'}</td>
       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{categoryName}</td>
       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{custodianName}</td>
       <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
@@ -1064,44 +1059,44 @@ function AssetRow({
       <td className="px-4 py-3">
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           {canTransfer && (
-              <button
-                onClick={onTransfer}
-                className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
-                title="העבר ציוד"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-              </button>
-            )}
-            {canMoveToWarehouse && (
-              <button
-                onClick={onMoveToWarehouse}
-                className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
-                title="החזר למחסן"
-              >
-                <MapPin className="w-4 h-4" />
-              </button>
-            )}
-            {canAssignToEmployee && (
-              <button
-                onClick={onAssignToEmployee}
-                className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
-                title="הקצה לעובד"
-              >
-                <UserCheck className="w-4 h-4" />
-              </button>
-            )}
-            {canRetire && (
-              <button
-                onClick={onRetire}
-                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                title="גריטה"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
+            <button
+              onClick={onTransfer}
+              className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
+              title="העבר ציוד"
+            >
+              <ArrowLeftRight className="w-4 h-4" />
+            </button>
+          )}
+          {canMoveToWarehouse && (
+            <button
+              onClick={onMoveToWarehouse}
+              className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 dark:text-green-400 transition-colors"
+              title="החזר למחסן"
+            >
+              <MapPin className="w-4 h-4" />
+            </button>
+          )}
+          {canAssignToEmployee && (
+            <button
+              onClick={onAssignToEmployee}
+              className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
+              title="הקצה לעובד"
+            >
+              <UserCheck className="w-4 h-4" />
+            </button>
+          )}
+          {canRetire && (
+            <button
+              onClick={onRetire}
+              className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+              title="גריטה"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 

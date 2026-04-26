@@ -40,7 +40,7 @@ class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     )
 
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
-    warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id])
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id], lazy="raise")
 
 
 class AlertType(str, enum.Enum):
@@ -68,13 +68,14 @@ class ConsumptionLog(UUIDPrimaryKeyMixin, CEMSBase):
     consumed_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    item: Mapped["ConsumableItem"] = relationship("ConsumableItem")
+    item: Mapped["ConsumableItem"] = relationship("ConsumableItem", lazy="raise")
     consumed_by: Mapped["User"] = relationship(
         "User",
         foreign_keys=[consumed_by_id],
         primaryjoin="ConsumptionLog.consumed_by_id == User.id",
+        lazy="raise",
     )
-    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id])
+    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id], lazy="raise")
 
 
 class StockAlert(UUIDPrimaryKeyMixin, CEMSBase):
@@ -94,4 +95,4 @@ class StockAlert(UUIDPrimaryKeyMixin, CEMSBase):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, nullable=False)
 
-    item: Mapped["ConsumableItem"] = relationship("ConsumableItem")
+    item: Mapped["ConsumableItem"] = relationship("ConsumableItem", lazy="raise")

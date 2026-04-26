@@ -66,7 +66,7 @@ class ReturnService:
             asset_id=asset_id,
             action="RETURN_REQUESTED",
             actor_id=returned_by_id,
-            notes=f"Return to warehouse requested. Reason: {reason or 'N/A'}",
+            notes=f"בקשת החזרה למחסן. סיבה: {reason or 'לא צוינה'}",
         )
 
         return warehouse_return
@@ -141,7 +141,7 @@ class ReturnService:
             actor_id=manager_id,
             from_custodian_id=warehouse_return.returned_by_id,
             to_warehouse_id=return_warehouse_id,
-            notes=f"Return approved by manager. Return reason: {warehouse_return.return_reason or 'N/A'}",
+            notes=f"החזרה אושרה על ידי מנהל. סיבת החזרה: {warehouse_return.return_reason or 'לא צוינה'}",
         )
 
         return warehouse_return
