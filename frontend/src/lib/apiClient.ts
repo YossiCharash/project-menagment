@@ -474,6 +474,19 @@ export class GroupTransactionDraftAPI {
     await api.delete(`/group-transaction-drafts/${draftId}`)
   }
 
+  /**
+   * Bulk delete drafts owned by current user. Pass `ids` to delete a subset,
+   * or omit / pass `null` to delete ALL drafts of current user.
+   */
+  static async bulkDelete(ids?: number[] | null): Promise<{ deleted_count: number }> {
+    const body = { ids: ids ?? null }
+    const { data } = await api.post<{ deleted_count: number }>(
+      '/group-transaction-drafts/bulk-delete',
+      body
+    )
+    return data
+  }
+
   static async uploadDocument(
     draftId: number,
     file: File,

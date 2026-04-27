@@ -13,6 +13,19 @@ class GroupTransactionDraftUpdate(BaseModel):
     rows: list[dict] | None = None
 
 
+class GroupTransactionDraftBulkDelete(BaseModel):
+    """Body for POST /group-transaction-drafts/bulk-delete.
+
+    `ids = None` (or field omitted) means "delete all of current user's drafts".
+    `ids = []` is a no-op (returns 0).
+    """
+    ids: list[int] | None = None
+
+
+class GroupTransactionDraftBulkDeleteResult(BaseModel):
+    deleted_count: int
+
+
 class GroupTransactionDraftDocumentOut(BaseModel):
     """Document metadata (file_path excluded for security)."""
     id: int

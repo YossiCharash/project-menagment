@@ -7,7 +7,13 @@ from fastapi.responses import Response
 
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
-from backend.schemas.group_transaction_draft import GroupTransactionDraftCreate, GroupTransactionDraftOut, GroupTransactionDraftUpdate
+from backend.schemas.group_transaction_draft import (
+    GroupTransactionDraftBulkDelete,
+    GroupTransactionDraftBulkDeleteResult,
+    GroupTransactionDraftCreate,
+    GroupTransactionDraftOut,
+    GroupTransactionDraftUpdate,
+)
 from backend.services.s3_service import S3Service
 
 router = APIRouter()
@@ -173,6 +179,34 @@ async def download_draft_document(
         media_type="application/octet-stream",
         headers={"Content-Disposition": _content_disposition_filename(doc.original_filename or "download")},
     )
+
+
+@router.post("/bulk-delete", response_model=GroupTransactionDraftBulkDeleteResult)
+async def bulk_delete_drafts(
+    payload: GroupTransactionDraftBulkDelete,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    """Delete many drafts of current user in a single transaction.
+
+    - `payload.ids = None` → delete ALL drafts of current user.
+    - `payload.ids = [..]` → delete only the listed ids that belong to current user.
+    - `payload.ids = []`  → no-op, returns 0.
+
+    Attached `GroupTransactionDraftDocument` rows are removed via FK ON DELETE CASCADE.
+    """
+    from sqlalchemy import delete
+
+    if payload.ids is not None and len(payload.ids) == 0:
+        return GroupTransactionDraftBulkDeleteResult(deleted_count=0)
+
+    stmt = delete(GroupTransactionDraft).where(GroupTransactionDraft.user_id == user.id)
+    if payload.ids is not None:
+        stmt = stmt.where(GroupTransactionDraft.id.in_(payload.ids))
+
+    result = await db.execute(stmt)
+    await db.commit()
+    return GroupTransactionDraftBulkDeleteResult(deleted_count=result.rowcount or 0)
 
 
 @router.delete("/{draft_id}")
