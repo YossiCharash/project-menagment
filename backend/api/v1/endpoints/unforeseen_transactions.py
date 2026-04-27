@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import Response
+from pydantic import BaseModel
 from typing import Optional
 import mimetypes
 import asyncio
@@ -12,11 +13,16 @@ from backend.services.unforeseen_transaction_service import UnforeseenTransactio
 from backend.services.s3_service import S3Service
 from backend.repositories.document_repository import DocumentRepository
 from backend.models.document import Document
+from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
 from backend.schemas.unforeseen_transaction import (
     UnforeseenTransactionCreate,
     UnforeseenTransactionUpdate,
     UnforeseenTransactionOut,
 )
+
+
+class _AttachFromDraftBody(BaseModel):
+    draft_document_id: int
 
 router = APIRouter()
 
@@ -292,3 +298,99 @@ async def upload_line_document(
     if line_type not in ("expense", "income"):
         raise HTTPException(status_code=400, detail="line_type must be 'expense' or 'income'")
     return await _upload_line_document(tx_id, line_id, line_type, file, description, db, user)
+
+
+async def _attach_line_draft_document(
+    tx_id: int,
+    line_id: int,
+    line_type: str,
+    draft_document_id: int,
+    db,
+    user,
+):
+    from sqlalchemy import select
+
+    service = UnforeseenTransactionService(db)
+    tx = await service.get_by_id(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="עסקה לא צפויה לא נמצאה")
+
+    if line_type == "expense":
+        line = await service.repo.get_expense_by_id(line_id)
+        entity_type = "unforeseen_expense"
+    else:
+        line = await service.repo.get_income_by_id(line_id)
+        entity_type = "unforeseen_income"
+
+    if not line or line.unforeseen_transaction_id != tx_id:
+        label = "הוצאה" if line_type == "expense" else "הכנסה"
+        raise HTTPException(status_code=404, detail=f"{label} לא נמצאה")
+
+    result = await db.execute(
+        select(GroupTransactionDraftDocument).where(
+            GroupTransactionDraftDocument.id == draft_document_id
+        )
+    )
+    draft_doc = result.scalar_one_or_none()
+    if not draft_doc:
+        raise HTTPException(status_code=404, detail="מסמך טיוטה לא נמצא")
+
+    draft_result = await db.execute(
+        select(GroupTransactionDraft).where(GroupTransactionDraft.id == draft_doc.draft_id)
+    )
+    draft = draft_result.scalar_one_or_none()
+    if not draft or draft.user_id != user.id:
+        raise HTTPException(status_code=403, detail="אין הרשאה להשתמש במסמך זה")
+
+    if not settings.AWS_S3_BUCKET:
+        raise HTTPException(
+            status_code=503,
+            detail="העלאת קבצים אינה זמינה: AWS_S3_BUCKET לא מוגדר."
+        )
+
+    s3 = S3Service()
+    file_url = await asyncio.to_thread(
+        s3.copy_file,
+        source_url=draft_doc.file_path,
+        dest_prefix="unforeseen-transactions",
+    )
+
+    doc_repo = DocumentRepository(db)
+    doc = Document(
+        unforeseen_transaction_line_id=line_id,
+        entity_type=entity_type,
+        entity_id=line_id,
+        file_path=file_url,
+    )
+    doc = await doc_repo.create(doc)
+
+    return {
+        "id": doc.id,
+        "file_path": doc.file_path,
+        "description": doc.description,
+        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
+    }
+
+
+@router.post("/{tx_id}/expenses/{expense_id}/document/from-draft")
+async def attach_draft_document_to_expense(
+    tx_id: int,
+    expense_id: int,
+    body: _AttachFromDraftBody,
+    db: DBSessionDep = None,
+    user = Depends(require_permission("write", "transaction", resource_id_param="tx_id", project_id_param=None))
+):
+    """Attach a draft document to an expense line via S3 server-side copy."""
+    return await _attach_line_draft_document(tx_id, expense_id, "expense", body.draft_document_id, db, user)
+
+
+@router.post("/{tx_id}/incomes/{income_id}/document/from-draft")
+async def attach_draft_document_to_income(
+    tx_id: int,
+    income_id: int,
+    body: _AttachFromDraftBody,
+    db: DBSessionDep = None,
+    user = Depends(require_permission("write", "transaction", resource_id_param="tx_id", project_id_param=None))
+):
+    """Attach a draft document to an income line via S3 server-side copy."""
+    return await _attach_line_draft_document(tx_id, income_id, "income", body.draft_document_id, db, user)

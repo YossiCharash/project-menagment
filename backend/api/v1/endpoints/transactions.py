@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from pydantic import BaseModel
 from datetime import date
 import logging
 import re
@@ -13,6 +14,7 @@ from backend.repositories.document_repository import DocumentRepository
 from backend.repositories.category_repository import CategoryRepository
 from backend.repositories.user_repository import UserRepository
 from backend.models.document import Document
+from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
 from backend.schemas.transaction import TransactionCreate, TransactionOut, TransactionUpdate, TransactionBatchCreate
 from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
@@ -22,6 +24,10 @@ from backend.services.s3_service import S3Service
 from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class _AttachFromDraftBody(BaseModel):
+    draft_document_id: int
 
 router = APIRouter()
 
@@ -460,6 +466,64 @@ async def upload_supplier_document(
         "supplier_id": supplier_id,
         "transaction_id": tx_id,
         "description": doc.description
+    }
+
+
+@router.post("/{tx_id}/documents/from-draft", response_model=dict)
+async def attach_draft_document_to_transaction(
+    tx_id: int,
+    body: _AttachFromDraftBody,
+    db: DBSessionDep,
+    user=Depends(require_permission("read", "transaction", resource_id_param="tx_id")),
+):
+    """Attach a draft document to a transaction by S3 server-side copy (no re-upload)."""
+    import asyncio
+    from sqlalchemy import select
+
+    tx = await TransactionRepository(db).get_by_id(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    result = await db.execute(
+        select(GroupTransactionDraftDocument).where(
+            GroupTransactionDraftDocument.id == body.draft_document_id
+        )
+    )
+    draft_doc = result.scalar_one_or_none()
+    if not draft_doc:
+        raise HTTPException(status_code=404, detail="Draft document not found")
+
+    draft_result = await db.execute(
+        select(GroupTransactionDraft).where(GroupTransactionDraft.id == draft_doc.draft_id)
+    )
+    draft = draft_result.scalar_one_or_none()
+    if not draft or draft.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not allowed to use this draft document")
+
+    s3 = S3Service()
+    file_url = await asyncio.to_thread(
+        s3.copy_file,
+        source_url=draft_doc.file_path,
+        dest_prefix="transactions",
+    )
+
+    doc = Document(
+        transaction_id=tx_id,
+        entity_type="transaction",
+        entity_id=tx_id,
+        supplier_id=tx.supplier_id,
+        file_path=file_url,
+        source_table="transaction",
+        source_id=tx_id,
+    )
+    await DocumentRepository(db).create(doc)
+
+    return {
+        "id": doc.id,
+        "file_path": file_url,
+        "supplier_id": tx.supplier_id,
+        "transaction_id": tx_id,
+        "description": doc.description,
     }
 
 

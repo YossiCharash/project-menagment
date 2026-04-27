@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { X, Plus, Trash2, Upload, File, Pencil } from 'lucide-react'
+import { X, Plus, Trash2, Upload, Pencil } from 'lucide-react'
 import { TransactionCreate, Transaction, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
 import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI, GroupTransactionDraftAPI, GroupTransactionDraftOut } from '../lib/apiClient'
 import api from '../lib/api'
@@ -47,6 +47,13 @@ interface TransactionRow {
   isSplitTransaction?: boolean
   splitGroupId?: string
 }
+
+const DRAFT_DOC_ID_KEY = '__draftDocId' as const
+const tagAsDraftDoc = (file: File, draftDocId: number): File => {
+  ;(file as any)[DRAFT_DOC_ID_KEY] = draftDocId
+  return file
+}
+const draftDocIdOf = (file: File): number | undefined => (file as any)[DRAFT_DOC_ID_KEY]
 
 interface SplitProjectEntry {
   id: string
@@ -979,12 +986,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               if (incRow.documentFiles?.length && createdInc?.id) {
                 for (const file of incRow.documentFiles) {
                   try {
-                    if (file.size > 50 * 1024 * 1024) {
+                    const draftDocId = draftDocIdOf(file)
+                    if (draftDocId == null && file.size > 50 * 1024 * 1024) {
                       rowErrors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${file.name} גדול מדי`)
                       unforeseenDocError = true
                       continue
                     }
-                    await UnforeseenTransactionAPI.uploadIncomeDocument(unforeseenTx.id, createdInc.id, file)
+                    if (draftDocId != null) {
+                      await UnforeseenTransactionAPI.attachDraftDocumentToIncome(unforeseenTx.id, createdInc.id, draftDocId)
+                    } else {
+                      await UnforeseenTransactionAPI.uploadIncomeDocument(unforeseenTx.id, createdInc.id, file)
+                    }
                   } catch (err: any) {
                     rowErrors.push(`שורה ${i + 1}, הכנסה ${incIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
                     unforeseenDocError = true
@@ -1003,12 +1015,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               if (expRow.documentFiles?.length && createdExp?.id) {
                 for (const file of expRow.documentFiles) {
                   try {
-                    if (file.size > 50 * 1024 * 1024) {
+                    const draftDocId = draftDocIdOf(file)
+                    if (draftDocId == null && file.size > 50 * 1024 * 1024) {
                       rowErrors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${file.name} גדול מדי`)
                       unforeseenDocError = true
                       continue
                     }
-                    await UnforeseenTransactionAPI.uploadExpenseDocument(unforeseenTx.id, createdExp.id, file)
+                    if (draftDocId != null) {
+                      await UnforeseenTransactionAPI.attachDraftDocumentToExpense(unforeseenTx.id, createdExp.id, draftDocId)
+                    } else {
+                      await UnforeseenTransactionAPI.uploadExpenseDocument(unforeseenTx.id, createdExp.id, file)
+                    }
                   } catch (err: any) {
                     rowErrors.push(`שורה ${i + 1}, הוצאה ${expIdx + 1}: ${err.response?.data?.detail || err.message || 'שגיאה בהעלאה'}`)
                     unforeseenDocError = true
@@ -1079,10 +1096,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           for (let fileIndex = 0; fileIndex < row.files.length; fileIndex++) {
             const file = row.files[fileIndex]
             try {
+              const draftDocId = draftDocIdOf(file)
               const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2)
-              console.log(`[GROUP TX] [${fileIndex + 1}/${row.files.length}] Uploading file: ${file.name} (${fileSizeMB} MB) for transaction ${transactionId}`)
+              console.log(`[GROUP TX] [${fileIndex + 1}/${row.files.length}] ${draftDocId != null ? 'Attaching draft doc' : 'Uploading file'}: ${file.name} (${fileSizeMB} MB) for transaction ${transactionId}`)
 
-              if (file.size > 50 * 1024 * 1024) {
+              if (draftDocId == null && file.size > 50 * 1024 * 1024) {
                 console.error(`[GROUP TX] File ${file.name} is too large: ${fileSizeMB} MB (max 50MB)`)
                 fileErrorCount++
                 fileErrors.push(`${file.name}: הקובץ גדול מדי (מקסימום 50MB)`)
@@ -1097,7 +1115,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
               while (uploadAttempts < maxUploadAttempts) {
                 try {
-                  uploadResult = await TransactionAPI.uploadTransactionDocument(transactionId, file)
+                  uploadResult = draftDocId != null
+                    ? await TransactionAPI.attachDraftDocumentToTransaction(transactionId, draftDocId)
+                    : await TransactionAPI.uploadTransactionDocument(transactionId, file)
                   break
                 } catch (uploadErr: any) {
                   uploadAttempts++
@@ -1195,12 +1215,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     const unforeseenIndexed = indexed.filter(({ row }) => row.isUnforeseen)
     const regularIndexed = indexed.filter(({ row }) => !row.isUnforeseen)
 
-    const regularPayloads: TransactionCreate[] = regularIndexed.map(({ row }) => {
-      const payload = buildRegularPayload(row)
-      if (forceAllowDuplicate && row.duplicateError) payload.allow_duplicate = true
-      return payload
-    })
-
     setSubmitProgress({ done: 0, total: rows.length })
 
     const incrementProgress = () => setSubmitProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null)
@@ -1212,38 +1226,75 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       })
     )
 
-    const regularWorkstream = (async (): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
-      if (regularIndexed.length === 0) return []
+    // Backend enforces single-project atomicity per batch, so we shard regular rows by project
+    // and run one batch per project in parallel — preserving per-project all-or-nothing semantics.
+    const regularGroups = new Map<number | string, Array<{ row: typeof regularIndexed[number]['row']; i: number }>>()
+    for (const entry of regularIndexed) {
+      const key = entry.row.projectId
+      const bucket = regularGroups.get(key)
+      if (bucket) bucket.push(entry)
+      else regularGroups.set(key, [entry])
+    }
+
+    const runProjectBatch = async (
+      group: Array<{ row: typeof regularIndexed[number]['row']; i: number }>
+    ): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
+      const groupPayloads: TransactionCreate[] = group.map(({ row }) => {
+        const payload = buildRegularPayload(row)
+        if (forceAllowDuplicate && row.duplicateError) payload.allow_duplicate = true
+        return payload
+      })
+
       let createdTransactions: Transaction[]
       try {
-        createdTransactions = await TransactionAPI.createBatch(regularPayloads)
-      } catch (err: any) {
-        const detail: string = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
-        // If server already prefixed "שורה N:", attribute that error to row N-1; other regular rows get a generic batch-failure message.
-        const match = typeof detail === 'string' ? detail.match(/^שורה (\d+):/) : null
-        const failures = regularIndexed.map(({ i }) => {
-          if (match) {
-            const failingIndex = Number(match[1]) - 1
-            if (i === failingIndex) {
-              return { index: i, succeeded: false, rowErrors: [detail] }
+        createdTransactions = await TransactionAPI.createBatch(groupPayloads)
+      } catch (batchErr: any) {
+        console.warn('[GROUP TX] Atomic batch failed, falling back to per-row creation:', batchErr)
+        return Promise.all(
+          group.map(async ({ row, i }, k) => {
+            try {
+              const createdTx = await TransactionAPI.createTransaction(groupPayloads[k])
+              const result = await processRegularRowFiles(row, i, createdTx)
+              incrementProgress()
+              return { index: i, ...result }
+            } catch (err: any) {
+              const errDetail = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
+              const errFields: string[] | undefined = err.response?.data?.errors
+              const errMsg = errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail
+              incrementProgress()
+              return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${errMsg}`] }
             }
-            return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: הבאץ' נכשל - אף עסקה לא נוצרה`] }
-          }
-          return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${detail}`] }
-        })
-        for (let k = 0; k < regularIndexed.length; k++) incrementProgress()
-        return failures
+          })
+        )
       }
 
-      const fileResults = await Promise.all(
-        regularIndexed.map(({ row, i }, k) =>
+      return Promise.all(
+        group.map(({ row, i }, k) =>
           processRegularRowFiles(row, i, createdTransactions[k]).then(result => {
             incrementProgress()
             return { index: i, ...result }
           })
         )
       )
-      return fileResults
+    }
+
+    const regularWorkstream = (async (): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
+      if (regularIndexed.length === 0) return []
+      const groups = Array.from(regularGroups.values())
+      const groupResults = await Promise.allSettled(groups.map(runProjectBatch))
+      const flat: Array<{ index: number; succeeded: boolean; rowErrors: string[] }> = []
+      groupResults.forEach((outcome, gIdx) => {
+        if (outcome.status === 'fulfilled') {
+          flat.push(...outcome.value)
+        } else {
+          const reason = outcome.reason?.message || 'שגיאה לא צפויה'
+          for (const { i } of groups[gIdx]) {
+            flat.push({ index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${reason}`] })
+            incrementProgress()
+          }
+        }
+      })
+      return flat
     })()
 
     const outerSettled = await Promise.allSettled<Array<{ index: number; succeeded: boolean; rowErrors: string[] }> | { index: number; succeeded: boolean; rowErrors: string[] }>([
@@ -1426,18 +1477,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         const row = validRows[rowIndex]
         if (!row.isUnforeseen) {
           for (const file of row.files || []) {
+            if (draftDocIdOf(file) != null) continue
             try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main') } catch (err: any) { draftDocErrors.push(file.name) }
           }
         } else {
           for (let j = 0; j < (row.incomes?.length || 0); j++) {
             const files = row.incomes![j].documentFiles || []
             for (const file of files) {
+              if (draftDocIdOf(file) != null) continue
               try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
           for (let j = 0; j < (row.expenses?.length || 0); j++) {
             const files = row.expenses![j].documentFiles || []
             for (const file of files) {
+              if (draftDocIdOf(file) != null) continue
               try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
@@ -1490,18 +1544,21 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         const row = validRows[rowIndex]
         if (!row.isUnforeseen) {
           for (const file of row.files || []) {
+            if (draftDocIdOf(file) != null) continue
             try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'main') } catch (err: any) { draftDocErrors.push(file.name) }
           }
         } else {
           for (let j = 0; j < (row.incomes?.length || 0); j++) {
             const files = row.incomes![j].documentFiles || []
             for (const file of files) {
+              if (draftDocIdOf(file) != null) continue
               try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'income', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
           for (let j = 0; j < (row.expenses?.length || 0); j++) {
             const files = row.expenses![j].documentFiles || []
             for (const file of files) {
+              if (draftDocIdOf(file) != null) continue
               try { await GroupTransactionDraftAPI.uploadDocument(draft.id, file, rowIndex, 'expense', j) } catch (err: any) { draftDocErrors.push(file.name) }
             }
           }
@@ -1615,28 +1672,20 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       }
     })
     const docs = draft.documents || []
-    const blobs = await Promise.allSettled(
-      docs.map(doc => GroupTransactionDraftAPI.downloadDocument(draft.id, doc.id))
-    )
-    for (let i = 0; i < docs.length; i++) {
-      const result = blobs[i]
-      if (result.status !== 'fulfilled') continue
-      const doc = docs[i]
-      const blob = result.value
-      const file = new File([blob], doc.original_filename, { type: blob.type || 'application/octet-stream' })
+    for (const doc of docs) {
       if (doc.row_index < 0 || doc.row_index >= loaded.length) continue
+      const placeholder = new File([], doc.original_filename, { type: 'application/octet-stream' })
+      tagAsDraftDoc(placeholder, doc.id)
       const row = loaded[doc.row_index]
       if (doc.sub_type === 'income' && doc.sub_index != null && row.incomes && row.incomes[doc.sub_index]) {
-        row.incomes[doc.sub_index].documentFiles = row.incomes[doc.sub_index].documentFiles || []
-        row.incomes[doc.sub_index].documentFiles!.push(file)
+        row.incomes[doc.sub_index].documentFiles = [...(row.incomes[doc.sub_index].documentFiles || []), placeholder]
       } else if (doc.sub_type === 'expense' && doc.sub_index != null && row.expenses && row.expenses[doc.sub_index]) {
-        row.expenses[doc.sub_index].documentFiles = row.expenses[doc.sub_index].documentFiles || []
-        row.expenses[doc.sub_index].documentFiles!.push(file)
+        row.expenses[doc.sub_index].documentFiles = [...(row.expenses[doc.sub_index].documentFiles || []), placeholder]
       } else {
-        row.files = row.files || []
-        row.files.push(file)
+        row.files = [...(row.files || []), placeholder]
       }
     }
+
     setRows(loaded.length > 0 ? loaded : [defaultRow(0)])
     setCurrentDraftId(draft.id)
     setCurrentDraftName(draft.name || `טיוטה ${draft.id}`)

@@ -415,6 +415,11 @@ export class TransactionAPI {
     await api.delete(`/transactions/${transactionId}/documents/${documentId}`)
   }
 
+  static async attachDraftDocumentToTransaction(transactionId: number, draftDocumentId: number): Promise<any> {
+    const { data } = await api.post<any>(`/transactions/${transactionId}/documents/from-draft`, { draft_document_id: draftDocumentId })
+    return data
+  }
+
   /** Rollback a transaction (creator only, no documents). Used when group transaction document upload fails. */
   static async rollbackTransaction(transactionId: number): Promise<{ ok: boolean }> {
     const { data } = await api.post<{ ok: boolean }>(`/transactions/${transactionId}/rollback`)
@@ -871,6 +876,22 @@ export class UnforeseenTransactionAPI {
     const { data } = await api.post(`/unforeseen-transactions/${txId}/incomes/${incomeId}/document`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
+    return data
+  }
+
+  static async attachDraftDocumentToIncome(txId: number, incomeId: number, draftDocumentId: number): Promise<any> {
+    const { data } = await api.post<any>(
+      `/unforeseen-transactions/${txId}/incomes/${incomeId}/document/from-draft`,
+      { draft_document_id: draftDocumentId }
+    )
+    return data
+  }
+
+  static async attachDraftDocumentToExpense(txId: number, expenseId: number, draftDocumentId: number): Promise<any> {
+    const { data } = await api.post<any>(
+      `/unforeseen-transactions/${txId}/expenses/${expenseId}/document/from-draft`,
+      { draft_document_id: draftDocumentId }
+    )
     return data
   }
 }
