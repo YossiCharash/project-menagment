@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Upload, Pencil, File as FileIcon } from 'lucide-react'
 import { TransactionCreate, Transaction, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
@@ -6,8 +6,8 @@ import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactio
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
-import ConfirmationModal from './ConfirmationModal'
 import DuplicateWarningModal from './DuplicateWarningModal'
+import GroupTransactionHistoryModal from './GroupTransactionHistoryModal'
 
 interface GroupTransactionModalProps {
   isOpen: boolean
@@ -118,12 +118,9 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [submitProgress, setSubmitProgress] = useState<{done: number, total: number} | null>(null)
   const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
-  const [draftsList, setDraftsList] = useState<GroupTransactionDraftOut[]>([])
-  const [showLoadDraft, setShowLoadDraft] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showSaveDraftModal, setShowSaveDraftModal] = useState(false)
   const [draftName, setDraftName] = useState('')
-  const [draftToDelete, setDraftToDelete] = useState<GroupTransactionDraftOut | null>(null)
-  const [deletingDraft, setDeletingDraft] = useState(false)
   /** כשנטענה טיוטה שמורה – מזהה ושם ננעלים (לא ניתן להחליף שם) */
   const [currentDraftId, setCurrentDraftId] = useState<number | null>(null)
   const [currentDraftName, setCurrentDraftName] = useState('')
@@ -192,19 +189,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     entries: [defaultSplitEntry()],
   })
   const [panelSplit, setPanelSplit] = useState<PanelSplitState>(defaultPanelSplit())
-
-  const draftsDropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!showLoadDraft) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (draftsDropdownRef.current && !draftsDropdownRef.current.contains(e.target as Node)) {
-        setShowLoadDraft(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showLoadDraft])
 
   useEffect(() => {
     if (isOpen) {
@@ -1435,7 +1419,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const handleClose = () => {
     onClose()
     resetForm()
-    setShowLoadDraft(false)
+    setShowHistory(false)
     setShowSaveDraftModal(false)
   }
 
@@ -1585,34 +1569,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     }
   }
 
-  const loadDraftsList = async () => {
-    if (showLoadDraft) {
-      setShowLoadDraft(false)
-      return
-    }
-    try {
-      const list = await GroupTransactionDraftAPI.list()
-      setDraftsList(list)
-      setShowLoadDraft(true)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת רשימת טיוטות')
-    }
-  }
-
-  const confirmDeleteDraft = async () => {
-    if (!draftToDelete) return
-    try {
-      setDeletingDraft(true)
-      await GroupTransactionDraftAPI.delete(draftToDelete.id)
-      setDraftsList(prev => prev.filter(x => x.id !== draftToDelete.id))
-      setDraftToDelete(null)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'שגיאה במחיקת טיוטה')
-    } finally {
-      setDeletingDraft(false)
-    }
-  }
-
   const loadDraft = async (draft: GroupTransactionDraftOut) => {
     const defaultRow = (idx: number): TransactionRow => ({
       id: idx === 0 ? '1' : `draft-${Date.now()}-${idx}`,
@@ -1689,7 +1645,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     setRows(loaded.length > 0 ? loaded : [defaultRow(0)])
     setCurrentDraftId(draft.id)
     setCurrentDraftName(draft.name || `טיוטה ${draft.id}`)
-    setShowLoadDraft(false)
+    setShowHistory(false)
     setError(null)
   }
 
@@ -1946,55 +1902,13 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               <span>עסקה קבוצתית</span>
               <span className="text-lg font-normal opacity-90">({rows.length} עסקאות)</span>
             </h2>
-            <div className="relative flex items-center gap-2" ref={draftsDropdownRef}>
-              <button
-                type="button"
-                onClick={loadDraftsList}
-                className="px-3 py-1.5 text-sm bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
-              >
-                טען טיוטה
-              </button>
-              {showLoadDraft && (
-                <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto min-w-[200px]">
-                  {draftsList.length === 0 ? (
-                    <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">אין טיוטות שמורות</div>
-                  ) : (
-                    draftsList.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between gap-2 w-full text-right px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm group"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => loadDraft(d)}
-                          className="flex-1 min-w-0 text-right"
-                        >
-                          {d.name || `טיוטה ${d.id}`} ({Array.isArray(d.rows) ? d.rows.length : 0} שורות)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDraftToDelete(d)
-                          }}
-                          className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
-                          title="מחק טיוטה"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowLoadDraft(false)}
-                    className="w-full text-right px-4 py-2 border-t border-gray-200 dark:border-gray-600 text-gray-500 text-sm"
-                  >
-                    סגור
-                  </button>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowHistory(true)}
+              className="px-3 py-1.5 text-sm bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
+            >
+              היסטוריה
+            </button>
           </div>
           <button
             onClick={handleClose}
@@ -2766,16 +2680,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         </div>
       )}
 
-      <ConfirmationModal
-        isOpen={!!draftToDelete}
-        onClose={() => setDraftToDelete(null)}
-        onConfirm={confirmDeleteDraft}
-        title="מחיקת טיוטה"
-        message="האם אתה בטוח שברצונך למחוק את הטיוטה?"
-        confirmText="מחק"
-        cancelText="ביטול"
-        variant="danger"
-        loading={deletingDraft}
+      <GroupTransactionHistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        onLoadDraft={loadDraft}
       />
 
       <DuplicateWarningModal
