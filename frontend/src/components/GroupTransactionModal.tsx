@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { X, Plus, Trash2, Upload, Pencil } from 'lucide-react'
+import { X, Plus, Trash2, Upload, Pencil, File as FileIcon } from 'lucide-react'
 import { TransactionCreate, Transaction, ProjectWithFinance, UnforeseenTransactionCreate, UnforeseenTransactionExpenseCreate } from '../types/api'
 import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactionAPI, GroupTransactionDraftAPI, GroupTransactionDraftOut } from '../lib/apiClient'
 import api from '../lib/api'
@@ -2261,7 +2261,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     <div className="flex flex-wrap gap-2 mt-2">
                       {(panelRegular.files || []).map((f, i) => (
                         <div key={i} className="flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
-                          <File className="w-3 h-3" />
+                          <FileIcon className="w-3 h-3" />
                           <span className="truncate max-w-[100px]">{f.name}</span>
                           <button type="button" onClick={() => setPanelRegular(prev => ({ ...prev, files: (prev.files || []).filter((_, idx) => idx !== i) }))} className="text-red-500 hover:text-red-700 mr-1"><X className="w-3 h-3" /></button>
                         </div>
@@ -2370,7 +2370,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                           <div className="flex flex-wrap gap-1.5 pr-1">
                             {(exp.documentFiles || []).map((f, fi) => (
                               <div key={fi} className="flex items-center gap-1 text-[11px] bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded text-red-700 dark:text-red-300">
-                                <File className="w-3 h-3 shrink-0" />
+                                <FileIcon className="w-3 h-3 shrink-0" />
                                 <span className="truncate max-w-[90px]">{f.name}</span>
                                 <button type="button" onClick={() => setPanelUnforeseen(prev => { const arr = [...(prev.expenses ?? [])]; arr[idx] = { ...arr[idx], documentFiles: arr[idx].documentFiles.filter((_, i) => i !== fi) }; return { ...prev, expenses: arr } })} className="text-red-400 hover:text-red-600"><X className="w-2.5 h-2.5" /></button>
                               </div>
@@ -2409,7 +2409,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                           <div className="flex flex-wrap gap-1.5 pr-1">
                             {(inc.documentFiles || []).map((f, fi) => (
                               <div key={fi} className="flex items-center gap-1 text-[11px] bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-1.5 py-0.5 rounded text-green-700 dark:text-green-300">
-                                <File className="w-3 h-3 shrink-0" />
+                                <FileIcon className="w-3 h-3 shrink-0" />
                                 <span className="truncate max-w-[90px]">{f.name}</span>
                                 <button type="button" onClick={() => setPanelUnforeseen(prev => { const arr = [...(prev.incomes ?? [])]; arr[idx] = { ...arr[idx], documentFiles: arr[idx].documentFiles.filter((_, i) => i !== fi) }; return { ...prev, incomes: arr } })} className="text-red-400 hover:text-red-600"><X className="w-2.5 h-2.5" /></button>
                               </div>
@@ -2561,7 +2561,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                           </label>
                           {entry.files.map((f, fi) => (
                             <div key={fi} className="flex items-center gap-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
-                              <File className="w-2.5 h-2.5" />
+                              <FileIcon className="w-2.5 h-2.5" />
                               <span className="truncate max-w-[60px]">{f.name}</span>
                               <button type="button" onClick={() => setPanelSplit(prev => ({ ...prev, entries: prev.entries.map((en, i) => i === entryIdx ? { ...en, files: en.files.filter((_, idx) => idx !== fi) } : en) }))} className="text-red-500 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
                             </div>
@@ -2590,7 +2590,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     </label>
                     {panelSplit.generalFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
-                        <File className="w-2.5 h-2.5" />
+                        <FileIcon className="w-2.5 h-2.5" />
                         <span className="truncate max-w-[70px]">{f.name}</span>
                         <button type="button" onClick={() => setPanelSplit(prev => ({ ...prev, generalFiles: prev.generalFiles.filter((_, idx) => idx !== i) }))} className="text-red-500 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
                       </div>
