@@ -53,26 +53,25 @@ class S3Service:
         # Default S3 URL
         return f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
 
-    def delete_file(self, file_url: str) -> None:
-        """Delete a file from S3 given its URL"""
-        # Extract the key from the URL
-        key = None
-        
-        # Try to extract from base_url format
+    def _url_to_key(self, file_url: str) -> str | None:
+        if not file_url:
+            return None
         if self._base_url and file_url.startswith(self._base_url):
-            key = file_url.replace(self._base_url + "/", "")
-        # Try to extract from default S3 URL format
-        elif f"https://{self._bucket}.s3." in file_url:
-            # Extract key from URL like: https://bucket.s3.region.amazonaws.com/key
+            return file_url.replace(self._base_url + "/", "")
+        if f"https://{self._bucket}.s3." in file_url:
             parts = file_url.split(f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/")
             if len(parts) > 1:
-                key = parts[1]
-        
+                return parts[1]
+        return None
+
+    def delete_file(self, file_url: str) -> None:
+        """Delete a file from S3 given its URL"""
+        key = self._url_to_key(file_url)
         if not key:
             # If we can't extract the key, try to use the file_path as-is (might be a relative path)
             # In this case, we can't delete from S3, so we'll just skip
             return
-        
+
         try:
             self._s3.delete_object(Bucket=self._bucket, Key=key)
         except Exception as e:
@@ -80,24 +79,32 @@ class S3Service:
 
     def get_file_content(self, file_url: str) -> bytes | None:
         """Get file content from S3 given its URL"""
-        key = None
-        if self._base_url and file_url.startswith(self._base_url):
-            key = file_url.replace(self._base_url + "/", "")
-        elif f"https://{self._bucket}.s3." in file_url:
-            parts = file_url.split(f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/")
-            if len(parts) > 1:
-                key = parts[1]
-        
+        key = self._url_to_key(file_url)
         if not key:
             # Assuming file_url might be the key itself if not full URL
             key = file_url
-            
+
         try:
             response = self._s3.get_object(Bucket=self._bucket, Key=key)
             return response['Body'].read()
         except Exception as e:
             logger.error("הורדת קובץ מ-S3 נכשלה (key=%s): %s", key, e, exc_info=True)
             return None
+
+    def copy_file(self, *, source_url: str, dest_prefix: str) -> str:
+        """Server-side copy of an existing S3 object to a new key under dest_prefix. Returns new URL."""
+        src_key = self._url_to_key(source_url)
+        if not src_key:
+            raise ValueError(f"Cannot extract S3 key from URL: {source_url}")
+        dest_key = self._build_key(dest_prefix, src_key)
+        self._s3.copy_object(
+            Bucket=self._bucket,
+            Key=dest_key,
+            CopySource={"Bucket": self._bucket, "Key": src_key},
+        )
+        if self._base_url:
+            return f"{self._base_url}/{dest_key}"
+        return f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{dest_key}"
 
 
 
