@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
-from datetime import date
 import logging
 import re
 
@@ -19,7 +18,7 @@ from backend.schemas.transaction import TransactionCreate, TransactionOut, Trans
 from backend.services.transaction_service import TransactionService, normalize_payment_method_for_db
 from backend.services.audit_service import AuditService
 from backend.services.mappers import transaction_to_dict, transaction_to_dict_with_user
-from backend.services.validators import get_first_contract_start, validate_date_not_before_contract, resolve_category
+from backend.services.validators import resolve_category
 from backend.services.s3_service import S3Service
 from backend.core.config import settings
 
@@ -58,65 +57,6 @@ async def list_transactions(project_id: int, db: DBSessionDep, user=Depends(get_
     return result
 
 
-@router.get("/check-duplicate")
-async def check_duplicate_transaction(
-    db: DBSessionDep,
-    user=Depends(get_current_user),
-    project_id: int = Query(..., description="Project ID"),
-    tx_date: date = Query(..., description="Transaction date (YYYY-MM-DD)"),
-    amount: float = Query(..., description="Transaction amount"),
-    supplier_id: int | None = Query(None, description="Supplier ID (optional)"),
-    type: str = Query("Expense", description="Transaction type")
-):
-    """Check for duplicate transactions without creating one - for real-time validation"""
-    # Validate inputs
-    if not project_id or not tx_date or not amount:
-        return {"has_duplicate": False, "duplicates": []}
-    
-    # Only check for Expense transactions
-    if type != "Expense":
-        return {"has_duplicate": False, "duplicates": []}
-    
-    service = TransactionService(db)
-    duplicates = await service.check_duplicate_transaction(
-        project_id=project_id,
-        tx_date=tx_date,
-        amount=amount,
-        supplier_id=supplier_id,
-        type=type
-    )
-    
-    if not duplicates:
-        return {"has_duplicate": False, "duplicates": []}
-    
-    # Format duplicate details - batch load all suppliers at once
-    supplier_ids = [dup.supplier_id for dup in duplicates if dup.supplier_id]
-    suppliers_map: dict[int, str] = {}
-    if supplier_ids:
-        from sqlalchemy import select as sa_select
-        from backend.models.supplier import Supplier
-        result = await db.execute(
-            sa_select(Supplier.id, Supplier.name).where(Supplier.id.in_(supplier_ids))
-        )
-        suppliers_map = {row.id: row.name for row in result}
-
-    duplicate_details = [
-        {
-            "id": dup.id,
-            "tx_date": str(dup.tx_date),
-            "amount": float(dup.amount),
-            "supplier_id": dup.supplier_id,
-            "supplier_name": suppliers_map.get(dup.supplier_id) if dup.supplier_id else None,
-        }
-        for dup in duplicates
-    ]
-
-    return {
-        "has_duplicate": True,
-        "duplicates": duplicate_details
-    }
-
-
 @router.post("/", response_model=TransactionOut)
 async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Depends(require_permission("write", "transaction", project_id_param=None))):
     """Create transaction - accessible to all authenticated users"""
@@ -139,18 +79,9 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
         supplier = await SupplierRepository(db).get(data.supplier_id)
         if not supplier:
             raise HTTPException(status_code=404, detail="Supplier not found")
-        if not supplier.is_active:
-            raise HTTPException(status_code=400, detail="Cannot create transaction with inactive supplier")
     elif data.type == 'Expense' and not data.from_fund and not is_other_category:
         # Supplier is required for Expense transactions (not for Income, fund transactions, or when category is "אחר")
         raise HTTPException(status_code=400, detail="Supplier is required for expense transactions")
-
-    # Validate transaction date is not before FIRST contract start (allow old contracts)
-    first_start = await get_first_contract_start(db, data.project_id) if project else None
-    try:
-        validate_date_not_before_contract(data.tx_date, first_start)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
     # Add user_id to transaction data
     transaction_data = data.model_dump()
@@ -173,19 +104,11 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
 
     logger.info("יוצר עסקה עם created_by_user_id=%s, user=%s", user.id, user.full_name)
 
-    # Create transaction (duplicate check is done inside TransactionService.create)
     try:
         transaction = await TransactionService(db).create(**transaction_data)
     except ValueError as e:
-        error_msg = str(e)
-        if (
-            "זוהתה עסקה כפולה" in error_msg
-            or "נמצאה חפיפה" in error_msg
-            or "לא ניתן ליצור עסקה לתקופה" in error_msg
-        ):
-            raise HTTPException(status_code=409, detail=error_msg)
         logger.exception("שגיאה ביצירת עסקה")
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail=str(e))
 
     logger.info("עסקה נוצרה עם id=%s, created_by_user_id=%s", transaction.id, transaction.created_by_user_id)
 
@@ -268,8 +191,6 @@ async def create_transactions_batch(
                 supplier_cache[row.supplier_id] = sup
             if not sup:
                 raise HTTPException(status_code=404, detail=f"שורה {idx}: ספק לא נמצא")
-            if not sup.is_active:
-                raise HTTPException(status_code=400, detail=f"שורה {idx}: לא ניתן ליצור עסקה עם ספק לא פעיל")
         elif row.type == 'Expense' and not row.from_fund and not is_other_category:
             raise HTTPException(status_code=400, detail=f"שורה {idx}: ספק הוא שדה חובה לעסקאות הוצאה")
 
@@ -300,15 +221,8 @@ async def create_transactions_batch(
     try:
         transactions = await TransactionService(db).create_batch(rows_data)
     except ValueError as e:
-        error_msg = str(e)
-        if (
-            "זוהתה עסקה כפולה" in error_msg
-            or "נמצאה חפיפה" in error_msg
-            or "לא ניתן ליצור עסקה לתקופה" in error_msg
-        ):
-            raise HTTPException(status_code=409, detail=error_msg)
         logger.exception("שגיאה ביצירת באץ' עסקאות")
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail=str(e))
 
     project_name = project.name
     audit = AuditService(db)
@@ -585,14 +499,6 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
     project = await ProjectRepository(db).get_by_id(tx.project_id)
     project_name = project.name if project else f"פרויקט {tx.project_id}"
 
-    # Validate transaction date is not before FIRST contract start (if updating tx_date)
-    if data.tx_date is not None and project:
-        first_start = await get_first_contract_start(db, tx.project_id)
-        try:
-            validate_date_not_before_contract(data.tx_date, first_start)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
     # Store old values for audit log
     old_values = {
         'amount': str(tx.amount),
@@ -613,35 +519,8 @@ async def update_transaction(tx_id: int, db: DBSessionDep, data: TransactionUpda
         supplier = await SupplierRepository(db).get(data.supplier_id)
         if not supplier:
             raise HTTPException(status_code=404, detail="Supplier not found")
-        if not supplier.is_active:
-            raise HTTPException(status_code=400, detail="Cannot update transaction with inactive supplier")
-
-    # Check for duplicates if allow_duplicate is False
-    if not data.allow_duplicate:
-        # Resolve new values or fallback to existing
-        new_date = data.tx_date if data.tx_date is not None else tx.tx_date
-        new_amount = data.amount if data.amount is not None else tx.amount
-        new_type = data.type if data.type is not None else tx.type
-        new_supplier_id = data.supplier_id if data.supplier_id is not None else tx.supplier_id
-
-        service = TransactionService(db)
-        duplicates = await service.check_duplicate_transaction(
-            project_id=tx.project_id,
-            tx_date=new_date,
-            amount=new_amount,
-            supplier_id=new_supplier_id,
-            type=new_type
-        )
-
-        # Filter out current transaction
-        duplicates = [d for d in duplicates if d.id != tx_id]
-
-        if duplicates:
-            raise HTTPException(status_code=409, detail="זוהתה עסקה כפולה")
 
     update_data = data.model_dump(exclude_unset=True)
-    if 'allow_duplicate' in update_data:
-        del update_data['allow_duplicate']
 
     # Validate category if being updated (unless it's a cash register transaction)
     from_fund = update_data.get('from_fund', tx.from_fund if hasattr(tx, 'from_fund') else False)
