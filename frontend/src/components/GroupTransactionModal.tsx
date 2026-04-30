@@ -6,7 +6,6 @@ import { TransactionAPI, ProjectAPI, CategoryAPI, Category, UnforeseenTransactio
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
-import DuplicateWarningModal from './DuplicateWarningModal'
 import GroupTransactionHistoryModal from './GroupTransactionHistoryModal'
 
 interface GroupTransactionModalProps {
@@ -30,9 +29,6 @@ interface TransactionRow {
   isExceptional: boolean
   fromFund: boolean
   files: File[]
-  dateError: string | null
-  duplicateError: string | null
-  checkingDuplicate: boolean
   // Dated transaction (עסקה תאריכית): from date – to date
   period_start_date: string
   period_end_date: string
@@ -116,7 +112,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   const [editorValue, setEditorValue] = useState('')
   const [contractPeriodsMap, setContractPeriodsMap] = useState<Record<number, Array<{ period_id: number; year_label: string; start_date: string; end_date: string | null }>>>({})
   const [submitProgress, setSubmitProgress] = useState<{done: number, total: number} | null>(null)
-  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showSaveDraftModal, setShowSaveDraftModal] = useState(false)
@@ -147,7 +142,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     projectId: '',
     subprojectId: '',
     files: [],
-    dateError: null,
     periodError: null,
   })
   const [panelRegular, setPanelRegular] = useState<Partial<TransactionRow>>(defaultPanelRegular())
@@ -280,28 +274,12 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           if (project?.is_parent_project && projectId) {
             loadSubprojects(projectId as number)
           }
-          
+
           // Load contract periods if in unforeseen mode
           if (row.isUnforeseen && projectId) {
             loadContractPeriods(projectId as number)
           }
-          
-          // Validate date after project change
-          setTimeout(() => validateRowDate(updatedRow), 0)
-          
-          // Check for duplicates after project change (only for regular transactions)
-          if (!row.isUnforeseen) {
-            setTimeout(() => {
-              setRows(currentRows => {
-                const currentRow = currentRows.find(r => r.id === rowId)
-                if (currentRow) {
-                  checkDuplicateTransaction(currentRow)
-                }
-                return currentRows
-              })
-            }, 300)
-          }
-          
+
           return updatedRow
         }
         return row
@@ -326,9 +304,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       isExceptional: false,
       fromFund: false,
       files: [],
-      dateError: null,
-      duplicateError: null,
-      checkingDuplicate: false,
       period_start_date: '',
       period_end_date: '',
       periodError: null,
@@ -525,87 +500,16 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             }
           }
           
-          // Validate date when project or date changes
-          if (field === 'txDate' || field === 'projectId' || field === 'subprojectId') {
-            validateRowDate(updatedRow)
-          }
           // Validate period (מתאריך–עד תאריך) when period dates change
           if (field === 'period_start_date' || field === 'period_end_date') {
             validateRowPeriod(updatedRow)
           }
-          
-          // Check for duplicates when relevant fields change (skip for period/dated transactions)
-          const isPeriodTx = !!(updatedRow.period_start_date && updatedRow.period_end_date)
-          if (!isPeriodTx && (field === 'projectId' || field === 'subprojectId' || field === 'txDate' || 
-              field === 'amount' || field === 'supplierId' || field === 'type' || field === 'fromFund')) {
-            setTimeout(() => {
-              setRows(currentRows => {
-                const currentRow = currentRows.find(r => r.id === rowId)
-                if (currentRow) {
-                  checkDuplicateTransaction(currentRow)
-                }
-                return currentRows
-              })
-            }, 300) // Debounce: wait 300ms after last change
-          }
-          
+
           return updatedRow
         }
         return row
       })
     )
-  }
-
-  const validateRowDate = (row: TransactionRow) => {
-    if (!row.txDate || !row.projectId) {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, dateError: null } : r
-        )
-      )
-      return
-    }
-
-    const project = getSelectedProject(row)
-    const subproject = row.subprojectId ? getSelectedSubproject(row) : null
-    const selectedProject = subproject || project
-    const thresholdDate = selectedProject?.first_contract_start_date || selectedProject?.start_date
-    
-    if (!thresholdDate) {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, dateError: null } : r
-        )
-      )
-      return
-    }
-
-    const contractStartDateStr = thresholdDate.split('T')[0]
-    const transactionDateStr = row.txDate.split('T')[0]
-    
-    const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-    const transactionDate = new Date(transactionDateStr + 'T00:00:00')
-    
-    if (transactionDate < contractStartDate) {
-      const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-      const formattedTxDate = transactionDate.toLocaleDateString('he-IL')
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id
-            ? {
-                ...r,
-                dateError: `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
-              }
-            : r
-        )
-      )
-    } else {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, dateError: null } : r
-        )
-      )
-    }
   }
 
   const validateRowPeriod = (row: TransactionRow) => {
@@ -645,113 +549,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       )
       return
     }
-    const project = getSelectedProject(row)
-    const subproject = row.subprojectId ? getSelectedSubproject(row) : null
-    const selectedProject = subproject || project
-    const thresholdDate = selectedProject?.first_contract_start_date || selectedProject?.start_date
-    if (thresholdDate) {
-      const contractStart = new Date(thresholdDate.toString().split('T')[0])
-      if (start < contractStart) {
-        setRows(prevRows =>
-          prevRows.map(r =>
-            r.id === row.id ? { ...r, periodError: `תאריך התחלה לא יכול להיות לפני תחילת החוזה (${contractStart.toLocaleDateString('he-IL')})` } : r
-          )
-        )
-        return
-      }
-    }
     setRows(prevRows =>
       prevRows.map(r =>
         r.id === row.id ? { ...r, periodError: null } : r
       )
     )
-  }
-
-  const checkDuplicateTransaction = async (row: TransactionRow) => {
-    // Skip duplicate check for period/dated transactions (backend does overlap check)
-    if (row.period_start_date && row.period_end_date) {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
-        )
-      )
-      return
-    }
-    // Only check for Expense transactions that are not from fund
-    if (row.type !== 'Expense' || row.fromFund) {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
-        )
-      )
-      return
-    }
-
-    // Need project, date, and amount to check for duplicates
-    if (!row.projectId || !row.txDate || !row.amount || Number(row.amount) <= 0) {
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
-        )
-      )
-      return
-    }
-
-    // Set checking state
-    setRows(prevRows =>
-      prevRows.map(r =>
-        r.id === row.id ? { ...r, checkingDuplicate: true, duplicateError: null } : r
-      )
-    )
-
-    try {
-      const projectId = row.subprojectId || row.projectId as number
-      const params = new URLSearchParams({
-        project_id: String(projectId),
-        tx_date: row.txDate,
-        amount: String(row.amount),
-        type: 'Expense'
-      })
-      
-      if (row.supplierId) {
-        params.append('supplier_id', String(row.supplierId))
-      }
-
-      const response = await api.get(`/transactions/check-duplicate?${params.toString()}`)
-      
-      if (response.data.has_duplicate && response.data.duplicates.length > 0) {
-        const duplicates = response.data.duplicates
-        const duplicateDetails = duplicates.map((dup: any) => {
-          let info = `עסקה #${dup.id} מתאריך ${dup.tx_date}`
-          if (dup.supplier_name) {
-            info += ` לספק ${dup.supplier_name}`
-          }
-          return info
-        }).join('\n')
-
-        const errorMessage = `⚠️ זוהתה עסקה כפולה!\n\nקיימת עסקה עם אותם פרטים:\n${duplicateDetails}\n\nאם זה תשלום שונה, אנא שנה את התאריך או הסכום.\nאם זה אותו תשלום, אנא בדוק את הרשומות הקיימות.`
-
-        setRows(prevRows =>
-          prevRows.map(r =>
-            r.id === row.id ? { ...r, duplicateError: errorMessage, checkingDuplicate: false } : r
-          )
-        )
-      } else {
-        setRows(prevRows =>
-          prevRows.map(r =>
-            r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
-          )
-        )
-      }
-    } catch (error) {
-      // On error, clear the duplicate error (don't block user)
-      console.error('Error checking duplicate:', error)
-      setRows(prevRows =>
-        prevRows.map(r =>
-          r.id === row.id ? { ...r, duplicateError: null, checkingDuplicate: false } : r
-        )
-      )
-    }
   }
 
   const handleFileUpload = (rowId: string, files: FileList | null) => {
@@ -809,21 +611,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await doSubmit(false)
+    await doSubmit()
   }
 
-  const handleConfirmDuplicateSubmit = async () => {
-    setShowDuplicateConfirm(false)
-    await doSubmit(true)
-  }
-
-  const doSubmit = async (forceAllowDuplicate: boolean) => {
+  const doSubmit = async () => {
     setLoading(true)
     setError(null)
 
     // Validate all rows
     const errors: string[] = []
-    const duplicateWarnings: string[] = []
     rows.forEach((row, index) => {
       if (!row.projectId) {
         errors.push(`שורה ${index + 1}: יש לבחור פרויקט`)
@@ -869,23 +665,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           errors.push(`שורה ${index + 1}: יש להזין תאריך`)
         }
       }
-      if (row.dateError) {
-        errors.push(`שורה ${index + 1}: ${row.dateError}`)
-      }
-      if (row.duplicateError && !row.isUnforeseen) {
-        duplicateWarnings.push(`שורה ${index + 1}: ${row.duplicateError}`)
-      }
     })
 
     if (errors.length > 0) {
       setError(errors.join('\n'))
-      setLoading(false)
-      return
-    }
-
-    // If there are duplicate warnings and not forced, show confirmation modal
-    if (duplicateWarnings.length > 0 && !forceAllowDuplicate) {
-      setShowDuplicateConfirm(true)
       setLoading(false)
       return
     }
@@ -1223,11 +1006,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     const runProjectBatch = async (
       group: Array<{ row: typeof regularIndexed[number]['row']; i: number }>
     ): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
-      const groupPayloads: TransactionCreate[] = group.map(({ row }) => {
-        const payload = buildRegularPayload(row)
-        if (forceAllowDuplicate && row.duplicateError) payload.allow_duplicate = true
-        return payload
-      })
+      const groupPayloads: TransactionCreate[] = group.map(({ row }) => buildRegularPayload(row))
 
       let createdTransactions: Transaction[]
       try {
@@ -1399,9 +1178,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         isExceptional: false,
         fromFund: false,
         files: [],
-        dateError: null,
-        duplicateError: null,
-        checkingDuplicate: false,
         period_start_date: '',
         period_end_date: '',
         periodError: null,
@@ -1585,9 +1361,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       isExceptional: false,
       fromFund: false,
       files: [],
-      dateError: null,
-      duplicateError: null,
-      checkingDuplicate: false,
       period_start_date: '',
       period_end_date: '',
       periodError: null,
@@ -1719,9 +1492,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         isExceptional: data.isExceptional ?? false,
         fromFund: data.fromFund ?? false,
         files: data.files ?? [],
-        dateError: null,
-        duplicateError: null,
-        checkingDuplicate: false,
         period_start_date: data.period_start_date ?? '',
         period_end_date: data.period_end_date ?? '',
         periodError: null,
@@ -1772,9 +1542,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         isExceptional: false,
         fromFund: false,
         files: [],
-        dateError: null,
-        duplicateError: null,
-        checkingDuplicate: false,
         period_start_date: '',
         period_end_date: '',
         periodError: null,
@@ -1812,9 +1579,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
       isExceptional: data.isExceptional,
       fromFund: data.fromFund,
       files: [...entry.files, ...data.generalFiles],
-      dateError: null,
-      duplicateError: null,
-      checkingDuplicate: false,
       period_start_date: data.period_start_date,
       period_end_date: data.period_end_date,
       periodError: null,
@@ -1861,7 +1625,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         period_start_date: row.period_start_date,
         period_end_date: row.period_end_date,
         files: row.files,
-        dateError: null,
         periodError: null,
       })
       setActivePanelType('regular')
@@ -2684,12 +2447,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
         onLoadDraft={loadDraft}
-      />
-
-      <DuplicateWarningModal
-        isOpen={showDuplicateConfirm}
-        onClose={() => { setShowDuplicateConfirm(false); setLoading(false) }}
-        onConfirm={handleConfirmDuplicateSubmit}
       />
     </div>
   )

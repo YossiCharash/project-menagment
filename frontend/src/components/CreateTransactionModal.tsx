@@ -5,8 +5,6 @@ import { TransactionAPI, RecurringTransactionAPI, CategoryAPI, Category } from '
 import api from '../lib/api'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import { fetchSuppliers } from '../store/slices/suppliersSlice'
-import DuplicateWarningModal from './DuplicateWarningModal'
-import OverlapWarningModal from './OverlapWarningModal'
 
 interface CreateTransactionModalProps {
   isOpen: boolean
@@ -16,7 +14,8 @@ interface CreateTransactionModalProps {
   isSubproject?: boolean // True if the current project is a subproject
   projectName?: string
   allowSubprojectSelection?: boolean
-  projectStartDate?: string | null // Contract start date for validation
+  /** Accepted for backwards compatibility with call sites; no longer used for validation. */
+  projectStartDate?: string | null
 }
 
 type TransactionType = 'regular' | 'recurring'
@@ -29,21 +28,14 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
   isSubproject = false,
   projectName,
   allowSubprojectSelection = false,
-  projectStartDate
 }) => {
   const dispatch = useAppDispatch()
   const { items: suppliers } = useAppSelector(s => s.suppliers)
-  
+
   const [transactionMode, setTransactionMode] = useState<TransactionType>('regular')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  
-  // Date validation states
-  const [dateError, setDateError] = useState<string | null>(null)
-  const [recurringDateError, setRecurringDateError] = useState<string | null>(null)
-  const [periodStartDateError, setPeriodStartDateError] = useState<string | null>(null)
-  const [periodEndDateError, setPeriodEndDateError] = useState<string | null>(null)
-  
+
   // Regular transaction states
   const [type, setType] = useState<'Income' | 'Expense'>('Expense')
   const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0])
@@ -84,10 +76,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
   
   const [subprojects, setSubprojects] = useState<Array<{id: number, name: string}>>([])
   const [showDescriptionModal, setShowDescriptionModal] = useState(false)
-  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
-  const [showOverlapWarning, setShowOverlapWarning] = useState(false)
-  const [overlapMessage, setOverlapMessage] = useState<string>('')
-  const [pendingPayload, setPendingPayload] = useState<TransactionCreate | null>(null)
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{id: number, fileName: string, description: string}>>([])
   const [selectedTransactionForDocuments, setSelectedTransactionForDocuments] = useState<any | null>(null)
   const [failedUploadNames, setFailedUploadNames] = useState<string[]>([])
@@ -104,110 +92,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       resetForms()
     }
   }, [isOpen, projectId, dispatch])
-
-  // Validate transaction date in real-time
-  useEffect(() => {
-    if (!txDate || !projectStartDate) {
-      setDateError(null)
-      return
-    }
-
-    // Parse dates - remove time component for comparison
-    const contractStartDateStr = projectStartDate.split('T')[0]
-    const transactionDateStr = txDate.split('T')[0]
-    
-    const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-    const transactionDate = new Date(transactionDateStr + 'T00:00:00')
-    
-    // Compare dates (ignore time)
-    if (transactionDate < contractStartDate) {
-      const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-      const formattedTxDate = transactionDate.toLocaleDateString('he-IL')
-      setDateError(
-        `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
-      )
-    } else {
-      setDateError(null)
-    }
-  }, [txDate, projectStartDate])
-
-  // Validate recurring template start_date in real-time
-  useEffect(() => {
-    if (!recurringFormData.start_date || !projectStartDate) {
-      setRecurringDateError(null)
-      return
-    }
-
-    // Parse dates - remove time component for comparison
-    const contractStartDateStr = projectStartDate.split('T')[0]
-    const templateStartDateStr = recurringFormData.start_date.split('T')[0]
-    
-    const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-    const templateStartDate = new Date(templateStartDateStr + 'T00:00:00')
-    
-    // Compare dates (ignore time)
-    if (templateStartDate < contractStartDate) {
-      const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-      const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
-      setRecurringDateError(
-        `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
-      )
-    } else {
-      setRecurringDateError(null)
-    }
-  }, [recurringFormData.start_date, projectStartDate])
-
-  // Validate period start date in real-time
-  useEffect(() => {
-    if (!periodStartDate || !projectStartDate) {
-      setPeriodStartDateError(null)
-      return
-    }
-
-    // Parse dates - remove time component for comparison
-    const contractStartDateStr = projectStartDate.split('T')[0]
-    const periodStartDateStr = periodStartDate.split('T')[0]
-    
-    const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-    const periodStart = new Date(periodStartDateStr + 'T00:00:00')
-    
-    // Compare dates (ignore time)
-    if (periodStart < contractStartDate) {
-      const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-      const formattedPeriodStart = periodStart.toLocaleDateString('he-IL')
-      setPeriodStartDateError(
-        `לא ניתן ליצור עסקה תאריכית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התקופה: ${formattedPeriodStart}`
-      )
-    } else {
-      setPeriodStartDateError(null)
-    }
-  }, [periodStartDate, projectStartDate])
-
-  // Validate period end date in real-time
-  useEffect(() => {
-    if (!periodEndDate || !projectStartDate) {
-      setPeriodEndDateError(null)
-      return
-    }
-
-    // Parse dates - remove time component for comparison
-    const contractStartDateStr = projectStartDate.split('T')[0]
-    const periodEndDateStr = periodEndDate.split('T')[0]
-    
-    const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-    const periodEnd = new Date(periodEndDateStr + 'T00:00:00')
-    
-    // Compare dates (ignore time)
-    if (periodEnd < contractStartDate) {
-      const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-      const formattedPeriodEnd = periodEnd.toLocaleDateString('he-IL')
-      setPeriodEndDateError(
-        `לא ניתן ליצור עסקה תאריכית עם תאריך סיום לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך סיום של התקופה: ${formattedPeriodEnd}`
-      )
-    } else {
-      setPeriodEndDateError(null)
-    }
-  }, [periodEndDate, projectStartDate])
 
   const loadCategories = async () => {
     try {
@@ -309,13 +193,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
     })
     
     setError(null)
-    setDateError(null)
-    setRecurringDateError(null)
-    setPeriodStartDateError(null)
-    setPeriodEndDateError(null)
     setShowDescriptionModal(false)
-    setShowDuplicateWarning(false)
-    setPendingPayload(null)
     setUploadedDocuments([])
     setSelectedTransactionForDocuments(null)
     setFailedUploadNames([])
@@ -392,26 +270,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
       return
     }
 
-    // Validate transaction date is not before contract start date
-    if (projectStartDate) {
-      // Parse dates - remove time component for comparison
-      const contractStartDateStr = projectStartDate.split('T')[0]
-      const transactionDateStr = txDate.split('T')[0]
-      
-      const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-      const transactionDate = new Date(transactionDateStr + 'T00:00:00')
-      
-      // Compare dates (ignore time)
-      if (transactionDate < contractStartDate) {
-        const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-        const formattedTxDate = transactionDate.toLocaleDateString('he-IL')
-        setError(
-          `לא ניתן ליצור עסקה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך העסקה: ${formattedTxDate}`
-        )
-        return
-      }
-    }
-
     if (amount === '' || Number(amount) <= 0) {
       setError('סכום חיובי נדרש')
       return
@@ -464,60 +322,7 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
         period_end_date: isPeriodTransaction ? periodEndDate : undefined
       }
 
-      let response
-      try {
-        response = await api.post('/transactions/', payload)
-      } catch (e: any) {
-        if (e.response?.status === 409) {
-          const detail: string = e.response?.data?.detail ?? ''
-          setPendingPayload(payload)
-          if (detail.includes('לא ניתן ליצור עסקה לתקופה')) {
-            setOverlapMessage(detail)
-            setShowOverlapWarning(true)
-          } else {
-            setShowDuplicateWarning(true)
-          }
-          setLoading(false)
-          return
-        } else {
-          throw e
-        }
-      }
-
-      await handleTransactionSuccess(response.data)
-    } catch (e: any) {
-      setError(e.response?.data?.detail ?? 'שמירה נכשלה')
-      setLoading(false)
-    }
-  }
-
-  const handleConfirmDuplicate = async () => {
-    if (!pendingPayload) return
-    
-    setLoading(true)
-    setError(null)
-    
-    try {
-      const response = await api.post('/transactions/', { ...pendingPayload, allow_duplicate: true })
-      setShowDuplicateWarning(false)
-      setPendingPayload(null)
-      await handleTransactionSuccess(response.data)
-    } catch (e: any) {
-      const errDetail = e.response?.data?.detail ?? 'שמירה נכשלה'
-      const errFields: string[] | undefined = e.response?.data?.errors
-      setError(errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail)
-      setLoading(false)
-    }
-  }
-
-  const handleConfirmOverlap = async () => {
-    if (!pendingPayload) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.post('/transactions/', { ...pendingPayload, allow_overlap: true })
-      setShowOverlapWarning(false)
-      setPendingPayload(null)
+      const response = await api.post('/transactions/', payload)
       await handleTransactionSuccess(response.data)
     } catch (e: any) {
       setError(e.response?.data?.detail ?? 'שמירה נכשלה')
@@ -556,26 +361,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
     if (recurringFormData.end_type === 'After Occurrences' && (!recurringFormData.max_occurrences || recurringFormData.max_occurrences < 1)) {
       setError('יש להזין מספר הופעות תקין')
       return
-    }
-
-    // Validate recurring template start_date is not before contract start date
-    if (projectStartDate && recurringFormData.start_date) {
-      // Parse dates - remove time component for comparison
-      const contractStartDateStr = projectStartDate.split('T')[0]
-      const templateStartDateStr = recurringFormData.start_date.split('T')[0]
-      
-      const contractStartDate = new Date(contractStartDateStr + 'T00:00:00')
-      const templateStartDate = new Date(templateStartDateStr + 'T00:00:00')
-      
-      // Compare dates (ignore time)
-      if (templateStartDate < contractStartDate) {
-        const formattedStartDate = contractStartDate.toLocaleDateString('he-IL')
-        const formattedTemplateDate = templateStartDate.toLocaleDateString('he-IL')
-        setError(
-          `לא ניתן ליצור תבנית מחזורית עם תאריך התחלה לפני תאריך תחילת החוזה הראשון. תאריך תחילת החוזה הראשון: ${formattedStartDate}, תאריך התחלה של התבנית: ${formattedTemplateDate}`
-        )
-        return
-      }
     }
 
       setLoading(true)
@@ -832,19 +617,12 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך חיוב *</label>
                     <input
-                      className={`w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
-                        dateError
-                          ? 'border-red-500 focus:ring-red-500'
-                          : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'
-                      }`}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       type="date"
                       value={txDate}
                       onChange={e => setTxDate(e.target.value)}
                       required
                     />
-                    {dateError && (
-                      <p className="mt-1 text-sm text-red-600 dark:text-red-400">{dateError}</p>
-                    )}
                     {type === 'Expense' && (
                         <div className="mt-2 flex items-center gap-2">
                             <input
@@ -864,36 +642,22 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תחילת תקופה *</label>
                             <input
-                                className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
-                                  periodStartDateError
-                                    ? 'border-red-500 focus:ring-red-500'
-                                    : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'
-                                }`}
+                                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 type="date"
                                 value={periodStartDate}
                                 onChange={e => setPeriodStartDate(e.target.value)}
                                 required={isPeriodTransaction}
                             />
-                            {periodStartDateError && (
-                              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{periodStartDateError}</p>
-                            )}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סיום תקופה *</label>
                             <input
-                                className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
-                                  periodEndDateError
-                                    ? 'border-red-500 focus:ring-red-500'
-                                    : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'
-                                }`}
+                                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 type="date"
                                 value={periodEndDate}
                                 onChange={e => setPeriodEndDate(e.target.value)}
                                 required={isPeriodTransaction}
                             />
-                            {periodEndDateError && (
-                              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{periodEndDateError}</p>
-                            )}
                         </div>
                         <div className="col-span-2 text-xs text-blue-600 dark:text-blue-400">
                             ℹ️ ההוצאה תחולק יחסית לכל חודש בדוחות לפי מספר הימים בחודש
@@ -1284,17 +1048,10 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
                     <input
                       type="date"
                       required
-                      className={`w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
-                        recurringDateError
-                          ? 'border-red-500 focus:ring-red-500'
-                          : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'
-                      }`}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={recurringFormData.start_date}
                       onChange={(e) => setRecurringFormData({ ...recurringFormData, start_date: e.target.value })}
                     />
-                    {recurringDateError && (
-                      <p className="mt-1 text-sm text-red-600 dark:text-red-400">{recurringDateError}</p>
-                    )}
                   </div>
 
                   <div className="md:col-span-2">
@@ -1439,26 +1196,6 @@ const CreateTransactionModal: React.FC<CreateTransactionModalProps> = ({
           </div>
         </motion.div>
       </motion.div>
-
-      <DuplicateWarningModal
-        isOpen={showDuplicateWarning}
-        onClose={() => {
-          setShowDuplicateWarning(false)
-          setPendingPayload(null)
-        }}
-        onConfirm={handleConfirmDuplicate}
-        isEdit={false}
-      />
-
-      <OverlapWarningModal
-        isOpen={showOverlapWarning}
-        message={overlapMessage}
-        onClose={() => {
-          setShowOverlapWarning(false)
-          setPendingPayload(null)
-        }}
-        onConfirm={handleConfirmOverlap}
-      />
 
       {/* Description Modal for Uploaded Documents */}
       {showDescriptionModal && selectedTransactionForDocuments && uploadedDocuments.length > 0 && (
