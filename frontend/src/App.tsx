@@ -42,6 +42,7 @@ const AssetsPage = React.lazy(() => import('./pages/inventory/AssetsPage'))
 const ConsumablesPage = React.lazy(() => import('./pages/inventory/ConsumablesPage'))
 const WarehousesPage = React.lazy(() => import('./pages/inventory/WarehousesPage'))
 const TransfersPage = React.lazy(() => import('./pages/inventory/TransfersPage'))
+const CategoriesPage = React.lazy(() => import('./pages/inventory/CategoriesPage'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
@@ -273,6 +274,7 @@ function AppContent() {
                 <Route index element={<InventoryDashboard />} />
                 <Route path="assets" element={<AssetsPage />} />
                 <Route path="consumables" element={<ConsumablesPage />} />
+                <Route path="categories" element={<CategoriesPage />} />
                 <Route path="warehouses" element={<WarehousesPage />} />
                 <Route path="transfers" element={<TransfersPage />} />
               </Route>

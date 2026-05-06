@@ -32,6 +32,7 @@ const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   WARRANTY: 'תעודת אחריות',
   INVOICE: 'חשבונית',
   OTHER: 'אחר',
+  PHOTO: 'תמונה',
 }
 
 const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
@@ -89,6 +90,9 @@ const ACTION_LABELS: Record<string, string> = {
   RETIREMENT_REJECTED: 'פרישה נדחתה',
   RETURN_REQUESTED: 'בקשת החזרה למחסן',
   RETURNED_TO_WAREHOUSE: 'הוחזר למחסן',
+  PHOTO_UPDATED: 'תמונת ציוד עודכנה',
+  DOCUMENT_UPLOADED: 'מסמך הועלה',
+  DOCUMENT_DELETED: 'מסמך נמחק',
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -238,10 +242,21 @@ export function AssetViewModal({
         </div>
 
         <div className="p-6 space-y-6">
+          {/* Asset photo */}
+          {asset.photo_url && (
+            <div className="flex justify-center">
+              <img
+                src={asset.photo_url.startsWith('http') ? asset.photo_url : `/uploads/${asset.photo_url}`}
+                alt={asset.name}
+                className="max-h-[200px] max-w-full object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+            </div>
+          )}
+
           {/* Detail fields — 2-column grid */}
           <div className="grid grid-cols-2 gap-4">
             <DetailField label="שם" value={asset.name} />
-            <DetailField label="מס' סידורי" value={asset.serial_number} />
             <DetailField label="קטגוריה" value={categoryName} />
             <DetailField label="מחזיק" value={custodianName} />
             <div>
