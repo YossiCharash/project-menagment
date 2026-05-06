@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   Archive,
   LayoutDashboard,
+  FolderTree,
 } from 'lucide-react'
 import { useInventorySettings } from '../../contexts/InventorySettingsContext'
 
@@ -22,6 +23,7 @@ const TAB_ITEMS: TabItem[] = [
   { label: 'סקירה', href: '/inventory', icon: LayoutDashboard, isExactMatch: true },
   { label: 'ציוד קבוע', href: '/inventory/assets', icon: Package, isExactMatch: false },
   { label: 'מתכלים', href: '/inventory/consumables', icon: Archive, isExactMatch: false },
+  { label: 'קטגוריות', href: '/inventory/categories', icon: FolderTree, isExactMatch: false },
   { label: 'מחסנים', href: '/inventory/warehouses', icon: WarehouseIcon, isExactMatch: false },
   { label: 'העברות', href: '/inventory/transfers', icon: ArrowLeftRight, isExactMatch: false },
 ]

@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getToken, setToken, getRefreshToken, setRefreshToken, clearAuthCache } from './authCache'
 
 const api = axios.create({
-  baseURL: "https://project-menager-1-1-0.onrender.com/api/v1/",
+  baseURL: "http://localhost:8000/api/v1/",
   timeout: 60000, // 60s default covers Render.com cold starts (30-60s)
   withCredentials: false,
 })

@@ -6,7 +6,7 @@ import {
   X,
   AlertTriangle,
 } from 'lucide-react'
-import { cemsApi, type AssetCategory, type Warehouse } from '../../lib/cemsApi'
+import { cemsApi, type Warehouse } from '../../lib/cemsApi'
 
 // ---- Style Constants --------------------------------------------------------
 
@@ -24,12 +24,9 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps) {
-  const [categories, setCategories] = useState<AssetCategory[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showAddCategory, setShowAddCategory] = useState(false)
-  const [addCategoryWarehouseId, setAddCategoryWarehouseId] = useState<string | undefined>(undefined)
   const [showAddWarehouse, setShowAddWarehouse] = useState(false)
   const dataLoadedRef = useRef(false)
 
@@ -37,11 +34,7 @@ export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps)
     setLoading(true)
     setError(null)
     try {
-      const [catRes, whRes] = await Promise.all([
-        cemsApi.getCategories(),
-        cemsApi.getWarehouses(),
-      ])
-      setCategories(catRes.data)
+      const whRes = await cemsApi.getWarehouses()
       setWarehouses(whRes.data)
     } catch {
       setError('שגיאה בטעינת הנתונים')
@@ -57,16 +50,6 @@ export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps)
     }
   }, [loadData])
 
-  async function handleDeleteCategory(id: string, name: string) {
-    if (!window.confirm(`למחוק את הקטגוריה "${name}"?`)) return
-    try {
-      await cemsApi.deleteCategory(id)
-      setCategories((prev) => prev.filter((c) => c.id !== id))
-    } catch {
-      setError('שגיאה במחיקת הקטגוריה')
-    }
-  }
-
   async function handleDeleteWarehouse(id: string, name: string) {
     if (!window.confirm(`למחוק את המחסן "${name}"?`)) return
     try {
@@ -75,11 +58,6 @@ export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps)
     } catch {
       setError('שגיאה במחיקת המחסן')
     }
-  }
-
-  function handleOpenAddModal(warehouseId?: string) {
-    setAddCategoryWarehouseId(warehouseId)
-    setShowAddCategory(true)
   }
 
   return (
@@ -96,11 +74,8 @@ export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps)
           <p className="text-gray-500 dark:text-gray-400 text-sm">טוען...</p>
         </div>
       ) : (
-        <GroupedCategoriesView
-          categories={categories}
+        <WarehousesView
           warehouses={warehouses}
-          onAdd={handleOpenAddModal}
-          onDelete={handleDeleteCategory}
           onDeleteWarehouse={handleDeleteWarehouse}
           onAddWarehouse={() => setShowAddWarehouse(true)}
         />
@@ -112,18 +87,6 @@ export default function SettingsPanel({ onClose: _onClose }: SettingsPanelProps)
           onCreated={(wh) => {
             setShowAddWarehouse(false)
             setWarehouses((prev) => [...prev, wh])
-          }}
-        />
-      )}
-
-      {showAddCategory && (
-        <AddCategoryModal
-          warehouses={warehouses}
-          defaultWarehouseId={addCategoryWarehouseId}
-          onClose={() => setShowAddCategory(false)}
-          onCreated={() => {
-            setShowAddCategory(false)
-            loadData()
           }}
         />
       )}
@@ -142,23 +105,17 @@ function SettingsError({ message }: { message: string }) {
   )
 }
 
-// ---- Grouped Categories View ------------------------------------------------
+// ---- Warehouses View --------------------------------------------------------
 
-interface GroupedCategoriesViewProps {
-  categories: AssetCategory[]
+interface WarehousesViewProps {
   warehouses: Warehouse[]
-  onAdd: (warehouseId?: string) => void
-  onDelete: (id: string, name: string) => void
   onDeleteWarehouse: (id: string, name: string) => void
   onAddWarehouse: () => void
 }
 
-function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete, onDeleteWarehouse, onAddWarehouse }: GroupedCategoriesViewProps) {
-  const allCategories = categories.filter((c) => c.warehouse_id === null)
-
+function WarehousesView({ warehouses, onDeleteWarehouse, onAddWarehouse }: WarehousesViewProps) {
   return (
     <div className="space-y-3">
-      {/* Warehouses */}
       <CompactSection title="מחסנים" onAdd={onAddWarehouse}>
         {warehouses.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-gray-500">אין מחסנים</p>
@@ -166,19 +123,6 @@ function GroupedCategoriesView({ categories, warehouses, onAdd, onDelete, onDele
           <div className="space-y-1">
             {warehouses.map((wh) => (
               <CompactRow key={wh.id} label={wh.name} onDelete={() => onDeleteWarehouse(wh.id, wh.name)} />
-            ))}
-          </div>
-        )}
-      </CompactSection>
-
-      {/* Categories */}
-      <CompactSection title="קטגוריות" onAdd={() => onAdd(undefined)}>
-        {allCategories.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-gray-500">אין קטגוריות</p>
-        ) : (
-          <div className="space-y-1">
-            {allCategories.map((cat) => (
-              <CompactRow key={cat.id} label={cat.name} onDelete={() => onDelete(cat.id, cat.name)} />
             ))}
           </div>
         )}
@@ -233,113 +177,6 @@ function CompactRow({ label, onDelete }: CompactRowProps) {
       >
         <Trash2 className="w-3 h-3" />
       </button>
-    </div>
-  )
-}
-
-// ---- Add Category Modal -----------------------------------------------------
-
-interface AddCategoryModalProps {
-  warehouses: Warehouse[]
-  defaultWarehouseId?: string
-  onClose: () => void
-  onCreated: () => void
-}
-
-function AddCategoryModal({ warehouses, defaultWarehouseId, onClose, onCreated }: AddCategoryModalProps) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [warehouseId, setWarehouseId] = useState(defaultWarehouseId ?? '')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) {
-      setError('שם הקטגוריה הוא שדה חובה')
-      return
-    }
-
-    setSubmitting(true)
-    setError(null)
-    try {
-      await cemsApi.createCategory({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        warehouse_id: warehouseId || undefined,
-      })
-      onCreated()
-    } catch {
-      setError('שגיאה ביצירת קטגוריה')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className={MODAL_OVERLAY} onClick={onClose}>
-      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            הוספת קטגוריה
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
-              {error}
-            </div>
-          )}
-          <div>
-            <label className={LABEL_CLASS}>שם הקטגוריה *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={INPUT_CLASS}
-              placeholder="לדוגמה: כלי עבודה"
-              required
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>תיאור</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className={INPUT_CLASS}
-              rows={3}
-              placeholder="תיאור אופציונלי"
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>מחסן</label>
-            <select
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">גלובלי</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <button type="button" onClick={onClose} className={BTN_SECONDARY}>
-              ביטול
-            </button>
-            <button type="submit" disabled={submitting} className={BTN_PRIMARY}>
-              {submitting ? 'שומר...' : 'הוסף קטגוריה'}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }

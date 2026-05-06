@@ -38,6 +38,7 @@ class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     reorder_quantity: Mapped[Decimal] = mapped_column(
         Numeric(10, 4), default=Decimal("0"), nullable=False
     )
+    image_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
     warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id], lazy="raise")

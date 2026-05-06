@@ -25,6 +25,34 @@ export interface AssetCategory {
   description?: string
   warehouse_id: string | null
   warehouse_name: string | null
+  parent_id: string | null
+  image_url?: string
+  position: number
+  children_count: number
+  items_count: number
+}
+
+export interface AssetCategoryTreeNode {
+  id: string
+  name: string
+  description?: string
+  image_url?: string
+  position: number
+  parent_id: string | null
+  children_count: number
+  items_count: number
+  children: AssetCategoryTreeNode[]
+}
+
+export interface CategoryItemRead {
+  id: string
+  name: string
+  type: 'asset' | 'consumable'
+  status?: string
+  quantity?: string
+  unit?: string
+  photo_url?: string
+  warehouse_name?: string
 }
 
 export interface CemsProject {
@@ -343,11 +371,30 @@ export const cemsApi = {
       params: warehouseId ? { warehouse_id: warehouseId } : undefined,
     }),
 
-  createCategory: (data: { name: string; description?: string; warehouse_id?: string }) =>
+  createCategory: (data: { name: string; description?: string; warehouse_id?: string; parent_id?: string }) =>
     api.post<AssetCategory>(`${CEMS_BASE}/categories`, data),
 
   deleteCategory: (id: string) =>
     api.delete(`${CEMS_BASE}/categories/${id}`),
+
+  getCategoryTree: () =>
+    api.get<AssetCategoryTreeNode[]>(`${CEMS_BASE}/categories/tree`),
+
+  getCategoryItems: (categoryId: string, includeDescendants?: boolean) =>
+    api.get<CategoryItemRead[]>(`${CEMS_BASE}/categories/${categoryId}/items`, {
+      params: includeDescendants ? { include_descendants: true } : undefined,
+    }),
+
+  uploadCategoryImage: (categoryId: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<AssetCategory>(`${CEMS_BASE}/categories/${categoryId}/upload-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  updateCategory: (id: string, data: { name?: string; description?: string; parent_id?: string | null; position?: number }) =>
+    api.put<AssetCategory>(`${CEMS_BASE}/categories/${id}`, data),
 
   // ── Projects (read-only — managed in main system) ──────────────────────
   getProjects: () =>
