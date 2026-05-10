@@ -34,7 +34,7 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/project-management-backend:latest
             ${{ secrets.DOCKER_USERNAME }}/project-management-backend:${{ github.sha }}
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/project-management-backend:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/project-management-backend:buildcache,mode=max
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/project-management-backend:buildcache,mode=max', secrets.DOCKER_USERNAME) || '' }}
 
   build-and-push-frontend:
     runs-on: ubuntu-latest
@@ -62,7 +62,7 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/project-management-frontend:latest
             ${{ secrets.DOCKER_USERNAME }}/project-management-frontend:${{ github.sha }}
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/project-management-frontend:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/project-management-frontend:buildcache,mode=max
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/project-management-frontend:buildcache,mode=max', secrets.DOCKER_USERNAME) || '' }}
 
   deploy:
     needs: [build-and-push-backend, build-and-push-frontend]
