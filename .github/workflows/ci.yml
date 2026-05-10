@@ -8,7 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
   build-and-push-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -37,6 +55,8 @@ jobs:
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/project-management-backend:buildcache,mode=max', secrets.DOCKER_USERNAME) || 'type=gha,mode=max' }}
 
   build-and-push-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -65,11 +85,17 @@ jobs:
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/project-management-frontend:buildcache,mode=max', secrets.DOCKER_USERNAME) || 'type=gha,mode=max' }}
 
   deploy:
-    needs: [build-and-push-backend, build-and-push-frontend]
+    needs: [changes, build-and-push-backend, build-and-push-frontend]
     runs-on: ubuntu-latest
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'pull_request'
+    if: |
+      always() &&
+      !failure() && !cancelled() &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      github.event_name != 'pull_request' &&
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
     steps:
       - name: Deploy Backend to Render
+        if: needs.changes.outputs.backend == 'true'
         run: |
           if [ -n "${{ secrets.RENDER_BACKEND_DEPLOY_HOOK }}" ]; then
             curl -X POST ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK }}
@@ -78,6 +104,7 @@ jobs:
           fi
 
       - name: Deploy Frontend to Render
+        if: needs.changes.outputs.frontend == 'true'
         run: |
           if [ -n "${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK }}" ]; then
             curl -X POST ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK }}
