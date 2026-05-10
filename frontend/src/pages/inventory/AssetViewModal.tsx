@@ -144,6 +144,37 @@ export function AssetViewModal({
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
 
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPhotoBusy(true)
+    try {
+      const res = await cemsApi.uploadAssetPhoto(asset.id, file)
+      onUpdated(res.data)
+    } catch {
+      // silent
+    } finally {
+      setPhotoBusy(false)
+      if (photoInputRef.current) photoInputRef.current.value = ''
+    }
+  }
+
+  async function handlePhotoDelete() {
+    if (!window.confirm('למחוק את התמונה?')) return
+    setPhotoBusy(true)
+    try {
+      const res = await cemsApi.updateAsset(asset.id, { photo_url: null })
+      onUpdated(res.data)
+    } catch {
+      // silent
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
   // Derived action visibility
   const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
   const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
@@ -244,16 +275,65 @@ export function AssetViewModal({
 
         <div className="p-6 space-y-6">
           {/* Asset photo */}
-          {asset.photo_url && (
-            <div className="flex justify-center">
-              <img
-                src={asset.photo_url.startsWith('http') ? asset.photo_url : `/uploads/${asset.photo_url}`}
-                alt={asset.name}
-                className="max-h-[200px] max-w-full object-contain rounded-lg border border-gray-200 dark:border-gray-700"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-              />
-            </div>
-          )}
+          <div className="flex flex-col items-center gap-2">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoUpload}
+            />
+            {asset.photo_url ? (
+              <div className="relative inline-block">
+                <img
+                  src={fileAttachmentUrl(asset.photo_url)}
+                  alt={asset.name}
+                  className="max-h-[200px] max-w-full object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+                {isManager && (
+                  <div className="absolute top-2 left-2 flex gap-1">
+                    <button
+                      type="button"
+                      disabled={photoBusy}
+                      onClick={() => photoInputRef.current?.click()}
+                      className="p-1.5 rounded-lg bg-white/90 dark:bg-gray-800/90 hover:bg-white dark:hover:bg-gray-800 text-blue-600 dark:text-blue-400 shadow disabled:opacity-50"
+                      title="החלפת תמונה"
+                    >
+                      <Upload className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={photoBusy}
+                      onClick={handlePhotoDelete}
+                      className="p-1.5 rounded-lg bg-white/90 dark:bg-gray-800/90 hover:bg-white dark:hover:bg-gray-800 text-red-600 dark:text-red-400 shadow disabled:opacity-50"
+                      title="מחיקת תמונה"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center w-full max-w-xs h-[160px] rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30 text-gray-400 dark:text-gray-500">
+                <ImageIcon className="w-10 h-10 mb-2" />
+                {isManager && (
+                  <button
+                    type="button"
+                    disabled={photoBusy}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4" />
+                    העלאת תמונה
+                  </button>
+                )}
+              </div>
+            )}
+            {photoBusy && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">מעלה...</span>
+            )}
+          </div>
 
           {/* Detail fields — 2-column grid */}
           <div className="grid grid-cols-2 gap-4">

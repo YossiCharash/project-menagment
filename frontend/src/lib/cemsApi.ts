@@ -262,7 +262,7 @@ export const cemsApi = {
   createAsset: (data: Partial<FixedAsset>) =>
     api.post<FixedAsset>(`${CEMS_BASE}/assets`, data),
 
-  updateAsset: (id: string, data: { name?: string; category_id?: string; project_id?: number | null; purchase_date?: string | null; warranty_expiry?: string | null; notes?: string | null }) =>
+  updateAsset: (id: string, data: { name?: string; category_id?: string; project_id?: number | null; purchase_date?: string | null; warranty_expiry?: string | null; notes?: string | null; photo_url?: string | null }) =>
     api.put<FixedAsset>(`${CEMS_BASE}/assets/${id}`, data),
 
   getAssetHistory: (id: string) =>
