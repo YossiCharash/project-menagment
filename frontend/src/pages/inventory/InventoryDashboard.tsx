@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Shield,
   Layers,
+  Upload,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -370,6 +371,28 @@ export default function InventoryDashboard() {
   const [selectedConsumable, setSelectedConsumable] = useState<ConsumableItem | null>(null)
   const [assetHistory, setAssetHistory] = useState<AssetHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
+  async function handleAssetPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    const asset = selectedAsset
+    if (!file || !asset) {
+      e.target.value = ''
+      return
+    }
+    setUploadingPhoto(true)
+    try {
+      const res = await cemsApi.uploadAssetPhoto(asset.id, file)
+      const updated = res.data
+      setSelectedAsset(updated)
+      setCardAssets(prev => prev.map(a => (a.id === updated.id ? updated : a)))
+    } catch {
+      // silent
+    } finally {
+      setUploadingPhoto(false)
+      e.target.value = ''
+    }
+  }
 
   useEffect(() => {
     loadDashboardData()
@@ -823,6 +846,22 @@ export default function InventoryDashboard() {
                   />
                 </div>
               )}
+
+              <div className="flex justify-center" dir="rtl">
+                <label
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors ${uploadingPhoto ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <Upload className="w-4 h-4" />
+                  {uploadingPhoto ? 'מעלה...' : (selectedAsset.photo_url ? 'החלפת תמונה' : 'העלאת תמונה')}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploadingPhoto}
+                    onChange={handleAssetPhotoUpload}
+                  />
+                </label>
+              </div>
 
               {/* Details grid */}
               <div className="grid grid-cols-2 gap-3 text-sm">
