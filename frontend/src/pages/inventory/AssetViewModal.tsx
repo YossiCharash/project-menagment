@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   X,
   ArrowLeftRight,
@@ -9,6 +9,7 @@ import {
   Download,
   Upload,
   Pencil,
+  Image as ImageIcon,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -588,8 +589,23 @@ function EditAssetModal({ asset, categories, onClose, onUpdated }: EditAssetModa
   const [purchaseDate, setPurchaseDate] = useState(asset.purchase_date ?? '')
   const [warrantyExpiry, setWarrantyExpiry] = useState(asset.warranty_expiry ?? '')
   const [notes, setNotes] = useState(asset.notes ?? '')
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+
+  const photoPreviewUrl = useMemo(
+    () => (photoFile ? URL.createObjectURL(photoFile) : null),
+    [photoFile]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+    }
+  }, [photoPreviewUrl])
+
+  const existingPhotoUrl = asset.photo_url ? fileAttachmentUrl(asset.photo_url) : null
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -604,7 +620,12 @@ function EditAssetModal({ asset, categories, onClose, onUpdated }: EditAssetModa
         warranty_expiry: warrantyExpiry || null,
         notes: notes.trim() || null,
       })
-      onUpdated(res.data)
+      if (photoFile) {
+        const photoRes = await cemsApi.uploadAssetPhoto(asset.id, photoFile)
+        onUpdated(photoRes.data)
+      } else {
+        onUpdated(res.data)
+      }
     } catch {
       setError('שגיאה בעדכון הציוד')
     } finally {
@@ -633,6 +654,31 @@ function EditAssetModal({ asset, categories, onClose, onUpdated }: EditAssetModa
           <div>
             <label className={LABEL_CLASS}>שם *</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_CLASS} required />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>תמונה</label>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            />
+            <div
+              onClick={() => photoInputRef.current?.click()}
+              className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors flex items-center justify-center min-h-[120px]"
+            >
+              {photoPreviewUrl ? (
+                <img src={photoPreviewUrl} alt="תצוגה מקדימה" className="max-h-[160px] rounded-lg object-contain" />
+              ) : existingPhotoUrl ? (
+                <img src={existingPhotoUrl} alt={asset.name} className="max-h-[160px] rounded-lg object-contain" />
+              ) : (
+                <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+                  <ImageIcon className="w-8 h-8" />
+                  <span className="text-sm">לחץ לבחירת תמונה</span>
+                </div>
+              )}
+            </div>
           </div>
           <div>
             <label className={LABEL_CLASS}>קטגוריה</label>
