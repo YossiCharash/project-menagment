@@ -578,7 +578,12 @@ export default function InventoryDashboard() {
       )}
 
       {/* Asset Detail Panel */}
-      {selectedAsset && createPortal(
+      {selectedAsset && (() => {
+        const resolveImg = (raw?: string | null) =>
+          raw ? fileAttachmentUrl(raw.startsWith('http') ? raw : `/uploads/${raw}`) ?? '' : ''
+        const categoryImage = categories.find(c => c.id === selectedAsset.category_id)?.image_url
+        const detailImageUrl = resolveImg(selectedAsset.photo_url) || resolveImg(categoryImage)
+        return createPortal(
         <div
           className="fixed inset-0 z-[300] flex items-center justify-center p-4 backdrop-blur-sm bg-black/50"
           onClick={() => setSelectedAsset(null)}
@@ -590,9 +595,9 @@ export default function InventoryDashboard() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-3">
-                {selectedAsset.photo_url && (
+                {detailImageUrl && (
                   <img
-                    src={fileAttachmentUrl(selectedAsset.photo_url?.startsWith('http') ? selectedAsset.photo_url : `/uploads/${selectedAsset.photo_url}`) ?? ''}
+                    src={detailImageUrl}
                     alt={selectedAsset.name}
                     className="w-12 h-12 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -616,10 +621,10 @@ export default function InventoryDashboard() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Photo (large) */}
-              {selectedAsset.photo_url && (
+              {detailImageUrl && (
                 <div className="flex justify-center">
                   <img
-                    src={fileAttachmentUrl(selectedAsset.photo_url?.startsWith('http') ? selectedAsset.photo_url : `/uploads/${selectedAsset.photo_url}`) ?? ''}
+                    src={detailImageUrl}
                     alt={selectedAsset.name}
                     className="max-h-48 rounded-xl object-contain border border-gray-200 dark:border-gray-600 shadow-sm"
                     onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none' }}
@@ -675,7 +680,8 @@ export default function InventoryDashboard() {
           </div>
         </div>,
         document.body
-      )}
+      )
+      })()}
 
       {/* Consumable Detail Panel */}
       {selectedConsumable && createPortal(
