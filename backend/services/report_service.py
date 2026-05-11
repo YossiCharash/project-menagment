@@ -3741,7 +3741,7 @@ class ReportService:
         production_date_text = date.today().strftime('%d/%m/%Y')
 
         style_meta_value = ParagraphStyle(
-            'HeaderMetaValue', parent=styles['Normal'], fontName=font_name,
+            'HeaderMetaValue', parent=styles['Normal'], fontName='Helvetica',
             fontSize=10, alignment=2, leading=14, spaceAfter=0,
             textColor=colors.HexColor(COLOR_TEXT_MUTED)
         )
