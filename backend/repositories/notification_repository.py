@@ -17,6 +17,31 @@ class NotificationRepository:
         await self.db.refresh(notification)
         return notification
 
+    async def create_for_user(
+        self,
+        *,
+        user_id: int,
+        from_user_id: int | None,
+        task_id: int | None,
+        notification_type: str,
+        title: str,
+        body: str | None,
+    ) -> UserNotification:
+        """Build and persist a UserNotification from primitive fields."""
+        return await self.create(
+            UserNotification(
+                user_id=user_id,
+                from_user_id=from_user_id,
+                task_id=task_id,
+                type=notification_type,
+                title=title,
+                body=body,
+            )
+        )
+
+    async def flush(self) -> None:
+        await self.db.flush()
+
     async def list_for_user(
         self,
         user_id: int,

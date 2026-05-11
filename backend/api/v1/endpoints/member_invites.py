@@ -1,9 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from typing import List
 
-from backend.core.deps import DBSessionDep, get_current_user
+from backend.api.v1.messages.member_invites import (
+    MSG_INVITE_DELETED,
+    MSG_REGISTRATION_COMPLETE,
+)
+from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
-from backend.schemas.member_invite import MemberInviteCreate, MemberInviteOut, MemberInviteUse, MemberInviteList
+from backend.schemas.member_invite import (
+    MemberInviteCreate,
+    MemberInviteOut,
+    MemberInviteUse,
+    MemberInviteUseResponse,
+    MemberInviteList,
+)
 from backend.services.member_invite_service import MemberInviteService
 from backend.models.user import User
 
@@ -13,75 +23,52 @@ router = APIRouter()
 
 @router.post("/", response_model=MemberInviteOut)
 async def create_member_invite(
-    db: DBSessionDep, 
-    invite_data: MemberInviteCreate, 
-    current_admin: User = Depends(require_permission("write", "member_invite", project_id_param=None))
+    db: DBSessionDep,
+    invite_data: MemberInviteCreate,
+    current_admin: User = Depends(require_permission("write", "member_invite", project_id_param=None)),
 ):
-    """Create a new member invite and send registration email"""
-    service = MemberInviteService(db)
-    invite = await service.create_invite(invite_data, current_admin.id)
-    return invite
+    """Create a new member invite and dispatch the registration email."""
+    return await MemberInviteService(db).create_invite(invite_data, current_admin.id)
 
 
 @router.get("/", response_model=List[MemberInviteList])
 async def list_member_invites(
-    db: DBSessionDep, 
-    current_admin: User = Depends(require_permission("read", "member_invite", project_id_param=None))
+    db: DBSessionDep,
+    current_admin: User = Depends(require_permission("read", "member_invite", project_id_param=None)),
 ):
-    """List all member invites"""
-    service = MemberInviteService(db)
-    invites = await service.list_invites()
-    
-    # Convert to list format with expired status
-    result = []
-    for invite in invites:
-        result.append(MemberInviteList(
-            id=invite.id,
-            email=invite.email,
-            full_name=invite.full_name,
-            group_id=invite.group_id,
-            is_used=invite.is_used,
-            is_expired=invite.is_expired(),
-            expires_at=invite.expires_at,
-            created_at=invite.created_at
-        ))
-    return result
+    """List all member invites."""
+    return await MemberInviteService(db).list_invites_with_status()
 
 
 @router.get("/{invite_token}", response_model=MemberInviteOut)
 async def get_member_invite(
     invite_token: str,
-    db: DBSessionDep
+    db: DBSessionDep,
 ):
-    """Get member invite details by token (public endpoint for registration)"""
-    service = MemberInviteService(db)
-    invite = await service.get_invite_by_token(invite_token)
-    return invite
+    """Fetch a member invite by token (public endpoint for registration)."""
+    return await MemberInviteService(db).get_invite_by_token(invite_token)
 
 
-@router.post("/use", response_model=dict)
+@router.post("/use", response_model=MemberInviteUseResponse)
 async def use_member_invite(
     db: DBSessionDep,
-    invite_data: MemberInviteUse
-):
-    """Use an invite token to complete member registration"""
-    service = MemberInviteService(db)
-    user = await service.use_invite(invite_data)
-    
-    return {
-        "message": "Registration completed successfully",
-        "user_id": user.id,
-        "email": user.email
-    }
+    invite_data: MemberInviteUse,
+) -> MemberInviteUseResponse:
+    """Consume an invite token to complete member registration."""
+    result = await MemberInviteService(db).use_invite(invite_data)
+    return MemberInviteUseResponse(
+        message=MSG_REGISTRATION_COMPLETE,
+        user_id=result.user_id,
+        email=result.email,
+    )
 
 
 @router.delete("/{invite_id}")
 async def delete_member_invite(
     invite_id: int,
     db: DBSessionDep,
-    current_admin: User = Depends(require_permission("delete", "member_invite", resource_id_param="invite_id", project_id_param=None))
+    current_admin: User = Depends(require_permission("delete", "member_invite", resource_id_param="invite_id", project_id_param=None)),
 ):
-    """Delete a member invite"""
-    service = MemberInviteService(db)
-    await service.delete_invite(invite_id)
-    return {"message": "Invite deleted successfully"}
+    """Delete a member invite by id."""
+    await MemberInviteService(db).delete_invite(invite_id)
+    return {"message": MSG_INVITE_DELETED}

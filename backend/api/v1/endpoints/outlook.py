@@ -1,105 +1,99 @@
-"""Outlook calendar sync API: connect, disconnect, status."""
-import secrets
-from fastapi import APIRouter, Depends, Request, Query
+"""Outlook calendar sync HTTP endpoints.
+
+Owns all RedirectResponse / cookie wiring so backend.services.outlook_sync_service
+stays HTTP-framework-free. User-facing query-string messages live here.
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.core.deps import DBSessionDep, get_current_user, get_outlook_connect_user_id
+from backend.schemas.oauth import OAuthRedirectDTO
 from backend.services.outlook_sync_service import (
-    get_authorization_url,
-    exchange_code_for_tokens,
-    _is_configured,
+    OUTLOOK_STATE_COOKIE,
+    OUTLOOK_USER_ID_COOKIE,
+    OutlookSyncService,
 )
-from backend.repositories.outlook_sync_repository import OutlookSyncRepository
-from backend.models.outlook_sync import OutlookSync
 
 router = APIRouter()
+
+# Frontend feedback paths — user-facing strings stay in the route layer.
+OUTLOOK_SUCCESS_REDIRECT_PATH = "/task-calendar?outlook=connected"
+OUTLOOK_ERROR_REDIRECT_PATH = "/task-calendar?outlook=error"
+
+
+def _materialize_redirect(dto: OAuthRedirectDTO) -> RedirectResponse:
+    """Turn an OAuthRedirectDTO into a FastAPI RedirectResponse."""
+    response = RedirectResponse(url=dto.url)
+    for cookie in dto.cookies_to_set:
+        response.set_cookie(
+            cookie.name,
+            cookie.value,
+            httponly=cookie.http_only,
+            samesite=cookie.samesite,
+            max_age=cookie.max_age,
+        )
+    for name in dto.cookies_to_clear:
+        # Consent-flow cookies are single-use — clear them after callback so a
+        # stale value can't be replayed on a later connect attempt.
+        response.delete_cookie(name)
+    return response
+
+
+def _frontend_redirect_dto(path: str) -> OAuthRedirectDTO:
+    """Build a redirect to the frontend that also clears the consent cookies."""
+    return OAuthRedirectDTO(
+        url=settings.FRONTEND_URL + path,
+        cookies_to_clear=[OUTLOOK_STATE_COOKIE, OUTLOOK_USER_ID_COOKIE],
+    )
+
+
+def _parse_user_id_cookie(raw: str | None) -> int | None:
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 @router.get("/connect")
 async def outlook_connect(
-    request: Request,
     db: DBSessionDep,
     user_id: int = Depends(get_outlook_connect_user_id),
 ):
-    """Redirect to Microsoft login to connect Outlook calendar. Frontend uses ?token=JWT for redirect flow."""
-    state = secrets.token_urlsafe(32)
-    url = get_authorization_url(state=state)
-    response = RedirectResponse(url=url)
-    response.set_cookie("outlook_state", state, httponly=True, samesite="lax", max_age=600)
-    response.set_cookie("outlook_user_id", str(user_id), httponly=True, samesite="lax", max_age=600)
-    return response
+    """Redirect to Microsoft login to connect Outlook calendar."""
+    dto = OutlookSyncService(db).build_connect_redirect(user_id)
+    return _materialize_redirect(dto)
 
 
 @router.get("/callback")
 async def outlook_callback(
-    code: str,
     request: Request,
     db: DBSessionDep,
+    code: str | None = None,
     state: str | None = None,
 ):
-    """Handle Microsoft OAuth callback: save tokens and redirect to frontend."""
-    user_id_cookie = request.cookies.get("outlook_user_id")
-    if not user_id_cookie or not code:
-        response = RedirectResponse(url=settings.FRONTEND_URL + "/task-calendar?outlook=error")
-        response.delete_cookie("outlook_state")
-        response.delete_cookie("outlook_user_id")
-        return response
+    """Handle Microsoft OAuth callback: save tokens, redirect to frontend."""
+    user_id = _parse_user_id_cookie(request.cookies.get(OUTLOOK_USER_ID_COOKIE))
+    if user_id is None or not code:
+        return _materialize_redirect(_frontend_redirect_dto(OUTLOOK_ERROR_REDIRECT_PATH))
     try:
-        user_id = int(user_id_cookie)
-    except ValueError:
-        response = RedirectResponse(url=settings.FRONTEND_URL + "/task-calendar?outlook=error")
-        response.delete_cookie("outlook_state")
-        response.delete_cookie("outlook_user_id")
-        return response
-    try:
-        tokens = await exchange_code_for_tokens(code)
+        await OutlookSyncService(db).complete_connection(code, user_id)
     except Exception:
-        response = RedirectResponse(url=settings.FRONTEND_URL + "/task-calendar?outlook=error")
-        response.delete_cookie("outlook_state")
-        response.delete_cookie("outlook_user_id")
-        return response
-    repo = OutlookSyncRepository(db)
-    existing = await repo.get_by_user_id(user_id)
-    if existing:
-        existing.access_token = tokens["access_token"]
-        existing.refresh_token = tokens["refresh_token"]
-        existing.token_expires_at = tokens["token_expires_at"]
-        await repo.upsert(existing)
-    else:
-        row = OutlookSync(
-            user_id=user_id,
-            access_token=tokens["access_token"],
-            refresh_token=tokens["refresh_token"],
-            token_expires_at=tokens["token_expires_at"],
-        )
-        await repo.upsert(row)
-    await db.commit()
-    response = RedirectResponse(url=settings.FRONTEND_URL + "/task-calendar?outlook=connected")
-    response.delete_cookie("outlook_state")
-    response.delete_cookie("outlook_user_id")
-    return response
+        return _materialize_redirect(_frontend_redirect_dto(OUTLOOK_ERROR_REDIRECT_PATH))
+    return _materialize_redirect(_frontend_redirect_dto(OUTLOOK_SUCCESS_REDIRECT_PATH))
 
 
 @router.get("/status")
 async def outlook_status(db: DBSessionDep, user=Depends(get_current_user)):
-    """Return whether current user has Outlook connected."""
-    if not _is_configured():
-        return {"configured": False, "connected": False}
-    repo = OutlookSyncRepository(db)
-    conn = await repo.get_by_user_id(user.id)
-    return {
-        "configured": True,
-        "connected": conn is not None,
-        "last_sync_at": conn.last_sync_at.isoformat() if conn and conn.last_sync_at else None,
-    }
+    """Return whether the current user has Outlook connected."""
+    return await OutlookSyncService(db).get_status(user.id)
 
 
 @router.delete("/disconnect")
 async def outlook_disconnect(db: DBSessionDep, user=Depends(get_current_user)):
-    """Remove Outlook connection for current user."""
-    repo = OutlookSyncRepository(db)
-    await repo.delete_by_user_id(user.id)
-    await db.commit()
-    return {"ok": True}
+    """Remove the current user's Outlook connection."""
+    return await OutlookSyncService(db).disconnect(user.id)
