@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.models.consumable import ConsumableItem, ConsumptionLog, StockAlert
+from backend.cems.models.consumable_movement import ConsumableMovementLog
 from backend.cems.repositories.base_repository import BaseRepository
 
 
@@ -84,6 +85,25 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
             select(ConsumptionLog)
             .where(ConsumptionLog.item_id == item_id)
             .order_by(ConsumptionLog.consumed_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create_movement_log(self, data: dict) -> ConsumableMovementLog:
+        log = ConsumableMovementLog(**data)
+        self._session.add(log)
+        await self._session.flush()
+        return log
+
+    async def get_movement_history(
+        self, item_id: uuid.UUID, skip: int = 0, limit: int = 100
+    ) -> List[ConsumableMovementLog]:
+        stmt = (
+            select(ConsumableMovementLog)
+            .where(ConsumableMovementLog.item_id == item_id)
+            .order_by(ConsumableMovementLog.moved_at.desc())
             .offset(skip)
             .limit(limit)
         )

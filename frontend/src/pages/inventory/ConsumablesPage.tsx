@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useSelector } from 'react-redux'
+import type { RootState } from '../../store'
 import {
-  Package,
   Plus,
   Search,
   Minus,
@@ -15,6 +16,7 @@ import {
   Ban,
   Clock,
   Truck,
+  Image as ImageIcon,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -26,6 +28,8 @@ import {
   type ReorderRequest,
   type ReorderStatus,
 } from '../../lib/cemsApi'
+import { fileAttachmentUrl } from '../../lib/api'
+import { ConsumableViewModal } from './ConsumableViewModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -106,6 +110,11 @@ export default function ConsumablesPage() {
   const [consumeItem, setConsumeItem] = useState<ConsumableItem | null>(null)
   const [moveItem, setMoveItem] = useState<ConsumableItem | null>(null)
   const [reorderItem, setReorderItem] = useState<ConsumableItem | null>(null)
+  const [viewItem, setViewItem] = useState<ConsumableItem | null>(null)
+
+  const me = useSelector((s: RootState) => s.auth.me)
+  const isManager =
+    me?.role === 'Admin' || (me as any)?.cems_role === 'Admin' || (me as any)?.cems_role === 'Manager'
 
   // Reorder history
   const [showReorderHistory, setShowReorderHistory] = useState(false)
@@ -493,6 +502,7 @@ export default function ConsumablesPage() {
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-700">
+                <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3 w-16">תמונה</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
                 <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מחסן</th>
@@ -506,14 +516,43 @@ export default function ConsumablesPage() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     לא נמצאו פריטי מלאי
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
+                items.map((item) => {
+                  const category = categories.find((c) => c.id === item.category_id)
+                  const rawThumb = item.image_url || category?.image_url || null
+                  const thumbUrl = rawThumb
+                    ? fileAttachmentUrl(rawThumb.startsWith('http') ? rawThumb : `/uploads/${rawThumb}`) ?? ''
+                    : ''
+                  return (
                   <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{item.name}</td>
+                    <td className="px-4 py-3">
+                      {thumbUrl ? (
+                        <img
+                          src={thumbUrl}
+                          alt={item.name}
+                          className="w-10 h-10 rounded object-cover border border-gray-200 dark:border-gray-600 cursor-pointer"
+                          onClick={() => setViewItem(item)}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div
+                          className="w-10 h-10 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-400 cursor-pointer"
+                          onClick={() => setViewItem(item)}
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                        </div>
+                      )}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                      onClick={() => setViewItem(item)}
+                    >
+                      {item.name}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(item.category_id)}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getWarehouseName(item.warehouse_id)}</td>
                     <td className={`px-4 py-3 text-sm ${stockStatusClasses(item)}`}>
@@ -554,7 +593,8 @@ export default function ConsumablesPage() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -595,6 +635,19 @@ export default function ConsumablesPage() {
           }}
         />
       )}
+      {viewItem && (
+        <ConsumableViewModal
+          item={viewItem}
+          categories={categories}
+          warehouses={warehouses}
+          isManager={isManager}
+          onClose={() => setViewItem(null)}
+          onUpdated={(updated) => {
+            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+            setViewItem(updated)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -616,8 +669,21 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
   const [unit, setUnit] = useState('')
   const [lowStockThreshold, setLowStockThreshold] = useState('')
   const [reorderQuantity, setReorderQuantity] = useState('')
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+
+  const photoPreviewUrl = useMemo(
+    () => (photoFile ? URL.createObjectURL(photoFile) : null),
+    [photoFile]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+    }
+  }, [photoPreviewUrl])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -637,7 +703,7 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
     setSubmitting(true)
     setError(null)
     try {
-      await cemsApi.createConsumable({
+      const res = await cemsApi.createConsumable({
         name: name.trim(),
         category_id: categoryId,
         warehouse_id: warehouseId,
@@ -646,6 +712,13 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
         low_stock_threshold: lowStockThreshold || '0',
         reorder_quantity: reorderQuantity || '0',
       } as Partial<ConsumableItem>)
+      if (photoFile && res.data?.id) {
+        try {
+          await cemsApi.uploadConsumablePhoto(res.data.id, photoFile)
+        } catch {
+          // silent — item was created; photo upload failed
+        }
+      }
       onCreated()
       onClose()
     } catch {
@@ -673,6 +746,29 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
           <div>
             <label className={LABEL_CLASS}>שם הפריט *</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_CLASS} required />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>תמונה</label>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            />
+            <div
+              onClick={() => photoInputRef.current?.click()}
+              className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors flex items-center justify-center min-h-[120px]"
+            >
+              {photoPreviewUrl ? (
+                <img src={photoPreviewUrl} alt="תצוגה מקדימה" className="max-h-[160px] rounded-lg object-contain" />
+              ) : (
+                <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+                  <ImageIcon className="w-8 h-8" />
+                  <span className="text-sm">לחץ לבחירת תמונה</span>
+                </div>
+              )}
+            </div>
           </div>
           <div>
             <label className={LABEL_CLASS}>קטגוריה *</label>

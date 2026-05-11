@@ -4,6 +4,7 @@ from backend.cems.models.category import AssetCategory
 from backend.cems.models.project import CemsProject, Project
 from backend.cems.models.fixed_asset import FixedAsset, AssetStatus, AssetHistory
 from backend.cems.models.consumable import ConsumableItem, ConsumptionLog, StockAlert, AlertType
+from backend.cems.models.consumable_movement import ConsumableMovementLog, ConsumableMovementAction
 from backend.cems.models.transfer import Transfer, TransferStatus, WarehouseReturn, ReturnStatus
 from backend.cems.models.reorder import ReorderRequest, ReorderStatus
 from backend.cems.models.retirement import AssetRetirement, RetirementStatus
@@ -26,6 +27,8 @@ __all__ = [
     "ConsumptionLog",
     "StockAlert",
     "AlertType",
+    "ConsumableMovementLog",
+    "ConsumableMovementAction",
     "Transfer",
     "TransferStatus",
     "WarehouseReturn",
