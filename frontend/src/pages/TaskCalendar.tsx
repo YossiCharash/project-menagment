@@ -220,6 +220,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     } catch {
       /* ignore */
     }
+    // On phones, default to list/agenda view — much more productive than a cramped month grid.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches) {
+      return 'listWeek'
+    }
     return 'dayGridMonth'
   })
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -521,6 +525,44 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   currentViewTypeRef.current = currentViewType
   /** Track previous isHebrewMode to detect display-mode transitions. */
   const prevIsHebrewModeRef = useRef<boolean | null>(null)
+
+  /**
+   * Mobile detection: under 640px we render compact UI and prefer list/agenda view.
+   * Tied to a matchMedia listener so changes to viewport (rotation, devtools resize) react live.
+   */
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia?.('(max-width: 640px)').matches ?? false
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(max-width: 640px)')
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    // Older Safari uses addListener; modern uses addEventListener.
+    if (mq.addEventListener) mq.addEventListener('change', onChange)
+    else mq.addListener(onChange)
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange)
+      else mq.removeListener(onChange)
+    }
+  }, [])
+  /**
+   * When the viewport crosses INTO mobile and we're on a heavy view (month/week),
+   * auto-switch to list view for readability. Going back to desktop does NOT auto-switch
+   * (we respect the user's last explicit choice on the larger viewport).
+   */
+  const didMobileSwitchRef = useRef(false)
+  useEffect(() => {
+    if (!isMobile || didMobileSwitchRef.current) return
+    const heavyViews = ['dayGridMonth', 'timeGridWeek', 'timeGridWorkWeek']
+    if (heavyViews.includes(currentViewTypeRef.current)) {
+      const cal = calendarRef.current?.getApi()
+      if (cal) {
+        cal.changeView('listWeek')
+        didMobileSwitchRef.current = true
+      }
+    }
+  }, [isMobile])
 
   const handleEventClick = (info: EventClickArg) => {
     if (info.event.id.startsWith('jewish-') || info.event.id.startsWith('islamic-')) return
@@ -1240,7 +1282,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
 
   return (
     <div className={cn('task-calendar-page', !embedded && 'min-h-screen bg-[#f0f4f8] dark:bg-[#0f1419]')}>
-      <div className={cn('max-w-[1680px] mx-auto px-4 sm:px-6 space-y-6', !embedded && 'py-6 sm:py-8')}>
+      <div className={cn('max-w-[1680px] mx-auto px-2 sm:px-6 space-y-4 sm:space-y-6', !embedded && 'py-6 sm:py-8')}>
         {!embedded && (
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -1337,12 +1379,12 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         )}
 
         <div className="space-y-3">
-            <div className="rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-5 sm:p-6">
+            <div className="rounded-xl sm:rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-2 sm:p-6">
               {loading && tasks.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
               ) : (
                 <>
-                <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-gray-200 dark:border-gray-600">
+                <div className="task-calendar-filterbar flex flex-nowrap sm:flex-wrap items-center gap-2 mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-gray-200 dark:border-gray-600 overflow-x-auto sm:overflow-visible -mx-1 px-1">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">סוג תאריך בתאים:</span>
                   <div className="flex rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/50 p-0.5">
                     {(['gregorian', 'hebrew', 'both'] as const).map((opt) => (
@@ -1579,11 +1621,31 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 }
               }}
               customButtons={hebrewCustomButtons}
-              headerToolbar={{
-                start: 'timeGridDay,timeGridWeek,timeGridWorkWeek,dayGridMonth,listWeek',
-                center: 'title',
-                end: isHebrewMode ? 'hebrewPrev,hebrewNext hebrewToday' : 'prev,next today',
-              }}
+              headerToolbar={
+                isMobile
+                  ? {
+                      // Phone-friendly toolbar: nav buttons on left, compact title on right.
+                      // View switcher moved to footer to keep header short and tappable.
+                      start: isHebrewMode ? 'hebrewPrev,hebrewToday,hebrewNext' : 'prev,today,next',
+                      center: '',
+                      end: 'title',
+                    }
+                  : {
+                      start: 'timeGridDay,timeGridWeek,timeGridWorkWeek,dayGridMonth,listWeek',
+                      center: 'title',
+                      end: isHebrewMode ? 'hebrewPrev,hebrewNext hebrewToday' : 'prev,next today',
+                    }
+              }
+              footerToolbar={
+                isMobile
+                  ? {
+                      // Reduced view-switcher set on mobile: list (default), day, month.
+                      start: '',
+                      center: 'listWeek,timeGridDay,dayGridMonth',
+                      end: '',
+                    }
+                  : undefined
+              }
               views={hebrewMonthViews}
               buttonText={{
                 today: 'היום',
@@ -1601,7 +1663,9 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               slotLabelInterval="01:00:00"
               nowIndicator={true}
               navLinks={true}
-              contentHeight={720}
+              contentHeight={isMobile ? 'auto' : 720}
+              handleWindowResize={true}
+              expandRows={isMobile}
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               allDayText="כל היום"
