@@ -4076,146 +4076,146 @@ class ReportService:
                 
                 for cat_name in year_categories:
                     cat_transactions = transactions_by_year_and_category[year][cat_name]
-                # Category header with amber accent
-                elements.append(Paragraph(format_text(f"📁 {REPORT_LABELS['category']}: {cat_name}"), style_category))
-                elements.append(Spacer(1, 6))
-                
-                # Check which columns have data
-                has_suppliers = any(
-                    (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
-                    for tx in cat_transactions
-                ) if cat_transactions else False
-                
-                has_descriptions = any(
-                    (tx.get('description') if isinstance(tx, dict) else tx.description)
-                    for tx in cat_transactions
-                ) if cat_transactions else False
-                
-                # Build dynamic columns list based on available data
-                columns = ['date', 'type', 'amount']
-                if has_suppliers:
-                    columns.append('supplier')
-                if has_descriptions:
-                    columns.append('description')
-                
-                # Column widths based on which columns are shown
-                col_width_map = {
-                    'date': 70,
-                    'type': 55,
-                    'amount': 70,
-                    'supplier': 120,
-                    'description': 200
-                }
-                
-                # Adjust description width if no supplier
-                if has_descriptions and not has_suppliers:
-                    col_width_map['description'] = 275
-                
-                col_widths = [col_width_map[col] for col in columns]
-                
-                # Build table headers dynamically
-                col_to_label = {
-                    'date': REPORT_LABELS['date'],
-                    'type': REPORT_LABELS['type'],
-                    'amount': REPORT_LABELS['amount'],
-                    'supplier': REPORT_LABELS['supplier'],
-                    'description': REPORT_LABELS['description']
-                }
-                
-                tx_data = [[Paragraph(format_text(col_to_label[col]), style_table_cell) for col in columns]]
-                
-                # Track category totals
-                cat_total_income = 0
-                cat_total_expense = 0
-                
-                # Add transaction rows
-                for tx in cat_transactions:
-                    if isinstance(tx, dict):
-                        is_income = tx.get('type') == "Income"
-                        tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
-                        tx_desc = tx.get('description') or ""
-                        supplier_name = tx.get('supplier_name') or ""
-                        tx_date = tx.get('tx_date')
-                        tx_amount = tx.get('amount', 0)
-                    else:
-                        is_income = tx.type == "Income"
-                        tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
-                        tx_desc = tx.description or ""
-                        supplier_name = tx.supplier.name if tx.supplier else ""
-                        tx_date = tx.tx_date
-                        tx_amount = tx.amount
+                    # Category header with amber accent
+                    elements.append(Paragraph(format_text(f"📁 {REPORT_LABELS['category']}: {cat_name}"), style_category))
+                    elements.append(Spacer(1, 6))
                     
-                    # Track totals
-                    if is_income:
-                        cat_total_income += tx_amount
-                    else:
-                        cat_total_expense += tx_amount
+                    # Check which columns have data
+                    has_suppliers = any(
+                        (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
+                        for tx in cat_transactions
+                    ) if cat_transactions else False
                     
-                    col_to_value = {
-                        'date': format_date_hebrew(tx_date),
-                        'type': format_text(tx_type),
-                        'amount': Paragraph(f"{tx_amount:,.2f} ₪", style_number),
-                        'supplier': format_text(supplier_name),
-                        'description': format_text(tx_desc)
+                    has_descriptions = any(
+                        (tx.get('description') if isinstance(tx, dict) else tx.description)
+                        for tx in cat_transactions
+                    ) if cat_transactions else False
+                    
+                    # Build dynamic columns list based on available data
+                    columns = ['date', 'type', 'amount']
+                    if has_suppliers:
+                        columns.append('supplier')
+                    if has_descriptions:
+                        columns.append('description')
+                    
+                    # Column widths based on which columns are shown
+                    col_width_map = {
+                        'date': 70,
+                        'type': 55,
+                        'amount': 70,
+                        'supplier': 120,
+                        'description': 200
                     }
                     
-                    # Use style_number for amount column, style_table_cell for others
-                    row_data = []
-                    for col in columns:
-                        if col == 'amount':
-                            row_data.append(col_to_value[col])  # Already a Paragraph with style_number
+                    # Adjust description width if no supplier
+                    if has_descriptions and not has_suppliers:
+                        col_width_map['description'] = 275
+                    
+                    col_widths = [col_width_map[col] for col in columns]
+                    
+                    # Build table headers dynamically
+                    col_to_label = {
+                        'date': REPORT_LABELS['date'],
+                        'type': REPORT_LABELS['type'],
+                        'amount': REPORT_LABELS['amount'],
+                        'supplier': REPORT_LABELS['supplier'],
+                        'description': REPORT_LABELS['description']
+                    }
+                    
+                    tx_data = [[Paragraph(format_text(col_to_label[col]), style_table_cell) for col in columns]]
+                    
+                    # Track category totals
+                    cat_total_income = 0
+                    cat_total_expense = 0
+                    
+                    # Add transaction rows
+                    for tx in cat_transactions:
+                        if isinstance(tx, dict):
+                            is_income = tx.get('type') == "Income"
+                            tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                            tx_desc = tx.get('description') or ""
+                            supplier_name = tx.get('supplier_name') or ""
+                            tx_date = tx.get('tx_date')
+                            tx_amount = tx.get('amount', 0)
                         else:
-                            row_data.append(Paragraph(col_to_value[col], style_table_cell))
-                    tx_data.append(row_data)
-                
-                # Build table style with alternating rows
-                tx_style = [
-                    ('FONT', (0, 0), (-1, -1), font_name),
-                    ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-                    # Header row
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                    ('TOPPADDING', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                    # General
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]
-                
-                # Add alternating row colors for data rows
-                for row_idx in range(1, len(tx_data)):
-                    if row_idx % 2 == 1:
-                        tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_LIGHT)))
-                    else:
-                        tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_ALT)))
-                
-                tx_table = Table(tx_data, repeatRows=1, colWidths=col_widths, style=tx_style)
-                elements.append(tx_table)
-                
-                # Category summary row
-                cat_net = cat_total_income - cat_total_expense
-                summary_color = COLOR_ACCENT_EMERALD if cat_net >= 0 else COLOR_ACCENT_ROSE
-                summary_bg = '#FEF3C7'  # Amber-100
-                
-                cat_summary_data = [[
-                    format_text(f"סה״כ {cat_name}:"),
-                    Paragraph(f"{cat_net:,.2f} ₪", style_number)
-                ]]
-                cat_summary_table = Table(cat_summary_data, colWidths=[300, 160])
-                cat_summary_table.setStyle(TableStyle([
-                    ('FONT', (0, 0), (-1, -1), font_name),
-                    ('FONTSIZE', (0, 0), (-1, -1), 10),
-                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(summary_bg)),
-                    ('TEXTCOLOR', (1, 0), (1, 0), colors.HexColor(summary_color)),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('PADDING', (0, 0), (-1, -1), 8),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-                ]))
-                elements.append(cat_summary_table)
-                elements.append(Spacer(1, 18))  # Space between category tables
+                            is_income = tx.type == "Income"
+                            tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                            tx_desc = tx.description or ""
+                            supplier_name = tx.supplier.name if tx.supplier else ""
+                            tx_date = tx.tx_date
+                            tx_amount = tx.amount
+                        
+                        # Track totals
+                        if is_income:
+                            cat_total_income += tx_amount
+                        else:
+                            cat_total_expense += tx_amount
+                        
+                        col_to_value = {
+                            'date': format_date_hebrew(tx_date),
+                            'type': format_text(tx_type),
+                            'amount': Paragraph(f"{tx_amount:,.2f} ₪", style_number),
+                            'supplier': format_text(supplier_name),
+                            'description': format_text(tx_desc)
+                        }
+                        
+                        # Use style_number for amount column, style_table_cell for others
+                        row_data = []
+                        for col in columns:
+                            if col == 'amount':
+                                row_data.append(col_to_value[col])  # Already a Paragraph with style_number
+                            else:
+                                row_data.append(Paragraph(col_to_value[col], style_table_cell))
+                        tx_data.append(row_data)
+                    
+                    # Build table style with alternating rows
+                    tx_style = [
+                        ('FONT', (0, 0), (-1, -1), font_name),
+                        ('FONTSIZE', (0, 0), (-1, -1), 9),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                        # Header row
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                        ('TOPPADDING', (0, 0), (-1, 0), 10),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                        # General
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('PADDING', (0, 0), (-1, -1), 6),
+                    ]
+                    
+                    # Add alternating row colors for data rows
+                    for row_idx in range(1, len(tx_data)):
+                        if row_idx % 2 == 1:
+                            tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_LIGHT)))
+                        else:
+                            tx_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_ALT)))
+                    
+                    tx_table = Table(tx_data, repeatRows=1, colWidths=col_widths, style=tx_style)
+                    elements.append(tx_table)
+                    
+                    # Category summary row
+                    cat_net = cat_total_income - cat_total_expense
+                    summary_color = COLOR_ACCENT_EMERALD if cat_net >= 0 else COLOR_ACCENT_ROSE
+                    summary_bg = '#FEF3C7'  # Amber-100
+                    
+                    cat_summary_data = [[
+                        format_text(f"סה״כ {cat_name}:"),
+                        Paragraph(f"{cat_net:,.2f} ₪", style_number)
+                    ]]
+                    cat_summary_table = Table(cat_summary_data, colWidths=[300, 160])
+                    cat_summary_table.setStyle(TableStyle([
+                        ('FONT', (0, 0), (-1, -1), font_name),
+                        ('FONTSIZE', (0, 0), (-1, -1), 10),
+                        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(summary_bg)),
+                        ('TEXTCOLOR', (1, 0), (1, 0), colors.HexColor(summary_color)),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('PADDING', (0, 0), (-1, -1), 8),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                    ]))
+                    elements.append(cat_summary_table)
+                    elements.append(Spacer(1, 18))  # Space between category tables
 
         # ========== COMPREHENSIVE PERIOD SUMMARY ==========
         if options.include_period_totals and sorted_years:
@@ -5023,143 +5023,143 @@ class ReportService:
                 
                 for cat_idx, cat_name in enumerate(year_categories):
                     cat_transactions = transactions_by_year_and_category[year][cat_name]
-                # Check which columns have data
-                has_suppliers = any(
-                    (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
-                    for tx in cat_transactions
-                ) if cat_transactions else False
-                
-                has_descriptions = any(
-                    (tx.get('description') if isinstance(tx, dict) else tx.description)
-                    for tx in cat_transactions
-                ) if cat_transactions else False
-
-                # Build dynamic columns list based on available data
-                columns = ['date', 'type', 'amount']
-                if has_suppliers:
-                    columns.append('supplier')
-                if has_descriptions:
-                    columns.append('description')
-                
-                col_letters = ['A', 'B', 'C', 'D', 'E'][:len(columns)]
-                max_col = col_letters[-1]
-
-                # Category header - with amber accent
-                ws.merge_cells(f'A{current_row}:{max_col}{current_row}')
-                ws.row_dimensions[current_row].height = 28
-                cat_header = ws[f'A{current_row}']
-                cat_header.value = f"📁  {REPORT_LABELS['category']}: {cat_name}"
-                cat_header.font = h2_font
-                cat_header.fill = fill_category_header
-                cat_header.alignment = center_align
-                cat_header.border = medium_border
-                current_row += 1
-
-                # Build table headers dynamically
-                col_to_label = {
-                    'date': REPORT_LABELS['date'],
-                    'type': REPORT_LABELS['type'],
-                    'amount': REPORT_LABELS['amount'],
-                    'supplier': REPORT_LABELS['supplier'],
-                    'description': REPORT_LABELS['description']
-                }
-                
-                ws.row_dimensions[current_row].height = 26
-                for i, col_name in enumerate(columns):
-                    cell = ws[f'{col_letters[i]}{current_row}']
-                    cell.value = col_to_label[col_name]
-                    cell.font = header_font
-                    cell.fill = fill_header
-                    cell.alignment = center_align
-                    cell.border = thin_border
-                current_row += 1
-
-                # Calculate category total for summary
-                cat_total_income = 0
-                cat_total_expense = 0
-
-                # Add transaction rows with alternating colors
-                for row_idx, tx in enumerate(cat_transactions):
-                    ws.row_dimensions[current_row].height = 22
+                    # Check which columns have data
+                    has_suppliers = any(
+                        (tx.get('supplier_name') if isinstance(tx, dict) else (tx.supplier.name if tx.supplier else None))
+                        for tx in cat_transactions
+                    ) if cat_transactions else False
                     
-                    if isinstance(tx, dict):
-                        is_income = tx.get('type') == "Income"
-                        tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
-                        supplier_name = tx.get('supplier_name') or ""
-                        tx_desc = tx.get('description') or ""
-                        tx_date = tx.get('tx_date')
-                        tx_amount = tx.get('amount', 0)
-                    else:
-                        is_income = tx.type == "Income"
-                        tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
-                        supplier_name = tx.supplier.name if tx.supplier else ""
-                        tx_desc = tx.description or ""
-                        tx_date = tx.tx_date
-                        tx_amount = tx.amount
+                    has_descriptions = any(
+                        (tx.get('description') if isinstance(tx, dict) else tx.description)
+                        for tx in cat_transactions
+                    ) if cat_transactions else False
 
-                    # Track totals
-                    if is_income:
-                        cat_total_income += tx_amount
-                    else:
-                        cat_total_expense += tx_amount
+                    # Build dynamic columns list based on available data
+                    columns = ['date', 'type', 'amount']
+                    if has_suppliers:
+                        columns.append('supplier')
+                    if has_descriptions:
+                        columns.append('description')
+                    
+                    col_letters = ['A', 'B', 'C', 'D', 'E'][:len(columns)]
+                    max_col = col_letters[-1]
 
-                    col_to_value = {
-                        'date': format_date_hebrew(tx_date),
-                        'type': tx_type,
-                        'amount': f"{tx_amount:,.2f} ₪",
-                        'supplier': supplier_name,
-                        'description': tx_desc
-                    }
-                    
-                    # Alternate row colors
-                    row_fill = fill_light if row_idx % 2 == 0 else fill_alt
-                    
-                    for i, col_name in enumerate(columns):
-                        cell = ws[f'{col_letters[i]}{current_row}']
-                        cell.value = col_to_value[col_name]
-                        cell.font = data_font
-                        cell.fill = row_fill
-                        cell.border = thin_border
-                        cell.alignment = center_align
-                        
-                        # Special styling for type and amount columns
-                        if col_name == 'type':
-                            if is_income:
-                                cell.font = money_positive_font
-                            else:
-                                cell.font = money_negative_font
-                        elif col_name == 'amount':
-                            if is_income:
-                                cell.font = money_positive_font
-                            else:
-                                cell.font = money_negative_font
-                    
+                    # Category header - with amber accent
+                    ws.merge_cells(f'A{current_row}:{max_col}{current_row}')
+                    ws.row_dimensions[current_row].height = 28
+                    cat_header = ws[f'A{current_row}']
+                    cat_header.value = f"📁  {REPORT_LABELS['category']}: {cat_name}"
+                    cat_header.font = h2_font
+                    cat_header.fill = fill_category_header
+                    cat_header.alignment = center_align
+                    cat_header.border = medium_border
                     current_row += 1
 
-                # Category summary row
-                ws.row_dimensions[current_row].height = 26
-                ws.merge_cells(f'A{current_row}:B{current_row}')
-                summary_cell = ws[f'A{current_row}']
-                summary_cell.value = f"סה״כ {cat_name}"
-                summary_cell.font = data_bold_font
-                summary_cell.fill = fill_amber_light
-                summary_cell.alignment = center_align
-                summary_cell.border = thin_border
-                
-                cat_net = cat_total_income - cat_total_expense
-                amount_cell = ws[f'C{current_row}']
-                amount_cell.value = f"{cat_net:,.2f} ₪"
-                amount_cell.font = money_positive_font if cat_net >= 0 else money_negative_font
-                amount_cell.fill = fill_amber_light
-                amount_cell.alignment = center_align
-                amount_cell.border = thin_border
-                
-                # Fill remaining cells in summary row
-                for col in col_letters[3:]:
-                    ws[f'{col}{current_row}'].fill = fill_amber_light
-                    ws[f'{col}{current_row}'].border = thin_border
-                
-                current_row += 2  # Spacer between categories
+                    # Build table headers dynamically
+                    col_to_label = {
+                        'date': REPORT_LABELS['date'],
+                        'type': REPORT_LABELS['type'],
+                        'amount': REPORT_LABELS['amount'],
+                        'supplier': REPORT_LABELS['supplier'],
+                        'description': REPORT_LABELS['description']
+                    }
+                    
+                    ws.row_dimensions[current_row].height = 26
+                    for i, col_name in enumerate(columns):
+                        cell = ws[f'{col_letters[i]}{current_row}']
+                        cell.value = col_to_label[col_name]
+                        cell.font = header_font
+                        cell.fill = fill_header
+                        cell.alignment = center_align
+                        cell.border = thin_border
+                    current_row += 1
+
+                    # Calculate category total for summary
+                    cat_total_income = 0
+                    cat_total_expense = 0
+
+                    # Add transaction rows with alternating colors
+                    for row_idx, tx in enumerate(cat_transactions):
+                        ws.row_dimensions[current_row].height = 22
+                        
+                        if isinstance(tx, dict):
+                            is_income = tx.get('type') == "Income"
+                            tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                            supplier_name = tx.get('supplier_name') or ""
+                            tx_desc = tx.get('description') or ""
+                            tx_date = tx.get('tx_date')
+                            tx_amount = tx.get('amount', 0)
+                        else:
+                            is_income = tx.type == "Income"
+                            tx_type = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                            supplier_name = tx.supplier.name if tx.supplier else ""
+                            tx_desc = tx.description or ""
+                            tx_date = tx.tx_date
+                            tx_amount = tx.amount
+
+                        # Track totals
+                        if is_income:
+                            cat_total_income += tx_amount
+                        else:
+                            cat_total_expense += tx_amount
+
+                        col_to_value = {
+                            'date': format_date_hebrew(tx_date),
+                            'type': tx_type,
+                            'amount': f"{tx_amount:,.2f} ₪",
+                            'supplier': supplier_name,
+                            'description': tx_desc
+                        }
+                        
+                        # Alternate row colors
+                        row_fill = fill_light if row_idx % 2 == 0 else fill_alt
+                        
+                        for i, col_name in enumerate(columns):
+                            cell = ws[f'{col_letters[i]}{current_row}']
+                            cell.value = col_to_value[col_name]
+                            cell.font = data_font
+                            cell.fill = row_fill
+                            cell.border = thin_border
+                            cell.alignment = center_align
+                            
+                            # Special styling for type and amount columns
+                            if col_name == 'type':
+                                if is_income:
+                                    cell.font = money_positive_font
+                                else:
+                                    cell.font = money_negative_font
+                            elif col_name == 'amount':
+                                if is_income:
+                                    cell.font = money_positive_font
+                                else:
+                                    cell.font = money_negative_font
+                        
+                        current_row += 1
+
+                    # Category summary row
+                    ws.row_dimensions[current_row].height = 26
+                    ws.merge_cells(f'A{current_row}:B{current_row}')
+                    summary_cell = ws[f'A{current_row}']
+                    summary_cell.value = f"סה״כ {cat_name}"
+                    summary_cell.font = data_bold_font
+                    summary_cell.fill = fill_amber_light
+                    summary_cell.alignment = center_align
+                    summary_cell.border = thin_border
+                    
+                    cat_net = cat_total_income - cat_total_expense
+                    amount_cell = ws[f'C{current_row}']
+                    amount_cell.value = f"{cat_net:,.2f} ₪"
+                    amount_cell.font = money_positive_font if cat_net >= 0 else money_negative_font
+                    amount_cell.fill = fill_amber_light
+                    amount_cell.alignment = center_align
+                    amount_cell.border = thin_border
+                    
+                    # Fill remaining cells in summary row
+                    for col in col_letters[3:]:
+                        ws[f'{col}{current_row}'].fill = fill_amber_light
+                        ws[f'{col}{current_row}'].border = thin_border
+                    
+                    current_row += 2  # Spacer between categories
 
         # ========== COMPREHENSIVE PERIOD SUMMARY ==========
         if options.include_period_totals and sorted_years:
