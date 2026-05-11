@@ -3722,19 +3722,20 @@ class ReportService:
         else:
             date_range_text = "כל התקופות"
         
-        # WHY: Isolate Latin digits in their own table cell so the bidi pass
-        # never sees them mixed with Hebrew + colon — guarantees digits render.
+        style_meta_value = ParagraphStyle(
+            'HeaderMetaValue', parent=style_subtitle, alignment=2, spaceAfter=0
+        )
+        style_meta_label = ParagraphStyle(
+            'HeaderMetaLabel', parent=style_subtitle, alignment=0, spaceAfter=0
+        )
         header_meta_data = [
-            [date_range_text, format_text("תקופה")],
-            [date.today().strftime('%d/%m/%Y'), format_text(REPORT_LABELS['production_date'])],
+            [Paragraph(format_text(date_range_text), style_meta_value),
+             Paragraph(format_text("תקופה"), style_meta_label)],
+            [Paragraph(format_text(date.today().strftime('%d/%m/%Y')), style_meta_value),
+             Paragraph(format_text(REPORT_LABELS['production_date']), style_meta_label)],
         ]
-        header_meta_table = Table(header_meta_data, colWidths=[100, 140], hAlign='CENTER')
+        header_meta_table = Table(header_meta_data, colWidths=[140, 140], hAlign='CENTER')
         header_meta_table.setStyle(TableStyle([
-            ('FONT', (0, 0), (-1, -1), font_name),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor(COLOR_TEXT_MUTED)),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('TOPPADDING', (0, 0), (-1, -1), 2),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
