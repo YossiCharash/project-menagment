@@ -11,6 +11,9 @@ import {
   Shield,
   Layers,
   Upload,
+  ShoppingCart,
+  Clock,
+  Truck,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -21,6 +24,7 @@ import {
   type AssetHistory,
   type AssetCategory,
   type Warehouse,
+  type ReorderRequest,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
 import { translateNote } from './AssetViewModal'
@@ -115,7 +119,7 @@ function categoryNameById(categories: CategoryRef[], id: string): string {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-type StatCardKey = keyof InventoryReport | 'expiring_warranties' | 'consumables_total'
+type StatCardKey = keyof InventoryReport | 'expiring_warranties' | 'consumables_total' | 'active_reorders'
 
 interface StatCardConfig {
   label: string
@@ -133,12 +137,87 @@ const STAT_CARDS: StatCardConfig[] = [
   { label: 'נגרט', key: 'retired', icon: Archive, color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-700' },
   { label: 'התראות מלאי', key: 'low_stock_count', icon: Bell, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-100 dark:bg-red-900/30' },
   { label: 'מתכלים', key: 'consumables_total', icon: Layers, color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
+  { label: 'הזמנות מחדש פעילות', key: 'active_reorders', icon: ShoppingCart, color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
   { label: 'אחריות פגה בקרוב', key: 'expiring_warranties', icon: Shield, color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
 ]
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   LOW_STOCK: 'מלאי נמוך',
   OUT_OF_STOCK: 'אזל מהמלאי',
+}
+
+const REORDER_STATUS_CONFIG: Record<string, { label: string; badgeClass: string; icon: React.ComponentType<{ className?: string }> }> = {
+  PENDING: { label: 'ממתין', badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300', icon: Clock },
+  ORDERED: { label: 'הוזמן', badgeClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300', icon: Truck },
+  RECEIVED: { label: 'התקבל', badgeClass: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300', icon: CheckCircle },
+  CANCELLED: { label: 'בוטל', badgeClass: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', icon: Archive },
+}
+
+interface ActiveReordersPanelProps {
+  reorders: ReorderRequest[]
+  onClickItem?: (itemId: string) => void
+}
+
+function ActiveReordersPanel({ reorders, onClickItem }: ActiveReordersPanelProps) {
+  if (reorders.length === 0) return null
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" dir="rtl">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <ShoppingCart className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">פעילות בהזמנות מחדש</span>
+        <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 text-xs px-2 py-0.5 rounded-full font-medium">
+          {reorders.length} פעילות
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-gray-50 dark:bg-gray-700">
+              <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">פריט</th>
+              <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">כמות</th>
+              <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">ספק</th>
+              <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">סטטוס</th>
+              <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">תאריך בקשה</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {reorders.map((r) => {
+              const cfg = REORDER_STATUS_CONFIG[r.status] ?? REORDER_STATUS_CONFIG.PENDING
+              const StatusIcon = cfg.icon
+              const clickable = !!onClickItem
+              return (
+                <tr
+                  key={r.id}
+                  className={`${clickable ? 'cursor-pointer hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-colors' : ''}`}
+                  onClick={clickable ? () => onClickItem!(r.item_id) : undefined}
+                >
+                  <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">{r.item_name}</td>
+                  <td className="px-4 py-2 text-gray-700 dark:text-gray-300">
+                    {r.quantity_requested}
+                    {r.quantity_received && (
+                      <span className="text-green-600 dark:text-green-400 mr-1">
+                        {' '}(התקבל: {r.quantity_received})
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{r.supplier || '—'}</td>
+                  <td className="px-4 py-2">
+                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${cfg.badgeClass}`}>
+                      <StatusIcon className="w-3 h-3" />
+                      {cfg.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                    {new Date(r.requested_at).toLocaleDateString('he-IL')}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
 }
 
 const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -350,6 +429,7 @@ export default function InventoryDashboard() {
   const [report, setReport] = useState<InventoryReport | null>(null)
   const [expiringWarranties, setExpiringWarranties] = useState<FixedAsset[]>([])
   const [consumables, setConsumables] = useState<ConsumableItem[]>([])
+  const [reorders, setReorders] = useState<ReorderRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -403,12 +483,13 @@ export default function InventoryDashboard() {
     setError(null)
     try {
       // Use allSettled so a single failed endpoint doesn't kill the whole dashboard
-      const [dashRes, warrantiesRes, consumablesRes, warehousesRes, categoriesRes] = await Promise.allSettled([
+      const [dashRes, warrantiesRes, consumablesRes, warehousesRes, categoriesRes, reordersRes] = await Promise.allSettled([
         cemsApi.getDashboard(),
         cemsApi.getExpiringWarranties(),
         cemsApi.getConsumables(),
         cemsApi.getWarehouses(),
         cemsApi.getCategories(),
+        cemsApi.getReorderRequests(),
       ])
       if (dashRes.status === 'fulfilled') setReport(dashRes.value.data)
       else { setError('שגיאה בטעינת נתוני לוח הבקרה'); return }
@@ -416,6 +497,7 @@ export default function InventoryDashboard() {
       if (consumablesRes.status === 'fulfilled') setConsumables(consumablesRes.value.data)
       if (warehousesRes.status === 'fulfilled') setWarehouses(warehousesRes.value.data)
       if (categoriesRes.status === 'fulfilled') setCategories(categoriesRes.value.data)
+      if (reordersRes.status === 'fulfilled') setReorders(reordersRes.value.data)
     } catch {
       setError('שגיאה בטעינת נתוני לוח הבקרה')
     } finally {
@@ -447,6 +529,14 @@ export default function InventoryDashboard() {
         setCardAssets(expiringWarranties)
       } else if (key === 'consumables_total') {
         setCardConsumables(consumables)
+      } else if (key === 'active_reorders') {
+        // Refresh in background
+        try {
+          const res = await cemsApi.getReorderRequests()
+          setReorders(res.data)
+        } catch {
+          // silent — keep stale list
+        }
       } else if (key === 'low_stock_count') {
         // Re-fetch fresh alerts + consumables together so names are always available
         const [alertsRes, consumablesRes] = await Promise.allSettled([
@@ -470,9 +560,12 @@ export default function InventoryDashboard() {
     }
   }
 
+  const activeReorders = reorders.filter((r) => r.status === 'PENDING' || r.status === 'ORDERED')
+
   function getCardCount(key: StatCardKey): number {
     if (key === 'expiring_warranties') return expiringWarranties.length
     if (key === 'consumables_total') return consumables.length
+    if (key === 'active_reorders') return activeReorders.length
     return report ? report[key as keyof InventoryReport] : 0
   }
 
@@ -545,6 +638,15 @@ export default function InventoryDashboard() {
           })}
         </div>
       )}
+
+      {/* Inline activity: active reorders */}
+      <ActiveReordersPanel
+        reorders={activeReorders}
+        onClickItem={(itemId) => {
+          const match = consumables.find((c) => c.id === itemId)
+          if (match) setSelectedConsumable(match)
+        }}
+      />
 
       {/* Detail Modal — rendered via portal to escape stacking context */}
       {selectedCard && report && createPortal(

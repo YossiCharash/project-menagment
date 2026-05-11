@@ -99,6 +99,21 @@ export interface ConsumableItem {
   unit: string
   low_stock_threshold: string
   reorder_quantity: string
+  image_url: string | null
+}
+
+export type ConsumableMovementAction = 'MOVE' | 'TRANSFER_OUT' | 'TRANSFER_IN'
+
+export interface ConsumableMovement {
+  id: string
+  item_id: string
+  from_warehouse_id: string | null
+  to_warehouse_id: string | null
+  quantity: string
+  action: ConsumableMovementAction
+  actor_id: number | null
+  notes: string | null
+  moved_at: string
 }
 
 export type AlertType = 'LOW_STOCK' | 'OUT_OF_STOCK'
@@ -308,6 +323,19 @@ export const cemsApi = {
   createConsumable: (data: Partial<ConsumableItem>) =>
     api.post<ConsumableItem>(`${CEMS_BASE}/consumables`, data),
 
+  updateConsumable: (
+    id: string,
+    data: Partial<Omit<ConsumableItem, 'id'>> & { image_url?: string | null },
+  ) => api.put<ConsumableItem>(`${CEMS_BASE}/consumables/${id}`, data),
+
+  uploadConsumablePhoto: (itemId: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/upload-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
   consumeStock: (id: string, data: ConsumeStockPayload) =>
     api.post(`${CEMS_BASE}/consumables/${id}/consume`, data),
 
@@ -316,6 +344,9 @@ export const cemsApi = {
 
   transferConsumable: (itemId: string, data: TransferConsumablePayload) =>
     api.post<ConsumableItem>(`${CEMS_BASE}/consumables/${itemId}/transfer`, data),
+
+  getConsumableMovements: (itemId: string, params?: { skip?: number; limit?: number }) =>
+    api.get<ConsumableMovement[]>(`${CEMS_BASE}/consumables/${itemId}/movements`, { params }),
 
   getLowStock: () =>
     api.get<ConsumableItem[]>(`${CEMS_BASE}/consumables/low-stock`),
