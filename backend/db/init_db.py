@@ -48,6 +48,7 @@ from backend.cems.models import (  # noqa: F401
     ConsumableItem,
     ConsumptionLog,
     StockAlert,
+    ConsumableMovementLog,
     Transfer,
     WarehouseReturn,
     AssetRetirement,

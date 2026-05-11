@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from backend.cems.api.deps import (
     require_admin_or_manager,
     require_any_cems_role,
 )
+from backend.cems.models.consumable_movement import ConsumableMovementAction
 from backend.cems.models.user import User
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.schemas.consumable import (
@@ -21,10 +22,12 @@ from backend.cems.schemas.consumable import (
     ConsumableItemCreate,
     ConsumableItemRead,
     ConsumableItemUpdate,
+    ConsumableMovementRead,
     ConsumptionLogRead,
 )
 from backend.cems.services.alert_service import AlertService
 from backend.cems.services.consumption_service import ConsumptionService
+from backend.cems.services.photo_storage import store_photo, validate_photo
 
 
 class MoveConsumableRequest(PydanticBaseModel):
@@ -129,8 +132,20 @@ async def move_consumable(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
     await check_warehouse_manager_access(item.warehouse_id, current_user, db)
+    old_wh = item.warehouse_id
+    qty_at_move = item.quantity
     item.warehouse_id = payload.to_warehouse_id
     await db.flush()
+    await repo.create_movement_log(
+        {
+            "item_id": item.id,
+            "from_warehouse_id": old_wh,
+            "to_warehouse_id": payload.to_warehouse_id,
+            "quantity": qty_at_move,
+            "action": ConsumableMovementAction.MOVE,
+            "actor_id": current_user.id,
+        }
+    )
     return ConsumableItemRead.model_validate(item)
 
 
@@ -170,8 +185,22 @@ async def transfer_consumable(
 
     await check_warehouse_manager_access(source.warehouse_id, current_user, db)
 
+    source_wh_id = source.warehouse_id
+
     # Decrement source item
     await repo.adjust_quantity(item_id, -payload.quantity)
+
+    # Log TRANSFER_OUT from the source perspective
+    await repo.create_movement_log(
+        {
+            "item_id": source.id,
+            "from_warehouse_id": source_wh_id,
+            "to_warehouse_id": payload.to_warehouse_id,
+            "quantity": payload.quantity,
+            "action": ConsumableMovementAction.TRANSFER_OUT,
+            "actor_id": current_user.id,
+        }
+    )
 
     # Credit target warehouse — find matching item or create a new one
     target = await repo.find_matching_in_warehouse(
@@ -180,7 +209,7 @@ async def transfer_consumable(
     if target is not None:
         await repo.adjust_quantity(target.id, payload.quantity)
     else:
-        await repo.create(
+        target = await repo.create(
             {
                 "name": source.name,
                 "category_id": source.category_id,
@@ -191,6 +220,18 @@ async def transfer_consumable(
                 "reorder_quantity": source.reorder_quantity,
             }
         )
+
+    # Log TRANSFER_IN from the target perspective
+    await repo.create_movement_log(
+        {
+            "item_id": target.id,
+            "from_warehouse_id": source_wh_id,
+            "to_warehouse_id": payload.to_warehouse_id,
+            "quantity": payload.quantity,
+            "action": ConsumableMovementAction.TRANSFER_IN,
+            "actor_id": current_user.id,
+        }
+    )
 
     updated_source = await repo.get_by_id(item_id)
     return ConsumableItemRead.model_validate(updated_source)
@@ -209,6 +250,34 @@ async def consumption_history(
     return [ConsumptionLogRead.model_validate(l) for l in logs]
 
 
+@router.get("/{item_id}/movements", response_model=List[ConsumableMovementRead])
+async def consumable_movements(
+    item_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_cems_role),
+) -> List[ConsumableMovementRead]:
+    repo = ConsumableRepository(db)
+    logs = await repo.get_movement_history(item_id, skip, limit)
+    return [
+        ConsumableMovementRead.model_validate(
+            {
+                "id": l.id,
+                "item_id": l.item_id,
+                "from_warehouse_id": l.from_warehouse_id,
+                "to_warehouse_id": l.to_warehouse_id,
+                "quantity": l.quantity,
+                "action": l.action.value if hasattr(l.action, "value") else str(l.action),
+                "actor_id": l.actor_id,
+                "notes": l.notes,
+                "moved_at": l.moved_at,
+            }
+        )
+        for l in logs
+    ]
+
+
 @router.get("/low-stock", response_model=List[ConsumableItemRead])
 async def low_stock_items(
     db: AsyncSession = Depends(get_db),
@@ -217,3 +286,31 @@ async def low_stock_items(
     repo = ConsumableRepository(db)
     items = await repo.get_low_stock_items()
     return [ConsumableItemRead.model_validate(i) for i in items]
+
+
+@router.post("/{item_id}/upload-photo", response_model=ConsumableItemRead)
+async def upload_consumable_photo(
+    item_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> ConsumableItemRead:
+    """Upload or replace the photo for a consumable item. Uses S3 if configured, otherwise local disk."""
+    content = await file.read()
+    validate_photo(file.filename, content)
+
+    repo = ConsumableRepository(db)
+    item = await repo.get_by_id(item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+    await check_warehouse_manager_access(item.warehouse_id, current_user, db)
+
+    new_image_url = store_photo(
+        prefix="consumable_photos",
+        existing_url=item.image_url,
+        file_bytes=content,
+        filename=file.filename,
+        content_type=file.content_type,
+    )
+    item = await repo.update(item_id, {"image_url": new_image_url})
+    return ConsumableItemRead.model_validate(item)
