@@ -3711,27 +3711,49 @@ class ReportService:
             textColor=colors.HexColor(COLOR_ACCENT_TEAL), leading=26, spaceAfter=8
         )))
         
-        # Date range subtitle
-        date_range_text = ""
-        if options.start_date and options.end_date:
-            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
-        elif options.start_date:
-            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
-        elif options.end_date:
-            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        effective_start = options.start_date
+        effective_end = options.end_date
+        if not effective_start or not effective_end:
+            tx_dates = []
+            for tx in transactions:
+                td = tx.get('tx_date') if isinstance(tx, dict) else getattr(tx, 'tx_date', None)
+                if isinstance(td, str):
+                    try:
+                        td = date.fromisoformat(td.split('T')[0])
+                    except Exception:
+                        td = None
+                if isinstance(td, date):
+                    tx_dates.append(td)
+            if not effective_start:
+                candidates = [d for d in [project.start_date, min(tx_dates) if tx_dates else None] if d]
+                effective_start = min(candidates) if candidates else None
+            if not effective_end:
+                candidates = [d for d in [project.end_date, max(tx_dates) if tx_dates else None, date.today()] if d]
+                effective_end = max(candidates) if candidates else date.today()
+
+        if effective_start and effective_end:
+            date_range_text = f"{effective_start.strftime('%d/%m/%Y')} - {effective_end.strftime('%d/%m/%Y')}"
+        elif effective_end:
+            date_range_text = f"עד {effective_end.strftime('%d/%m/%Y')}"
         else:
             date_range_text = "כל התקופות"
-        
+
+        production_date_text = date.today().strftime('%d/%m/%Y')
+
         style_meta_value = ParagraphStyle(
-            'HeaderMetaValue', parent=style_subtitle, alignment=2, spaceAfter=0
+            'HeaderMetaValue', parent=styles['Normal'], fontName=font_name,
+            fontSize=10, alignment=2, leading=14, spaceAfter=0,
+            textColor=colors.HexColor(COLOR_TEXT_MUTED)
         )
         style_meta_label = ParagraphStyle(
-            'HeaderMetaLabel', parent=style_subtitle, alignment=0, spaceAfter=0
+            'HeaderMetaLabel', parent=styles['Normal'], fontName=font_name,
+            fontSize=10, alignment=0, leading=14, spaceAfter=0,
+            textColor=colors.HexColor(COLOR_TEXT_MUTED)
         )
         header_meta_data = [
-            [Paragraph(format_text(date_range_text), style_meta_value),
+            [Paragraph(date_range_text, style_meta_value),
              Paragraph(format_text("תקופה"), style_meta_label)],
-            [Paragraph(format_text(date.today().strftime('%d/%m/%Y')), style_meta_value),
+            [Paragraph(production_date_text, style_meta_value),
              Paragraph(format_text(REPORT_LABELS['production_date']), style_meta_label)],
         ]
         header_meta_table = Table(header_meta_data, colWidths=[140, 140], hAlign='CENTER')
@@ -4749,17 +4771,33 @@ class ReportService:
         title_cell.border = medium_border
         current_row += 1
 
-        # Date range subtitle
-        date_range_text = ""
-        if options.start_date and options.end_date:
-            date_range_text = f"{options.start_date.strftime('%d/%m/%Y')} - {options.end_date.strftime('%d/%m/%Y')}"
-        elif options.start_date:
-            date_range_text = f"מ-{options.start_date.strftime('%d/%m/%Y')}"
-        elif options.end_date:
-            date_range_text = f"עד {options.end_date.strftime('%d/%m/%Y')}"
+        effective_start = options.start_date
+        effective_end = options.end_date
+        if not effective_start or not effective_end:
+            tx_dates = []
+            for tx in transactions:
+                td = tx.get('tx_date') if isinstance(tx, dict) else getattr(tx, 'tx_date', None)
+                if isinstance(td, str):
+                    try:
+                        td = date.fromisoformat(td.split('T')[0])
+                    except Exception:
+                        td = None
+                if isinstance(td, date):
+                    tx_dates.append(td)
+            if not effective_start:
+                candidates = [d for d in [project.start_date, min(tx_dates) if tx_dates else None] if d]
+                effective_start = min(candidates) if candidates else None
+            if not effective_end:
+                candidates = [d for d in [project.end_date, max(tx_dates) if tx_dates else None, date.today()] if d]
+                effective_end = max(candidates) if candidates else date.today()
+
+        if effective_start and effective_end:
+            date_range_text = f"{effective_start.strftime('%d/%m/%Y')} - {effective_end.strftime('%d/%m/%Y')}"
+        elif effective_end:
+            date_range_text = f"עד {effective_end.strftime('%d/%m/%Y')}"
         else:
             date_range_text = "כל התקופות"
-        
+
         ws.merge_cells(f'A{current_row}:E{current_row}')
         ws.row_dimensions[current_row].height = 25
         date_range_cell = ws[f'A{current_row}']
