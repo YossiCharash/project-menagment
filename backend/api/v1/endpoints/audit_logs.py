@@ -1,14 +1,11 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from datetime import datetime
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.deps import DBSessionDep, get_current_user
+from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
-from backend.repositories.audit_repository import AuditRepository
-from backend.repositories.user_repository import UserRepository
 from backend.schemas.audit_log import AuditLogOut
-from backend.models.user import User
+from backend.services.audit_service import AuditService
 
 
 router = APIRouter()
@@ -25,14 +22,10 @@ async def list_audit_logs(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_permission("read", "audit_log", project_id_param=None))
+    user=Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
-    """
-    List audit logs.
-    Supports filtering by user, entity, action, and date range
-    """
-    repo = AuditRepository(db)
-    logs = await repo.list(
+    """List audit logs. Supports filtering by user, entity, action, and date range."""
+    return await AuditService(db).list_logs(
         limit=limit,
         offset=offset,
         user_id=user_id,
@@ -40,9 +33,8 @@ async def list_audit_logs(
         action=action,
         start_date=start_date,
         end_date=end_date,
-        exclude_action=exclude_action
+        exclude_action=exclude_action,
     )
-    return logs
 
 
 @router.get("/count")
@@ -54,21 +46,17 @@ async def count_audit_logs(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_permission("read", "audit_log", project_id_param=None))
+    user=Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
-    """
-    Count audit logs with filters.
-    """
-    repo = AuditRepository(db)
-    count = await repo.count(
+    """Count audit logs with filters."""
+    return await AuditService(db).count_logs(
         user_id=user_id,
         entity=entity,
         action=action,
         start_date=start_date,
         end_date=end_date,
-        exclude_action=exclude_action
+        exclude_action=exclude_action,
     )
-    return {"count": count}
 
 
 @router.get("/with-users", response_model=list[dict])
@@ -82,16 +70,10 @@ async def list_audit_logs_with_users(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     exclude_action: Optional[str] = Query(None),
-    user = Depends(require_permission("read", "audit_log", project_id_param=None))
+    user=Depends(require_permission("read", "audit_log", project_id_param=None))
 ):
-    """
-    List audit logs with user information.
-    Returns logs with user details (name, email) for better display
-    """
-    repo = AuditRepository(db)
-    user_repo = UserRepository(db)
-    
-    logs = await repo.list(
+    """List audit logs with user information (name, email) for display."""
+    return await AuditService(db).list_logs_with_users(
         limit=limit,
         offset=offset,
         user_id=user_id,
@@ -99,38 +81,5 @@ async def list_audit_logs_with_users(
         action=action,
         start_date=start_date,
         end_date=end_date,
-        exclude_action=exclude_action
+        exclude_action=exclude_action,
     )
-    
-    # Get unique user IDs
-    user_ids = {log.user_id for log in logs if log.user_id}
-    
-    # Fetch user details
-    users_dict = {}
-    for uid in user_ids:
-        user_obj = await user_repo.get_by_id(uid)
-        if user_obj:
-            users_dict[uid] = {
-                "id": user_obj.id,
-                "full_name": user_obj.full_name,
-                "email": user_obj.email,
-                "avatar_url": getattr(user_obj, "avatar_url", None),
-            }
-    
-    # Combine logs with user info
-    result = []
-    for log in logs:
-        log_dict = {
-            "id": log.id,
-            "user_id": log.user_id,
-            "user": users_dict.get(log.user_id) if log.user_id else None,
-            "action": log.action,
-            "entity": log.entity,
-            "entity_id": log.entity_id,
-            "details": log.details,
-            "created_at": log.created_at
-        }
-        result.append(log_dict)
-    
-    return result
-

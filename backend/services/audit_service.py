@@ -1,8 +1,10 @@
 import json
+from datetime import datetime
 from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.audit_log import AuditLog
 from backend.repositories.audit_repository import AuditRepository
+from backend.repositories.user_repository import UserRepository
 
 
 class AuditService:
@@ -121,4 +123,98 @@ class AuditService:
             entity_id=str(budget_id),
             details=details
         )
+
+    async def list_logs(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        user_id: Optional[int],
+        entity: Optional[str],
+        action: Optional[str],
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+        exclude_action: Optional[str],
+    ) -> list[AuditLog]:
+        """List audit logs filtered by the provided criteria."""
+        return await self.repository.list(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            entity=entity,
+            action=action,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_action=exclude_action,
+        )
+
+    async def count_logs(
+        self,
+        *,
+        user_id: Optional[int],
+        entity: Optional[str],
+        action: Optional[str],
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+        exclude_action: Optional[str],
+    ) -> dict:
+        """Count audit logs with filters."""
+        count = await self.repository.count(
+            user_id=user_id,
+            entity=entity,
+            action=action,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_action=exclude_action,
+        )
+        return {"count": count}
+
+    async def list_logs_with_users(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        user_id: Optional[int],
+        entity: Optional[str],
+        action: Optional[str],
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+        exclude_action: Optional[str],
+    ) -> list[dict]:
+        """List audit logs joined with user info for display."""
+        logs = await self.list_logs(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            entity=entity,
+            action=action,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_action=exclude_action,
+        )
+        user_repo = UserRepository(self.db)
+        unique_user_ids = {log.user_id for log in logs if log.user_id}
+        users_dict: dict[int, dict] = {}
+        for uid in unique_user_ids:
+            user_obj = await user_repo.get_by_id(uid)
+            if user_obj:
+                users_dict[uid] = {
+                    "id": user_obj.id,
+                    "full_name": user_obj.full_name,
+                    "email": user_obj.email,
+                    "avatar_url": getattr(user_obj, "avatar_url", None),
+                }
+        return [
+            {
+                "id": log.id,
+                "user_id": log.user_id,
+                "user": users_dict.get(log.user_id) if log.user_id else None,
+                "action": log.action,
+                "entity": log.entity,
+                "entity_id": log.entity_id,
+                "details": log.details,
+                "created_at": log.created_at,
+            }
+            for log in logs
+        ]
 

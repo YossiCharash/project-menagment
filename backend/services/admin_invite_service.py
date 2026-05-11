@@ -89,6 +89,38 @@ class AdminInviteService:
             return await self.invite_repo.list_by_creator(creator_id)
         return await self.invite_repo.list_all()
 
+    async def list_invites_with_status(self, creator_id: int | None = None) -> list[dict]:
+        """List invites with computed is_expired field for API output."""
+        invites = await self.list_invites(creator_id)
+        return [
+            {
+                "id": invite.id,
+                "invite_code": invite.invite_token,
+                "email": invite.email,
+                "full_name": invite.full_name,
+                "is_used": invite.is_used,
+                "used_at": invite.used_at,
+                "expires_at": invite.expires_at,
+                "created_at": invite.created_at,
+                "is_expired": invite.is_expired(),
+            }
+            for invite in invites
+        ]
+
+    async def use_invite_and_format(self, invite_data: AdminInviteUse) -> dict:
+        """Use invite and return formatted response."""
+        user = await self.use_invite(invite_data)
+        return {
+            "message": "Admin account created successfully",
+            "user_id": user.id,
+            "email": user.email,
+        }
+
+    async def delete_invite_with_message(self, invite_id: int, creator_id: int) -> dict:
+        """Delete invite and return success message."""
+        await self.delete_invite(invite_id, creator_id)
+        return {"message": "Invite deleted successfully"}
+
     async def get_invite_by_code(self, invite_code: str) -> Invite:
         invite = await self.invite_repo.get_by_code(invite_code)
         if not invite:

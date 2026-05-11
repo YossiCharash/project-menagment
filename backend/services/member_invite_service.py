@@ -104,6 +104,38 @@ class MemberInviteService:
             return await self.invite_repo.list_by_creator(creator_id)
         return await self.invite_repo.list_all()
 
+    async def list_invites_with_status(self):
+        """List all invites mapped to MemberInviteList schema with is_expired computed."""
+        from backend.schemas.member_invite import MemberInviteList
+        invites = await self.list_invites()
+        return [
+            MemberInviteList(
+                id=invite.id,
+                email=invite.email,
+                full_name=invite.full_name,
+                group_id=invite.group_id,
+                is_used=invite.is_used,
+                is_expired=invite.is_expired(),
+                expires_at=invite.expires_at,
+                created_at=invite.created_at,
+            )
+            for invite in invites
+        ]
+
+    async def use_invite_and_format(self, invite_data: MemberInviteUse) -> dict:
+        """Use invite and return formatted response."""
+        user = await self.use_invite(invite_data)
+        return {
+            "message": "Registration completed successfully",
+            "user_id": user.id,
+            "email": user.email,
+        }
+
+    async def delete_invite_with_message(self, invite_id: int) -> dict:
+        """Delete invite and return success message."""
+        await self.delete_invite(invite_id)
+        return {"message": "Invite deleted successfully"}
+
     async def get_invite_by_token(self, token: str) -> Invite:
         invite = await self.invite_repo.get_by_token(token)
         if not invite:
