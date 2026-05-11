@@ -41,3 +41,16 @@ class MemberInviteList(BaseModel):
 class MemberInviteUse(BaseModel):
     invite_token: str
     password: str = Field(min_length=8, max_length=128)
+
+
+class MemberInviteUseResult(BaseModel):
+    """Output DTO returned after successfully using a member invite."""
+    user_id: int
+    email: EmailStr
+
+
+class MemberInviteUseResponse(BaseModel):
+    """Route-layer response DTO for POST /member-invites/use."""
+    message: str
+    user_id: int
+    email: EmailStr

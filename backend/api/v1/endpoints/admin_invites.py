@@ -1,9 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from typing import List
 
-from backend.core.deps import DBSessionDep, get_current_user
+from backend.api.v1.messages.admin_invites import (
+    MSG_ADMIN_CREATED,
+    MSG_INVITE_DELETED,
+)
+from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
-from backend.schemas.admin_invite import AdminInviteCreate, AdminInviteOut, AdminInviteUse, AdminInviteList
+from backend.schemas.admin_invite import (
+    AdminInviteCreate,
+    AdminInviteOut,
+    AdminInviteUse,
+    AdminInviteList,
+    AdminInviteDeleteRequest,
+)
 from backend.services.admin_invite_service import AdminInviteService
 from backend.models.user import User
 
@@ -13,78 +23,55 @@ router = APIRouter()
 
 @router.post("/", response_model=AdminInviteOut)
 async def create_admin_invite(
-    db: DBSessionDep, 
-    invite_data: AdminInviteCreate, 
-    current_admin: User = Depends(require_permission("write", "admin_invite", project_id_param=None))
+    db: DBSessionDep,
+    invite_data: AdminInviteCreate,
+    current_admin: User = Depends(require_permission("write", "admin_invite", project_id_param=None)),
 ):
-    """Create a new admin invite"""
-    service = AdminInviteService(db)
-    invite = await service.create_invite(invite_data, current_admin.id)
-    return invite
+    """Create a new admin invite."""
+    return await AdminInviteService(db).create_invite(invite_data, current_admin.id)
 
 
 @router.get("/", response_model=List[AdminInviteList])
 async def list_admin_invites(
-    db: DBSessionDep, 
-    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None))
+    db: DBSessionDep,
+    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None)),
 ):
-    """List all admin invites"""
-    service = AdminInviteService(db)
-    invites = await service.list_invites(current_admin.id)
-    
-    # Add is_expired field
-    result = []
-    for invite in invites:
-        invite_dict = {
-            "id": invite.id,
-            "invite_code": invite.invite_token,
-            "email": invite.email,
-            "full_name": invite.full_name,
-            "is_used": invite.is_used,
-            "used_at": invite.used_at,
-            "expires_at": invite.expires_at,
-            "created_at": invite.created_at,
-            "is_expired": invite.is_expired()
-        }
-        result.append(invite_dict)
-    
-    return result
+    """List all admin invites visible to the current admin."""
+    return await AdminInviteService(db).list_invites_with_status(current_admin.id)
 
 
 @router.get("/{invite_code}", response_model=AdminInviteOut)
 async def get_admin_invite(
     invite_code: str,
     db: DBSessionDep,
-    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None))
+    current_admin: User = Depends(require_permission("read", "admin_invite", project_id_param=None)),
 ):
-    """Get admin invite by code"""
-    service = AdminInviteService(db)
-    invite = await service.get_invite_by_code(invite_code)
-    return invite
+    """Fetch a single admin invite by its invite code."""
+    return await AdminInviteService(db).get_invite_by_code(invite_code)
 
 
 @router.delete("/{invite_id}")
 async def delete_admin_invite(
     invite_id: int,
     db: DBSessionDep,
-    current_admin: User = Depends(require_permission("delete", "admin_invite", resource_id_param="invite_id", project_id_param=None))
+    current_admin: User = Depends(require_permission("delete", "admin_invite", resource_id_param="invite_id", project_id_param=None)),
 ):
-    """Delete admin invite"""
-    service = AdminInviteService(db)
-    await service.delete_invite(invite_id, current_admin.id)
-    return {"message": "Invite deleted successfully"}
+    """Delete an admin invite owned by the current admin."""
+    await AdminInviteService(db).delete_invite(
+        AdminInviteDeleteRequest(invite_id=invite_id, creator_id=current_admin.id)
+    )
+    return {"message": MSG_INVITE_DELETED}
 
 
 @router.post("/use", response_model=dict)
 async def use_admin_invite(
     db: DBSessionDep,
-    invite_data: AdminInviteUse
+    invite_data: AdminInviteUse,
 ):
-    """Use admin invite code to create admin account - Public endpoint"""
-    service = AdminInviteService(db)
-    user = await service.use_invite(invite_data)
+    """Consume an admin-invite code to create an admin account (public endpoint)."""
+    result = await AdminInviteService(db).use_invite(invite_data)
     return {
-        "message": "Admin account created successfully",
-        "user_id": user.id,
-        "email": user.email
+        "message": MSG_ADMIN_CREATED,
+        "user_id": result.user_id,
+        "email": result.email,
     }

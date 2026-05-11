@@ -1,68 +1,87 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+"""OAuth HTTP endpoints. Owns all RedirectResponse/cookie wiring so that
+backend.services.oauth_service stays HTTP-framework-free.
+"""
+from __future__ import annotations
 
-from backend.core.deps import DBSessionDep
-from backend.services.oauth_service import OAuthService
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
+
 from backend.core.config import settings
+from backend.core.constants.oauth import (
+    BEARER_TOKEN_TYPE,
+    ERROR_QUERY_PARAM,
+    REDIRECT_URL_QUERY_PARAM,
+    REFRESH_TOKEN_QUERY_PARAM,
+    TOKEN_QUERY_PARAM,
+    TOKEN_TYPE_QUERY_PARAM,
+)
+from backend.core.deps import DBSessionDep
+from backend.schemas.oauth import OAuthRedirectDTO, OAuthTokenBundleDTO
+from backend.services.oauth_service import (
+    FRONTEND_CALLBACK_PATH,
+    OAUTH_REDIRECT_COOKIE,
+    OAuthService,
+)
 
 router = APIRouter()
 
 
+def _apply_redirect_dto(dto: OAuthRedirectDTO) -> RedirectResponse:
+    """Materialize an OAuthRedirectDTO as a FastAPI RedirectResponse."""
+    response = RedirectResponse(url=dto.url)
+    for cookie in dto.cookies_to_set:
+        response.set_cookie(
+            cookie.name,
+            cookie.value,
+            httponly=cookie.http_only,
+            samesite=cookie.samesite,
+            max_age=cookie.max_age,
+        )
+    for name in dto.cookies_to_clear:
+        response.delete_cookie(name)
+    return response
+
+
+def _build_success_callback_url(base: str, tokens: OAuthTokenBundleDTO) -> str:
+    url = (
+        f"{base}?{TOKEN_QUERY_PARAM}={tokens.access_token}"
+        f"&{TOKEN_TYPE_QUERY_PARAM}={BEARER_TOKEN_TYPE}"
+    )
+    if tokens.refresh_token:
+        url += f"&{REFRESH_TOKEN_QUERY_PARAM}={tokens.refresh_token}"
+    return url
+
+
+def _build_error_callback_url(base: str, detail: str) -> str:
+    return f"{base}?{ERROR_QUERY_PARAM}={detail}"
+
+
 @router.get("/google")
 async def google_login(request: Request, db: DBSessionDep):
-    """Initiate Google OAuth login"""
-    oauth_service = OAuthService(db)
-    
-    # Get redirect URL from query params or use default
-    redirect_url = request.query_params.get("redirect_url", settings.FRONTEND_URL)
-    
-    # Generate state to include redirect URL
-    import secrets
-    state = secrets.token_urlsafe(32)
-    # Store state in session/cookie (simplified - in production use proper session management)
-    # For now, we'll encode redirect_url in state
-    
-    authorization_url = await oauth_service.get_google_authorization_url(state=state)
-    
-    # Store redirect URL in response cookies (simple approach)
-    response = RedirectResponse(url=authorization_url)
-    response.set_cookie("oauth_redirect", redirect_url, httponly=True, samesite="lax", max_age=600)
-    response.set_cookie("oauth_state", state, httponly=True, samesite="lax", max_age=600)
-    return response
+    """Initiate Google OAuth login."""
+    frontend_redirect = request.query_params.get(
+        REDIRECT_URL_QUERY_PARAM, settings.FRONTEND_URL
+    )
+    dto = await OAuthService(db).build_login_redirect(frontend_redirect)
+    return _apply_redirect_dto(dto)
 
 
 @router.get("/google/callback")
 async def google_callback(
     code: str,
     request: Request,
+    db: DBSessionDep,
     state: str | None = None,
-    db: DBSessionDep = None
 ):
-    """Handle Google OAuth callback"""
-    oauth_service = OAuthService(db)
-    
+    """Handle Google OAuth callback."""
+    base_callback = (
+        request.cookies.get(OAUTH_REDIRECT_COOKIE, settings.FRONTEND_URL)
+        + FRONTEND_CALLBACK_PATH
+    )
     try:
-        result = await oauth_service.handle_google_callback(code, state)
-        
-        # Get redirect URL from cookie
-        redirect_url = request.cookies.get("oauth_redirect", settings.FRONTEND_URL) + "/auth/callback"
-        
-        # Create redirect with token and refresh_token (for persistent session)
-        refresh = result.get("refresh_token", "")
-        redirect_with_token = f"{redirect_url}?token={result['access_token']}&type=bearer" + (f"&refresh_token={refresh}" if refresh else "")
-        
-        response = RedirectResponse(url=redirect_with_token)
-        # Clear cookies
-        response.delete_cookie("oauth_redirect")
-        response.delete_cookie("oauth_state")
-        return response
-        
+        tokens = await OAuthService(db).authenticate_with_code(code)
+        target_url = _build_success_callback_url(base_callback, tokens)
     except HTTPException as e:
-        # Redirect to frontend with error
-        redirect_url = request.cookies.get("oauth_redirect", settings.FRONTEND_URL) + "/auth/callback"
-        error_url = f"{redirect_url}?error={e.detail}"
-        response = RedirectResponse(url=error_url)
-        response.delete_cookie("oauth_redirect")
-        response.delete_cookie("oauth_state")
-        return response
+        target_url = _build_error_callback_url(base_callback, str(e.detail))
+
+    return _apply_redirect_dto(OAuthService.build_callback_redirect(target_url))
