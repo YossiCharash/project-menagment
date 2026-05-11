@@ -1,10 +1,12 @@
 """API for user notifications (הודעות, הוראות, תזכורות)."""
-from fastapi import APIRouter, Depends, Query
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.schemas.notification import (
     NotificationCreate,
-    NotificationListQuery,
+    NotificationListFilters,
     NotificationOut,
     NotificationReadStateUpdate,
     UnreadCountResult,
@@ -23,21 +25,12 @@ router = APIRouter()
 @router.get("/", response_model=list[NotificationOut])
 async def list_my_notifications(
     db: DBSessionDep,
+    filters: Annotated[NotificationListFilters, Depends()],
     user=Depends(get_current_user),
-    unread_only: bool = Query(False, description="רק הודעות שלא נקראו"),
-    type_filter: str | None = Query(None, description="סינון לפי סוג"),
-    limit: int = Query(100, ge=1, le=200),
-    offset: int = Query(0, ge=0),
 ) -> list[NotificationOut]:
     """רשימת ההודעות של המשתמש המחובר."""
-    query = NotificationListQuery(
-        user_id=user.id,
-        unread_only=unread_only,
-        type_filter=type_filter,
-        limit=limit,
-        offset=offset,
-    )
-    return await list_notifications_for_user(db, query)
+    filters.user_id = user.id
+    return await list_notifications_for_user(db, filters)
 
 
 @router.get("/unread-count", response_model=UnreadCountResult)

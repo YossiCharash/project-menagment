@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from backend.models.user_notification import UserNotification
@@ -83,13 +83,17 @@ class NotificationMarkRead(BaseModel):
     read: bool = True
 
 
-class NotificationListQuery(BaseModel):
-    """Input DTO describing filters for listing a user's notifications."""
-    user_id: int
+class NotificationListFilters(BaseModel):
+    """Filters for listing a user's notifications.
+
+    Built either by FastAPI Depends() from query parameters (then injected
+    with the user_id at the route layer) or directly by other callers.
+    """
+    user_id: int = 0
     unread_only: bool = False
     type_filter: str | None = None
-    limit: int = 100
-    offset: int = 0
+    limit: int = Field(default=100, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
 
 
 class NotificationReadStateUpdate(BaseModel):

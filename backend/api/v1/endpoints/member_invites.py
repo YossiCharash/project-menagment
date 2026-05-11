@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Depends
 from typing import List
 
+from backend.api.v1.messages.member_invites import (
+    MSG_INVITE_DELETED,
+    MSG_REGISTRATION_COMPLETE,
+)
 from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
 from backend.schemas.member_invite import (
     MemberInviteCreate,
     MemberInviteOut,
     MemberInviteUse,
+    MemberInviteUseResponse,
     MemberInviteList,
 )
 from backend.services.member_invite_service import MemberInviteService
@@ -14,11 +19,6 @@ from backend.models.user import User
 
 
 router = APIRouter()
-
-
-# User-facing messages live in the route layer, not the service.
-MSG_REGISTRATION_COMPLETE = "Registration completed successfully"
-MSG_INVITE_DELETED = "Invite deleted successfully"
 
 
 @router.post("/", response_model=MemberInviteOut)
@@ -49,18 +49,18 @@ async def get_member_invite(
     return await MemberInviteService(db).get_invite_by_token(invite_token)
 
 
-@router.post("/use", response_model=dict)
+@router.post("/use", response_model=MemberInviteUseResponse)
 async def use_member_invite(
     db: DBSessionDep,
     invite_data: MemberInviteUse,
-):
+) -> MemberInviteUseResponse:
     """Consume an invite token to complete member registration."""
     result = await MemberInviteService(db).use_invite(invite_data)
-    return {
-        "message": MSG_REGISTRATION_COMPLETE,
-        "user_id": result.user_id,
-        "email": result.email,
-    }
+    return MemberInviteUseResponse(
+        message=MSG_REGISTRATION_COMPLETE,
+        user_id=result.user_id,
+        email=result.email,
+    )
 
 
 @router.delete("/{invite_id}")

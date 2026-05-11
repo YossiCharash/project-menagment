@@ -19,7 +19,7 @@ from backend.schemas.notification import (
     ERROR_ONLY_ADMIN_CAN_SEND,
     NOTIFICATION_TYPE_VALUES,
     NotificationCreate,
-    NotificationListQuery,
+    NotificationListFilters,
     NotificationOut,
     NotificationReadStateUpdate,
     TASK_ASSIGNMENT_TITLE_TEMPLATE,
@@ -185,7 +185,7 @@ async def create_closure_approval_notification(
 # ---------------------------------------------------------------------------
 async def list_notifications_for_user(
     db: AsyncSession,
-    query: NotificationListQuery,
+    query: NotificationListFilters,
 ) -> list[NotificationOut]:
     """Return the user's notifications matching the given filter."""
     repo = NotificationRepository(db)

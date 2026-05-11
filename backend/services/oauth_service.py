@@ -70,6 +70,19 @@ class OAuthService:
         user = await self._resolve_user(user_info)
         return self._issue_tokens(user)
 
+    @staticmethod
+    def build_callback_redirect(target_url: str) -> OAuthRedirectDTO:
+        """Step 3: build the post-callback redirect DTO.
+
+        The state/redirect cookies are single-use for one consent round-trip;
+        they're cleared here so a stale value can't be replayed on a later
+        login attempt. The route layer just applies whatever the DTO says.
+        """
+        return OAuthRedirectDTO(
+            url=target_url,
+            cookies_to_clear=[OAUTH_REDIRECT_COOKIE, OAUTH_STATE_COOKIE],
+        )
+
     # ── Internal helpers (each does one thing — SRP) ──────────────────────────
 
     async def _resolve_user(self, info: OAuthUserInfoDTO) -> User:
