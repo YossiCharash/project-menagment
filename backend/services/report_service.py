@@ -1940,64 +1940,48 @@ class ReportService:
 
         # --- Monthly Breakdown Data ---
         monthly_breakdown = []
-        # Always calculate monthly breakdown if we have transactions (even if include_transactions is False, we still want the breakdown)
-        # Calculate monthly breakdown by category and supplier
-        # If filtering by year, start from the first month of the contract in that year, not January
-        start_date = options.start_date or date(2000, 1, 1)
-        end_date = options.end_date or date.today()
-        
-        # If filtering by a specific year and project has a start_date, adjust start_date 
-        # to begin from the contract's first month in that year (not January)
-        if options.start_date and options.end_date and proj.start_date:
-            start_year = options.start_date.year
-            end_year = options.end_date.year
-            # If filtering by a single year
-            if start_year == end_year:
-                # Use the first day of the contract start month in the filtered year
-                # This works even if contract started in a different year
-                contract_start_month = proj.start_date.month
-                contract_start_day = proj.start_date.day
-                adjusted_start = date(start_year, contract_start_month, contract_start_day)
-                # If contract start month is within the filtered range, use it
-                if adjusted_start >= options.start_date and adjusted_start <= options.end_date:
-                    # Contract start month is within the filter range - use it as start
-                    start_date = adjusted_start
-                elif adjusted_start < options.start_date:
-                    # Contract start month is before the filter start - use filter start
-                    start_date = options.start_date
+        if options.include_monthly_breakdown:
+            start_date = options.start_date or date(2000, 1, 1)
+            end_date = options.end_date or date.today()
+
+            if options.start_date and options.end_date and proj.start_date:
+                start_year = options.start_date.year
+                end_year = options.end_date.year
+                if start_year == end_year:
+                    contract_start_month = proj.start_date.month
+                    contract_start_day = proj.start_date.day
+                    adjusted_start = date(start_year, contract_start_month, contract_start_day)
+                    if adjusted_start >= options.start_date and adjusted_start <= options.end_date:
+                        start_date = adjusted_start
+                    elif adjusted_start < options.start_date:
+                        start_date = options.start_date
+                    else:
+                        start_date = options.start_date
                 else:
-                    # Contract start month is after the filter end - use filter start
                     start_date = options.start_date
-            else:
-                # Multi-year filter, use provided start_date
-                start_date = options.start_date
-        elif not options.start_date and not options.end_date and proj.start_date:
-            # No date filter, use project start_date
-            start_date = proj.start_date
-        
-        try:
-            monthly_breakdown = await self._calculate_monthly_category_supplier_expenses(
-                project_id,
-                start_date,
-                end_date,
-                from_fund=False
-            )
-            # Apply category filter if specified
-            if options.categories and len(options.categories) > 0:
-                monthly_breakdown = [row for row in monthly_breakdown if row['category'] in options.categories]
-            # Apply supplier filter if specified
-            if options.suppliers and len(options.suppliers) > 0:
-                # Need to get supplier names from IDs
-                supplier_query = select(Supplier).where(Supplier.id.in_(options.suppliers))
-                supplier_result = await self.db.execute(supplier_query)
-                supplier_names = {s.name for s in supplier_result.scalars().all()}
-                monthly_breakdown = [row for row in monthly_breakdown if row['supplier'] in supplier_names]
-            print(f"INFO: Monthly breakdown calculated: {len(monthly_breakdown)} rows")
-        except Exception as e:
-            print(f"WARNING: Error calculating monthly breakdown: {e}")
-            import traceback
-            traceback.print_exc()
-            monthly_breakdown = []
+            elif not options.start_date and not options.end_date and proj.start_date:
+                start_date = proj.start_date
+
+            try:
+                monthly_breakdown = await self._calculate_monthly_category_supplier_expenses(
+                    project_id,
+                    start_date,
+                    end_date,
+                    from_fund=False
+                )
+                if options.categories and len(options.categories) > 0:
+                    monthly_breakdown = [row for row in monthly_breakdown if row['category'] in options.categories]
+                if options.suppliers and len(options.suppliers) > 0:
+                    supplier_query = select(Supplier).where(Supplier.id.in_(options.suppliers))
+                    supplier_result = await self.db.execute(supplier_query)
+                    supplier_names = {s.name for s in supplier_result.scalars().all()}
+                    monthly_breakdown = [row for row in monthly_breakdown if row['supplier'] in supplier_names]
+                print(f"INFO: Monthly breakdown calculated: {len(monthly_breakdown)} rows")
+            except Exception as e:
+                print(f"WARNING: Error calculating monthly breakdown: {e}")
+                import traceback
+                traceback.print_exc()
+                monthly_breakdown = []
 
         # 2. Generate Output
         if options.format == "pdf":
@@ -3963,7 +3947,7 @@ class ReportService:
             elements.append(Spacer(1, 25))
 
         # Monthly Breakdown Table - דוח חודשי
-        if monthly_breakdown and len(monthly_breakdown) > 0:
+        if options.include_monthly_breakdown and monthly_breakdown:
             elements.append(Paragraph(format_text(f"📅 דוח חודשי - הוצאות לפי קטגוריה וספק"), style_h2))
             elements.append(Spacer(1, 12))
             
@@ -4021,24 +4005,12 @@ class ReportService:
             elements.append(Spacer(1, 25))
 
         # ========== עמוד שני והלאה: עסקאות ==========
-        
-        # Transactions - Group by category and create separate tables
-        if options.include_transactions and transactions:
-            # מעבר לעמוד חדש לפני העסקאות
-            elements.append(PageBreak())
-            
-            # Section header with decorative line
-            elements.append(Table([[""]], colWidths=[520], rowHeights=[3], style=[
-                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_ACCENT_TEAL))
-            ]))
-            elements.append(Spacer(1, 10))
-            elements.append(Paragraph(format_text(f"📝 {REPORT_LABELS['transaction_details']}"), style_h2))
-            elements.append(Spacer(1, 12))
 
-            # Group transactions by year first, then by category
-            from collections import defaultdict
-            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
-            # Get selected categories if any
+        from collections import defaultdict
+        transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
+        sorted_years = []
+        needs_tx_grouping = (options.include_transactions or options.include_period_totals) and transactions
+        if needs_tx_grouping:
             selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
 
             for tx in transactions:
@@ -4048,8 +4020,7 @@ class ReportService:
                 else:
                     cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
                     tx_date = tx.tx_date
-                
-                # Extract year from transaction date
+
                 if isinstance(tx_date, str):
                     try:
                         if 'T' in tx_date:
@@ -4057,21 +4028,28 @@ class ReportService:
                         else:
                             tx_date = date.fromisoformat(tx_date)
                     except:
-                        # If parsing fails, use current year
                         tx_date = date.today()
                 elif not isinstance(tx_date, date):
                     tx_date = date.today()
-                
+
                 year = tx_date.year
 
-                # Only include transactions from selected categories if categories were selected
                 if selected_categories is None or cat_name in selected_categories:
                     transactions_by_year_and_category[year][cat_name].append(tx)
 
-            # Sort years in descending order (newest first)
             sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
 
-            # Create tables for each year, then each category within that year
+        # Transactions - Group by category and create separate tables
+        if options.include_transactions and transactions and sorted_years:
+            elements.append(PageBreak())
+
+            elements.append(Table([[""]], colWidths=[520], rowHeights=[3], style=[
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_ACCENT_TEAL))
+            ]))
+            elements.append(Spacer(1, 10))
+            elements.append(Paragraph(format_text(f"📝 {REPORT_LABELS['transaction_details']}"), style_h2))
+            elements.append(Spacer(1, 12))
+
             for year in sorted_years:
                 # Year header
                 elements.append(PageBreak() if year != sorted_years[0] else Spacer(1, 0))
@@ -4239,8 +4217,8 @@ class ReportService:
                 elements.append(cat_summary_table)
                 elements.append(Spacer(1, 18))  # Space between category tables
 
-            # ========== COMPREHENSIVE PERIOD SUMMARY ==========
-            # Add a comprehensive summary table at the end showing all categories
+        # ========== COMPREHENSIVE PERIOD SUMMARY ==========
+        if options.include_period_totals and sorted_years:
             elements.append(PageBreak())
             elements.append(Table([[""]], colWidths=[520], rowHeights=[3], style=[
                 ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(COLOR_ACCENT_TEAL))
@@ -4248,14 +4226,13 @@ class ReportService:
             elements.append(Spacer(1, 10))
             elements.append(Paragraph(format_text("📊 סיכום כולל לתקופה"), style_h2))
             elements.append(Spacer(1, 12))
-            
-            # Calculate totals by category across all years
+
             category_totals = {}
             for year in sorted_years:
                 for cat_name in transactions_by_year_and_category[year].keys():
                     if cat_name not in category_totals:
                         category_totals[cat_name] = {'income': 0, 'expense': 0}
-                    
+
                     for tx in transactions_by_year_and_category[year][cat_name]:
                         if isinstance(tx, dict):
                             tx_type = tx.get('type')
@@ -4263,43 +4240,40 @@ class ReportService:
                         else:
                             tx_type = tx.type
                             tx_amount = tx.amount
-                        
+
                         if tx_type == "Income":
                             category_totals[cat_name]['income'] += float(tx_amount)
                         else:
                             category_totals[cat_name]['expense'] += float(tx_amount)
-            
-            # Create category expense summary table
+
             elements.append(Paragraph(format_text("הוצאות לפי קטגוריה"), style_category))
             elements.append(Spacer(1, 6))
-            
-            # Reversed for Hebrew RTL: category on right, calculations on left
+
             cat_expense_data = [[
                 format_text("נטו"),
                 format_text(REPORT_LABELS['income']),
                 format_text(REPORT_LABELS['expenses']),
                 format_text(REPORT_LABELS['category'])
             ]]
-            
+
             grand_total_income = 0
             grand_total_expense = 0
-            
+
             for cat_name, totals in sorted(category_totals.items()):
                 cat_income = totals['income']
                 cat_expense = totals['expense']
                 cat_net = cat_income - cat_expense
-                
+
                 grand_total_income += cat_income
                 grand_total_expense += cat_expense
-                
+
                 cat_expense_data.append([
                     Paragraph(f"{cat_net:,.2f} ₪", style_number),
                     Paragraph(f"{cat_income:,.2f} ₪", style_number),
                     Paragraph(f"{cat_expense:,.2f} ₪", style_number),
                     format_text(cat_name)
                 ])
-            
-            # Grand total row
+
             grand_net = grand_total_income - grand_total_expense
             cat_expense_data.append([
                 Paragraph(f"{grand_net:,.2f} ₪", style_number),
@@ -4307,43 +4281,39 @@ class ReportService:
                 Paragraph(f"{grand_total_expense:,.2f} ₪", style_number),
                 format_text("סה״כ")
             ])
-            
+
             cat_expense_table = Table(cat_expense_data, colWidths=[110, 110, 110, 150])
-            
+
             cat_expense_style = [
                 ('FONT', (0, 0), (-1, -1), font_name),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                # Align calculation columns (0-2) center, category column (3) right
                 ('ALIGN', (0, 0), (2, -1), 'CENTER'),
                 ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('PADDING', (0, 0), (-1, -1), 10),
                 ('TOPPADDING', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                # Total row styling
                 ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#CCFBF1')),
                 ('FONTSIZE', (0, -1), (-1, -1), 11),
             ]
-            
-            # Add alternating colors for data rows
-            for row_idx in range(1, len(cat_expense_data) - 1):  # Exclude header and total
+
+            for row_idx in range(1, len(cat_expense_data) - 1):
                 if row_idx % 2 == 1:
                     cat_expense_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_LIGHT)))
                 else:
                     cat_expense_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(COLOR_BG_ALT)))
-            
+
             cat_expense_table.setStyle(TableStyle(cat_expense_style))
             elements.append(cat_expense_table)
             elements.append(Spacer(1, 25))
-            
-            # Add budget vs actual summary if budgets are available
+
             if budgets and len(budgets) > 0:
                 elements.append(Paragraph(format_text("תקציב מול ביצוע לתקופה"), style_category))
                 elements.append(Spacer(1, 6))
-                
+
                 budget_summary_data = [[
                     format_text(REPORT_LABELS['category']),
                     format_text(REPORT_LABELS['budget']),
@@ -4351,20 +4321,20 @@ class ReportService:
                     format_text(REPORT_LABELS['remaining']),
                     format_text("ניצול %")
                 ]]
-                
+
                 total_budget = 0
                 total_spent = 0
-                
+
                 for b in budgets:
                     cat_name = b['category'] if b['category'] else REPORT_LABELS['general']
                     budget_amount = b['amount']
                     spent_amount = b['spent_amount']
                     remaining = b['remaining_amount']
                     usage_pct = (spent_amount / budget_amount * 100) if budget_amount > 0 else 0
-                    
+
                     total_budget += budget_amount
                     total_spent += spent_amount
-                    
+
                     budget_summary_data.append([
                         format_text(cat_name),
                         Paragraph(f"{budget_amount:,.2f} ₪", style_number),
@@ -4372,8 +4342,7 @@ class ReportService:
                         Paragraph(f"{remaining:,.2f} ₪", style_number),
                         Paragraph(f"{usage_pct:.1f}%", style_number)
                     ])
-                
-                # Total row
+
                 total_remaining = total_budget - total_spent
                 total_usage = (total_spent / total_budget * 100) if total_budget > 0 else 0
                 budget_summary_data.append([
@@ -4383,9 +4352,9 @@ class ReportService:
                     Paragraph(f"{total_remaining:,.2f} ₪", style_number),
                     Paragraph(f"{total_usage:.1f}%", style_number)
                 ])
-                
+
                 budget_summary_table = Table(budget_summary_data, colWidths=[110, 95, 95, 95, 70])
-                
+
                 budget_summary_style = [
                     ('FONT', (0, 0), (-1, -1), font_name),
                     ('FONTSIZE', (0, 0), (-1, -1), 10),
@@ -4397,45 +4366,43 @@ class ReportService:
                     ('PADDING', (0, 0), (-1, -1), 10),
                     ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#CCFBF1')),
                 ]
-                
-                # Add conditional coloring for budget rows
+
                 for row_idx, b in enumerate(budgets):
                     row = row_idx + 1
                     usage_pct = (b['spent_amount'] / b['amount'] * 100) if b['amount'] > 0 else 0
                     remaining = b['remaining_amount']
-                    
+
                     if row_idx % 2 == 0:
                         budget_summary_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor(COLOR_BG_LIGHT)))
                     else:
                         budget_summary_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor(COLOR_BG_ALT)))
-                    
+
                     if usage_pct > 100:
                         budget_summary_style.append(('TEXTCOLOR', (2, row), (2, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                         budget_summary_style.append(('BACKGROUND', (0, row), (-1, row), colors.HexColor('#FFE4E6')))
-                    
+
                     if remaining < 0:
                         budget_summary_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_ROSE)))
                     else:
                         budget_summary_style.append(('TEXTCOLOR', (3, row), (3, row), colors.HexColor(COLOR_ACCENT_EMERALD)))
-                
+
                 budget_summary_table.setStyle(TableStyle(budget_summary_style))
                 elements.append(budget_summary_table)
                 elements.append(Spacer(1, 25))
-            
-            # Final overall summary
+
             elements.append(Paragraph(format_text("סיכום פיננסי כולל"), style_category))
             elements.append(Spacer(1, 6))
-            
+
             final_summary_data = [
                 [format_text("פרט"), format_text(REPORT_LABELS['amount'])],
                 [format_text(f"↗️ {REPORT_LABELS['total_income']}"), Paragraph(f"{grand_total_income:,.2f} ₪", style_number)],
                 [format_text(f"↘️ {REPORT_LABELS['total_expenses']}"), Paragraph(f"{grand_total_expense:,.2f} ₪", style_number)],
                 [format_text(f"📈 {REPORT_LABELS['balance_profit']}"), Paragraph(f"{grand_net:,.2f} ₪", style_number)],
             ]
-            
+
             profit_color = COLOR_ACCENT_EMERALD if grand_net >= 0 else COLOR_ACCENT_ROSE
             profit_bg = '#D1FAE5' if grand_net >= 0 else '#FFE4E6'
-            
+
             final_summary_table = Table(final_summary_data, colWidths=[220, 160])
             final_summary_table.setStyle(TableStyle([
                 ('FONT', (0, 0), (-1, -1), font_name),
@@ -4911,8 +4878,7 @@ class ReportService:
             current_row += 1  # Spacer
 
         # 4. Monthly Breakdown Table - Professional monthly breakdown by category and supplier
-        # Always show the table if we have monthly breakdown data
-        if monthly_breakdown and len(monthly_breakdown) > 0:
+        if options.include_monthly_breakdown and monthly_breakdown:
             ws.merge_cells(f'A{current_row}:E{current_row}')
             ws.row_dimensions[current_row].height = 30
             monthly_header = ws[f'A{current_row}']
@@ -4995,7 +4961,40 @@ class ReportService:
             current_row += 1  # Spacer
 
         # 5. Transactions - Professional grouped transactions
-        if options.include_transactions and transactions:
+        from collections import defaultdict
+        transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
+        sorted_years = []
+        needs_tx_grouping = (options.include_transactions or options.include_period_totals) and transactions
+        if needs_tx_grouping:
+            selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
+
+            for tx in transactions:
+                if isinstance(tx, dict):
+                    cat_name = tx.get('category') or REPORT_LABELS['general']
+                    tx_date = tx.get('tx_date')
+                else:
+                    cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
+                    tx_date = tx.tx_date
+
+                if isinstance(tx_date, str):
+                    try:
+                        if 'T' in tx_date:
+                            tx_date = date.fromisoformat(tx_date.split('T')[0])
+                        else:
+                            tx_date = date.fromisoformat(tx_date)
+                    except:
+                        tx_date = date.today()
+                elif not isinstance(tx_date, date):
+                    tx_date = date.today()
+
+                year = tx_date.year
+
+                if selected_categories is None or cat_name in selected_categories:
+                    transactions_by_year_and_category[year][cat_name].append(tx)
+
+            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
+
+        if options.include_transactions and transactions and sorted_years:
             ws.merge_cells(f'A{current_row}:E{current_row}')
             ws.row_dimensions[current_row].height = 32
             tx_header = ws[f'A{current_row}']
@@ -5006,41 +5005,6 @@ class ReportService:
             tx_header.border = medium_border
             current_row += 1
 
-            # Group transactions by year first, then by category
-            from collections import defaultdict
-            transactions_by_year_and_category = defaultdict(lambda: defaultdict(list))
-            selected_categories = set(options.categories) if options.categories and len(options.categories) > 0 else None
-
-            for tx in transactions:
-                if isinstance(tx, dict):
-                    cat_name = tx.get('category') or REPORT_LABELS['general']
-                    tx_date = tx.get('tx_date')
-                else:
-                    cat_name = tx.category.name if tx.category else REPORT_LABELS['general']
-                    tx_date = tx.tx_date
-                
-                # Extract year from transaction date
-                if isinstance(tx_date, str):
-                    try:
-                        if 'T' in tx_date:
-                            tx_date = date.fromisoformat(tx_date.split('T')[0])
-                        else:
-                            tx_date = date.fromisoformat(tx_date)
-                    except:
-                        # If parsing fails, use current year
-                        tx_date = date.today()
-                elif not isinstance(tx_date, date):
-                    tx_date = date.today()
-                
-                year = tx_date.year
-
-                if selected_categories is None or cat_name in selected_categories:
-                    transactions_by_year_and_category[year][cat_name].append(tx)
-
-            # Sort years in descending order (newest first)
-            sorted_years = sorted(transactions_by_year_and_category.keys(), reverse=True)
-
-            # Create tables for each year, then each category within that year
             for year in sorted_years:
                 # Year header
                 current_row += 2 if year != sorted_years[0] else 0  # Add space before new year (except first)
@@ -5197,10 +5161,10 @@ class ReportService:
                 
                 current_row += 2  # Spacer between categories
 
-            # ========== COMPREHENSIVE PERIOD SUMMARY ==========
+        # ========== COMPREHENSIVE PERIOD SUMMARY ==========
+        if options.include_period_totals and sorted_years:
             current_row += 3  # Extra spacing before summary
-            
-            # Period Summary Header
+
             ws.merge_cells(f'A{current_row}:E{current_row}')
             ws.row_dimensions[current_row].height = 35
             period_summary_header = ws[f'A{current_row}']
@@ -5210,8 +5174,7 @@ class ReportService:
             period_summary_header.alignment = center_align
             period_summary_header.border = medium_border
             current_row += 2
-            
-            # Calculate totals by category across all years
+
             category_totals = {}
             for year in sorted_years:
                 for cat_name in transactions_by_year_and_category[year].keys():

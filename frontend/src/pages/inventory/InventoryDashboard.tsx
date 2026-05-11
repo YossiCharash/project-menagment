@@ -584,9 +584,12 @@ export default function InventoryDashboard() {
     if (key === 'active_reorders') return activeReorders.length
     // The backend's `total_assets` counts fixed-asset rows; reuse it for the
     // "ציוד קבוע" (fixed-only) card. The "ציוד כללי" card surfaces the union.
-    if (key === 'fixed_assets') return report ? report.total_assets : 0
-    if (key === 'total_assets') return (report ? report.total_assets : 0) + consumables.length
-    return report ? report[key as keyof InventoryReport] : 0
+    const fixedCount = Number(report?.total_assets ?? 0)
+    const consumablesCount = consumables.length
+    if (key === 'fixed_assets') return fixedCount
+    if (key === 'total_assets') return fixedCount + consumablesCount
+    const raw = report ? report[key as keyof InventoryReport] : 0
+    return Number(raw ?? 0)
   }
 
   async function openAssetDetail(asset: FixedAsset) {
@@ -788,6 +791,18 @@ export default function InventoryDashboard() {
                       </table>
                     )}
                   </div>
+                )
+              ) : selectedCard === 'active_reorders' ? (
+                activeReorders.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין הזמנות מחדש פעילות</p>
+                ) : (
+                  <ActiveReordersPanel
+                    reorders={activeReorders}
+                    onClickItem={(itemId) => {
+                      const item = consumables.find((c) => c.id === itemId)
+                      if (item) setSelectedConsumable(item)
+                    }}
+                  />
                 )
               ) : selectedCard === 'expiring_warranties' ? (
                 cardAssets.length === 0 ? (
