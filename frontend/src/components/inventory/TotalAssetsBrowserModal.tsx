@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Package, X, Filter } from 'lucide-react'
+import { Package, X, Filter, ChevronDown, Check } from 'lucide-react'
 import {
   cemsApi,
   type FixedAsset,
@@ -175,45 +175,125 @@ interface WarehouseMultiSelectProps {
   warehouses: Warehouse[]
   selected: Set<string>
   onToggle: (id: string) => void
+  onSelectAll: () => void
   onClear: () => void
 }
 
-function WarehouseMultiSelect({ warehouses, selected, onToggle, onClear }: WarehouseMultiSelectProps) {
+/**
+ * Multi-select dropdown for warehouses.
+ * Encapsulates open/close lifecycle, outside-click + Escape handling, and
+ * summary rendering. Pure presentational state — parent owns selection state.
+ */
+function WarehouseMultiSelect({
+  warehouses,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClear,
+}: WarehouseMultiSelectProps) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointer = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointer)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handlePointer)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  const summary = useMemo(() => {
+    if (selected.size === 0) return 'כל המחסנים'
+    if (selected.size === 1) {
+      const id = selected.values().next().value as string
+      return warehouses.find(w => w.id === id)?.name ?? 'מחסן אחד נבחר'
+    }
+    return `${selected.size} מחסנים נבחרו`
+  }, [selected, warehouses])
+
+  const allSelected = warehouses.length > 0 && selected.size === warehouses.length
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">מחסנים</label>
-        {selected.size > 0 && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+    <div className="flex flex-col gap-2" ref={containerRef}>
+      <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">מחסנים</label>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800 flex items-center justify-between gap-2"
+        >
+          <span className="truncate text-right flex-1">{summary}</span>
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+
+        {open && (
+          <div
+            role="listbox"
+            aria-multiselectable
+            className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-lg overflow-hidden"
           >
-            נקה
-          </button>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700">
-        {warehouses.length === 0 ? (
-          <span className="text-xs text-gray-400 dark:text-gray-500 px-1">אין מחסנים</span>
-        ) : (
-          warehouses.map(w => {
-            const active = selected.has(w.id)
-            return (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => onToggle(w.id)}
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                  active
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                {w.name}
-              </button>
-            )
-          })
+            {warehouses.length > 0 && (
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50">
+                <button
+                  type="button"
+                  onClick={onSelectAll}
+                  disabled={allSelected}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                >
+                  בחר הכל
+                </button>
+                <button
+                  type="button"
+                  onClick={onClear}
+                  disabled={selected.size === 0}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                >
+                  נקה
+                </button>
+              </div>
+            )}
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {warehouses.length === 0 ? (
+                <li className="text-xs text-gray-400 dark:text-gray-500 px-3 py-2">אין מחסנים</li>
+              ) : (
+                warehouses.map(w => {
+                  const active = selected.has(w.id)
+                  return (
+                    <li key={w.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        onClick={() => onToggle(w.id)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-right hover:bg-gray-50 dark:hover:bg-gray-600/50 text-gray-800 dark:text-gray-100"
+                      >
+                        <span
+                          className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                            active
+                              ? 'bg-blue-600 border-blue-600'
+                              : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-500'
+                          }`}
+                        >
+                          {active && <Check className="w-3 h-3 text-white" />}
+                        </span>
+                        <span className="flex-1 truncate">{w.name}</span>
+                      </button>
+                    </li>
+                  )
+                })
+              )}
+            </ul>
+          </div>
         )}
       </div>
     </div>
@@ -274,23 +354,23 @@ function ItemCard({ item, onClick }: ItemCardProps) {
           />
         ) : null}
         <div className={`${item.imageUrl ? 'hidden' : ''} absolute inset-0 flex items-center justify-center`}>
-          <Package className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+          <Package className="w-16 h-16 text-gray-300 dark:text-gray-600" />
         </div>
         {item.badge && (
           <div className="absolute top-2 right-2">{item.badge}</div>
         )}
       </div>
-      <div className="p-3 flex flex-col gap-1">
-        <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2 min-h-[2.5rem]" title={item.name}>
+      <div className="p-4 flex flex-col gap-1.5">
+        <p className="text-base font-semibold text-gray-900 dark:text-white line-clamp-2 min-h-[3rem]" title={item.name}>
           {item.name}
         </p>
         {item.secondary && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate" title={item.secondary}>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono truncate" title={item.secondary}>
             {item.secondary}
           </p>
         )}
         {item.tertiary && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={item.tertiary}>
+          <p className="text-sm text-gray-500 dark:text-gray-400 truncate" title={item.tertiary}>
             {item.tertiary}
           </p>
         )}
@@ -387,7 +467,7 @@ export default function TotalAssetsBrowserModal({
       dir="rtl"
     >
       <div
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col"
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-[95vw] max-w-7xl h-[92vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -421,6 +501,7 @@ export default function TotalAssetsBrowserModal({
               warehouses={warehouses}
               selected={selectedWarehouses}
               onToggle={toggleWarehouse}
+              onSelectAll={() => setSelectedWarehouses(new Set(warehouses.map(w => w.id)))}
               onClear={() => setSelectedWarehouses(new Set())}
             />
             <CategorySelect
@@ -451,7 +532,7 @@ export default function TotalAssetsBrowserModal({
               <p className="text-sm text-gray-500 dark:text-gray-400">לא נמצאו פריטים התואמים את הסינון</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
               {items.map(item => (
                 <ItemCard
                   key={item.id}

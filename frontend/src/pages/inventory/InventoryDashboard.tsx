@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Package,
+  Boxes,
   Warehouse as WarehouseIcon,
   ArrowLeftRight,
   AlertTriangle,
@@ -31,8 +32,12 @@ import { translateNote } from './AssetViewModal'
 import TotalAssetsBrowserModal, { type BrowserMode } from '../../components/inventory/TotalAssetsBrowserModal'
 
 // Maps stat-card keys to the browser modal mode. Cards not in this map open the legacy detail modal.
+// - total_assets    → 'all'        : general inventory (fixed + consumables merged)
+// - fixed_assets    → 'fixed'      : only fixed assets
+// - consumables_total → 'consumable': only consumables
 const BROWSER_MODAL_MODE_BY_CARD: Partial<Record<string, BrowserMode>> = {
-  total_assets: 'fixed',
+  total_assets: 'all',
+  fixed_assets: 'fixed',
   consumables_total: 'consumable',
 }
 
@@ -126,7 +131,7 @@ function categoryNameById(categories: CategoryRef[], id: string): string {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-type StatCardKey = keyof InventoryReport | 'expiring_warranties' | 'consumables_total' | 'active_reorders'
+type StatCardKey = keyof InventoryReport | 'expiring_warranties' | 'consumables_total' | 'active_reorders' | 'fixed_assets'
 
 interface StatCardConfig {
   label: string
@@ -137,7 +142,8 @@ interface StatCardConfig {
 }
 
 const STAT_CARDS: StatCardConfig[] = [
-  { label: 'סה"כ ציוד', key: 'total_assets', icon: Package, color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+  { label: 'ציוד כללי', key: 'total_assets', icon: Boxes, color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+  { label: 'ציוד קבוע', key: 'fixed_assets', icon: Package, color: 'text-sky-600 dark:text-sky-400', bgColor: 'bg-sky-100 dark:bg-sky-900/30' },
   { label: 'ציוד פעיל', key: 'active_assets', icon: CheckCircle, color: 'text-green-600 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
   { label: 'במחסן', key: 'in_warehouse', icon: WarehouseIcon, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   { label: 'בהעברה', key: 'in_transfer', icon: ArrowLeftRight, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
@@ -576,6 +582,10 @@ export default function InventoryDashboard() {
     if (key === 'expiring_warranties') return expiringWarranties.length
     if (key === 'consumables_total') return consumables.length
     if (key === 'active_reorders') return activeReorders.length
+    // The backend's `total_assets` counts fixed-asset rows; reuse it for the
+    // "ציוד קבוע" (fixed-only) card. The "ציוד כללי" card surfaces the union.
+    if (key === 'fixed_assets') return report ? report.total_assets : 0
+    if (key === 'total_assets') return (report ? report.total_assets : 0) + consumables.length
     return report ? report[key as keyof InventoryReport] : 0
   }
 
