@@ -1,4 +1,5 @@
 """Service for creating user notifications (e.g. on task assignment)."""
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +7,8 @@ from backend.models.user import User
 from backend.models.user_notification import UserNotification, NotificationType
 from backend.models.task import Task
 from backend.repositories.notification_repository import NotificationRepository
+from backend.repositories.user_repository import UserRepository
+from backend.schemas.notification import NotificationCreate, NOTIFICATION_TYPE_VALUES
 
 
 async def create_task_assignment_notifications(
@@ -117,3 +120,89 @@ async def create_closure_approval_notification(
         )
         await repo.create(n)
     await db.flush()
+
+
+def _notification_to_out(n: UserNotification) -> dict:
+    """Serialize UserNotification to API output dict (with optional joined relations)."""
+    from_user = getattr(n, "from_user", None)
+    task = getattr(n, "task", None)
+    return {
+        "id": n.id,
+        "user_id": n.user_id,
+        "from_user_id": n.from_user_id,
+        "task_id": n.task_id,
+        "type": n.type,
+        "title": n.title,
+        "body": n.body,
+        "read_at": n.read_at,
+        "created_at": n.created_at,
+        "from_user_name": from_user.full_name if from_user else None,
+        "task_title": task.title if task else None,
+    }
+
+
+class NotificationApiService:
+    """Service for the user-facing notifications HTTP API."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.repo = NotificationRepository(db)
+
+    async def list_for_user(
+        self,
+        user_id: int,
+        *,
+        unread_only: bool,
+        type_filter: str | None,
+        limit: int,
+        offset: int,
+    ) -> list[dict]:
+        if type_filter and type_filter not in NOTIFICATION_TYPE_VALUES:
+            type_filter = None
+        items = await self.repo.list_for_user(
+            user_id, unread_only=unread_only, type_filter=type_filter, limit=limit, offset=offset
+        )
+        return [_notification_to_out(n) for n in items]
+
+    async def unread_count(self, user_id: int) -> dict:
+        return {"count": await self.repo.count_unread(user_id)}
+
+    async def get_one(self, notification_id: int, user_id: int) -> dict:
+        n = await self.repo.get_by_id(notification_id, user_id)
+        if not n:
+            raise HTTPException(status_code=404, detail="הודעה לא נמצאה")
+        return _notification_to_out(n)
+
+    async def set_read_state(self, notification_id: int, user_id: int, read: bool) -> dict:
+        n = await self.repo.get_by_id(notification_id, user_id)
+        if not n:
+            raise HTTPException(status_code=404, detail="הודעה לא נמצאה")
+        n = await (self.repo.mark_read(n) if read else self.repo.mark_unread(n))
+        return _notification_to_out(n)
+
+    async def send_to_users(self, sender: User, data: NotificationCreate) -> list[dict]:
+        if sender.role != "Admin":
+            raise HTTPException(status_code=403, detail="רק מנהל יכול לשלוח הודעות למשתמשים")
+        if not data.user_ids:
+            raise HTTPException(status_code=400, detail="יש לבחור לפחות משתמש אחד")
+        ntype = data.type if data.type in NOTIFICATION_TYPE_VALUES else NotificationType.GENERAL
+        user_repo = UserRepository(self.db)
+        created_list: list[UserNotification] = []
+        for uid in data.user_ids:
+            u = await user_repo.get_by_id(uid)
+            if not u or not u.is_active:
+                continue
+            n = UserNotification(
+                user_id=uid,
+                from_user_id=sender.id,
+                task_id=None,
+                type=ntype,
+                title=data.title.strip(),
+                body=(data.body or "").strip() or None,
+            )
+            created_list.append(await self.repo.create(n))
+        out: list[dict] = []
+        for n in created_list:
+            reloaded = await self.repo.get_by_id(n.id, n.user_id)
+            out.append(_notification_to_out(reloaded))
+        return out

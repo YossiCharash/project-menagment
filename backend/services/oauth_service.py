@@ -1,4 +1,6 @@
-from fastapi import HTTPException, status
+import secrets
+from fastapi import HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from typing import Optional
@@ -121,3 +123,33 @@ class OAuthService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"OAuth authentication failed: {str(e)}"
             )
+
+    async def initiate_google_login(self, request: Request) -> RedirectResponse:
+        """Initiate Google OAuth login flow: build redirect with cookies."""
+        redirect_url = request.query_params.get("redirect_url", settings.FRONTEND_URL)
+        state = secrets.token_urlsafe(32)
+        authorization_url = await self.get_google_authorization_url(state=state)
+        response = RedirectResponse(url=authorization_url)
+        response.set_cookie("oauth_redirect", redirect_url, httponly=True, samesite="lax", max_age=600)
+        response.set_cookie("oauth_state", state, httponly=True, samesite="lax", max_age=600)
+        return response
+
+    async def complete_google_callback(
+        self, code: str, state: Optional[str], request: Request
+    ) -> RedirectResponse:
+        """Complete Google OAuth callback: handle tokens and build final redirect."""
+        redirect_url = request.cookies.get("oauth_redirect", settings.FRONTEND_URL) + "/auth/callback"
+        try:
+            result = await self.handle_google_callback(code, state)
+            refresh = result.get("refresh_token", "")
+            redirect_with_token = (
+                f"{redirect_url}?token={result['access_token']}&type=bearer"
+                + (f"&refresh_token={refresh}" if refresh else "")
+            )
+            response = RedirectResponse(url=redirect_with_token)
+        except HTTPException as e:
+            error_url = f"{redirect_url}?error={e.detail}"
+            response = RedirectResponse(url=error_url)
+        response.delete_cookie("oauth_redirect")
+        response.delete_cookie("oauth_state")
+        return response

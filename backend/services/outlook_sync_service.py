@@ -1,9 +1,11 @@
 """Outlook calendar sync via Microsoft Graph API."""
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import httpx
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
@@ -200,3 +202,81 @@ async def delete_outlook_event(db: AsyncSession, user_id: int, outlook_event_id:
             headers={"Authorization": f"Bearer {token}"},
         )
     return r.status_code in (200, 204)
+
+
+# --- High-level orchestration helpers (called from the routes layer) ---
+
+_OUTLOOK_ERROR_REDIRECT = "/task-calendar?outlook=error"
+_OUTLOOK_SUCCESS_REDIRECT = "/task-calendar?outlook=connected"
+
+
+def _outlook_redirect(path: str) -> RedirectResponse:
+    response = RedirectResponse(url=settings.FRONTEND_URL + path)
+    response.delete_cookie("outlook_state")
+    response.delete_cookie("outlook_user_id")
+    return response
+
+
+def build_outlook_connect_redirect(user_id: int) -> RedirectResponse:
+    """Build redirect to Microsoft consent screen with state/user cookies set."""
+    state = secrets.token_urlsafe(32)
+    url = get_authorization_url(state=state)
+    response = RedirectResponse(url=url)
+    response.set_cookie("outlook_state", state, httponly=True, samesite="lax", max_age=600)
+    response.set_cookie("outlook_user_id", str(user_id), httponly=True, samesite="lax", max_age=600)
+    return response
+
+
+async def complete_outlook_connection(
+    db: AsyncSession, code: str | None, request: Request
+) -> RedirectResponse:
+    """Handle the OAuth callback: persist tokens for the user and return the final redirect."""
+    user_id_cookie = request.cookies.get("outlook_user_id")
+    if not user_id_cookie or not code:
+        return _outlook_redirect(_OUTLOOK_ERROR_REDIRECT)
+    try:
+        user_id = int(user_id_cookie)
+    except ValueError:
+        return _outlook_redirect(_OUTLOOK_ERROR_REDIRECT)
+    try:
+        tokens = await exchange_code_for_tokens(code)
+    except Exception:
+        return _outlook_redirect(_OUTLOOK_ERROR_REDIRECT)
+    repo = OutlookSyncRepository(db)
+    existing = await repo.get_by_user_id(user_id)
+    if existing:
+        existing.access_token = tokens["access_token"]
+        existing.refresh_token = tokens["refresh_token"]
+        existing.token_expires_at = tokens["token_expires_at"]
+        await repo.upsert(existing)
+    else:
+        row = OutlookSync(
+            user_id=user_id,
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            token_expires_at=tokens["token_expires_at"],
+        )
+        await repo.upsert(row)
+    await db.commit()
+    return _outlook_redirect(_OUTLOOK_SUCCESS_REDIRECT)
+
+
+async def get_outlook_status(db: AsyncSession, user_id: int) -> dict:
+    """Return Outlook connection status for the given user."""
+    if not _is_configured():
+        return {"configured": False, "connected": False}
+    repo = OutlookSyncRepository(db)
+    conn = await repo.get_by_user_id(user_id)
+    return {
+        "configured": True,
+        "connected": conn is not None,
+        "last_sync_at": conn.last_sync_at.isoformat() if conn and conn.last_sync_at else None,
+    }
+
+
+async def disconnect_outlook(db: AsyncSession, user_id: int) -> dict:
+    """Remove Outlook connection for a user."""
+    repo = OutlookSyncRepository(db)
+    await repo.delete_by_user_id(user_id)
+    await db.commit()
+    return {"ok": True}
