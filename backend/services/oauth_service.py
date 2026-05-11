@@ -1,155 +1,143 @@
+"""OAuth orchestration service.
+
+The service is HTTP-framework-free: it returns DTOs and the route layer
+turns them into RedirectResponses / cookies. Provider-specific knowledge
+(URLs, scopes, userinfo parsing) lives in concrete OAuthProvider classes
+under backend/services/oauth/.
+"""
+from __future__ import annotations
+
 import secrets
-from fastapi import HTTPException, Request, status
-from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from authlib.integrations.httpx_client import AsyncOAuth2Client
 from typing import Optional
 
-from backend.core.config import settings
+from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.core.security import create_token_pair
-from backend.repositories.user_repository import UserRepository
 from backend.models.user import User, UserRole
+from backend.repositories.user_repository import UserRepository
+from backend.schemas.oauth import (
+    OAuthCookieDTO,
+    OAuthRedirectDTO,
+    OAuthTokenBundleDTO,
+    OAuthUserInfoDTO,
+)
+from backend.services.oauth.base import OAuthProvider
+from backend.services.oauth.google_provider import GoogleOAuthProvider
+
+# Cookie names + lifetimes (no more magic strings/numbers in the service).
+OAUTH_REDIRECT_COOKIE = "oauth_redirect"
+OAUTH_STATE_COOKIE = "oauth_state"
+OAUTH_COOKIE_MAX_AGE_SECONDS = 600  # 10 minutes: short-lived consent round-trip
+OAUTH_STATE_TOKEN_BYTES = 32
+FRONTEND_CALLBACK_PATH = "/auth/callback"
 
 
 class OAuthService:
-    def __init__(self, db: AsyncSession):
+    """Orchestrates OAuth login: state, user lookup/creation, token issuance."""
+
+    def __init__(self, db: AsyncSession, provider: Optional[OAuthProvider] = None):
+        # Dependency injection: tests/other providers can supply their own.
         self.db = db
         self.users = UserRepository(db)
-        self.google_client = AsyncOAuth2Client(
-            client_id=settings.GOOGLE_CLIENT_ID,
-            client_secret=settings.GOOGLE_CLIENT_SECRET,
-            scope="openid email profile",
+        self.provider: OAuthProvider = provider or GoogleOAuthProvider()
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    async def build_login_redirect(self, frontend_redirect_url: str) -> OAuthRedirectDTO:
+        """Step 1: build the redirect to the provider's consent screen."""
+        state = secrets.token_urlsafe(OAUTH_STATE_TOKEN_BYTES)
+        authorization_url = await self.provider.build_authorization_url(state=state)
+        return OAuthRedirectDTO(
+            url=authorization_url,
+            cookies_to_set=[
+                OAuthCookieDTO(
+                    name=OAUTH_REDIRECT_COOKIE,
+                    value=frontend_redirect_url,
+                    max_age=OAUTH_COOKIE_MAX_AGE_SECONDS,
+                ),
+                OAuthCookieDTO(
+                    name=OAUTH_STATE_COOKIE,
+                    value=state,
+                    max_age=OAUTH_COOKIE_MAX_AGE_SECONDS,
+                ),
+            ],
         )
 
-    async def get_google_authorization_url(self, state: Optional[str] = None) -> str:
-        """Get Google OAuth authorization URL"""
-        if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Google OAuth is not configured"
-            )
-        
-        authorization_url, _ = await self.google_client.create_authorization_url(
-            url="https://accounts.google.com/o/oauth2/v2/auth",
-            redirect_uri=settings.GOOGLE_REDIRECT_URI,
-            state=state
+    async def authenticate_with_code(self, code: str) -> OAuthTokenBundleDTO:
+        """Step 2: exchange the code, find-or-create the user, issue tokens."""
+        user_info = await self.provider.fetch_user_info(code)
+        user = await self._resolve_user(user_info)
+        return self._issue_tokens(user)
+
+    # ── Internal helpers (each does one thing — SRP) ──────────────────────────
+
+    async def _resolve_user(self, info: OAuthUserInfoDTO) -> User:
+        existing = await self.users.get_by_email(info.email)
+        if existing is None:
+            return await self._create_user_from_oauth(info)
+        return await self._link_or_login_existing_user(existing, info)
+
+    async def _create_user_from_oauth(self, info: OAuthUserInfoDTO) -> User:
+        new_user = User(
+            email=info.email,
+            full_name=info.full_name,
+            password_hash=None,
+            oauth_provider=self.provider.name,
+            oauth_id=info.provider_user_id,
+            email_verified=info.email_verified,
+            avatar_url=info.avatar_url,
+            role=UserRole.MEMBER.value,
+            is_active=True,
         )
-        return authorization_url
+        return await self.users.create(new_user)
 
-    async def handle_google_callback(self, code: str, state: Optional[str] = None) -> dict:
-        """Handle Google OAuth callback and create/login user"""
-        try:
-            # Exchange code for token
-            token = await self.google_client.fetch_token(
-                url="https://oauth2.googleapis.com/token",
-                grant_type="authorization_code",
-                code=code,
-                redirect_uri=settings.GOOGLE_REDIRECT_URI
-            )
+    async def _link_or_login_existing_user(self, user: User, info: OAuthUserInfoDTO) -> User:
+        already_linked = (
+            user.oauth_provider == self.provider.name and user.oauth_id == info.provider_user_id
+        )
+        if already_linked:
+            self._ensure_active(user)
+            self._refresh_profile_fields(user, info)
+            await self.users.update(user)
+            return user
 
-            # Get user info from Google
-            user_info = await self.google_client.get(
-                "https://www.googleapis.com/oauth2/v2/userinfo",
-                token=token
-            )
-            user_data = user_info.json()
-
-            email = user_data.get("email")
-            oauth_id = user_data.get("id")
-            full_name = user_data.get("name", "")
-            avatar_url = user_data.get("picture")
-            email_verified = user_data.get("verified_email", False)
-
-            if not email or not oauth_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Failed to get user information from Google"
-                )
-
-            # Check if user exists by email
-            user = await self.users.get_by_email(email)
-            
-            if user:
-                # User exists - check if OAuth is linked
-                if user.oauth_provider == "google" and user.oauth_id == oauth_id:
-                    # OAuth login successful
-                    if not user.is_active:
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="User account is inactive"
-                        )
-                    # Update user info
-                    user.avatar_url = avatar_url
-                    user.email_verified = email_verified or user.email_verified
-                    await self.users.update(user)
-                    tokens = create_token_pair(user.id, remember_me=True)
-                    return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": user}
-                elif user.password_hash:
-                    # User exists with password - ask to link accounts
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="An account with this email already exists. Please login with your password first, or use a different Google account."
-                    )
-                else:
-                    # Link OAuth to existing account
-                    user.oauth_provider = "google"
-                    user.oauth_id = oauth_id
-                    user.avatar_url = avatar_url
-                    user.email_verified = email_verified or user.email_verified
-                    await self.users.update(user)
-                    tokens = create_token_pair(user.id, remember_me=True)
-                    return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": user}
-            else:
-                # New user - create account
-                new_user = User(
-                    email=email,
-                    full_name=full_name,
-                    password_hash=None,
-                    oauth_provider="google",
-                    oauth_id=oauth_id,
-                    email_verified=email_verified,
-                    avatar_url=avatar_url,
-                    role=UserRole.MEMBER.value,
-                    is_active=True
-                )
-                created_user = await self.users.create(new_user)
-                tokens = create_token_pair(created_user.id, remember_me=True)
-                return {"access_token": tokens["access_token"], "refresh_token": tokens["refresh_token"], "token_type": "bearer", "expires_in": tokens["expires_in"], "user": created_user}
-
-        except HTTPException:
-            raise
-        except Exception as e:
+        if user.password_hash:
+            # Password account exists with this email — refuse silent linking.
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"OAuth authentication failed: {str(e)}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "An account with this email already exists. "
+                    "Please login with your password first, or use a different Google account."
+                ),
             )
 
-    async def initiate_google_login(self, request: Request) -> RedirectResponse:
-        """Initiate Google OAuth login flow: build redirect with cookies."""
-        redirect_url = request.query_params.get("redirect_url", settings.FRONTEND_URL)
-        state = secrets.token_urlsafe(32)
-        authorization_url = await self.get_google_authorization_url(state=state)
-        response = RedirectResponse(url=authorization_url)
-        response.set_cookie("oauth_redirect", redirect_url, httponly=True, samesite="lax", max_age=600)
-        response.set_cookie("oauth_state", state, httponly=True, samesite="lax", max_age=600)
-        return response
+        # Passwordless existing account — safe to link this provider to it.
+        user.oauth_provider = self.provider.name
+        user.oauth_id = info.provider_user_id
+        self._refresh_profile_fields(user, info)
+        await self.users.update(user)
+        return user
 
-    async def complete_google_callback(
-        self, code: str, state: Optional[str], request: Request
-    ) -> RedirectResponse:
-        """Complete Google OAuth callback: handle tokens and build final redirect."""
-        redirect_url = request.cookies.get("oauth_redirect", settings.FRONTEND_URL) + "/auth/callback"
-        try:
-            result = await self.handle_google_callback(code, state)
-            refresh = result.get("refresh_token", "")
-            redirect_with_token = (
-                f"{redirect_url}?token={result['access_token']}&type=bearer"
-                + (f"&refresh_token={refresh}" if refresh else "")
+    @staticmethod
+    def _ensure_active(user: User) -> None:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
             )
-            response = RedirectResponse(url=redirect_with_token)
-        except HTTPException as e:
-            error_url = f"{redirect_url}?error={e.detail}"
-            response = RedirectResponse(url=error_url)
-        response.delete_cookie("oauth_redirect")
-        response.delete_cookie("oauth_state")
-        return response
+
+    @staticmethod
+    def _refresh_profile_fields(user: User, info: OAuthUserInfoDTO) -> None:
+        user.avatar_url = info.avatar_url
+        user.email_verified = info.email_verified or user.email_verified
+
+    @staticmethod
+    def _issue_tokens(user: User) -> OAuthTokenBundleDTO:
+        tokens = create_token_pair(user.id, remember_me=True)
+        return OAuthTokenBundleDTO(
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            expires_in=tokens["expires_in"],
+            user_id=user.id,
+        )

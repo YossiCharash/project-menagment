@@ -48,3 +48,10 @@ class AdminInviteRepository:
     async def delete(self, invite: Invite) -> None:
         await self.db.delete(invite)
         await self.db.commit()
+
+    async def get_by_id(self, invite_id: int) -> Invite | None:
+        """Fetch a single admin invite by its primary key."""
+        res = await self.db.execute(
+            self._base_query().where(Invite.id == invite_id)
+        )
+        return res.scalar_one_or_none()
