@@ -88,6 +88,8 @@ export default function Reports() {
   const [includeSummary, setIncludeSummary] = useState(true)
   const [includeBudgets, setIncludeBudgets] = useState(true)
   const [includeFunds, setIncludeFunds] = useState(false)
+  const [includeMonthlyBreakdown, setIncludeMonthlyBreakdown] = useState(true)
+  const [includePeriodTotals, setIncludePeriodTotals] = useState(true)
   const [includeTransactions, setIncludeTransactions] = useState(false) // Default: don't show transaction table, only charts
   const [onlyRecurring, setOnlyRecurring] = useState(false)
   const [txType, setTxType] = useState<string[]>([]) // empty = all
@@ -320,6 +322,8 @@ export default function Reports() {
           include_summary: includeSummary,
           include_budgets: includeBudgets,
           include_funds: includeFunds,
+          include_monthly_breakdown: includeMonthlyBreakdown,
+          include_period_totals: includePeriodTotals,
           include_transactions: includeTransactions,
           transaction_types: txType.length > 0 ? txType : ["Income", "Expense"],
           only_recurring: onlyRecurring,
@@ -605,6 +609,14 @@ export default function Reports() {
                           <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
                               <input type="checkbox" checked={includeTransactions} onChange={e => setIncludeTransactions(e.target.checked)} className="rounded text-blue-600" />
                               רשימת עסקאות
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                              <input type="checkbox" checked={includeMonthlyBreakdown} onChange={e => setIncludeMonthlyBreakdown(e.target.checked)} className="rounded text-blue-600" />
+                              דוח חודשי (לפי קטגוריה וספק)
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer dark:text-gray-300">
+                              <input type="checkbox" checked={includePeriodTotals} onChange={e => setIncludePeriodTotals(e.target.checked)} className="rounded text-blue-600" />
+                              סיכום כולל לתקופה
                           </label>
                       </div>
                   </div>

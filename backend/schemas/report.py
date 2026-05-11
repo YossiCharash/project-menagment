@@ -10,6 +10,8 @@ class ReportOptions(BaseModel):
     include_budgets: bool = True
     include_funds: bool = False
     include_transactions: bool = True
+    include_monthly_breakdown: bool = True
+    include_period_totals: bool = True
     transaction_types: Optional[List[str]] = None  # ["Income", "Expense"]
     only_recurring: bool = False
     
