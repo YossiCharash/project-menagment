@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends
 from typing import List
 
+from backend.api.v1.messages.admin_invites import (
+    MSG_ADMIN_CREATED,
+    MSG_INVITE_DELETED,
+)
 from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
 from backend.schemas.admin_invite import (
@@ -15,11 +19,6 @@ from backend.models.user import User
 
 
 router = APIRouter()
-
-
-# User-facing messages live in the route layer, not the service.
-MSG_ADMIN_CREATED = "Admin account created successfully"
-MSG_INVITE_DELETED = "Invite deleted successfully"
 
 
 @router.post("/", response_model=AdminInviteOut)

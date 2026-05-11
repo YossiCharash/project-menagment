@@ -7,23 +7,23 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from backend.core.config import settings
+from backend.core.constants.oauth import (
+    BEARER_TOKEN_TYPE,
+    ERROR_QUERY_PARAM,
+    REDIRECT_URL_QUERY_PARAM,
+    REFRESH_TOKEN_QUERY_PARAM,
+    TOKEN_QUERY_PARAM,
+    TOKEN_TYPE_QUERY_PARAM,
+)
 from backend.core.deps import DBSessionDep
 from backend.schemas.oauth import OAuthRedirectDTO, OAuthTokenBundleDTO
 from backend.services.oauth_service import (
     FRONTEND_CALLBACK_PATH,
     OAUTH_REDIRECT_COOKIE,
-    OAUTH_STATE_COOKIE,
     OAuthService,
 )
 
 router = APIRouter()
-
-REDIRECT_URL_QUERY_PARAM = "redirect_url"
-TOKEN_QUERY_PARAM = "token"
-REFRESH_TOKEN_QUERY_PARAM = "refresh_token"
-TOKEN_TYPE_QUERY_PARAM = "type"
-ERROR_QUERY_PARAM = "error"
-BEARER_TOKEN_TYPE = "bearer"
 
 
 def _apply_redirect_dto(dto: OAuthRedirectDTO) -> RedirectResponse:
@@ -38,9 +38,6 @@ def _apply_redirect_dto(dto: OAuthRedirectDTO) -> RedirectResponse:
             max_age=cookie.max_age,
         )
     for name in dto.cookies_to_clear:
-        # Cookie cleanup: state/redirect cookies are single-use for one consent
-        # round-trip; remove them after the callback so a stale value can't be
-        # replayed on a later login attempt.
         response.delete_cookie(name)
     return response
 
@@ -87,9 +84,4 @@ async def google_callback(
     except HTTPException as e:
         target_url = _build_error_callback_url(base_callback, str(e.detail))
 
-    redirect_dto = OAuthRedirectDTO(
-        url=target_url,
-        # One-shot consent cookies: clear so they can't be replayed.
-        cookies_to_clear=[OAUTH_REDIRECT_COOKIE, OAUTH_STATE_COOKIE],
-    )
-    return _apply_redirect_dto(redirect_dto)
+    return _apply_redirect_dto(OAuthService.build_callback_redirect(target_url))
