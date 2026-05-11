@@ -28,6 +28,13 @@ import {
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
 import { translateNote } from './AssetViewModal'
+import TotalAssetsBrowserModal, { type BrowserMode } from '../../components/inventory/TotalAssetsBrowserModal'
+
+// Maps stat-card keys to the browser modal mode. Cards not in this map open the legacy detail modal.
+const BROWSER_MODAL_MODE_BY_CARD: Partial<Record<string, BrowserMode>> = {
+  total_assets: 'fixed',
+  consumables_total: 'consumable',
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -525,7 +532,10 @@ export default function InventoryDashboard() {
     setCardAlerts([])
     setCardConsumables([])
     try {
-      if (key === 'expiring_warranties') {
+      if (key in BROWSER_MODAL_MODE_BY_CARD) {
+        // The product-grid browser modal fetches its own data with filters.
+        // Nothing to preload here.
+      } else if (key === 'expiring_warranties') {
         setCardAssets(expiringWarranties)
       } else if (key === 'consumables_total') {
         setCardConsumables(consumables)
@@ -648,8 +658,19 @@ export default function InventoryDashboard() {
         }}
       />
 
+      {/* Product-grid browser modal — opens for total_assets (fixed) and consumables_total (consumable) */}
+      <TotalAssetsBrowserModal
+        open={selectedCard !== null && selectedCard in BROWSER_MODAL_MODE_BY_CARD}
+        mode={selectedCard ? BROWSER_MODAL_MODE_BY_CARD[selectedCard] : undefined}
+        warehouses={warehouses}
+        categories={categories}
+        onClose={() => setSelectedCard(null)}
+        onSelectAsset={(asset) => openAssetDetail(asset)}
+        onSelectConsumable={(item) => setSelectedConsumable(item)}
+      />
+
       {/* Detail Modal — rendered via portal to escape stacking context */}
-      {selectedCard && report && createPortal(
+      {selectedCard && !(selectedCard in BROWSER_MODAL_MODE_BY_CARD) && report && createPortal(
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm bg-black/40"
           onClick={() => setSelectedCard(null)}
