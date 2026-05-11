@@ -135,6 +135,25 @@ class Settings(BaseModel):
     MICROSOFT_CLIENT_ID: str = Field(default=os.getenv("MICROSOFT_CLIENT_ID", ""))
     MICROSOFT_CLIENT_SECRET: str = Field(default=os.getenv("MICROSOFT_CLIENT_SECRET", ""))
     MICROSOFT_REDIRECT_URI: str = Field(default=os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/api/v1/outlook/callback"))
+    # Microsoft Graph / OAuth endpoints (overridable for sovereign clouds).
+    MICROSOFT_AUTHORIZE_URL: str = Field(
+        default=os.getenv(
+            "MICROSOFT_AUTHORIZE_URL",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        )
+    )
+    MICROSOFT_TOKEN_URL: str = Field(
+        default=os.getenv(
+            "MICROSOFT_TOKEN_URL",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        )
+    )
+    MICROSOFT_GRAPH_BASE_URL: str = Field(
+        default=os.getenv("MICROSOFT_GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0")
+    )
+    MICROSOFT_GRAPH_SCOPES: str = Field(
+        default=os.getenv("MICROSOFT_GRAPH_SCOPES", "Calendars.ReadWrite offline_access")
+    )
 
     # ── Error alerting via WhatsApp (Green API) + Claude AI ─────────────────
     ERROR_ALERTS_ENABLED: bool = Field(

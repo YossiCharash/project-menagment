@@ -47,3 +47,15 @@ class AdminInviteList(BaseModel):
     is_expired: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminInviteDeleteRequest(BaseModel):
+    """Input DTO for deleting an admin invite."""
+    invite_id: int
+    creator_id: int
+
+
+class AdminInviteUseResult(BaseModel):
+    """Output DTO returned after successfully using an admin invite."""
+    user_id: int
+    email: EmailStr
