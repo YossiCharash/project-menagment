@@ -13,6 +13,7 @@ class ConsumableItemBase(BaseModel):
     unit: str
     low_stock_threshold: Decimal = Decimal("0")
     reorder_quantity: Decimal = Decimal("0")
+    image_url: Optional[str] = None
 
 
 class ConsumableItemCreate(ConsumableItemBase):
@@ -27,6 +28,7 @@ class ConsumableItemUpdate(BaseModel):
     low_stock_threshold: Optional[Decimal] = None
     reorder_quantity: Optional[Decimal] = None
     quantity: Optional[Decimal] = None
+    image_url: Optional[str] = None
 
 
 class ConsumableItemRead(ConsumableItemBase):
@@ -54,3 +56,17 @@ class ConsumptionLogRead(BaseModel):
     quantity_consumed: Decimal
     consumed_at: datetime
     notes: Optional[str]
+
+
+class ConsumableMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    item_id: uuid.UUID
+    from_warehouse_id: Optional[uuid.UUID]
+    to_warehouse_id: Optional[uuid.UUID]
+    quantity: Decimal
+    action: str
+    actor_id: Optional[int]
+    notes: Optional[str]
+    moved_at: datetime
