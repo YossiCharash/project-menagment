@@ -1934,6 +1934,13 @@ class ReportService:
             # Add project_id to match expected format
             summary_data["project_id"] = project_id
         
+        # Extract fund transactions (subset of already-filtered list) before
+        # we potentially clear `transactions` for the non-include_transactions case.
+        fund_transactions = (
+            [tx for tx in transactions if tx.get('from_fund')]
+            if options.include_funds else None
+        )
+
         # If transactions not requested but we needed them for calculations, clear them
         if not options.include_transactions:
             transactions = []
@@ -1986,14 +1993,15 @@ class ReportService:
         # 2. Generate Output
         if options.format == "pdf":
             return await self._generate_pdf(proj, options, transactions, budgets_data, fund_data, summary_data,
-                                            chart_images, monthly_breakdown)
+                                            chart_images, monthly_breakdown, fund_transactions=fund_transactions)
         elif options.format == "excel":
             return await self._generate_excel(proj, options, transactions, budgets_data, fund_data, summary_data,
-                                              chart_images, monthly_breakdown)
+                                              chart_images, monthly_breakdown, fund_transactions=fund_transactions)
         elif options.format == "zip":
             # For ZIP, we generate the PDF/Excel report AND include documents
             report_content = await self._generate_excel(proj, options, transactions, budgets_data, fund_data,
-                                                        summary_data, chart_images, monthly_breakdown)
+                                                        summary_data, chart_images, monthly_breakdown,
+                                                        fund_transactions=fund_transactions)
             return await self._generate_zip(proj, options, report_content, transactions)
 
         raise ValueError("Invalid format")
@@ -3295,7 +3303,7 @@ class ReportService:
         
         return charts_added
 
-    async def _generate_pdf(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None) -> bytes:
+    async def _generate_pdf(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None, fund_transactions=None) -> bytes:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak
@@ -3714,16 +3722,25 @@ class ReportService:
         else:
             date_range_text = "כל התקופות"
         
-        elements.append(Paragraph(
-            format_text(f"תקופה: {date_range_text}"),
-            style_subtitle
-        ))
-        
-        # Production date
-        elements.append(Paragraph(
-            format_text(f"{REPORT_LABELS['production_date']}: {date.today().strftime('%d/%m/%Y')}"),
-            style_subtitle
-        ))
+        # WHY: Isolate Latin digits in their own table cell so the bidi pass
+        # never sees them mixed with Hebrew + colon — guarantees digits render.
+        header_meta_data = [
+            [date_range_text, format_text("תקופה")],
+            [date.today().strftime('%d/%m/%Y'), format_text(REPORT_LABELS['production_date'])],
+        ]
+        header_meta_table = Table(header_meta_data, colWidths=[100, 140], hAlign='CENTER')
+        header_meta_table.setStyle(TableStyle([
+            ('FONT', (0, 0), (-1, -1), font_name),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor(COLOR_TEXT_MUTED)),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(header_meta_table)
+        elements.append(Spacer(1, 10))
         
         # Decorative divider
         elements.append(Table([[""]], colWidths=[520], rowHeights=[2], style=[
@@ -3762,6 +3779,84 @@ class ReportService:
             ]))
             elements.append(fund_table)
             elements.append(Spacer(1, 20))
+
+            if fund_transactions:
+                elements.append(Paragraph(format_text("📜 תנועות קופה"), style_category))
+                elements.append(Spacer(1, 8))
+
+                ft_header = [
+                    Paragraph(format_text(REPORT_LABELS['amount']), style_table_cell),
+                    Paragraph(format_text(REPORT_LABELS['type']), style_table_cell),
+                    Paragraph(format_text(REPORT_LABELS['description']), style_table_cell),
+                    Paragraph(format_text(REPORT_LABELS['date']), style_table_cell),
+                ]
+                ft_data = [ft_header]
+
+                ft_total_income = 0.0
+                ft_total_expense = 0.0
+
+                for tx in fund_transactions:
+                    is_income = tx.get('type') == "Income"
+                    tx_amount = float(tx.get('amount', 0) or 0)
+                    if is_income:
+                        ft_total_income += tx_amount
+                        signed_amount = f"+{tx_amount:,.2f} ₪"
+                    else:
+                        ft_total_expense += tx_amount
+                        signed_amount = f"-{tx_amount:,.2f} ₪"
+
+                    tx_label = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                    description = tx.get('description') or tx.get('supplier_name') or ""
+
+                    ft_data.append([
+                        Paragraph(signed_amount, style_number),
+                        Paragraph(format_text(tx_label), style_table_cell),
+                        Paragraph(format_text(description), style_table_cell),
+                        Paragraph(format_date_hebrew(tx.get('tx_date')), style_number),
+                    ])
+
+                ft_style = [
+                    ('FONT', (0, 0), (-1, -1), font_name),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PRIMARY_MID)),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('TOPPADDING', (0, 0), (-1, 0), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                ]
+                for row_idx in range(1, len(ft_data)):
+                    bg = COLOR_BG_LIGHT if row_idx % 2 == 1 else COLOR_BG_ALT
+                    ft_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor(bg)))
+
+                ft_table = Table(ft_data, repeatRows=1, colWidths=[90, 70, 230, 90], style=ft_style)
+                elements.append(ft_table)
+                elements.append(Spacer(1, 10))
+
+                ft_net = ft_total_income - ft_total_expense
+                ft_net_color = COLOR_ACCENT_EMERALD if ft_net >= 0 else COLOR_ACCENT_ROSE
+                ft_summary_data = [
+                    [Paragraph(f"{ft_total_income:,.2f} ₪", style_number), format_text(REPORT_LABELS['total_income'])],
+                    [Paragraph(f"{ft_total_expense:,.2f} ₪", style_number), format_text(REPORT_LABELS['total_expenses'])],
+                    [Paragraph(f"{ft_net:,.2f} ₪", style_number), format_text("יתרת תנועות")],
+                ]
+                ft_summary_table = Table(ft_summary_data, colWidths=[160, 220])
+                ft_summary_table.setStyle(TableStyle([
+                    ('FONT', (0, 0), (-1, -1), font_name),
+                    ('FONTSIZE', (0, 0), (-1, -1), 10),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                    ('BACKGROUND', (1, 0), (1, -1), colors.HexColor('#FEF3C7')),
+                    ('BACKGROUND', (0, 0), (0, -1), colors.HexColor(COLOR_BG_LIGHT)),
+                    ('TEXTCOLOR', (0, 2), (0, 2), colors.HexColor(ft_net_color)),
+                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                    ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('PADDING', (0, 0), (-1, -1), 8),
+                ]))
+                elements.append(ft_summary_table)
+                elements.append(Spacer(1, 20))
 
         # Budgets - תקציבים - Professional Budget Table
         if options.include_budgets and budgets:
@@ -4561,7 +4656,7 @@ class ReportService:
         return buffer.read()
 
 
-    async def _generate_excel(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None) -> bytes:
+    async def _generate_excel(self, project, options, transactions, budgets, fund, summary, chart_images=None, monthly_breakdown=None, fund_transactions=None) -> bytes:
         wb = Workbook()
         ws = wb.active
         ws.title = "דוח"
@@ -4799,6 +4894,105 @@ class ReportService:
             ws[f'B{current_row}'].border = thin_border
             ws[f'B{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
             current_row += 2  # Spacer
+
+            if fund_transactions:
+                # Section header
+                ws.merge_cells(f'A{current_row}:D{current_row}')
+                ws.row_dimensions[current_row].height = 28
+                ft_header_cell = ws[f'A{current_row}']
+                ft_header_cell.value = f"📜  תנועות קופה"
+                ft_header_cell.font = h2_font
+                ft_header_cell.fill = fill_h2
+                ft_header_cell.alignment = center_align
+                ft_header_cell.border = medium_border
+                current_row += 1
+
+                # Column headers — RTL: amount on left (A), date on right (D)
+                ft_col_headers = [
+                    REPORT_LABELS['amount'],
+                    REPORT_LABELS['type'],
+                    REPORT_LABELS['description'],
+                    REPORT_LABELS['date'],
+                ]
+                ws.row_dimensions[current_row].height = 24
+                for idx, header in enumerate(ft_col_headers):
+                    col = get_column_letter(idx + 1)
+                    cell = ws[f'{col}{current_row}']
+                    cell.value = header
+                    cell.font = header_font
+                    cell.fill = fill_header
+                    cell.alignment = center_align
+                    cell.border = thin_border
+                current_row += 1
+
+                ft_total_income_xl = 0.0
+                ft_total_expense_xl = 0.0
+
+                for tx_idx, tx in enumerate(fund_transactions):
+                    is_income = tx.get('type') == "Income"
+                    tx_amount = float(tx.get('amount', 0) or 0)
+                    if is_income:
+                        ft_total_income_xl += tx_amount
+                        amount_display = f"+{tx_amount:,.2f} ₪"
+                    else:
+                        ft_total_expense_xl += tx_amount
+                        amount_display = f"-{tx_amount:,.2f} ₪"
+
+                    tx_label = REPORT_LABELS['income'] if is_income else REPORT_LABELS['expense']
+                    description = tx.get('description') or tx.get('supplier_name') or ""
+                    tx_date_str = ""
+                    tx_date_val = tx.get('tx_date')
+                    if tx_date_val:
+                        try:
+                            if isinstance(tx_date_val, str):
+                                tx_date_str = tx_date_val
+                            else:
+                                tx_date_str = tx_date_val.strftime('%d/%m/%Y')
+                        except Exception:
+                            tx_date_str = str(tx_date_val)
+
+                    row_fill = fill_light if tx_idx % 2 == 0 else fill_alt
+                    row_values = [amount_display, tx_label, description, tx_date_str]
+                    ws.row_dimensions[current_row].height = 22
+                    for idx, val in enumerate(row_values):
+                        col = get_column_letter(idx + 1)
+                        cell = ws[f'{col}{current_row}']
+                        cell.value = val
+                        cell.fill = row_fill
+                        cell.border = thin_border
+                        if idx == 0:
+                            cell.font = money_positive_font if is_income else money_negative_font
+                            cell.alignment = Alignment(horizontal='left', vertical='center')
+                        else:
+                            cell.font = data_font
+                            cell.alignment = Alignment(horizontal='right' if idx == 3 else 'center', vertical='center', wrap_text=True)
+                    current_row += 1
+
+                # Summary rows
+                ft_net_xl = ft_total_income_xl - ft_total_expense_xl
+                summary_rows = [
+                    (f"{ft_total_income_xl:,.2f} ₪", REPORT_LABELS['total_income'], money_positive_font),
+                    (f"{ft_total_expense_xl:,.2f} ₪", REPORT_LABELS['total_expenses'], money_negative_font),
+                    (f"{ft_net_xl:,.2f} ₪", "יתרת תנועות",
+                     money_positive_font if ft_net_xl >= 0 else money_negative_font),
+                ]
+                for value_str, label_str, value_font in summary_rows:
+                    ws.merge_cells(f'A{current_row}:B{current_row}')
+                    ws.merge_cells(f'C{current_row}:D{current_row}')
+                    ws.row_dimensions[current_row].height = 24
+                    ws[f'A{current_row}'] = value_str
+                    ws[f'A{current_row}'].font = value_font
+                    ws[f'A{current_row}'].fill = fill_light
+                    ws[f'A{current_row}'].border = thin_border
+                    ws[f'A{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
+                    ws[f'C{current_row}'] = label_str
+                    ws[f'C{current_row}'].font = data_bold_font
+                    ws[f'C{current_row}'].fill = fill_light
+                    ws[f'C{current_row}'].border = thin_border
+                    ws[f'C{current_row}'].alignment = Alignment(horizontal='right', vertical='center')
+                    current_row += 1
+
+                current_row += 1  # Spacer
 
         # 3. Budgets - Professional Budget Table
         if options.include_budgets and budgets:
