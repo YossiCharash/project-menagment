@@ -9,6 +9,7 @@ import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
 import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
 import SuperTasksPanel from '../components/task-management/SuperTasksPanel'
+import CalendarFullscreenOverlay from '../components/task-management/CalendarFullscreenOverlay'
 
 type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
 
@@ -26,6 +27,7 @@ export default function TaskManagement() {
   const [activeTab, setActiveTab] = useState<TabId>(
     () => (tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : 'board')
   )
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   useEffect(() => {
     if (tabParam && TABS.some((t) => t.id === tabParam)) {
@@ -51,6 +53,14 @@ export default function TaskManagement() {
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setCalendarOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-medium shadow-md shadow-violet-500/25 transition-colors"
+          >
+            <Calendar className="w-5 h-5" />
+            פתח יומן
+          </button>
         </header>
 
         {/* Tabs + Super Tasks Panel in one row */}
@@ -141,6 +151,13 @@ export default function TaskManagement() {
           </AnimatePresence>
         </div>
       </div>
+      <CalendarFullscreenOverlay
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        title="יומן משימות"
+      >
+        <TaskCalendar embedded fillHeight />
+      </CalendarFullscreenOverlay>
     </div>
   )
 }
