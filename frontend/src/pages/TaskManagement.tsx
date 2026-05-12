@@ -9,7 +9,6 @@ import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
 import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
 import SuperTasksPanel from '../components/task-management/SuperTasksPanel'
-import CalendarFullscreenOverlay from '../components/task-management/CalendarFullscreenOverlay'
 
 type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
 
@@ -27,7 +26,6 @@ export default function TaskManagement() {
   const [activeTab, setActiveTab] = useState<TabId>(
     () => (tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : 'board')
   )
-  const [calendarOpen, setCalendarOpen] = useState(false)
 
   useEffect(() => {
     if (tabParam && TABS.some((t) => t.id === tabParam)) {
@@ -39,28 +37,18 @@ export default function TaskManagement() {
     <div className="task-management-page min-h-screen bg-[#f0f4f8] dark:bg-[#0f1419]" dir="rtl">
       <div className="max-w-[1680px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-500/25 dark:shadow-violet-600/20">
-              <ClipboardList className="w-7 h-7" strokeWidth={2.5} />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
-                ניהול משימות
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                לוח, יומן, משימות והודעות במקום אחד
-              </p>
-            </div>
+        <header className="flex items-center gap-4">
+          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-500/25 dark:shadow-violet-600/20">
+            <ClipboardList className="w-7 h-7" strokeWidth={2.5} />
           </div>
-          <button
-            type="button"
-            onClick={() => setCalendarOpen(true)}
-            className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-medium shadow-md shadow-violet-500/25 transition-colors"
-          >
-            <Calendar className="w-5 h-5" />
-            פתח יומן
-          </button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
+              ניהול משימות
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              לוח, יומן, משימות והודעות במקום אחד
+            </p>
+          </div>
         </header>
 
         {/* Tabs + Super Tasks Panel in one row */}
@@ -151,13 +139,6 @@ export default function TaskManagement() {
           </AnimatePresence>
         </div>
       </div>
-      <CalendarFullscreenOverlay
-        open={calendarOpen}
-        onClose={() => setCalendarOpen(false)}
-        title="יומן משימות"
-      >
-        <TaskCalendar embedded fillHeight />
-      </CalendarFullscreenOverlay>
     </div>
   )
 }
