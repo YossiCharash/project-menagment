@@ -194,9 +194,10 @@ function getTaskOccurrences(
 
 interface TaskCalendarProps {
   embedded?: boolean
+  fillHeight?: boolean
 }
 
-export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
+export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps = {}) {
   const dispatch = useDispatch()
   const me = useSelector((state: RootState) => state.auth.me)
   const isAdmin = me?.role === 'Admin'
@@ -1663,9 +1664,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               slotLabelInterval="01:00:00"
               nowIndicator={true}
               navLinks={true}
-              contentHeight={isMobile ? 'auto' : 720}
+              contentHeight={fillHeight || isMobile ? 'auto' : 720}
+              height={fillHeight ? '100%' : undefined}
               handleWindowResize={true}
-              expandRows={isMobile}
+              expandRows={isMobile || fillHeight}
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               allDayText="כל היום"
