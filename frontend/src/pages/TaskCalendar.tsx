@@ -18,7 +18,7 @@ import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
 import { PermissionGuard } from '../components/ui/PermissionGuard'
-import OutlookMobileCalendar from '../components/task-management/OutlookMobileCalendar'
+import OutlookMobileCalendar, { type MobileCalendarView } from '../components/task-management/OutlookMobileCalendar'
 
 export interface UserForTask {
   id: number
@@ -211,6 +211,22 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [includeArchived, setIncludeArchived] = useState(false)
   const [mobileSelectedDate, setMobileSelectedDate] = useState<Date>(() => new Date())
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [mobileView, setMobileView] = useState<MobileCalendarView>(() => {
+    try {
+      const saved = sessionStorage.getItem('taskCalendarMobileView')
+      if (saved === 'day' || saved === 'week' || saved === 'workweek' || saved === 'month') return saved
+    } catch {
+      /* ignore */
+    }
+    return 'day'
+  })
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('taskCalendarMobileView', mobileView)
+    } catch {
+      /* ignore */
+    }
+  }, [mobileView])
   // On refresh always show today's date in Gregorian (לוח לועזי) — no restore from sessionStorage
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date } | null>(() => {
     const now = new Date()
@@ -1396,7 +1412,9 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   islamicHolidays={islamicHolidayList}
                   selectedDate={mobileSelectedDate}
                   onSelectDate={setMobileSelectedDate}
-                  onMonthChange={(start, end) => setDateRange({ start, end })}
+                  onRangeChange={(start, end) => setDateRange({ start, end })}
+                  mobileView={mobileView}
+                  onMobileViewChange={setMobileView}
                   onEventClick={(t) => setSelectedTask(t)}
                   onCreateClick={() => setShowCreateModal(true)}
                   onOpenFilters={() => setMobileFiltersOpen(true)}
