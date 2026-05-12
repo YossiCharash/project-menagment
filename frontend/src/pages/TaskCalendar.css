@@ -633,14 +633,17 @@ body > .fc-event-dragging {
   height: 3.5em;
 }
 
-/* Mobile: keep filter-bar items from collapsing inside the horizontal scroller */
-@media (max-width: 640px) {
-  .task-calendar-filterbar > * {
-    flex-shrink: 0;
-  }
-  .task-calendar-filterbar button,
-  .task-calendar-filterbar select,
-  .task-calendar-filterbar span {
-    white-space: nowrap;
-  }
+/* ========================================================================
+   OutlookMobileCalendar — mobile agenda view
+   ======================================================================== */
+.outlook-mobile-cal__strip {
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.outlook-mobile-cal__strip::-webkit-scrollbar {
+  display: none;
+}
+.outlook-mobile-cal__day {
+  scroll-snap-align: center;
 }

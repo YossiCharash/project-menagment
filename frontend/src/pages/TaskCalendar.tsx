@@ -18,6 +18,7 @@ import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
 import { PermissionGuard } from '../components/ui/PermissionGuard'
+import OutlookMobileCalendar from '../components/task-management/OutlookMobileCalendar'
 
 export interface UserForTask {
   id: number
@@ -95,14 +96,14 @@ export interface TaskMessageType {
   created_at: string
 }
 
-const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
   in_progress: 'בטיפול',
   completed: 'טופלה',
   pending_closure: 'ממתין לאישור סגירה',
 }
 
-const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
+export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: '#6B7280',
   in_progress: '#3B82F6',
   completed: '#10B981',
@@ -114,7 +115,7 @@ const USER_COLORS = [
   '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16',
 ]
 
-const EVENT_TYPE_LABELS: Record<EventType, string> = {
+export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   meeting: 'פגישה',
   task: 'משימה',
 }
@@ -150,8 +151,10 @@ function getOverdueInfo(task: Task): { delayText: string } | null {
   return { delayText }
 }
 
+export const USER_CALENDAR_COLORS = USER_COLORS
+
 /** Expand one task into one or more { start, end } for the calendar (for recurring tasks). */
-function getTaskOccurrences(
+export function getTaskOccurrences(
   task: Task,
   rangeStart: Date,
   rangeEnd: Date
@@ -194,10 +197,9 @@ function getTaskOccurrences(
 
 interface TaskCalendarProps {
   embedded?: boolean
-  fillHeight?: boolean
 }
 
-export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps = {}) {
+export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const dispatch = useDispatch()
   const me = useSelector((state: RootState) => state.auth.me)
   const isAdmin = me?.role === 'Admin'
@@ -207,6 +209,8 @@ export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps
   const [loading, setLoading] = useState(true)
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [includeArchived, setIncludeArchived] = useState(false)
+  const [mobileSelectedDate, setMobileSelectedDate] = useState<Date>(() => new Date())
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   // On refresh always show today's date in Gregorian (לוח לועזי) — no restore from sessionStorage
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date } | null>(() => {
     const now = new Date()
@@ -1234,13 +1238,15 @@ export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps
     }
   }, [calendarDateDisplay, isHebrewMode])
 
-  const holidayEvents =
-    dateRange?.start && dateRange?.end
-      ? [
-          ...(showJewishHolidays ? getJewishHolidays(dateRange.start, dateRange.end) : []),
-          ...(showIslamicHolidays ? getIslamicHolidays(dateRange.start, dateRange.end) : []),
-        ]
+  const jewishHolidayList =
+    dateRange?.start && dateRange?.end && showJewishHolidays
+      ? getJewishHolidays(dateRange.start, dateRange.end)
       : []
+  const islamicHolidayList =
+    dateRange?.start && dateRange?.end && showIslamicHolidays
+      ? getIslamicHolidays(dateRange.start, dateRange.end)
+      : []
+  const holidayEvents = [...jewishHolidayList, ...islamicHolidayList]
 
   const events = [
     ...holidayEvents,
@@ -1383,6 +1389,20 @@ export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps
             <div className="rounded-xl sm:rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-xl shadow-gray-200/40 dark:shadow-none p-2 sm:p-6">
               {loading && tasks.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
+              ) : isMobile ? (
+                <OutlookMobileCalendar
+                  tasks={tasks}
+                  jewishHolidays={jewishHolidayList}
+                  islamicHolidays={islamicHolidayList}
+                  selectedDate={mobileSelectedDate}
+                  onSelectDate={setMobileSelectedDate}
+                  onMonthChange={(start, end) => setDateRange({ start, end })}
+                  onEventClick={(t) => setSelectedTask(t)}
+                  onCreateClick={() => setShowCreateModal(true)}
+                  onOpenFilters={() => setMobileFiltersOpen(true)}
+                  canCreate={isAdmin || users.some(u => u.id === me?.id)}
+                  calendarDateDisplay={calendarDateDisplay}
+                />
               ) : (
                 <>
                 <div className="task-calendar-filterbar flex flex-nowrap sm:flex-wrap items-center gap-2 mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-gray-200 dark:border-gray-600 overflow-x-auto sm:overflow-visible -mx-1 px-1">
@@ -1664,10 +1684,9 @@ export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps
               slotLabelInterval="01:00:00"
               nowIndicator={true}
               navLinks={true}
-              contentHeight={fillHeight || isMobile ? 'auto' : 720}
-              height={fillHeight ? '100%' : undefined}
+              contentHeight={isMobile ? 'auto' : 720}
               handleWindowResize={true}
-              expandRows={isMobile || fillHeight}
+              expandRows={isMobile}
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               allDayText="כל היום"
@@ -2665,6 +2684,87 @@ export default function TaskCalendar({ embedded, fillHeight }: TaskCalendarProps
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+      {mobileFiltersOpen && (
+        <Modal isOpen={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)} title="סינון יומן">
+          <div className="space-y-4">
+            <div>
+              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סוג תאריך בתאים</div>
+              <div className="flex rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/50 p-0.5">
+                {(['gregorian', 'hebrew', 'both'] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => handleCalendarDateDisplayChange(opt)}
+                    className={cn(
+                      'flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all',
+                      calendarDateDisplay === opt
+                        ? 'bg-violet-600 text-white shadow-md'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    )}
+                  >
+                    {opt === 'gregorian' ? 'לועזי' : opt === 'hebrew' ? 'עברי' : 'עברי ולועזי'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleJewishHolidaysChange(!showJewishHolidays)}
+              className={cn(
+                'w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border',
+                showJewishHolidays
+                  ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-300'
+                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+              )}
+            >
+              <span>✡️ חגי ישראל</span>
+              <span>{showJewishHolidays ? 'מוצג' : 'מוסתר'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleIslamicHolidaysChange(!showIslamicHolidays)}
+              className={cn(
+                'w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border',
+                showIslamicHolidays
+                  ? 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300'
+                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+              )}
+            >
+              <span>☪️ חגים אסלאמיים</span>
+              <span>{showIslamicHolidays ? 'מוצג' : 'מוסתר'}</span>
+            </button>
+            {isAdmin && (
+              <div>
+                <label htmlFor="mobile-filter-user" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סינון לפי משתמש</label>
+                <select
+                  id="mobile-filter-user"
+                  value={filterUserId ?? ''}
+                  onChange={(e) => setFilterUserId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm"
+                >
+                  <option value="">כל המשתמשים</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIncludeArchived(v => !v)}
+              className={cn(
+                'w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border',
+                includeArchived
+                  ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+              )}
+            >
+              <span>כולל ארכיון</span>
+              <span>{includeArchived ? 'מוצג' : 'מוסתר'}</span>
+            </button>
+          </div>
         </Modal>
       )}
       <ToastNotification toast={toast} onClose={hideToast} />
