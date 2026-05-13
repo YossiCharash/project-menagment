@@ -42,7 +42,24 @@ interface TransactionRow {
   contractPeriodId?: number | ''
   isSplitTransaction?: boolean
   splitGroupId?: string
+  balanceSplits?: Array<{ id: string; projectId: number | ''; subprojectId: number | ''; amount: number | ''; files: File[] }>
 }
+
+interface BalanceSplitEntry {
+  id: string
+  projectId: number | ''
+  subprojectId: number | ''
+  amount: number | ''
+  files: File[]
+}
+
+const defaultBalanceSplitEntry = (): BalanceSplitEntry => ({
+  id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+  projectId: '',
+  subprojectId: '',
+  amount: '',
+  files: [],
+})
 
 const DRAFT_DOC_ID_KEY = '__draftDocId' as const
 const tagAsDraftDoc = (file: File, draftDocId: number): File => {
@@ -157,8 +174,10 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     unforeseenStatus: 'draft',
     incomes: [{ amount: '', description: '', documentFiles: [] }],
     expenses: [{ amount: '', description: '', documentFiles: [] }],
+    balanceSplits: [],
   })
   const [panelUnforeseen, setPanelUnforeseen] = useState<Partial<TransactionRow>>(defaultPanelUnforeseen())
+  const [showBalanceSplit, setShowBalanceSplit] = useState(false)
 
   const defaultSplitEntry = (): SplitProjectEntry => ({
     id: Date.now().toString(),
@@ -808,6 +827,80 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
             } catch (_) {}
             rowErrors.push(`שורה ${i + 1}: העסקה הלא צפויה בוטלה כי העלאת מסמכים נכשלה`)
             return { succeeded: false, rowErrors }
+          }
+
+          if ((row.balanceSplits ?? []).length > 0) {
+            const rowIncomesSum = (row.incomes ?? []).reduce((s, x) => s + (Number(x.amount) || 0), 0)
+            const rowExpensesSum = (row.expenses ?? []).reduce((s, x) => s + (Number(x.amount) || 0), 0)
+            const rowBalance = rowIncomesSum - rowExpensesSum
+            if (rowBalance === 0) {
+              rowErrors.push(`שורה ${i + 1}: אין יתרה לחלוקה — חלוקות נדלגו`)
+            } else {
+              const splitTxType: 'Income' | 'Expense' = rowBalance > 0 ? 'Income' : 'Expense'
+              const offsetTxType: 'Income' | 'Expense' = rowBalance > 0 ? 'Expense' : 'Income'
+              let totalSplitCreated = 0
+              for (let sIdx = 0; sIdx < (row.balanceSplits ?? []).length; sIdx++) {
+                const split = row.balanceSplits![sIdx]
+                if (!split.projectId || !split.amount || Number(split.amount) <= 0) continue
+                try {
+                  const splitProjectId = (split.subprojectId || split.projectId) as number
+                  const splitPayload: TransactionCreate = {
+                    project_id: splitProjectId,
+                    tx_date: row.txDate,
+                    type: splitTxType,
+                    amount: Number(split.amount),
+                    description: row.description || 'חלוקת יתרה מעסקה לא צפויה',
+                    notes: row.notes || undefined,
+                    is_exceptional: false,
+                    from_fund: false,
+                  }
+                  const splitTx = await TransactionAPI.createTransaction(splitPayload)
+                  totalSplitCreated += Number(split.amount)
+                  const splitTxId = typeof splitTx.id === 'number' ? splitTx.id : parseInt(String(splitTx.id), 10)
+                  if (split.files?.length && !isNaN(splitTxId)) {
+                    for (const file of split.files) {
+                      try {
+                        const draftDocId = draftDocIdOf(file)
+                        if (draftDocId == null && file.size > 50 * 1024 * 1024) {
+                          rowErrors.push(`שורה ${i + 1}, חלוקה ${sIdx + 1}: ${file.name} גדול מדי`)
+                          continue
+                        }
+                        if (draftDocId != null) {
+                          await TransactionAPI.attachDraftDocumentToTransaction(splitTxId, draftDocId)
+                        } else {
+                          await TransactionAPI.uploadTransactionDocument(splitTxId, file)
+                        }
+                      } catch (uErr: any) {
+                        rowErrors.push(`שורה ${i + 1}, חלוקה ${sIdx + 1}: שגיאה בהעלאת ${file.name}: ${uErr.response?.data?.detail || uErr.message || 'שגיאה'}`)
+                      }
+                    }
+                  }
+                } catch (splitErr: any) {
+                  rowErrors.push(`שורה ${i + 1}, חלוקה ${sIdx + 1}: ${splitErr.response?.data?.detail || splitErr.message || 'שגיאה ביצירת עסקת חלוקה'}`)
+                }
+              }
+              if (totalSplitCreated > 0) {
+                try {
+                  const sourceProjectId = (row.subprojectId || row.projectId) as number
+                  const offsetDescription = rowBalance > 0
+                    ? 'קיזוז חלוקת יתרה לפרויקטים אחרים'
+                    : 'קיזוז חלוקת הוצאה לפרויקטים אחרים'
+                  const offsetPayload: TransactionCreate = {
+                    project_id: sourceProjectId,
+                    tx_date: row.txDate,
+                    type: offsetTxType,
+                    amount: totalSplitCreated,
+                    description: offsetDescription,
+                    notes: row.notes || undefined,
+                    is_exceptional: false,
+                    from_fund: false,
+                  }
+                  await TransactionAPI.createTransaction(offsetPayload)
+                } catch (offsetErr: any) {
+                  rowErrors.push(`שורה ${i + 1}: יצירת עסקת קיזוז במקור נכשלה — חלוקות יוצרו אך הפרויקט המקורי לא קוזז (${offsetErr.response?.data?.detail || offsetErr.message || 'שגיאה'})`)
+                }
+              }
+            }
           }
 
           const status = row.unforeseenStatus ?? 'draft'
@@ -1512,6 +1605,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     const data = panelUnforeseen
     if (!data.projectId) return
 
+    const cleanedSplits = (data.balanceSplits ?? []).filter(s => s.projectId && s.amount && Number(s.amount) > 0)
+
     if (editingCardRowId) {
       setRows(prev => prev.map(r => r.id === editingCardRowId ? {
         ...r,
@@ -1525,6 +1620,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         expenses: data.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
         unforeseenStatus: data.unforeseenStatus ?? 'draft',
         isUnforeseen: true,
+        balanceSplits: cleanedSplits,
       } : r))
     } else {
       const newRow: TransactionRow = {
@@ -1550,12 +1646,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         incomes: data.incomes ?? [{ amount: '', description: '', documentFiles: [] }],
         expenses: data.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
         contractPeriodId: data.contractPeriodId ?? '',
+        balanceSplits: cleanedSplits,
       }
       setRows(prev => [...prev, newRow])
     }
     setActivePanelType(null)
     setEditingCardRowId(null)
     setPanelUnforeseen(defaultPanelUnforeseen())
+    setShowBalanceSplit(false)
   }
 
   const handleSavePanelSplit = () => {
@@ -1596,6 +1694,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     if (!row) return
     setEditingCardRowId(rowId)
     if (row.isUnforeseen) {
+      const hydratedSplits = row.balanceSplits ?? []
       setPanelUnforeseen({
         projectId: row.projectId,
         subprojectId: row.subprojectId,
@@ -1606,6 +1705,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         unforeseenStatus: row.unforeseenStatus,
         incomes: row.incomes ?? [{ amount: '', description: '', documentFiles: [] }],
         expenses: row.expenses ?? [{ amount: '', description: '', documentFiles: [] }],
+        balanceSplits: hydratedSplits,
+      })
+      setShowBalanceSplit(hydratedSplits.length > 0)
+      hydratedSplits.forEach(s => {
+        if (s.projectId) {
+          const proj = projects.find(p => p.id === s.projectId)
+          if (proj?.is_parent_project) loadSubprojects(s.projectId as number)
+        }
       })
       setActivePanelType('unforeseen')
     } else {
@@ -1765,6 +1872,11 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                         <span className="inline-block px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-[11px] font-medium">לא צפויה</span>
                         <div className="text-xs text-gray-600 dark:text-gray-400">הכנסות: <strong className="text-green-600">{(row.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0).toLocaleString('he-IL')} ₪</strong></div>
                         <div className="text-xs text-gray-600 dark:text-gray-400">הוצאות: <strong className="text-red-600">{(row.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString('he-IL')} ₪</strong></div>
+                        {(row.balanceSplits?.length ?? 0) > 0 && (
+                          <div className="text-[11px]">
+                            <span className="inline-block px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded-full font-medium">מתחלק בין {row.balanceSplits!.length} פרויקטים</span>
+                          </div>
+                        )}
                         <div className="text-xs text-gray-400">{row.txDate}</div>
                       </div>
                     ) : (
@@ -2098,6 +2210,105 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     <div className="text-xs text-green-600 dark:text-green-400 font-medium pt-1">סה"כ: {(panelUnforeseen.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0).toLocaleString('he-IL')} ₪</div>
                   </div>
                 </div>
+                {/* Balance split between projects */}
+                {(() => {
+                  const incomesSum = (panelUnforeseen.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0)
+                  const expensesSum = (panelUnforeseen.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                  const balance = incomesSum - expensesSum
+                  const splits = panelUnforeseen.balanceSplits ?? []
+                  const splitsSum = splits.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                  const absBalance = Math.abs(balance)
+                  const remaining = absBalance - splitsSum
+                  const exceeded = splitsSum > absBalance
+                  const noBalance = balance === 0
+                  return (
+                    <div className="rounded-xl border border-teal-200 dark:border-teal-800/50 border-r-4 border-r-teal-500 bg-teal-50/40 dark:bg-teal-900/10 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3 bg-teal-50 dark:bg-teal-900/20 border-b border-teal-200 dark:border-teal-800/50">
+                        <div className="flex flex-col">
+                          <h4 className="text-sm font-semibold text-teal-700 dark:text-teal-400">חלק את היתרה בין פרויקטים</h4>
+                          <span className="text-[11px] text-gray-600 dark:text-gray-400">יתרה נוכחית: <strong className={balance >= 0 ? 'text-green-600' : 'text-red-600'}>{balance.toLocaleString('he-IL')} ₪</strong></span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {noBalance && <span className="text-[11px] text-gray-500 dark:text-gray-400">אין יתרה לחלוקה</span>}
+                          <button
+                            type="button"
+                            disabled={noBalance}
+                            onClick={() => {
+                              const next = !showBalanceSplit
+                              setShowBalanceSplit(next)
+                              if (next && (panelUnforeseen.balanceSplits ?? []).length === 0) {
+                                setPanelUnforeseen(prev => ({ ...prev, balanceSplits: [defaultBalanceSplitEntry()] }))
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${showBalanceSplit ? 'bg-teal-500 border-teal-500 text-white' : 'border-teal-400 text-teal-600 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/30'}`}
+                          >
+                            {showBalanceSplit ? 'בטל חלוקה' : 'הפעל חלוקה'}
+                          </button>
+                        </div>
+                      </div>
+                      {showBalanceSplit && (
+                        <div className="p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-gray-500 dark:text-gray-400">חלוקה לפי פרויקט</span>
+                            <button
+                              type="button"
+                              onClick={() => setPanelUnforeseen(prev => ({ ...prev, balanceSplits: [...(prev.balanceSplits ?? []), defaultBalanceSplitEntry()] }))}
+                              className="flex items-center gap-1 px-2 py-1 text-[11px] bg-teal-500 hover:bg-teal-600 text-white rounded-md transition-colors font-medium"
+                            >
+                              <Plus className="w-3 h-3" />
+                              הוסף פרויקט
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {splits.map((entry, entryIdx) => (
+                              <div key={entry.id} className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">פרויקט {entryIdx + 1}</span>
+                                  {splits.length > 1 && (
+                                    <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).filter((_, i) => i !== entryIdx) }))} className="p-0.5 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-3 h-3" /></button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <select value={entry.projectId} onChange={e => { const pid = e.target.value ? Number(e.target.value) : ''; setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).map((en, i) => i === entryIdx ? { ...en, projectId: pid, subprojectId: '' } : en) })); if (pid) { const proj = projects.find(p => p.id === pid); if (proj?.is_parent_project) loadSubprojects(pid as number) } }} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                    <option value="">פרויקט *</option>
+                                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                  </select>
+                                  {entry.projectId && projects.find(p => p.id === entry.projectId)?.is_parent_project ? (
+                                    <select value={entry.subprojectId} onChange={e => setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).map((en, i) => i === entryIdx ? { ...en, subprojectId: e.target.value ? Number(e.target.value) : '' } : en) }))} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                      <option value="">תת-פרויקט</option>
+                                      {(subprojectsMap[entry.projectId as number] || []).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                                    </select>
+                                  ) : <div />}
+                                  <input type="number" min="0" step="0.01" value={entry.amount} onChange={e => setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).map((en, i) => i === entryIdx ? { ...en, amount: e.target.value ? Number(e.target.value) : '' } : en) }))} className="col-span-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="סכום *" />
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <label className="cursor-pointer flex items-center gap-1 px-2 py-1 border border-dashed border-gray-300 dark:border-gray-600 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
+                                    <Upload className="w-3 h-3" />
+                                    מסמכים
+                                    <input type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).map((en, i) => i === entryIdx ? { ...en, files: [...en.files, ...files] } : en) })); e.currentTarget.value = '' }} />
+                                  </label>
+                                  {entry.files.map((f, fi) => (
+                                    <div key={fi} className="flex items-center gap-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
+                                      <FileIcon className="w-2.5 h-2.5" />
+                                      <span className="truncate max-w-[60px]">{f.name}</span>
+                                      <button type="button" onClick={() => setPanelUnforeseen(prev => ({ ...prev, balanceSplits: (prev.balanceSplits ?? []).map((en, i) => i === entryIdx ? { ...en, files: en.files.filter((_, idx) => idx !== fi) } : en) }))} className="text-red-500 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 pt-1.5 border-t border-teal-200 dark:border-teal-800 flex items-center justify-between text-xs">
+                            <span className="text-gray-600 dark:text-gray-400">סה"כ חלוקה: <strong className="text-teal-700 dark:text-teal-300">{splitsSum.toLocaleString('he-IL')} ₪</strong></span>
+                            <span className={`font-medium ${exceeded ? 'text-red-600' : remaining === 0 && splitsSum > 0 ? 'text-green-600' : 'text-gray-600 dark:text-gray-400'}`}>
+                              {exceeded ? `חריגה: ${Math.abs(remaining).toLocaleString('he-IL')} ₪` : `נותר לחלוקה: ${remaining.toLocaleString('he-IL')} ₪`}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סטטוס</label>
                   <select value={panelUnforeseen.unforeseenStatus ?? 'draft'} onChange={e => setPanelUnforeseen(prev => ({ ...prev, unforeseenStatus: e.target.value as 'draft' | 'waiting_for_approval' | 'executed' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -2109,7 +2320,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               </div>
               <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
                 <button type="button" onClick={() => setActivePanelType(null)} className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
-                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelUnforeseen} disabled={!panelUnforeseen.projectId || !panelUnforeseen.txDate} className="px-8 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
+                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelUnforeseen} disabled={(() => {
+                  if (!panelUnforeseen.projectId || !panelUnforeseen.txDate) return true
+                  const incomesSum = (panelUnforeseen.incomes ?? []).reduce((s, i) => s + (Number(i.amount) || 0), 0)
+                  const expensesSum = (panelUnforeseen.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                  const balance = incomesSum - expensesSum
+                  const splits = panelUnforeseen.balanceSplits ?? []
+                  const splitsSum = splits.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                  if (splitsSum > Math.abs(balance)) return true
+                  if (splits.some(s => s.amount && Number(s.amount) > 0 && !s.projectId)) return true
+                  return false
+                })()} className="px-8 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
               </div>
             </motion.div>
           </div>
