@@ -1382,38 +1382,39 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 </PermissionGuard>
               </div>
             )}
-            {outlookStatus?.configured && (
-              <div className="flex items-center gap-2">
-                {outlookStatus.connected ? (
-                  <>
-                    <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
-                      <CalendarSync className="w-4 h-4" />
-                      מחובר ל-Outlook
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleOutlookDisconnect}
-                      disabled={outlookDisconnecting}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 disabled:opacity-50 transition-colors"
-                    >
-                      <Unlink className="w-3.5 h-3.5" />
-                      נתק
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleOutlookConnect}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 transition-colors shadow-sm"
-                  >
-                    <Link2 className="w-4 h-4" />
-                    סנכרון ל-Outlook
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </header>
+        )}
+
+        {outlookStatus?.configured && (
+          <div className="flex items-center gap-2 justify-end">
+            {outlookStatus.connected ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                  <CalendarSync className="w-4 h-4" />
+                  מחובר ל-Outlook
+                </span>
+                <button
+                  type="button"
+                  onClick={handleOutlookDisconnect}
+                  disabled={outlookDisconnecting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 disabled:opacity-50 transition-colors"
+                >
+                  <Unlink className="w-3.5 h-3.5" />
+                  נתק
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleOutlookConnect}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 transition-colors shadow-sm"
+              >
+                <Link2 className="w-4 h-4" />
+                סנכרון ל-Outlook
+              </button>
+            )}
+          </div>
         )}
 
         <div className="space-y-3">
