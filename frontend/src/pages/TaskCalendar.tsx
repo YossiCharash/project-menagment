@@ -210,6 +210,17 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [includeArchived, setIncludeArchived] = useState(false)
   const [mobileSelectedDate, setMobileSelectedDate] = useState<Date>(() => new Date())
+  // dedupe by day so re-emitted ranges from the child don't cause refetch churn
+  const handleMobileRangeChange = useCallback((start: Date, end: Date) => {
+    setDateRange(prev => {
+      if (prev) {
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+        if (ymd(prev.start) === ymd(start) && ymd(prev.end) === ymd(end)) return prev
+      }
+      return { start, end }
+    })
+  }, [])
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [mobileView, setMobileView] = useState<MobileCalendarView>(() => {
     try {
@@ -431,8 +442,12 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     fetchTaskLabels()
   }, [fetchTaskLabels])
 
+  const hasFetchedOnceRef = useRef(false)
   useEffect(() => {
-    setLoading(true)
+    if (!hasFetchedOnceRef.current) {
+      setLoading(true)
+    }
+    hasFetchedOnceRef.current = true
     fetchTasks()
   }, [fetchTasks])
 
@@ -1412,7 +1427,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   islamicHolidays={islamicHolidayList}
                   selectedDate={mobileSelectedDate}
                   onSelectDate={setMobileSelectedDate}
-                  onRangeChange={(start, end) => setDateRange({ start, end })}
+                  onRangeChange={handleMobileRangeChange}
                   mobileView={mobileView}
                   onMobileViewChange={setMobileView}
                   onEventClick={(t) => setSelectedTask(t)}
