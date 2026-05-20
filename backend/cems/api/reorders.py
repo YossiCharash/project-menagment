@@ -1,16 +1,11 @@
-"""Reorder request endpoints for the CEMS consumable inventory module.
-
-Manages the full reorder lifecycle: PENDING -> ORDERED -> RECEIVED (or CANCELLED).
-When a reorder is marked as RECEIVED, the consumable item's quantity is updated
-to reflect the received stock.
-"""
+"""Reorder request endpoints for the CEMS consumable inventory module."""
 
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +17,19 @@ from backend.cems.api.deps import (
     require_admin_or_manager,
     require_any_cems_role,
 )
+from backend.cems.core.exceptions import (
+    ConsumableItemNotFoundError,
+    NonPositiveQuantityError,
+    ReorderAlreadyCancelledError,
+    ReorderAlreadyReceivedError,
+    ReorderInvalidTransitionError,
+    ReorderNotFoundError,
+)
+from backend.cems.messages import reorder_messages
 from backend.cems.models.base import _utc_now
 from backend.cems.models.consumable import ConsumableItem
 from backend.cems.models.reorder import ReorderRequest, ReorderStatus
 from backend.models.user import User
-
-# ── Schemas ──────────────────────────────────────────────────────────────────
 
 
 class ReorderRequestCreate(BaseModel):
@@ -71,13 +73,7 @@ class ReorderRequestRead(BaseModel):
         return data
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-async def _get_reorder_or_404(
-    db: AsyncSession, reorder_id: uuid.UUID
-) -> ReorderRequest:
-    """Load a ReorderRequest by ID with its item relationship, or raise 404."""
+async def _get_reorder_or_404(db: AsyncSession, reorder_id: uuid.UUID) -> ReorderRequest:
     stmt = (
         select(ReorderRequest)
         .options(selectinload(ReorderRequest.item))
@@ -86,14 +82,9 @@ async def _get_reorder_or_404(
     result = await db.execute(stmt)
     reorder = result.scalar_one_or_none()
     if reorder is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reorder request not found.",
-        )
+        raise ReorderNotFoundError()
     return reorder
 
-
-# ── Router ───────────────────────────────────────────────────────────────────
 
 router = APIRouter(prefix="/reorders", tags=["CEMS Reorders"])
 
@@ -104,19 +95,12 @@ async def create_reorder_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> ReorderRequestRead:
-    """Create a new reorder request for a consumable item."""
     item = await db.get(ConsumableItem, payload.item_id)
     if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Consumable item not found.",
-        )
+        raise ConsumableItemNotFoundError()
 
     if payload.quantity_requested <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Quantity requested must be positive.",
-        )
+        raise NonPositiveQuantityError()
 
     reorder = ReorderRequest(
         item_id=payload.item_id,
@@ -129,7 +113,6 @@ async def create_reorder_request(
     db.add(reorder)
     await db.flush()
 
-    # Reload with relationship for the response
     loaded = await _get_reorder_or_404(db, reorder.id)
     return ReorderRequestRead.from_model(loaded)
 
@@ -141,7 +124,6 @@ async def list_reorder_requests(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ReorderRequestRead]:
-    """List reorder requests with optional status and item_id filters."""
     stmt = (
         select(ReorderRequest)
         .options(selectinload(ReorderRequest.item))
@@ -165,14 +147,10 @@ async def mark_reorder_ordered(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ReorderRequestRead:
-    """Mark a PENDING reorder as ORDERED (order placed with supplier)."""
     reorder = await _get_reorder_or_404(db, reorder_id)
 
     if reorder.status != ReorderStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot mark as ordered: current status is {reorder.status.value}.",
-        )
+        raise ReorderInvalidTransitionError(reorder.status.value, target="ordered")
 
     reorder.status = ReorderStatus.ORDERED
     reorder.ordered_at = _utc_now()
@@ -193,20 +171,15 @@ async def mark_reorder_received(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ReorderRequestRead:
-    """Mark an ORDERED reorder as RECEIVED and update the consumable item's stock."""
     reorder = await _get_reorder_or_404(db, reorder_id)
 
     if reorder.status != ReorderStatus.ORDERED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot mark as received: current status is {reorder.status.value}.",
-        )
+        raise ReorderInvalidTransitionError(reorder.status.value, target="received")
 
     if payload.quantity_received <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Quantity received must be positive.",
-        )
+        # Reuse the reorder-specific message instead of the generic one.
+        from backend.cems.core.exceptions.base import CEMSValidationError
+        raise CEMSValidationError(reorder_messages.QUANTITY_RECEIVED_POSITIVE)
 
     reorder.status = ReorderStatus.RECEIVED
     reorder.received_at = _utc_now()
@@ -215,7 +188,6 @@ async def mark_reorder_received(
     if payload.notes is not None:
         reorder.notes = payload.notes
 
-    # Update the consumable item's quantity
     item = await db.get(ConsumableItem, reorder.item_id)
     if item is not None:
         item.quantity += payload.quantity_received
@@ -232,20 +204,13 @@ async def cancel_reorder(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ReorderRequestRead:
-    """Cancel a reorder request (only if not yet received)."""
     reorder = await _get_reorder_or_404(db, reorder_id)
 
     if reorder.status == ReorderStatus.RECEIVED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot cancel a reorder that has already been received.",
-        )
+        raise ReorderAlreadyReceivedError()
 
     if reorder.status == ReorderStatus.CANCELLED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Reorder request is already cancelled.",
-        )
+        raise ReorderAlreadyCancelledError()
 
     reorder.status = ReorderStatus.CANCELLED
     await db.flush()

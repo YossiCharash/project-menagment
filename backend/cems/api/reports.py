@@ -5,10 +5,28 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
+from backend.cems.api.deps import (
+    get_current_user,
+    get_db,
+    require_admin_or_manager,
+    require_any_cems_role,
+    RequireWarehouseManager,
+)
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.core.exceptions import WarehouseNotFoundError
 from backend.cems.models.consumable import ConsumableItem, StockAlert
 from backend.cems.models.fixed_asset import AssetStatus, FixedAsset
-from backend.cems.models.transfer import Transfer, TransferStatus, WarehouseReturn, ReturnStatus
+from backend.cems.models.transfer import (
+    ReturnStatus,
+    Transfer,
+    TransferStatus,
+    WarehouseReturn,
+)
 from backend.cems.models.user import User
 from backend.cems.models.warehouse import Warehouse
 from backend.cems.repositories.asset_repository import AssetRepository
@@ -26,7 +44,6 @@ async def dashboard(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> DashboardSummary:
-    # Total fixed assets by status
     status_counts: dict[AssetStatus, int] = {}
     for s in AssetStatus:
         stmt = select(func.count()).select_from(FixedAsset).where(FixedAsset.status == s)
@@ -35,29 +52,24 @@ async def dashboard(
 
     total = sum(status_counts.values())
 
-    # Total consumables
     stmt = select(func.count()).select_from(ConsumableItem)
     total_consumables = (await db.execute(stmt)).scalar_one()
 
-    # Low stock
     stmt = select(func.count()).select_from(ConsumableItem).where(
         ConsumableItem.quantity <= ConsumableItem.low_stock_threshold
     )
     low_stock = (await db.execute(stmt)).scalar_one()
 
-    # Pending transfers
     stmt = select(func.count()).select_from(Transfer).where(
         Transfer.status == TransferStatus.PENDING
     )
     pending_transfers = (await db.execute(stmt)).scalar_one()
 
-    # Pending returns
     stmt = select(func.count()).select_from(WarehouseReturn).where(
         WarehouseReturn.status == ReturnStatus.PENDING
     )
     pending_returns = (await db.execute(stmt)).scalar_one()
 
-    # Unresolved alerts
     stmt = select(func.count()).select_from(StockAlert).where(StockAlert.resolved.is_(False))
     unresolved_alerts = (await db.execute(stmt)).scalar_one()
 
@@ -83,17 +95,13 @@ async def warehouse_report(
 ) -> WarehouseSummary:
     warehouse = await db.get(Warehouse, warehouse_id)
     if warehouse is None:
-        from fastapi import HTTPException, status
+        raise WarehouseNotFoundError()
 
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
-
-    # Assets directly linked to this warehouse
     stmt = select(func.count()).select_from(FixedAsset).where(
         FixedAsset.current_warehouse_id == warehouse_id
     )
     total_assets = (await db.execute(stmt)).scalar_one()
 
-    # Consumables directly linked to this warehouse
     stmt = select(func.count()).select_from(ConsumableItem).where(
         ConsumableItem.warehouse_id == warehouse_id
     )
@@ -123,8 +131,8 @@ async def warehouse_report(
 
 @router.get("/retired-assets", response_model=List[FixedAssetRead])
 async def retired_assets(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> List[FixedAssetRead]:
@@ -136,8 +144,8 @@ async def retired_assets(
 @router.get("/transfers", response_model=List[TransferRead])
 async def transfer_report(
     status_filter: Optional[TransferStatus] = Query(None, alias="status"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> List[TransferRead]:

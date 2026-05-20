@@ -1,22 +1,25 @@
 import uuid
 from typing import Optional
 
-from fastapi import HTTPException, status
-
+from backend.cems.core.exceptions import (
+    AssetAlreadyHasActiveTransferError,
+    AssetNotFoundError,
+    AssetNotTransferableError,
+    AssetUnassignedError,
+    TransferNotFoundError,
+    TransferNotPendingError,
+    TransferRecipientMismatchError,
+)
+from backend.cems.messages import history_actions, transfer_messages
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.models.signature import SignatureType
 from backend.cems.models.transfer import Transfer, TransferStatus
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
-from backend.cems.services._signature_factory import create_signature_hash
 
 
 class TransferService:
-    """Orchestrates the full lifecycle of an asset transfer.
-
-    Depends on repository abstractions (constructor-injected) so
-    the service is testable in isolation with mocks / in-memory repos.
-    """
+    """Orchestrates the full lifecycle of an asset transfer."""
 
     def __init__(
         self,
@@ -36,30 +39,18 @@ class TransferService:
     ) -> Transfer:
         asset = await self._asset_repo.get_by_id(asset_id)
         if asset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Asset not found.",
-            )
+            raise AssetNotFoundError()
 
         if asset.status != AssetStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Asset is not transferable (current status: {asset.status.value}).",
-            )
+            raise AssetNotTransferableError(asset.status.value)
 
         from_user_id = asset.current_custodian_id
         if from_user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="הנכס אינו מוקצה לעובד כלשהו ולא ניתן להעבירו. יש להקצות אותו תחילה.",
-            )
+            raise AssetUnassignedError()
 
         active_transfers = await self._transfer_repo.get_active_transfers_for_asset(asset_id)
         if active_transfers:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Asset already has an active transfer in progress.",
-            )
+            raise AssetAlreadyHasActiveTransferError()
 
         await self._asset_repo.update(asset_id, {"status": AssetStatus.IN_TRANSFER})
 
@@ -78,7 +69,7 @@ class TransferService:
 
         await self._asset_repo.log_history(
             asset_id=asset_id,
-            action="TRANSFER_INITIATED",
+            action=history_actions.TRANSFER_INITIATED,
             actor_id=initiated_by_id,
             from_custodian_id=from_user_id,
             to_custodian_id=to_user_id,
@@ -98,22 +89,13 @@ class TransferService:
     ) -> Transfer:
         transfer = await self._transfer_repo.get_by_id(transfer_id)
         if transfer is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Transfer not found.",
-            )
+            raise TransferNotFoundError()
 
         if transfer.status != TransferStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Transfer is not pending (current status: {transfer.status.value}).",
-            )
+            raise TransferNotPendingError(transfer.status.value)
 
         if transfer.to_user_id != recipient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the designated recipient can complete this transfer.",
-            )
+            raise TransferRecipientMismatchError()
 
         signature = await self._transfer_repo.create_signature(
             {
@@ -144,16 +126,15 @@ class TransferService:
 
         await self._asset_repo.log_history(
             asset_id=transfer.asset_id,
-            action="TRANSFER_COMPLETED",
+            action=history_actions.TRANSFER_COMPLETED,
             actor_id=recipient_id,
             from_custodian_id=transfer.from_user_id,
             to_custodian_id=transfer.to_user_id,
             from_warehouse_id=transfer.from_warehouse_id,
             to_warehouse_id=transfer.to_warehouse_id,
-            notes=f"העברה הושלמה עם חתימה.",
+            notes=transfer_messages.COMPLETED_SIGNED_HISTORY_NOTE,
         )
 
-        # Re-fetch to get updated state
         return await self._transfer_repo.get_by_id(transfer_id)  # type: ignore[return-value]
 
     async def reject_transfer(
@@ -164,23 +145,16 @@ class TransferService:
     ) -> Transfer:
         transfer = await self._transfer_repo.get_by_id(transfer_id)
         if transfer is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Transfer not found.",
-            )
+            raise TransferNotFoundError()
 
         if transfer.status != TransferStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Transfer is not pending (current status: {transfer.status.value}).",
-            )
+            raise TransferNotPendingError(transfer.status.value)
 
         await self._transfer_repo.update(
             transfer_id,
             {"status": TransferStatus.REJECTED, "notes": reason},
         )
 
-        # Restore asset to ACTIVE
         await self._asset_repo.update(
             transfer.asset_id,
             {"status": AssetStatus.ACTIVE},
@@ -188,9 +162,9 @@ class TransferService:
 
         await self._asset_repo.log_history(
             asset_id=transfer.asset_id,
-            action="TRANSFER_REJECTED",
+            action=history_actions.TRANSFER_REJECTED,
             actor_id=rejected_by_id,
-            notes=f"העברה נדחתה. סיבה: {reason}",
+            notes=transfer_messages.rejected_history_note(reason),
         )
 
         return await self._transfer_repo.get_by_id(transfer_id)  # type: ignore[return-value]

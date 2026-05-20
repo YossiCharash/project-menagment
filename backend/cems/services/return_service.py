@@ -1,8 +1,16 @@
 import uuid
 from typing import Optional
 
-from fastapi import HTTPException, status
-
+from backend.cems.core.exceptions import (
+    AssetNotFoundError,
+    ReturnWarehouseNotFoundError,
+    WarehouseNotFoundError,
+    WarehouseReturnNotFoundError,
+    WarehouseReturnNotPendingError,
+    WarehouseReturnUnauthorizedError,
+)
+from backend.cems.core.exceptions.asset_exceptions import AssetNotReturnableError
+from backend.cems.messages import history_actions, return_messages
 from backend.cems.models.base import _utc_now
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.models.signature import SignatureType
@@ -10,6 +18,8 @@ from backend.cems.models.transfer import ReturnStatus, WarehouseReturn
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
 from backend.cems.repositories.warehouse_repository import WarehouseRepository
+
+_RETURNABLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE)
 
 
 class ReturnService:
@@ -34,23 +44,14 @@ class ReturnService:
     ) -> WarehouseReturn:
         asset = await self._asset_repo.get_by_id(asset_id)
         if asset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Asset not found.",
-            )
+            raise AssetNotFoundError()
 
-        if asset.status not in (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Asset cannot be returned (current status: {asset.status.value}).",
-            )
+        if asset.status not in _RETURNABLE_STATUSES:
+            raise AssetNotReturnableError(asset.status.value)
 
         warehouse = await self._warehouse_repo.get_by_id(warehouse_id)
         if warehouse is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Warehouse not found.",
-            )
+            raise WarehouseNotFoundError()
 
         warehouse_return = await self._transfer_repo.create_return(
             {
@@ -64,9 +65,9 @@ class ReturnService:
 
         await self._asset_repo.log_history(
             asset_id=asset_id,
-            action="RETURN_REQUESTED",
+            action=history_actions.RETURN_REQUESTED,
             actor_id=returned_by_id,
-            notes=f"בקשת החזרה למחסן. סיבה: {reason or 'לא צוינה'}",
+            notes=return_messages.request_history_note(reason),
         )
 
         return warehouse_return
@@ -81,32 +82,18 @@ class ReturnService:
     ) -> WarehouseReturn:
         warehouse_return = await self._transfer_repo.get_return_by_id(return_id)
         if warehouse_return is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Warehouse return not found.",
-            )
+            raise WarehouseReturnNotFoundError()
 
         if warehouse_return.status != ReturnStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Return is not pending.",
-            )
+            raise WarehouseReturnNotPendingError()
 
-        # Validate manager owns the warehouse
         warehouse = await self._warehouse_repo.get_by_id(warehouse_return.warehouse_id)
         if warehouse is None or warehouse.current_manager_id != manager_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the warehouse manager can approve returns.",
-            )
+            raise WarehouseReturnUnauthorizedError()
 
-        # Validate the target warehouse exists
         target_warehouse = await self._warehouse_repo.get_by_id(return_warehouse_id)
         if target_warehouse is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Return warehouse not found.",
-            )
+            raise ReturnWarehouseNotFoundError()
 
         signature = await self._transfer_repo.create_signature(
             {
@@ -118,12 +105,11 @@ class ReturnService:
             }
         )
 
-        now = _utc_now()
         warehouse_return.status = ReturnStatus.APPROVED
         warehouse_return.manager_id = manager_id
         warehouse_return.manager_signature_id = signature.id
         warehouse_return.return_warehouse_id = return_warehouse_id
-        warehouse_return.resolved_at = now
+        warehouse_return.resolved_at = _utc_now()
         await self._transfer_repo._session.flush()
 
         await self._asset_repo.update(
@@ -137,11 +123,11 @@ class ReturnService:
 
         await self._asset_repo.log_history(
             asset_id=warehouse_return.asset_id,
-            action="RETURNED_TO_WAREHOUSE",
+            action=history_actions.RETURNED_TO_WAREHOUSE,
             actor_id=manager_id,
             from_custodian_id=warehouse_return.returned_by_id,
             to_warehouse_id=return_warehouse_id,
-            notes=f"החזרה אושרה על ידי מנהל. סיבת החזרה: {warehouse_return.return_reason or 'לא צוינה'}",
+            notes=return_messages.approved_history_note(warehouse_return.return_reason),
         )
 
         return warehouse_return

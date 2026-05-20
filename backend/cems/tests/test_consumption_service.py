@@ -71,9 +71,9 @@ async def test_consume_stock_raises_on_insufficient_quantity(
 ):
     service = _build_service(async_session)
 
-    from fastapi import HTTPException
+    from backend.cems.core.exceptions import InsufficientStockError
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(InsufficientStockError) as exc_info:
         await service.consume_stock(
             item_id=seed_consumable.id,
             consumer_id=seed_users["employee"].id,

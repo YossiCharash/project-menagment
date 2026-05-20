@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,17 @@ from backend.cems.api.deps import (
     require_admin_or_manager,
     require_any_cems_role,
 )
+from backend.cems.configurations.file_uploads import ASSET_PHOTO_PREFIX
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.configurations.roles import CEMS_EMPLOYEE
+from backend.cems.configurations.warranty import DEFAULT_WARRANTY_DAYS_AHEAD
+from backend.cems.core.exceptions import AssetNotAssignableError, AssetNotFoundError
+from backend.cems.messages import asset_messages, history_actions
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
@@ -43,6 +54,7 @@ class AssignAssetRequest(PydanticBaseModel):
     to_user_id: int
     notes: Optional[str] = None
 
+
 router = APIRouter(prefix="/assets", tags=["CEMS Assets"])
 
 
@@ -54,13 +66,12 @@ async def list_assets(
     category_id: Optional[uuid.UUID] = Query(None),
     custodian_id: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[FixedAssetRead]:
-    # Employees are restricted to their assigned warehouse.
-    if current_user.cems_role == "Employee":
+    if current_user.cems_role == CEMS_EMPLOYEE:
         employee_wh = get_employee_warehouse_filter(current_user)
         if employee_wh is None:
             return []
@@ -82,7 +93,7 @@ async def list_assets(
 
 @router.get("/expiring-warranties", response_model=List[FixedAssetRead])
 async def expiring_warranties(
-    days: int = Query(30, ge=1),
+    days: int = Query(DEFAULT_WARRANTY_DAYS_AHEAD, ge=1),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> List[FixedAssetRead]:
@@ -91,21 +102,18 @@ async def expiring_warranties(
     return [FixedAssetRead.model_validate(a) for a in assets]
 
 
-# ── Retirement Management ────────────────────────────────────────────────────
-# These routes use the literal prefix "/retirements" and MUST be registered
-# before the parameterised "/{asset_id}" route so that FastAPI does not
-# attempt to parse "retirements" as a UUID.
+# Retirement routes MUST be registered before "/{asset_id}" so that
+# FastAPI does not try to parse "retirements" as a UUID.
 
 
 @router.get("/retirements", response_model=List[RetirementRead])
 async def list_retirements(
     status_filter: Optional[str] = Query(None, alias="status"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> List[RetirementRead]:
-    """Return retirement requests, optionally filtered by status."""
     transfer_repo = TransferRepository(db)
     if status_filter:
         retirements = await transfer_repo.get_retirements_by_status(
@@ -134,7 +142,6 @@ async def approve_retirement(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> RetirementRead:
-    """Approve a pending retirement request and mark the asset as RETIRED."""
     service = RetirementService(
         AssetRepository(db), TransferRepository(db), UserRepository(db),
     )
@@ -153,7 +160,6 @@ async def reject_retirement(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> RetirementRead:
-    """Reject a pending retirement request with a reason."""
     service = RetirementService(
         AssetRepository(db), TransferRepository(db), UserRepository(db),
     )
@@ -165,9 +171,6 @@ async def reject_retirement(
     return RetirementRead.model_validate(retirement)
 
 
-# ── Single Asset by ID ───────────────────────────────────────────────────────
-
-
 @router.get("/{asset_id}", response_model=FixedAssetRead)
 async def get_asset(
     asset_id: uuid.UUID,
@@ -177,7 +180,7 @@ async def get_asset(
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        raise AssetNotFoundError()
     return FixedAssetRead.model_validate(asset)
 
 
@@ -193,9 +196,9 @@ async def create_asset(
     asset = await repo.create(payload.model_dump())
     await repo.log_history(
         asset_id=asset.id,
-        action="ASSET_CREATED",
+        action=history_actions.ASSET_CREATED,
         actor_id=current_user.id,
-        notes=f"נכס '{asset.name}' נוצר עם מס' סידורי '{asset.serial_number}'.",
+        notes=asset_messages.created_history_note(asset.name, asset.serial_number),
     )
     return FixedAssetRead.model_validate(asset)
 
@@ -211,16 +214,16 @@ async def update_asset(
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        raise AssetNotFoundError()
     if asset.current_warehouse_id is not None:
         await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
     data = payload.model_dump(exclude_unset=True)
     asset = await repo.update(asset_id, data)
     await repo.log_history(
         asset_id=asset_id,
-        action="ASSET_UPDATED",
+        action=history_actions.ASSET_UPDATED,
         actor_id=current_user.id,
-        notes=f"שדות שעודכנו: {list(data.keys())}",
+        notes=asset_messages.updated_history_note(list(data.keys())),
     )
     return FixedAssetRead.model_validate(asset)
 
@@ -228,8 +231,8 @@ async def update_asset(
 @router.get("/{asset_id}/history", response_model=List[AssetHistoryRead])
 async def asset_history(
     asset_id: uuid.UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[AssetHistoryRead]:
@@ -248,7 +251,7 @@ async def move_asset(
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        raise AssetNotFoundError()
     if asset.current_warehouse_id is not None:
         await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
     from_warehouse_id = asset.current_warehouse_id
@@ -258,7 +261,7 @@ async def move_asset(
     asset.status = AssetStatus.IN_WAREHOUSE
     await repo.log_history(
         asset_id=asset.id,
-        action="WAREHOUSE_MOVE",
+        action=history_actions.WAREHOUSE_MOVE,
         actor_id=current_user.id,
         from_custodian_id=from_custodian_id,
         from_warehouse_id=from_warehouse_id,
@@ -278,20 +281,19 @@ async def assign_asset(
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
-    if asset.status not in (AssetStatus.IN_WAREHOUSE, AssetStatus.ACTIVE) or (
-        asset.status == AssetStatus.ACTIVE and asset.current_custodian_id is not None
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"ניתן להקצות רק נכסים שאינם מוקצים לעובד (סטטוס נוכחי: {asset.status.value}).",
-        )
+        raise AssetNotFoundError()
+    is_assignable = (
+        asset.status in (AssetStatus.IN_WAREHOUSE, AssetStatus.ACTIVE)
+        and not (asset.status == AssetStatus.ACTIVE and asset.current_custodian_id is not None)
+    )
+    if not is_assignable:
+        raise AssetNotAssignableError(asset.status.value)
     from_warehouse_id = asset.current_warehouse_id
     asset.current_custodian_id = payload.to_user_id
     asset.status = AssetStatus.ACTIVE
     await repo.log_history(
         asset_id=asset.id,
-        action="ASSIGNED_TO_EMPLOYEE",
+        action=history_actions.ASSIGNED_TO_EMPLOYEE,
         actor_id=current_user.id,
         to_custodian_id=payload.to_user_id,
         from_warehouse_id=from_warehouse_id,
@@ -307,17 +309,16 @@ async def upload_asset_photo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> FixedAssetRead:
-    """Upload or replace the primary photo for a fixed asset. Uses S3 if configured, otherwise local disk."""
     content = await file.read()
     validate_photo(file.filename, content)
 
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        raise AssetNotFoundError()
 
     new_photo_url = store_photo(
-        prefix="asset_photos",
+        prefix=ASSET_PHOTO_PREFIX,
         existing_url=asset.photo_url,
         file_bytes=content,
         filename=file.filename,
@@ -327,9 +328,9 @@ async def upload_asset_photo(
     asset = await repo.update(asset_id, {"photo_url": new_photo_url})
     await repo.log_history(
         asset_id=asset_id,
-        action="PHOTO_UPDATED",
+        action=history_actions.PHOTO_UPDATED,
         actor_id=current_user.id,
-        notes="תמונת ציוד עודכנה",
+        notes=asset_messages.PHOTO_UPDATED_HISTORY_NOTE,
     )
     return FixedAssetRead.model_validate(asset)
 

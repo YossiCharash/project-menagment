@@ -1,11 +1,29 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
+from backend.cems.api.deps import (
+    get_current_user,
+    get_db,
+    get_employee_warehouse_filter,
+    require_admin,
+    require_admin_or_manager,
+    require_any_cems_role,
+    RequireWarehouseManager,
+)
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_MANAGER_HISTORY_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MAX_MANAGER_HISTORY_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.configurations.roles import CEMS_EMPLOYEE
+from backend.cems.core.exceptions import WarehouseNotFoundError
 from backend.cems.models.user import User
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.consumable_repository import ConsumableRepository
@@ -27,7 +45,6 @@ router = APIRouter(prefix="/warehouses", tags=["CEMS Warehouses"])
 
 
 def _warehouse_to_read(warehouse) -> WarehouseRead:
-    """Convert a Warehouse ORM instance to WarehouseRead, populating project fields."""
     data = WarehouseRead.model_validate(warehouse)
     data.project_ids = [p.id for p in warehouse.projects]
     data.project_names = [p.name for p in warehouse.projects]
@@ -36,15 +53,14 @@ def _warehouse_to_read(warehouse) -> WarehouseRead:
 
 @router.get("", response_model=List[WarehouseRead])
 async def list_warehouses(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[WarehouseRead]:
     repo = WarehouseRepository(db)
 
-    # Employees only see their assigned warehouse
-    if current_user.cems_role == "Employee":
+    if current_user.cems_role == CEMS_EMPLOYEE:
         employee_wh = get_employee_warehouse_filter(current_user)
         if employee_wh is None:
             return []
@@ -70,8 +86,10 @@ async def create_warehouse(
 @router.get("/{warehouse_id}/manager-history", response_model=List[ManagerHistoryReadWithNames])
 async def get_manager_history(
     warehouse_id: uuid.UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(
+        DEFAULT_MANAGER_HISTORY_LIMIT, ge=MIN_LIMIT, le=MAX_MANAGER_HISTORY_LIMIT
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ManagerHistoryReadWithNames]:
@@ -117,7 +135,7 @@ async def update_warehouse(
     data = payload.model_dump(exclude_unset=True)
     warehouse = await repo.update(warehouse_id, data)
     if warehouse is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+        raise WarehouseNotFoundError()
     warehouse = await repo.get_with_projects(warehouse_id)
     return _warehouse_to_read(warehouse)
 
@@ -131,7 +149,7 @@ async def delete_warehouse(
     repo = WarehouseRepository(db)
     deleted = await repo.delete(warehouse_id)
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+        raise WarehouseNotFoundError()
 
 
 @router.post("/{warehouse_id}/change-manager", response_model=WarehouseRead)
@@ -164,7 +182,7 @@ async def update_warehouse_projects(
     repo = WarehouseRepository(db)
     warehouse = await repo.get_by_id(warehouse_id)
     if warehouse is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")
+        raise WarehouseNotFoundError()
     await repo.set_warehouse_projects(warehouse_id, payload.project_ids)
     warehouse = await repo.get_with_projects(warehouse_id)
     return _warehouse_to_read(warehouse)
@@ -173,8 +191,8 @@ async def update_warehouse_projects(
 @router.get("/{warehouse_id}/inventory", response_model=List[FixedAssetRead])
 async def warehouse_inventory(
     warehouse_id: uuid.UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[FixedAssetRead]:

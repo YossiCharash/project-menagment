@@ -11,17 +11,23 @@ import uuid
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.cems.configurations.category_limits import MAX_CATEGORY_DEPTH
+from backend.cems.core.exceptions import (
+    CategoryCycleDetectedError,
+    CategoryDescendantAsParentError,
+    CategoryMaxDepthExceededError,
+    CategoryNotFoundError,
+    CategorySelfParentError,
+    ParentCategoryNotFoundError,
+)
 from backend.cems.models.category import AssetCategory
 from backend.cems.models.consumable import ConsumableItem
 from backend.cems.models.fixed_asset import FixedAsset
 from backend.cems.schemas.category import AssetCategoryTreeNode, CategoryItemRead
-
-_MAX_DEPTH = 3
 
 
 class CategoryTreeService:
@@ -30,83 +36,45 @@ class CategoryTreeService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    # ── Validation ──────────────────────────────────────────────────────────
-
     async def validate_parent(
         self,
         parent_id: uuid.UUID,
         category_id: Optional[uuid.UUID] = None,
     ) -> None:
-        """Validate that *parent_id* is a legal parent for *category_id*.
-
-        Checks:
-        1. Parent category exists.
-        2. Parent is not the category itself.
-        3. Assigning this parent would not exceed MAX_DEPTH (3 levels).
-        4. Assigning this parent would not create a cycle.
-        """
         if category_id is not None and parent_id == category_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="קטגוריה לא יכולה להיות ההורה של עצמה.",
-            )
+            raise CategorySelfParentError()
 
         parent = await self._db.get(AssetCategory, parent_id)
         if parent is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="קטגוריית האב לא נמצאה.",
-            )
+            raise ParentCategoryNotFoundError()
 
-        # Check depth: walk up from parent to root and count levels.
-        depth = 1  # The parent itself is at least depth 1.
+        depth = 1
         current = parent
         visited: set[uuid.UUID] = {parent_id}
         while current.parent_id is not None:
             if current.parent_id in visited:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="זוהה מעגל בהיררכיית הקטגוריות.",
-                )
+                raise CategoryCycleDetectedError()
             visited.add(current.parent_id)
             current = await self._db.get(AssetCategory, current.parent_id)
             if current is None:
                 break
             depth += 1
 
-        # The new category would be at depth+1. Max allowed is _MAX_DEPTH.
-        if depth + 1 > _MAX_DEPTH:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"עומק מקסימלי של היררכיה הוא {_MAX_DEPTH} רמות.",
-            )
+        if depth + 1 > MAX_CATEGORY_DEPTH:
+            raise CategoryMaxDepthExceededError(MAX_CATEGORY_DEPTH)
 
-        # Cycle check: if reparenting an existing category, ensure parent_id
-        # is not a descendant of category_id.
         if category_id is not None:
             descendant_ids = await self.get_descendant_ids(category_id)
             if parent_id in descendant_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="לא ניתן להגדיר קטגוריה צאצאית כהורה.",
-                )
-
-    # ── Tree ────────────────────────────────────────────────────────────────
+                raise CategoryDescendantAsParentError()
 
     async def get_tree(self) -> list[AssetCategoryTreeNode]:
-        """Return all categories as a nested tree structure.
-
-        Loads all categories in a single query, then builds the tree
-        in-memory to avoid N+1 queries.
-        """
         stmt = select(AssetCategory).order_by(AssetCategory.position, AssetCategory.name)
         result = await self._db.execute(stmt)
         categories = list(result.scalars().all())
 
-        # Fetch item counts for all categories in bulk.
         items_count_map = await self._get_all_items_counts()
 
-        # Build lookup structures.
         node_map: dict[uuid.UUID, AssetCategoryTreeNode] = {}
         children_map: dict[Optional[uuid.UUID], list[uuid.UUID]] = defaultdict(list)
 
@@ -125,7 +93,6 @@ class CategoryTreeService:
                 children=[],
             )
 
-        # Wire children into parents (bottom-up).
         roots: list[AssetCategoryTreeNode] = []
         for cat_id, node in node_map.items():
             child_ids = children_map.get(cat_id, [])
@@ -136,20 +103,14 @@ class CategoryTreeService:
 
         return roots
 
-    # ── Items ───────────────────────────────────────────────────────────────
-
     async def get_category_items(
         self,
         category_id: uuid.UUID,
         include_descendants: bool = False,
     ) -> list[CategoryItemRead]:
-        """Return a unified list of FixedAssets and ConsumableItems for a category."""
         category = await self._db.get(AssetCategory, category_id)
         if category is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="קטגוריה לא נמצאה.",
-            )
+            raise CategoryNotFoundError()
 
         target_ids: set[uuid.UUID] = {category_id}
         if include_descendants:
@@ -157,7 +118,6 @@ class CategoryTreeService:
 
         items: list[CategoryItemRead] = []
 
-        # Fixed assets
         asset_stmt = (
             select(FixedAsset)
             .options(selectinload(FixedAsset.current_warehouse))
@@ -178,7 +138,6 @@ class CategoryTreeService:
                 warehouse_name=warehouse.name if warehouse else None,
             ))
 
-        # Consumable items
         consumable_stmt = (
             select(ConsumableItem)
             .options(selectinload(ConsumableItem.warehouse))
@@ -201,10 +160,7 @@ class CategoryTreeService:
 
         return items
 
-    # ── Descendant helpers ──────────────────────────────────────────────────
-
     async def get_descendant_ids(self, category_id: uuid.UUID) -> set[uuid.UUID]:
-        """Recursively collect all descendant category IDs."""
         all_ids: set[uuid.UUID] = set()
         queue: list[uuid.UUID] = [category_id]
 
@@ -220,10 +176,7 @@ class CategoryTreeService:
 
         return all_ids
 
-    # ── Deletion safety ─────────────────────────────────────────────────────
-
     async def can_delete(self, category_id: uuid.UUID) -> bool:
-        """Return True only if no items reference this category or any descendant."""
         target_ids = {category_id} | await self.get_descendant_ids(category_id)
 
         asset_count_stmt = (
@@ -242,10 +195,7 @@ class CategoryTreeService:
 
         return (asset_count + consumable_count) == 0
 
-    # ── Private helpers ─────────────────────────────────────────────────────
-
     async def _get_all_items_counts(self) -> dict[uuid.UUID, int]:
-        """Bulk-fetch item counts per category (assets + consumables)."""
         asset_stmt = (
             select(FixedAsset.category_id, func.count().label("cnt"))
             .group_by(FixedAsset.category_id)
