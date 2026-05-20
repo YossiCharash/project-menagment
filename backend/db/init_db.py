@@ -1,7 +1,6 @@
 """
 Database initialization - creates all tables, enums, and indexes.
-All database schema is defined in the SQLAlchemy models in backend/models/
-and backend/cems/models/.
+All database schema is defined in the SQLAlchemy models in backend/models/.
 
 This file only creates missing tables on first run; it never modifies existing schema.
 Schema changes must be applied via SQL migration scripts in backend/migrations/.
@@ -10,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.db.base import Base
 
-# ── Main application models ──────────────────────────────────────────────────
 from backend.models import (  # noqa: F401
     User,
     Project,
@@ -37,25 +35,21 @@ from backend.models import (  # noqa: F401
     GroupTransactionDraftDocument,
 )
 
-# ── CEMS models (same Base, so the same create_all covers them) ───────────────
-from backend.cems.models import (  # noqa: F401
-    Warehouse,
-    ManagerHistory,
-    AssetCategory,
-    Project as CemsProject,
-    FixedAsset,
-    AssetHistory,
+from backend.models.cems_warehouse import Warehouse, ManagerHistory  # noqa: F401
+from backend.models.cems_category import AssetCategory  # noqa: F401
+from backend.models.cems_project import CemsProject  # noqa: F401
+from backend.models.cems_fixed_asset import FixedAsset, AssetHistory  # noqa: F401
+from backend.models.cems_consumable import (  # noqa: F401
     ConsumableItem,
     ConsumptionLog,
     StockAlert,
-    ConsumableMovementLog,
-    Transfer,
-    WarehouseReturn,
-    AssetRetirement,
-    ReorderRequest,
-    Signature,
-    Document as CemsDocument,
 )
+from backend.models.cems_consumable_movement import ConsumableMovementLog  # noqa: F401
+from backend.models.cems_transfer import Transfer, WarehouseReturn  # noqa: F401
+from backend.models.cems_retirement import AssetRetirement  # noqa: F401
+from backend.models.cems_reorder import ReorderRequest  # noqa: F401
+from backend.models.cems_signature import Signature  # noqa: F401
+from backend.models.cems_document import CemsDocument  # noqa: F401
 
 
 async def init_database(engine: AsyncEngine):
