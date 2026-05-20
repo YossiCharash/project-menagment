@@ -60,10 +60,10 @@ async def test_approve_retirement_requires_authority(
         disposal_method="Disposal",
     )
 
-    from fastapi import HTTPException
+    from backend.cems.core.exceptions import RetirementUnauthorizedError
 
     # Employee should not be allowed to approve
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(RetirementUnauthorizedError) as exc_info:
         await service.approve_retirement(
             retirement_id=retirement.id,
             manager_id=seed_users["employee"].id,

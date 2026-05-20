@@ -1,10 +1,26 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_admin_or_manager, require_any_cems_role, check_warehouse_manager_access
+from backend.cems.api.deps import (
+    check_warehouse_manager_access,
+    get_current_user,
+    get_db,
+    require_admin_or_manager,
+    require_any_cems_role,
+)
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.core.exceptions import (
+    TransferNotFoundError,
+    WarehouseReturnNotFoundError,
+)
 from backend.cems.models.transfer import TransferStatus
 from backend.cems.models.user import User
 from backend.cems.repositories.asset_repository import AssetRepository
@@ -29,8 +45,6 @@ from backend.cems.services.transfer_service import TransferService
 router = APIRouter(prefix="/transfers", tags=["CEMS Transfers"])
 
 
-# ---------- Transfers ----------
-
 @router.post("", response_model=TransferRead, status_code=201)
 async def initiate_transfer(
     payload: TransferCreate,
@@ -53,8 +67,8 @@ async def initiate_transfer(
 @router.get("", response_model=List[TransferRead])
 async def list_transfers(
     status_filter: Optional[TransferStatus] = Query(None, alias="status"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[TransferRead]:
@@ -75,7 +89,7 @@ async def get_transfer(
     repo = TransferRepository(db)
     transfer = await repo.get_by_id(transfer_id)
     if transfer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer not found.")
+        raise TransferNotFoundError()
     return TransferRead.model_validate(transfer)
 
 
@@ -116,8 +130,6 @@ async def reject_transfer(
     return TransferRead.model_validate(transfer)
 
 
-# ---------- Warehouse Returns ----------
-
 @router.post("/returns", response_model=WarehouseReturnRead, status_code=201)
 async def request_return(
     payload: WarehouseReturnCreate,
@@ -148,7 +160,7 @@ async def approve_return(
 
     wr_record = await db.get(WarehouseReturnModel, return_id)
     if wr_record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return not found.")
+        raise WarehouseReturnNotFoundError(short=True)
     await check_warehouse_manager_access(wr_record.warehouse_id, current_user, db)
     asset_repo = AssetRepository(db)
     transfer_repo = TransferRepository(db)
@@ -163,8 +175,6 @@ async def approve_return(
     )
     return WarehouseReturnRead.model_validate(wr)
 
-
-# ---------- Retirements ----------
 
 @router.post("/retirements/{retirement_id}/approve", response_model=RetirementRead)
 async def approve_retirement(

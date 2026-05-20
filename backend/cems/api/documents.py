@@ -1,69 +1,81 @@
 import os
 import uuid
+from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, computed_field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.cems.api.deps import get_current_user, get_db, require_any_cems_role, require_admin_or_manager, _is_cems_admin
+from backend.cems.api.deps import (
+    _is_cems_admin,
+    get_current_user,
+    get_db,
+    require_admin_or_manager,
+    require_any_cems_role,
+)
+from backend.cems.configurations.file_uploads import (
+    ALLOWED_DOCUMENT_EXTENSIONS,
+    DEFAULT_DOCUMENT_FILENAME,
+    DOCUMENT_PREFIX,
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENT_SIZE_MB,
+)
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.core.exceptions import (
+    DocumentDeleteForbiddenError,
+    DocumentNotFoundError,
+    FileNotOnDiskError,
+    FileTooLargeError,
+    UnsupportedFileExtensionError,
+)
 from backend.cems.models.document import Document, DocumentType
 from backend.cems.models.user import User
-from backend.core.config import settings
-from pydantic import BaseModel, ConfigDict, computed_field
-from datetime import date, datetime
-
+from backend.cems.services.photo_storage import PhotoStorage
 
 router = APIRouter(prefix="/documents", tags=["CEMS Documents"])
 
 
-# ---------- File handling constants & helpers ----------
-
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx"}
-MAX_SIZE_MB = 20
+_DANGEROUS_FILENAME_CHARS = ("/", "\\", "\0", "..")
 
 
-def _get_cems_docs_dir() -> str:
-    """Return the absolute path to the cems_documents upload directory, creating it if needed."""
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    d = os.path.join(base, "cems_documents")
-    os.makedirs(d, exist_ok=True)
-    return d
+class _DocumentFileValidator:
+    """Encapsulates document file validation and on-disk path handling."""
 
+    @staticmethod
+    def sanitize_filename(raw_name: str) -> str:
+        safe = (raw_name or DEFAULT_DOCUMENT_FILENAME).strip() or DEFAULT_DOCUMENT_FILENAME
+        for ch in _DANGEROUS_FILENAME_CHARS:
+            safe = safe.replace(ch, "_")
+        return safe
 
-def _sanitize_filename(raw_name: str) -> str:
-    """Strip dangerous characters from an uploaded filename."""
-    safe = (raw_name or "file").strip() or "file"
-    for ch in ["/", "\\", "\0", ".."]:
-        safe = safe.replace(ch, "_")
-    return safe
+    @staticmethod
+    def validate_extension(filename: str) -> str:
+        ext = (os.path.splitext(filename or "")[1] or "").lower()
+        if ext not in ALLOWED_DOCUMENT_EXTENSIONS:
+            raise UnsupportedFileExtensionError(ALLOWED_DOCUMENT_EXTENSIONS)
+        return ext
 
+    @staticmethod
+    def validate_size(content: bytes) -> None:
+        if len(content) > MAX_DOCUMENT_BYTES:
+            raise FileTooLargeError(MAX_DOCUMENT_SIZE_MB)
 
-def _validate_extension(filename: str) -> str:
-    """Return the lower-cased extension or raise HTTP 400 if disallowed."""
-    ext = (os.path.splitext(filename or "")[1] or "").lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"סוג קובץ לא נתמך. מותרים: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
-        )
-    return ext
+    @staticmethod
+    def ensure_documents_dir() -> str:
+        return PhotoStorage.ensure_local_dir(DOCUMENT_PREFIX)
 
+    @staticmethod
+    def resolve_full_path(relative_path: str) -> str:
+        return os.path.join(PhotoStorage.resolve_upload_base(), relative_path)
 
-def _validate_file_size(content: bytes) -> None:
-    """Raise HTTP 400 if the file exceeds the maximum allowed size."""
-    if len(content) > MAX_SIZE_MB * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"גודל קובץ מקסימלי: {MAX_SIZE_MB} MB",
-        )
-
-
-# ---------- Schemas (co-located because Document is a leaf entity) ----------
 
 class DocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -86,14 +98,12 @@ class DocumentRead(BaseModel):
         return f"/uploads/{self.file_path}"
 
 
-# ---------- Endpoints ----------
-
 @router.get("", response_model=List[DocumentRead])
 async def list_documents(
     entity_type: Optional[str] = Query(None),
     entity_id: Optional[uuid.UUID] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[DocumentRead]:
@@ -119,20 +129,19 @@ async def upload_document(
     current_user: User = Depends(require_admin_or_manager),
 ) -> DocumentRead:
     """Upload a file and create a CemsDocument record."""
-    _validate_extension(file.filename or "")
+    _DocumentFileValidator.validate_extension(file.filename or "")
     content = await file.read()
-    _validate_file_size(content)
+    _DocumentFileValidator.validate_size(content)
 
-    safe_name = _sanitize_filename(file.filename or "file")
-    unique_prefix = uuid.uuid4().hex
-    stored_name = f"{unique_prefix}_{safe_name}"
+    safe_name = _DocumentFileValidator.sanitize_filename(file.filename or DEFAULT_DOCUMENT_FILENAME)
+    stored_name = f"{uuid.uuid4().hex}_{safe_name}"
 
-    docs_dir = _get_cems_docs_dir()
+    docs_dir = _DocumentFileValidator.ensure_documents_dir()
     full_path = os.path.join(docs_dir, stored_name)
-    with open(full_path, "wb") as f:
-        f.write(content)
+    with open(full_path, "wb") as fh:
+        fh.write(content)
 
-    relative_path = f"cems_documents/{stored_name}"
+    relative_path = f"{DOCUMENT_PREFIX}/{stored_name}"
     doc = Document(
         entity_type=entity_type,
         entity_id=entity_id,
@@ -154,19 +163,14 @@ async def download_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> FileResponse:
-    """Serve the physical file for a given document record."""
     doc = await db.get(Document, document_id)
     if doc is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+        raise DocumentNotFoundError()
 
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    full_path = os.path.join(base, doc.file_path)
+    full_path = _DocumentFileValidator.resolve_full_path(doc.file_path)
 
     if not os.path.isfile(full_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk.")
+        raise FileNotOnDiskError()
 
     return FileResponse(full_path, filename=doc.filename, media_type="application/octet-stream")
 
@@ -179,23 +183,16 @@ async def delete_document(
 ) -> None:
     doc = await db.get(Document, document_id)
     if doc is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+        raise DocumentNotFoundError()
     if not _is_cems_admin(current_user) and doc.uploaded_by_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the uploader or an admin can delete this document.",
-        )
+        raise DocumentDeleteForbiddenError()
 
-    # Remove the physical file from disk
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    full_path = os.path.join(base, doc.file_path)
+    full_path = _DocumentFileValidator.resolve_full_path(doc.file_path)
     if os.path.isfile(full_path):
         try:
             os.remove(full_path)
         except OSError:
+            # Best-effort cleanup: if disk removal fails, still delete the DB row.
             pass
 
     await db.delete(doc)

@@ -82,9 +82,9 @@ async def test_complete_transfer_requires_correct_recipient(
         initiated_by_id=seed_users["manager"].id,
     )
 
-    from fastapi import HTTPException
+    from backend.cems.core.exceptions import TransferRecipientMismatchError
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TransferRecipientMismatchError) as exc_info:
         await service.complete_transfer(
             transfer_id=transfer.id,
             recipient_id=seed_users["employee"].id,  # wrong user

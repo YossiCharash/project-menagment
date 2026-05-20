@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,15 +14,29 @@ from backend.cems.api.deps import (
     require_admin_or_manager,
     require_any_cems_role,
 )
+from backend.cems.configurations.file_uploads import CONSUMABLE_PHOTO_PREFIX
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.configurations.roles import CEMS_EMPLOYEE
+from backend.cems.core.exceptions import (
+    ConsumableItemNotFoundError,
+    InsufficientStockError,
+    NonPositiveQuantityError,
+    SameWarehouseTransferError,
+)
 from backend.cems.models.consumable_movement import ConsumableMovementAction
 from backend.cems.models.user import User
 from backend.cems.repositories.consumable_repository import ConsumableRepository
 from backend.cems.schemas.consumable import (
-    ConsumeStockRequest,
     ConsumableItemCreate,
     ConsumableItemRead,
     ConsumableItemUpdate,
     ConsumableMovementRead,
+    ConsumeStockRequest,
     ConsumptionLogRead,
 )
 from backend.cems.services.alert_service import AlertService
@@ -38,6 +52,7 @@ class TransferConsumableRequest(PydanticBaseModel):
     to_warehouse_id: uuid.UUID
     quantity: Decimal
 
+
 router = APIRouter(prefix="/consumables", tags=["CEMS Consumables"])
 
 
@@ -47,13 +62,12 @@ async def list_consumables(
     category_id: Optional[uuid.UUID] = Query(None),
     low_stock_only: bool = Query(False, alias="low_stock"),
     search: Optional[str] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumableItemRead]:
-    # Employees are restricted to their assigned warehouse.
-    if current_user.cems_role == "Employee":
+    if current_user.cems_role == CEMS_EMPLOYEE:
         employee_wh = get_employee_warehouse_filter(current_user)
         if employee_wh is None:
             return []
@@ -93,7 +107,7 @@ async def update_consumable(
     repo = ConsumableRepository(db)
     item = await repo.get_by_id(item_id)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+        raise ConsumableItemNotFoundError(short=True)
     await check_warehouse_manager_access(item.warehouse_id, current_user, db)
     data = payload.model_dump(exclude_unset=True)
     item = await repo.update(item_id, data)
@@ -130,7 +144,7 @@ async def move_consumable(
     repo = ConsumableRepository(db)
     item = await repo.get_by_id(item_id)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+        raise ConsumableItemNotFoundError()
     await check_warehouse_manager_access(item.warehouse_id, current_user, db)
     old_wh = item.warehouse_id
     qty_at_move = item.quantity
@@ -156,41 +170,28 @@ async def transfer_consumable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
-    """Transfer a partial quantity of a consumable item to another warehouse.
-
-    The source item's quantity is reduced by *payload.quantity*. The target
-    warehouse receives the quantity on an existing item with the same name and
-    category, or a new item is created if none exists.
-    """
+    """Transfer a partial quantity of a consumable item to another warehouse."""
     repo = ConsumableRepository(db)
 
     source = await repo.get_by_id(item_id)
     if source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+        raise ConsumableItemNotFoundError()
 
     if payload.quantity <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be positive.")
+        raise NonPositiveQuantityError()
 
     if source.quantity < payload.quantity:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Insufficient stock. Available: {source.quantity}, requested: {payload.quantity}.",
-        )
+        raise InsufficientStockError(source.quantity, payload.quantity)
 
     if source.warehouse_id == payload.to_warehouse_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Source and target warehouse must be different.",
-        )
+        raise SameWarehouseTransferError()
 
     await check_warehouse_manager_access(source.warehouse_id, current_user, db)
 
     source_wh_id = source.warehouse_id
 
-    # Decrement source item
     await repo.adjust_quantity(item_id, -payload.quantity)
 
-    # Log TRANSFER_OUT from the source perspective
     await repo.create_movement_log(
         {
             "item_id": source.id,
@@ -202,7 +203,6 @@ async def transfer_consumable(
         }
     )
 
-    # Credit target warehouse — find matching item or create a new one
     target = await repo.find_matching_in_warehouse(
         payload.to_warehouse_id, source.name, source.category_id
     )
@@ -221,7 +221,6 @@ async def transfer_consumable(
             }
         )
 
-    # Log TRANSFER_IN from the target perspective
     await repo.create_movement_log(
         {
             "item_id": target.id,
@@ -240,8 +239,8 @@ async def transfer_consumable(
 @router.get("/{item_id}/history", response_model=List[ConsumptionLogRead])
 async def consumption_history(
     item_id: uuid.UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumptionLogRead]:
@@ -253,8 +252,8 @@ async def consumption_history(
 @router.get("/{item_id}/movements", response_model=List[ConsumableMovementRead])
 async def consumable_movements(
     item_id: uuid.UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumableMovementRead]:
@@ -295,18 +294,17 @@ async def upload_consumable_photo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> ConsumableItemRead:
-    """Upload or replace the photo for a consumable item. Uses S3 if configured, otherwise local disk."""
     content = await file.read()
     validate_photo(file.filename, content)
 
     repo = ConsumableRepository(db)
     item = await repo.get_by_id(item_id)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consumable item not found.")
+        raise ConsumableItemNotFoundError()
     await check_warehouse_manager_access(item.warehouse_id, current_user, db)
 
     new_image_url = store_photo(
-        prefix="consumable_photos",
+        prefix=CONSUMABLE_PHOTO_PREFIX,
         existing_url=item.image_url,
         file_bytes=content,
         filename=file.filename,

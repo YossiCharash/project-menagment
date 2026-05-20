@@ -1,15 +1,24 @@
 import uuid
 from typing import Optional
 
-from fastapi import HTTPException, status
-
+from backend.cems.configurations.roles import CEMS_ADMIN, CEMS_MANAGER, MAIN_ADMIN
+from backend.cems.core.exceptions import (
+    AssetNotFoundError,
+    AssetNotRetirableError,
+    RetirementApproverNotFoundError,
+    RetirementNotFoundError,
+    RetirementNotPendingError,
+    RetirementUnauthorizedError,
+)
+from backend.cems.messages import history_actions, retirement_messages
 from backend.cems.models.base import _utc_now
 from backend.cems.models.fixed_asset import AssetStatus
 from backend.cems.models.retirement import AssetRetirement, RetirementStatus
-from backend.cems.models.user import UserRole
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.transfer_repository import TransferRepository
 from backend.cems.repositories.user_repository import UserRepository
+
+_RETIRABLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE)
 
 
 class RetirementService:
@@ -34,16 +43,10 @@ class RetirementService:
     ) -> AssetRetirement:
         asset = await self._asset_repo.get_by_id(asset_id)
         if asset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Asset not found.",
-            )
+            raise AssetNotFoundError()
 
-        if asset.status not in (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Asset cannot be retired (current status: {asset.status.value}).",
-            )
+        if asset.status not in _RETIRABLE_STATUSES:
+            raise AssetNotRetirableError(asset.status.value)
 
         retirement = await self._transfer_repo.create_retirement(
             {
@@ -57,9 +60,9 @@ class RetirementService:
 
         await self._asset_repo.log_history(
             asset_id=asset_id,
-            action="RETIREMENT_REQUESTED",
+            action=history_actions.RETIREMENT_REQUESTED,
             actor_id=requested_by_id,
-            notes=f"סיבה: {reason}. שיטת סילוק: {disposal_method}.",
+            notes=retirement_messages.request_history_note(reason, disposal_method),
         )
 
         return retirement
@@ -72,37 +75,23 @@ class RetirementService:
     ) -> AssetRetirement:
         retirement = await self._transfer_repo.get_retirement_by_id(retirement_id)
         if retirement is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Retirement request not found.",
-            )
+            raise RetirementNotFoundError()
 
         if retirement.status != RetirementStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Retirement request is not pending.",
-            )
+            raise RetirementNotPendingError()
 
-        # Validate authority: must be ADMIN or MANAGER
         approver = await self._user_repo.get_by_id(manager_id)
         if approver is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Approver user not found.",
-            )
+            raise RetirementApproverNotFoundError()
 
-        is_main_admin = approver.role == "Admin"
-        is_cems_authority = approver.cems_role in (UserRole.ADMIN.value, UserRole.MANAGER.value)
+        is_main_admin = approver.role == MAIN_ADMIN
+        is_cems_authority = approver.cems_role in (CEMS_ADMIN, CEMS_MANAGER)
         if not (is_main_admin or is_cems_authority):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only Admin or Manager can approve retirements.",
-            )
+            raise RetirementUnauthorizedError()
 
-        now = _utc_now()
         retirement.status = RetirementStatus.APPROVED
         retirement.approved_by_id = manager_id
-        retirement.approved_at = now
+        retirement.approved_at = _utc_now()
         if notes:
             retirement.notes = notes
         await self._transfer_repo._session.flush()
@@ -114,11 +103,11 @@ class RetirementService:
 
         await self._asset_repo.log_history(
             asset_id=retirement.asset_id,
-            action="ASSET_RETIRED",
+            action=history_actions.ASSET_RETIRED,
             actor_id=manager_id,
-            notes=f"פרישה אושרה. סיבה: {retirement.reason}. "
-                  f"שיטת סילוק: {retirement.disposal_method}. "
-                  f"הערות: {notes or 'ללא'}.",
+            notes=retirement_messages.approved_history_note(
+                retirement.reason, retirement.disposal_method, notes,
+            ),
         )
 
         return retirement
@@ -129,23 +118,12 @@ class RetirementService:
         manager_id: uuid.UUID,
         reason: str,
     ) -> AssetRetirement:
-        """Reject a pending retirement request.
-
-        Records the rejection, stamps the approver/timestamp, and logs a
-        history entry on the related asset.
-        """
         retirement = await self._transfer_repo.get_retirement_by_id(retirement_id)
         if retirement is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Retirement request not found.",
-            )
+            raise RetirementNotFoundError()
 
         if retirement.status != RetirementStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Retirement request is not pending.",
-            )
+            raise RetirementNotPendingError()
 
         retirement.status = RetirementStatus.REJECTED
         retirement.approved_by_id = manager_id
@@ -155,9 +133,9 @@ class RetirementService:
 
         await self._asset_repo.log_history(
             asset_id=retirement.asset_id,
-            action="RETIREMENT_REJECTED",
+            action=history_actions.RETIREMENT_REJECTED,
             actor_id=manager_id,
-            notes=f"פרישה נדחתה. סיבה: {reason}",
+            notes=retirement_messages.rejected_history_note(reason),
         )
 
         return retirement

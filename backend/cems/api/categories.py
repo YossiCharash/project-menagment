@@ -1,18 +1,37 @@
+import io
 import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.core.config import settings
 from backend.cems.api.deps import (
     get_current_user,
     get_db,
     require_admin,
     require_admin_or_manager,
+)
+from backend.cems.configurations.file_uploads import (
+    ALLOWED_PHOTO_EXTENSIONS,
+    CATEGORY_IMAGE_PREFIX,
+    DEFAULT_IMAGE_FILENAME,
+    MAX_PHOTO_BYTES,
+    MAX_PHOTO_SIZE_MB,
+)
+from backend.cems.configurations.pagination import (
+    DEFAULT_LIMIT,
+    DEFAULT_SKIP,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
+from backend.cems.core.exceptions import (
+    CategoryHasItemsError,
+    CategoryNotFoundError,
+    FileTooLargeError,
+    UnsupportedFileExtensionError,
 )
 from backend.cems.models.category import AssetCategory
 from backend.cems.models.consumable import ConsumableItem
@@ -26,25 +45,11 @@ from backend.cems.schemas.category import (
     CategoryItemRead,
 )
 from backend.cems.services.category_service import CategoryTreeService
+from backend.cems.services.photo_storage import PhotoStorage
+from backend.core.config import settings
 from backend.models.user import User
 
 router = APIRouter(prefix="/categories", tags=["CEMS Categories"])
-
-_ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png"}
-_MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
-
-
-def _get_category_images_dir() -> str:
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    d = os.path.join(base, "category_images")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 
 async def _load_category(db: AsyncSession, category_id: uuid.UUID) -> AssetCategory:
@@ -56,7 +61,7 @@ async def _load_category(db: AsyncSession, category_id: uuid.UUID) -> AssetCateg
     result = await db.execute(stmt)
     cat = result.scalar_one_or_none()
     if cat is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+        raise CategoryNotFoundError()
     return cat
 
 
@@ -83,28 +88,21 @@ async def _to_read_schema(db: AsyncSession, category: AssetCategory) -> AssetCat
     )
 
 
-# ── Tree endpoint (must be registered BEFORE /{category_id}) ───────────────
-
-
 @router.get("/tree", response_model=List[AssetCategoryTreeNode])
 async def get_category_tree(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[AssetCategoryTreeNode]:
-    """Return the full category hierarchy as a nested tree."""
     service = CategoryTreeService(db)
     return await service.get_tree()
-
-
-# ── Standard CRUD ──────────────────────────────────────────────────────────
 
 
 @router.get("", response_model=List[AssetCategoryRead])
 async def list_categories(
     warehouse_id: Optional[uuid.UUID] = Query(None, description="Filter by warehouse"),
     parent_id: Optional[uuid.UUID] = Query(None, description="Filter by parent category"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    skip: int = Query(DEFAULT_SKIP, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[AssetCategoryRead]:
@@ -155,7 +153,7 @@ async def update_category(
     repo = BaseRepository(AssetCategory, db)
     category = await repo.update(category_id, data)
     if category is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+        raise CategoryNotFoundError()
     category = await _load_category(db, category_id)
     return await _to_read_schema(db, category)
 
@@ -168,22 +166,15 @@ async def delete_category(
 ) -> None:
     service = CategoryTreeService(db)
 
-    # Verify category exists before checking items.
     existing = await db.get(AssetCategory, category_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+        raise CategoryNotFoundError()
 
     if not await service.can_delete(category_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="לא ניתן למחוק קטגוריה שמשויכים אליה פריטים",
-        )
+        raise CategoryHasItemsError()
 
     repo = BaseRepository(AssetCategory, db)
     await repo.delete(category_id)
-
-
-# ── Category items ─────────────────────────────────────────────────────────
 
 
 @router.get("/{category_id}/items", response_model=List[CategoryItemRead])
@@ -193,12 +184,8 @@ async def get_category_items(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[CategoryItemRead]:
-    """Return all items (assets + consumables) in a category."""
     service = CategoryTreeService(db)
     return await service.get_category_items(category_id, include_descendants=include_descendants)
-
-
-# ── Image upload ───────────────────────────────────────────────────────────
 
 
 @router.post("/{category_id}/upload-image", response_model=AssetCategoryRead)
@@ -209,25 +196,17 @@ async def upload_category_image(
     current_user: User = Depends(require_admin_or_manager),
 ) -> AssetCategoryRead:
     """Upload or replace the image for a category."""
-    import io as _io
-
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
-    if ext not in _ALLOWED_IMAGE_EXT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="סוג קובץ לא נתמך. מותרים: jpg, jpeg, png",
-        )
+    if ext not in ALLOWED_PHOTO_EXTENSIONS:
+        raise UnsupportedFileExtensionError(photo_only=True)
     content = await file.read()
-    if len(content) > _MAX_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="גודל תמונה מקסימלי: 10 MB",
-        )
+    if len(content) > MAX_PHOTO_BYTES:
+        raise FileTooLargeError(MAX_PHOTO_SIZE_MB, is_photo=True)
 
     repo = BaseRepository(AssetCategory, db)
     category = await repo.get_by_id(category_id)
     if category is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+        raise CategoryNotFoundError()
 
     if settings.AWS_S3_BUCKET:
         from backend.services.s3_service import S3Service
@@ -238,31 +217,28 @@ async def upload_category_image(
             except Exception:
                 pass
         new_image_url = s3.upload_file(
-            prefix="category_images",
-            file_obj=_io.BytesIO(content),
-            filename=file.filename or "image",
+            prefix=CATEGORY_IMAGE_PREFIX,
+            file_obj=io.BytesIO(content),
+            filename=file.filename or DEFAULT_IMAGE_FILENAME,
             content_type=file.content_type,
         )
     else:
-        base = settings.FILE_UPLOAD_DIR
-        if not os.path.isabs(base):
-            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            base = os.path.abspath(os.path.join(backend_dir, base))
-
-        safe_name = (file.filename or "image").strip().replace("/", "_").replace("\\", "_") or "image"
+        target_dir = PhotoStorage.ensure_local_dir(CATEGORY_IMAGE_PREFIX)
+        safe_name = (file.filename or DEFAULT_IMAGE_FILENAME).strip().replace("/", "_").replace("\\", "_") or DEFAULT_IMAGE_FILENAME
         stored_name = f"{uuid.uuid4().hex}_{safe_name}"
-        new_full_path = os.path.join(_get_category_images_dir(), stored_name)
+        new_full_path = os.path.join(target_dir, stored_name)
         with open(new_full_path, "wb") as fh:
             fh.write(content)
 
         if category.image_url and not category.image_url.startswith("http"):
+            base = PhotoStorage.resolve_upload_base()
             old_path = os.path.join(base, category.image_url)
             if os.path.isfile(old_path):
                 try:
                     os.remove(old_path)
                 except OSError:
                     pass
-        new_image_url = f"category_images/{stored_name}"
+        new_image_url = f"{CATEGORY_IMAGE_PREFIX}/{stored_name}"
 
     category = await repo.update(category_id, {"image_url": new_image_url})
     category = await _load_category(db, category_id)

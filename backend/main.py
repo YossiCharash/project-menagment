@@ -233,6 +233,10 @@ def create_app() -> FastAPI:
     from backend.iam.middleware import register_iam_exception_handlers
     register_iam_exception_handlers(app)
 
+    # --- CEMS exception handlers ---
+    from backend.cems.core.exceptions import register_cems_exception_handlers
+    register_cems_exception_handlers(app)
+
     # --- Router ---
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
