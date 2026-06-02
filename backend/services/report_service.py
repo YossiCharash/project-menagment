@@ -260,7 +260,11 @@ class ReportService:
             project_id: int | None,
             start_date: date,
             end_date: date,
-            from_fund: bool = False
+            from_fund: bool = False,
+            transaction_types: list[str] | None = None,
+            only_recurring: bool = False,
+            category_names: list[str] | None = None,
+            supplier_ids: list[int] | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Calculate expenses per month, category, and supplier for a period.
@@ -270,10 +274,20 @@ class ReportService:
         """
         from backend.models.supplier import Supplier
         from collections import defaultdict
-        
-        # Structure: {(month_key, category_name, supplier_name): amount}
+
+        if start_date > end_date:
+            raise ValueError(
+                f"טווח תאריכים לא תקין לפירוט חודשי: תאריך התחלה {start_date} מאוחר מתאריך סיום {end_date}"
+            )
+
+        # Default preserves prior behavior when caller does not specify types.
+        effective_types = transaction_types if transaction_types else ["Expense"]
+
         monthly_data = defaultdict(float)
-        
+
+        type_clause_regular = Transaction.type.in_(effective_types)
+        type_clause_period = Transaction.type.in_(effective_types)
+
         # 1. Regular expenses (no period dates)
         query_regular = select(
             Transaction.tx_date,
@@ -286,7 +300,7 @@ class ReportService:
             Supplier, Transaction.supplier_id == Supplier.id
         ).where(
             and_(
-                Transaction.type == "Expense",
+                type_clause_regular,
                 Transaction.from_fund == from_fund,
                 Transaction.tx_date >= start_date,
                 Transaction.tx_date <= end_date,
@@ -296,10 +310,16 @@ class ReportService:
                 )
             )
         )
-        
+
         if project_id is not None:
             query_regular = query_regular.where(Transaction.project_id == project_id)
-        
+        if only_recurring:
+            query_regular = query_regular.where(Transaction.recurring_template_id.isnot(None))
+        if category_names:
+            query_regular = query_regular.where(Category.name.in_(category_names))
+        if supplier_ids:
+            query_regular = query_regular.where(Transaction.supplier_id.in_(supplier_ids))
+
         regular_results = await self.db.execute(query_regular)
         for row in regular_results:
             month_key = row.tx_date.strftime('%Y-%m')
@@ -307,14 +327,16 @@ class ReportService:
             supplier_name = row.supplier or "ללא ספק"
             amount = float(row.amount)
             monthly_data[(month_key, cat_name, supplier_name)] += amount
-        
+
         # 2. Period expenses - split by month
         query_period = select(Transaction).options(
             selectinload(Transaction.category),
             selectinload(Transaction.supplier)
+        ).outerjoin(
+            Category, Transaction.category_id == Category.id
         ).where(
             and_(
-                Transaction.type == "Expense",
+                type_clause_period,
                 Transaction.from_fund == from_fund,
                 Transaction.period_start_date.is_not(None),
                 Transaction.period_end_date.is_not(None),
@@ -322,9 +344,15 @@ class ReportService:
                 Transaction.period_end_date >= start_date
             )
         )
-        
+
         if project_id is not None:
             query_period = query_period.where(Transaction.project_id == project_id)
+        if only_recurring:
+            query_period = query_period.where(Transaction.recurring_template_id.isnot(None))
+        if category_names:
+            query_period = query_period.where(Category.name.in_(category_names))
+        if supplier_ids:
+            query_period = query_period.where(Transaction.supplier_id.in_(supplier_ids))
         
         period_txs = (await self.db.execute(query_period)).scalars().all()
         
@@ -1948,41 +1976,27 @@ class ReportService:
         # --- Monthly Breakdown Data ---
         monthly_breakdown = []
         if options.include_monthly_breakdown:
-            start_date = options.start_date or date(2000, 1, 1)
-            end_date = options.end_date or date.today()
-
-            if options.start_date and options.end_date and proj.start_date:
-                start_year = options.start_date.year
-                end_year = options.end_date.year
-                if start_year == end_year:
-                    contract_start_month = proj.start_date.month
-                    contract_start_day = proj.start_date.day
-                    adjusted_start = date(start_year, contract_start_month, contract_start_day)
-                    if adjusted_start >= options.start_date and adjusted_start <= options.end_date:
-                        start_date = adjusted_start
-                    elif adjusted_start < options.start_date:
-                        start_date = options.start_date
-                    else:
-                        start_date = options.start_date
-                else:
-                    start_date = options.start_date
-            elif not options.start_date and not options.end_date and proj.start_date:
+            # Client-selected dates take precedence over project.start_date.
+            if options.start_date:
+                start_date = options.start_date
+            elif proj.start_date:
                 start_date = proj.start_date
+            else:
+                start_date = date(2000, 1, 1)
+
+            end_date = options.end_date or date.today()
 
             try:
                 monthly_breakdown = await self._calculate_monthly_category_supplier_expenses(
                     project_id,
                     start_date,
                     end_date,
-                    from_fund=False
+                    from_fund=False,
+                    transaction_types=options.transaction_types,
+                    only_recurring=bool(options.only_recurring),
+                    category_names=list(options.categories) if options.categories else None,
+                    supplier_ids=list(options.suppliers) if options.suppliers else None,
                 )
-                if options.categories and len(options.categories) > 0:
-                    monthly_breakdown = [row for row in monthly_breakdown if row['category'] in options.categories]
-                if options.suppliers and len(options.suppliers) > 0:
-                    supplier_query = select(Supplier).where(Supplier.id.in_(options.suppliers))
-                    supplier_result = await self.db.execute(supplier_query)
-                    supplier_names = {s.name for s in supplier_result.scalars().all()}
-                    monthly_breakdown = [row for row in monthly_breakdown if row['supplier'] in supplier_names]
                 print(f"INFO: Monthly breakdown calculated: {len(monthly_breakdown)} rows")
             except Exception as e:
                 print(f"WARNING: Error calculating monthly breakdown: {e}")

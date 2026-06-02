@@ -14,7 +14,7 @@ class TransferRepository(BaseRepository[Transfer]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Transfer, session)
 
-    async def get_pending_for_user(self, user_id: uuid.UUID) -> List[Transfer]:
+    async def get_pending_for_user(self, user_id: int) -> List[Transfer]:
         stmt = select(Transfer).where(
             Transfer.to_user_id == user_id,
             Transfer.status == TransferStatus.PENDING,
@@ -72,6 +72,32 @@ class TransferRepository(BaseRepository[Transfer]):
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_returns_by_status(
+        self,
+        status: ReturnStatus,
+        warehouse_id: Optional[uuid.UUID] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[WarehouseReturn]:
+        stmt = select(WarehouseReturn).where(WarehouseReturn.status == status)
+        if warehouse_id is not None:
+            stmt = stmt.where(WarehouseReturn.warehouse_id == warehouse_id)
+        stmt = stmt.order_by(WarehouseReturn.requested_at.desc()).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_returns(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[WarehouseReturn]:
+        stmt = (
+            select(WarehouseReturn)
+            .order_by(WarehouseReturn.requested_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     # ---------- Retirement ----------
 
     async def create_retirement(self, data: dict) -> AssetRetirement:
@@ -89,6 +115,19 @@ class TransferRepository(BaseRepository[Transfer]):
         stmt = (
             select(AssetRetirement)
             .where(AssetRetirement.status == status)
+            .order_by(AssetRetirement.requested_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_retirements(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[AssetRetirement]:
+        stmt = (
+            select(AssetRetirement)
+            .order_by(AssetRetirement.requested_at.desc())
             .offset(skip)
             .limit(limit)
         )

@@ -185,6 +185,24 @@ export interface Transfer {
   notes: string | null
 }
 
+export type ReturnStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface WarehouseReturn {
+  id: string
+  asset_id: string
+  returned_by_id: number
+  warehouse_id: string
+  return_warehouse_id: string | null
+  manager_id: number | null
+  status: ReturnStatus
+  manager_signature_id: string | null
+  return_reason: string | null
+  requested_at: string
+  resolved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface InventoryReport {
   total_assets: number
   active_assets: number
@@ -363,6 +381,24 @@ export const cemsApi = {
 
   rejectTransfer: (id: string, data: { reason: string }) =>
     api.post(`${CEMS_BASE}/transfers/${id}/reject`, data),
+
+  // ── Returns ────────────────────────────────────────────────────────────
+  getReturns: (params?: { status?: string; warehouse_id?: string }) =>
+    api.get<WarehouseReturn[]>(`${CEMS_BASE}/transfers/returns`, { params }),
+
+  getReturn: (id: string) =>
+    api.get<WarehouseReturn>(`${CEMS_BASE}/transfers/returns/${id}`),
+
+  requestReturn: (data: { asset_id: string; warehouse_id: string; reason?: string }) =>
+    api.post<WarehouseReturn>(`${CEMS_BASE}/transfers/returns`, data),
+
+  approveReturn: (
+    id: string,
+    data: { return_warehouse_id: string; signature_hash: string; ip_address?: string },
+  ) => api.post<WarehouseReturn>(`${CEMS_BASE}/transfers/returns/${id}/approve`, data),
+
+  rejectReturn: (id: string, data: { reason: string }) =>
+    api.post<WarehouseReturn>(`${CEMS_BASE}/transfers/returns/${id}/reject`, data),
 
   // ── Warehouses ──────────────────────────────────────────────────────────
   getWarehouses: () =>

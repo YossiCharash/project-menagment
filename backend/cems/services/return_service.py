@@ -28,7 +28,7 @@ class ReturnService:
     async def request_return(
         self,
         asset_id: uuid.UUID,
-        returned_by_id: uuid.UUID,
+        returned_by_id: int,
         warehouse_id: uuid.UUID,
         reason: Optional[str] = None,
     ) -> WarehouseReturn:
@@ -74,7 +74,7 @@ class ReturnService:
     async def approve_return(
         self,
         return_id: uuid.UUID,
-        manager_id: uuid.UUID,
+        manager_id: int,
         signature_hash: str,
         ip_address: Optional[str],
         return_warehouse_id: uuid.UUID,
@@ -142,6 +142,58 @@ class ReturnService:
             from_custodian_id=warehouse_return.returned_by_id,
             to_warehouse_id=return_warehouse_id,
             notes=f"החזרה אושרה על ידי מנהל. סיבת החזרה: {warehouse_return.return_reason or 'לא צוינה'}",
+        )
+
+        return warehouse_return
+
+    async def reject_return(
+        self,
+        return_id: uuid.UUID,
+        manager_id: int,
+        reason: str,
+    ) -> WarehouseReturn:
+        """Reject a pending warehouse-return request.
+
+        Validates the manager owns the warehouse, stamps the rejection
+        on the record, and logs a history entry. Asset status is left
+        unchanged (the asset was never moved).
+        """
+        warehouse_return = await self._transfer_repo.get_return_by_id(return_id)
+        if warehouse_return is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Warehouse return not found.",
+            )
+
+        if warehouse_return.status != ReturnStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Return is not pending.",
+            )
+
+        warehouse = await self._warehouse_repo.get_by_id(warehouse_return.warehouse_id)
+        if warehouse is None or warehouse.current_manager_id != manager_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the warehouse manager can reject returns.",
+            )
+
+        # Append rejection reason to any existing return_reason for audit trail.
+        existing = warehouse_return.return_reason
+        rejection_note = f"נדחה: {reason}"
+        warehouse_return.return_reason = (
+            f"{existing} | {rejection_note}" if existing else rejection_note
+        )
+        warehouse_return.status = ReturnStatus.REJECTED
+        warehouse_return.manager_id = manager_id
+        warehouse_return.resolved_at = _utc_now()
+        await self._transfer_repo._session.flush()
+
+        await self._asset_repo.log_history(
+            asset_id=warehouse_return.asset_id,
+            action="RETURN_REJECTED",
+            actor_id=manager_id,
+            notes=f"בקשת החזרה נדחתה. סיבה: {reason}",
         )
 
         return warehouse_return

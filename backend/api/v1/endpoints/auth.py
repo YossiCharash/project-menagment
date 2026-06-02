@@ -59,13 +59,19 @@ async def login(db: DBSessionDep, login_data: LoginInput):
         requires_change = False
     
     response_data = {
-        "access_token": tokens["access_token"], 
-        "token_type": "bearer", 
-        "expires_in": tokens["expires_in"], 
+        "access_token": tokens["access_token"],
+        "token_type": "bearer",
+        "expires_in": tokens["expires_in"],
         "refresh_token": tokens["refresh_token"],
         "requires_password_change": requires_change
     }
-    
+
+    # Daily contract-renewal guard: ensures the renewal pass runs at least
+    # once per day even if the background scheduler is down. Idempotent and
+    # never raises — safe to call on every successful login.
+    from backend.services.contract_renewal_guard import ContractRenewalGuard
+    await ContractRenewalGuard().ensure_daily_renewal_ran(db)
+
     return response_data
 
 
