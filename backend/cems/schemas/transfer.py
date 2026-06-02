@@ -54,10 +54,10 @@ class WarehouseReturnRead(BaseModel):
 
     id: uuid.UUID
     asset_id: uuid.UUID
-    returned_by_id: uuid.UUID
+    returned_by_id: int
     warehouse_id: uuid.UUID
     return_warehouse_id: Optional[uuid.UUID]
-    manager_id: Optional[uuid.UUID]
+    manager_id: Optional[int]
     status: ReturnStatus
     manager_signature_id: Optional[uuid.UUID]
     return_reason: Optional[str]
@@ -80,8 +80,8 @@ class RetirementRead(BaseModel):
 
     id: uuid.UUID
     asset_id: uuid.UUID
-    requested_by_id: uuid.UUID
-    approved_by_id: Optional[uuid.UUID]
+    requested_by_id: int
+    approved_by_id: Optional[int]
     reason: str
     disposal_method: str
     status: str

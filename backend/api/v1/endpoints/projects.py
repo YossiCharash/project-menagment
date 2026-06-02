@@ -125,12 +125,20 @@ async def _build_projects_list(db, projects) -> list[ProjectOut]:
 @router.get("/", response_model=list[ProjectOut])
 async def list_projects(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """List projects - accessible to all authenticated users"""
+    # Daily contract-renewal guard: idempotent, never raises — kicks the
+    # renewal pass once per day even if the background scheduler is down.
+    from backend.services.contract_renewal_guard import ContractRenewalGuard
+    await ContractRenewalGuard().ensure_daily_renewal_ran(db)
+
     projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
     return await _build_projects_list(db, projects)
 
 @router.get("", response_model=list[ProjectOut])
 async def list_projects_no_slash(db: DBSessionDep, include_archived: bool = Query(False), only_archived: bool = Query(False), user = Depends(get_current_user)):
     """Alias without trailing slash to avoid 404 when redirect_slashes=False"""
+    from backend.services.contract_renewal_guard import ContractRenewalGuard
+    await ContractRenewalGuard().ensure_daily_renewal_ran(db)
+
     projects = await ProjectRepository(db).list(include_archived=include_archived, only_archived=only_archived)
     return await _build_projects_list(db, projects)
 

@@ -28,7 +28,7 @@ class RetirementService:
     async def request_retirement(
         self,
         asset_id: uuid.UUID,
-        requested_by_id: uuid.UUID,
+        requested_by_id: int,
         reason: str,
         disposal_method: str,
     ) -> AssetRetirement:
@@ -67,7 +67,7 @@ class RetirementService:
     async def approve_retirement(
         self,
         retirement_id: uuid.UUID,
-        manager_id: uuid.UUID,
+        manager_id: int,
         notes: Optional[str] = None,
     ) -> AssetRetirement:
         retirement = await self._transfer_repo.get_retirement_by_id(retirement_id)
@@ -126,7 +126,7 @@ class RetirementService:
     async def reject_retirement(
         self,
         retirement_id: uuid.UUID,
-        manager_id: uuid.UUID,
+        manager_id: int,
         reason: str,
     ) -> AssetRetirement:
         """Reject a pending retirement request.

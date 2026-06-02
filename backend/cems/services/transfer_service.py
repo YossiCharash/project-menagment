@@ -92,7 +92,7 @@ class TransferService:
     async def complete_transfer(
         self,
         transfer_id: uuid.UUID,
-        recipient_id: uuid.UUID,
+        recipient_id: int,
         signature_hash: str,
         ip_address: Optional[str] = None,
     ) -> Transfer:
@@ -159,7 +159,7 @@ class TransferService:
     async def reject_transfer(
         self,
         transfer_id: uuid.UUID,
-        rejected_by_id: uuid.UUID,
+        rejected_by_id: int,
         reason: str,
     ) -> Transfer:
         transfer = await self._transfer_repo.get_by_id(transfer_id)

@@ -42,6 +42,7 @@ const AssetsPage = React.lazy(() => import('./pages/inventory/AssetsPage'))
 const ConsumablesPage = React.lazy(() => import('./pages/inventory/ConsumablesPage'))
 const WarehousesPage = React.lazy(() => import('./pages/inventory/WarehousesPage'))
 const TransfersPage = React.lazy(() => import('./pages/inventory/TransfersPage'))
+const ReturnsPage = React.lazy(() => import('./pages/inventory/ReturnsPage'))
 const CategoriesPage = React.lazy(() => import('./pages/inventory/CategoriesPage'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
@@ -255,7 +256,7 @@ function AppContent() {
           >
             <Suspense fallback={<LoadingOverlay message="טוען..." />}>
             <Routes>
-              <Route path="/" element={<RequireAuth><RequireAnyPermission><Dashboard /></RequireAnyPermission></RequireAuth>} />
+              <Route path="/" element={<Navigate to="/task-management?tab=calendar" replace />} />
               <Route path="/dashboard" element={<RequireAuth><RequireAnyPermission><Dashboard /></RequireAnyPermission></RequireAuth>} />
               <Route path="/projects" element={<RequireAuth><RequirePermission resource="project"><Projects /></RequirePermission></RequireAuth>} />
               <Route path="/projects/:id" element={<RequireAuth><RequirePermission resource="project"><ProjectDetail /></RequirePermission></RequireAuth>} />
@@ -277,6 +278,7 @@ function AppContent() {
                 <Route path="categories" element={<CategoriesPage />} />
                 <Route path="warehouses" element={<WarehousesPage />} />
                 <Route path="transfers" element={<TransfersPage />} />
+                <Route path="returns" element={<ReturnsPage />} />
               </Route>
               <Route path="/notifications" element={<Navigate to="/task-management?tab=messages" replace />} />
               <Route path="/suppliers/:supplierId/documents" element={<RequireAuth><RequirePermission resource="supplier"><SupplierDocuments /></RequirePermission></RequireAuth>} />

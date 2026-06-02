@@ -11,8 +11,6 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
-
 logger = logging.getLogger(__name__)
 
 
@@ -56,13 +54,19 @@ async def run_contract_renewal_scheduler() -> None:
     """Background task that runs daily to check if any contracts have ended
     and need to be renewed. Runs immediately on startup (after 10s delay),
     then every 24 hours.
+
+    The actual pass is defined once in
+    ``backend.services.contract_renewal_guard.ContractRenewalGuard`` and
+    is delegated to from here (DRY). Other entry points (login, project
+    list, lifespan startup) call the same guard, so even if this scheduler
+    fails or the server was down, the pass will still run on the next
+    user request that hits one of those entry points.
     """
     from backend.db.session import AsyncSessionLocal
-    from backend.services.contract_period_service import ContractPeriodService
-    from backend.services.recurring_transaction_service import RecurringTransactionService
-    from backend.models.project import Project
+    from backend.services.contract_renewal_guard import ContractRenewalGuard
 
     first_run = True
+    guard = ContractRenewalGuard()
 
     while True:
         try:
@@ -74,26 +78,7 @@ async def run_contract_renewal_scheduler() -> None:
 
             async with AsyncSessionLocal() as db:
                 try:
-                    service = ContractPeriodService(db)
-                    recurring_service = RecurringTransactionService(db)
-
-                    result = await db.execute(
-                        select(Project).where(
-                            Project.is_active == True,
-                            Project.end_date.isnot(None)
-                        )
-                    )
-                    projects = result.scalars().all()
-
-                    for project in projects:
-                        try:
-                            renewed_period = await service.check_and_renew_contract(project.id)
-                            if renewed_period:
-                                await recurring_service.ensure_project_transactions_generated(project.id)
-                        except Exception:
-                            logger.exception("Error renewing contract for project %s", project.id)
-                except Exception:
-                    logger.exception("Error in contract renewal scheduler")
+                    await guard.ensure_daily_renewal_ran(db)
                 finally:
                     await db.close()
         except asyncio.CancelledError:

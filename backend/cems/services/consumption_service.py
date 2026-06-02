@@ -23,7 +23,7 @@ class ConsumptionService:
     async def consume_stock(
         self,
         item_id: uuid.UUID,
-        consumer_id: uuid.UUID,
+        consumer_id: int,
         quantity: Decimal,
         project_id: Optional[uuid.UUID] = None,
         notes: Optional[str] = None,

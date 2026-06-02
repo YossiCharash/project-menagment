@@ -712,174 +712,142 @@ class ContractPeriodService:
         if project.contract_duration_months and project.start_date:
             return await self._renew_contract_by_duration(project_id, project)
         
-        # Legacy: use end_date-based renewal
+        # Legacy: end_date-based renewal (no contract_duration_months).
+        # Same fix shape as _renew_contract_by_duration: drive off the
+        # latest ContractPeriod row in DB rather than arithmetic on
+        # project.end_date. This avoids the duplicate-skip / premature
+        # break class of bugs.
         if not project.end_date:
             return None
-        
+
         today = date.today()
-        latest_created_period = None
-        
-        # Track last processed end_date to ensure progress and avoid infinite loops
-        last_processed_end_date = None
-        
-        # Loop to handle projects that are multiple years behind
-        # Max 50 iterations for safety
-        for i in range(50):
-            # Check if contract end date has passed (exclusive)
-            # If end_date is today or in the past, it means the period has ended
-            if project.end_date > today:
-                break
-            
-            # Prevent infinite loops if end_date doesn't advance
-            if last_processed_end_date and project.end_date <= last_processed_end_date:
-                project.end_date = project.end_date + relativedelta(years=1)
-                await self.projects.update(project)
-                continue
-                
-            last_processed_end_date = project.end_date
-                
-            # Contract has ended - close it and create new period
-            new_period_start = project.end_date
-            
-            # Check if a period for this date already exists (avoid duplicates)
-            existing_periods = await self.contract_periods.get_by_project(project_id)
-            is_duplicate = False
-            for p in existing_periods:
-                # If a period starts at our new start date and has a valid duration, it's a valid next period
-                if p.start_date == new_period_start:
-                    if p.end_date > p.start_date:
-                        is_duplicate = True
-                        # If it's a duplicate but we're still behind today,
-                        # we update the project dates to match the existing period's dates
-                        project.start_date = p.start_date
-                        project.end_date = p.end_date
-                        break
-                    else:
-                        pass  # Found broken period record where end_date <= start_date. Skipping.
-            
-            if is_duplicate:
-                # Refresh project and continue loop to see if we're still behind today
-                await self.projects.update(project)
-                await self.db.commit()
-                await self.db.refresh(project)
-                continue
+        latest_created_period: Optional[ContractPeriod] = None
+
+        for _iteration in range(self._RENEWAL_LOOP_SAFETY_CAP):
+            latest_period = await self._get_latest_period(project_id)
+            if latest_period is None:
+                return latest_created_period
+
+            if latest_period.end_date > today:
+                await self._sync_project_dates_to_period(project, latest_period)
+                return latest_created_period
 
             try:
-                # Close the current period and create a new one
-                new_period = await self.close_year_manually(
-                    project_id=project_id,
-                    end_date=new_period_start,
-                    archived_by_user_id=1
+                latest_created_period = await self._close_and_advance(
+                    project_id, project, latest_period
                 )
-                latest_created_period = new_period
-                # Refresh project object for next iteration
-                await self.db.commit()
-                await self.db.refresh(project)
-                
-                # Double check progress - if close_year_manually didn't advance project.end_date, we must do it
-                if project.end_date <= last_processed_end_date:
-                    project.end_date = project.end_date + relativedelta(years=1)
-                    await self.projects.update(project)
-            except Exception as e:
-                logger.error("שגיאה בחידוש חוזה שנתי לפרויקט %s: %s", getattr(project, 'id', '?'), e, exc_info=True)
-                try:
-                    project.end_date = project.end_date + relativedelta(years=1)
-                    await self.projects.update(project)
-                except Exception as inner_e:
-                    logger.error("שגיאה בהתאוששות מחידוש חוזה: %s", inner_e, exc_info=True)
+            except Exception as exc:
+                logger.error(
+                    "שגיאה בחידוש חוזה שנתי לפרויקט %s: %s",
+                    getattr(project, "id", "?"),
+                    exc,
+                    exc_info=True,
+                )
                 break
 
         return latest_created_period
 
-    async def _renew_contract_by_duration(self, project_id: int, project: Project) -> Optional[ContractPeriod]:
+    # ------------------------------------------------------------------
+    # Duration-based renewal
+    # ------------------------------------------------------------------
+    #
+    # The source of truth for "where are we in the renewal chain?" is the
+    # latest ContractPeriod row in the DB — NOT arithmetic on
+    # project.start_date. This avoids the historical bug where the loop
+    # exited as soon as the *next* period's end_date passed today, without
+    # ever creating that next period (see project 11 trace in commit msg).
+    #
+    # The loop body is split into small helpers so each method has a
+    # single responsibility and stays well under 50 lines.
+
+    _RENEWAL_LOOP_SAFETY_CAP = 200
+
+    async def _get_latest_period(self, project_id: int) -> Optional[ContractPeriod]:
+        """Return the contract period with the greatest start_date, or None."""
+        existing_periods = await self.contract_periods.get_by_project(project_id)
+        if not existing_periods:
+            return None
+        return max(existing_periods, key=lambda period: period.start_date)
+
+    async def _sync_project_dates_to_period(
+        self,
+        project: Project,
+        period: ContractPeriod,
+    ) -> None:
+        """If project dates drifted from the active period, realign them."""
+        if (
+            project.start_date == period.start_date
+            and project.end_date == period.end_date
+        ):
+            return
+        project.start_date = period.start_date
+        project.end_date = period.end_date
+        await self.projects.update(project)
+        await self.db.commit()
+
+    async def _close_and_advance(
+        self,
+        project_id: int,
+        project: Project,
+        latest_period: ContractPeriod,
+    ) -> ContractPeriod:
         """
-        Renew contract periods based on duration_months.
-        Creates new periods of the specified duration until reaching today or beyond.
+        Close the latest (ended) period and create the next one.
+
+        ``close_year_manually`` already updates project.start_date /
+        project.end_date and copies budgets, so we only need to refresh
+        the in-memory project afterwards.
+        """
+        new_period = await self.close_year_manually(
+            project_id=project_id,
+            end_date=latest_period.end_date,
+            archived_by_user_id=1,
+        )
+        await self.db.commit()
+        await self.db.refresh(project)
+        return new_period
+
+    async def _renew_contract_by_duration(
+        self, project_id: int, project: Project
+    ) -> Optional[ContractPeriod]:
+        """
+        Catch a project up to today by closing each ended ContractPeriod
+        and creating its successor, in chain order.
+
+        Drives off the latest existing ``contract_periods`` row (not
+        ``project.start_date`` arithmetic), so a duplicate or drifted
+        project.start_date cannot stall the chain.
         """
         if not project.contract_duration_months or not project.start_date:
             return None
-        
-        today = date.today()
-        latest_created_period = None
-        current_start = project.start_date
-        duration_months = project.contract_duration_months
-        
-        # Track last processed start_date to ensure progress and avoid infinite loops
-        last_processed_start_date = None
-        
-        # Loop to handle projects that are multiple periods behind
-        # Max 200 iterations for safety (covers ~16 years for 3-month periods)
-        for i in range(200):
-            # Calculate end date for current period
-            current_end = current_start + relativedelta(months=duration_months)
-            
-            # Check if current period has ended (exclusive end_date means period ends when end_date is reached)
-            if current_end > today:
-                # Current period is still active, no need to create new periods
-                break
-            
-            # Prevent infinite loops if start_date doesn't advance
-            if last_processed_start_date and current_start <= last_processed_start_date:
-                current_start = current_start + relativedelta(months=duration_months)
-                continue
-                
-            last_processed_start_date = current_start
-            
-            # Check if a period for this date already exists (avoid duplicates)
-            existing_periods = await self.contract_periods.get_by_project(project_id)
-            is_duplicate = False
-            for p in existing_periods:
-                # If a period starts at our new start date and has a valid duration, it's a valid next period
-                if p.start_date == current_start:
-                    if p.end_date > p.start_date:
-                        is_duplicate = True
-                        # If it's a duplicate but we're still behind today,
-                        # we update the project dates to match the existing period's dates
-                        project.start_date = p.start_date
-                        project.end_date = p.end_date
-                        break
-                    else:
-                        pass  # Found broken period record where end_date <= start_date. Skipping.
-            
-            if is_duplicate:
-                # Refresh project and continue loop to see if we're still behind today
-                await self.projects.update(project)
-                await self.db.commit()
-                await self.db.refresh(project)
-                current_start = project.end_date
-                continue
 
+        today = date.today()
+        latest_created_period: Optional[ContractPeriod] = None
+
+        for _iteration in range(self._RENEWAL_LOOP_SAFETY_CAP):
+            latest_period = await self._get_latest_period(project_id)
+            if latest_period is None:
+                # Nothing to renew; initial generation should have run.
+                return latest_created_period
+
+            if latest_period.end_date > today:
+                # Latest period is still active — just sync project dates.
+                await self._sync_project_dates_to_period(project, latest_period)
+                return latest_created_period
+
+            # Latest period has ended — close it and create the next.
             try:
-                # Close the current period and create a new one
-                # end_date parameter is the START of the NEW period (which is the END of the current period)
-                new_period = await self.close_year_manually(
-                    project_id=project_id,
-                    end_date=current_end,
-                    archived_by_user_id=1
+                latest_created_period = await self._close_and_advance(
+                    project_id, project, latest_period
                 )
-                latest_created_period = new_period
-                
-                # Refresh project object for next iteration
-                await self.db.commit()
-                await self.db.refresh(project)
-                
-                # Update project dates to match the new period
-                project.start_date = new_period.start_date
-                project.end_date = new_period.end_date
-                await self.projects.update(project)
-                
-                # Move to next period
-                current_start = new_period.end_date
-                
-            except Exception as e:
-                logger.error("שגיאה בחידוש חוזה לפי משך לפרויקט %s: %s", getattr(project, 'id', '?'), e, exc_info=True)
-                try:
-                    current_start = current_start + relativedelta(months=duration_months)
-                    project.start_date = current_start
-                    project.end_date = current_start + relativedelta(months=duration_months)
-                    await self.projects.update(project)
-                except Exception as inner_e:
-                    logger.error("שגיאה בהתאוששות מחידוש חוזה: %s", inner_e, exc_info=True)
+            except Exception as exc:
+                logger.error(
+                    "שגיאה בחידוש חוזה לפי משך לפרויקט %s: %s",
+                    getattr(project, "id", "?"),
+                    exc,
+                    exc_info=True,
+                )
+                # Do NOT advance manually — the old fallback masked bugs.
                 break
 
         return latest_created_period
@@ -1307,18 +1275,25 @@ class ContractPeriodService:
         next_start_date = end_date
         
         # Check if a period starting on or before next_start_date already exists
-        # This prevents creating duplicate periods
+        # This prevents creating duplicate periods.
+        #
+        # IMPORTANT: end_date is EXCLUSIVE, so a period whose end_date equals
+        # next_start_date is the period BEING CLOSED, not the "next period".
+        # We must skip ``current_period`` here; otherwise renewing a contract
+        # whose only period ends exactly at next_start_date would short-circuit
+        # back to itself and never produce a successor (project 11 failure).
         all_periods = await self.contract_periods.get_by_project(project_id)
         next_period = None
         for period in all_periods:
-            # If a period starts on the same date or overlaps with next_start_date, it's a duplicate
+            if current_period is not None and period.id == current_period.id:
+                continue
+            # If a period starts on the same date, it's a duplicate
             if period.start_date == next_start_date:
-                # Period with this start date already exists
                 next_period = period
                 break
-            # If a period contains next_start_date, it's overlapping
-            if period.start_date <= next_start_date <= period.end_date:
-                # Overlapping period exists
+            # If a period contains next_start_date, it's overlapping.
+            # Use ``<`` on end_date because end_date is EXCLUSIVE.
+            if period.start_date <= next_start_date < period.end_date:
                 next_period = period
                 break
         
