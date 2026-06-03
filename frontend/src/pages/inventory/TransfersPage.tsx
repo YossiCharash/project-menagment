@@ -8,6 +8,7 @@ import {
   Clock,
   AlertTriangle,
   X,
+  Package,
 } from 'lucide-react'
 import {
   cemsApi,
@@ -15,6 +16,7 @@ import {
   type TransferStatus,
   type CemsUser,
 } from '../../lib/cemsApi'
+import { fileAttachmentUrl } from '../../lib/api'
 import SignaturePadModal from '../../components/inventory/SignaturePadModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -51,6 +53,57 @@ const STATUS_LABELS: Record<TransferStatus, string> = {
   APPROVED: 'אושר',
   COMPLETED: 'הושלם',
   REJECTED: 'נדחה',
+}
+
+// ─── Asset Cell ──────────────────────────────────────────────────────────────
+
+/** Resolves a raw photo URL to a full URL for display. */
+function resolvePhotoUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null
+  return fileAttachmentUrl(rawUrl.startsWith('http') ? rawUrl : `/uploads/${rawUrl}`) ?? null
+}
+
+interface AssetCellProps {
+  transfer: Transfer
+}
+
+/**
+ * Displays a small asset thumbnail and name in the transfers table.
+ * Falls back to a Package icon when no photo is available.
+ */
+function AssetCell({ transfer }: AssetCellProps) {
+  const photoUrl = resolvePhotoUrl(transfer.asset_photo_url)
+  const displayName = transfer.asset_name ?? transfer.asset_id.slice(0, 8) + '…'
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-200 dark:border-gray-600">
+        {photoUrl ? (
+          <img
+            src={photoUrl}
+            alt={displayName}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              const img = e.target as HTMLImageElement
+              img.style.display = 'none'
+              img.nextElementSibling?.classList.remove('hidden')
+            }}
+          />
+        ) : null}
+        <Package className={`w-5 h-5 text-gray-400 dark:text-gray-500 ${photoUrl ? 'hidden' : ''}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[160px]" title={displayName}>
+          {displayName}
+        </p>
+        {transfer.asset_serial_number && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate max-w-[160px]">
+            {transfer.asset_serial_number}
+          </p>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -94,6 +147,12 @@ export default function TransfersPage() {
 
   function getUserName(userId: number): string {
     return users.find((u) => u.id === userId)?.full_name || `עובד #${userId}`
+  }
+
+  /** Source label for a transfer: the originating employee, or "מחסן" for a warehouse handover. */
+  function getSourceLabel(fromUserId: number | null): string {
+    if (fromUserId === null) return 'מחסן'
+    return getUserName(fromUserId)
   }
 
   function handleComplete(transferId: string) {
@@ -188,7 +247,7 @@ export default function TransfersPage() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-700">
-                  <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">ציוד</th>
+                  <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3 w-48">ציוד</th>
                   <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מ-עובד</th>
                   <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">ל-עובד</th>
                   <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תאריך</th>
@@ -213,11 +272,11 @@ export default function TransfersPage() {
                 ) : (
                   transfers.map((transfer) => (
                     <tr key={transfer.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
-                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium font-mono">
-                        {transfer.asset_id}
+                      <td className="px-4 py-3">
+                        <AssetCell transfer={transfer} />
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                        {getUserName(transfer.from_user_id)}
+                        {getSourceLabel(transfer.from_user_id)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                         {getUserName(transfer.to_user_id)}

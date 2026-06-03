@@ -36,9 +36,11 @@ class Transfer(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         nullable=False,
         index=True,
     )
-    from_user_id: Mapped[int] = mapped_column(
+    # Nullable: a transfer may originate from a warehouse (no prior custodian)
+    # when equipment is handed to an employee for the first time.
+    from_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     to_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -70,7 +72,7 @@ class Transfer(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     asset: Mapped["FixedAsset"] = relationship("FixedAsset", foreign_keys=[asset_id])
-    from_user: Mapped["User"] = relationship(
+    from_user: Mapped[Optional["User"]] = relationship(
         "User", foreign_keys=[from_user_id],
         primaryjoin="Transfer.from_user_id == User.id",
     )

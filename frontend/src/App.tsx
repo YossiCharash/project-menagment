@@ -44,6 +44,7 @@ const WarehousesPage = React.lazy(() => import('./pages/inventory/WarehousesPage
 const TransfersPage = React.lazy(() => import('./pages/inventory/TransfersPage'))
 const ReturnsPage = React.lazy(() => import('./pages/inventory/ReturnsPage'))
 const CategoriesPage = React.lazy(() => import('./pages/inventory/CategoriesPage'))
+const ConfirmTransferPage = React.lazy(() => import('./pages/inventory/ConfirmTransferPage'))
 import { logout, fetchMe } from './store/slices/authSlice'
 import { fetchUserPermissions, clearPermissions, selectHasAnyAccess } from './store/slices/permissionsSlice'
 import { Sidebar, MobileSidebar } from './components/ui/Sidebar'
@@ -143,6 +144,19 @@ function AppContent() {
       </Suspense>
     )
   }
+
+  // Public asset-transfer confirmation page. Reached via the link sent by
+  // email; MUST be accessible without authentication. The JWT in the URL
+  // itself authorizes the click.
+  if (location.pathname.startsWith('/confirm-transfer/')) {
+    return (
+      <Suspense fallback={<LoadingOverlay message="טוען..." />}>
+        <Routes>
+          <Route path="/confirm-transfer/:token" element={<ConfirmTransferPage />} />
+        </Routes>
+      </Suspense>
+    )
+  }
   const me = useSelector((s: RootState) => s.auth.me)
   const loading = useSelector((s: RootState) => s.auth.loading)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -176,6 +190,7 @@ function AppContent() {
           <Route path="/email-register" element={<EmailVerificationRegister />} />
           <Route path="/auth/callback" element={<OAuthCallback />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/confirm-transfer/:token" element={<ConfirmTransferPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
         </Suspense>

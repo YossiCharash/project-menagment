@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Package,
   Boxes,
   Warehouse as WarehouseIcon,
   ArrowLeftRight,
@@ -15,11 +14,11 @@ import {
   ShoppingCart,
   Clock,
   Truck,
+  Package,
 } from 'lucide-react'
 import {
   cemsApi,
   type InventoryReport,
-  type StockAlert,
   type FixedAsset,
   type ConsumableItem,
   type AssetHistory,
@@ -29,109 +28,68 @@ import {
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
 import { translateNote } from './AssetViewModal'
-import TotalAssetsBrowserModal, { type BrowserMode } from '../../components/inventory/TotalAssetsBrowserModal'
+import TotalAssetsBrowserModal, { type BrowserSpec } from '../../components/inventory/TotalAssetsBrowserModal'
 
-// Maps stat-card keys to the browser modal mode. Cards not in this map open the legacy detail modal.
-// - total_assets    → 'all'        : general inventory (fixed + consumables merged)
-// - fixed_assets    → 'fixed'      : only fixed assets
-// - consumables_total → 'consumable': only consumables
-const BROWSER_MODAL_MODE_BY_CARD: Partial<Record<string, BrowserMode>> = {
-  total_assets: 'all',
-  fixed_assets: 'fixed',
-  consumables_total: 'consumable',
+/**
+ * Maps every stat-card key to the BrowserSpec the modal should open with.
+ * Every card now uses the same product-grid browser modal — there is no
+ * legacy table modal fallback.
+ *
+ * - 'total_assets'         : 'all' base mode — unfiltered union of fixed + consumables.
+ * - 'fixed_assets'         : 'fixed' base mode — all fixed assets.
+ * - 'consumables_total'    : 'consumable' base mode — all consumables.
+ * - 'active_assets'        : fixed assets filtered by status = ACTIVE.
+ * - 'in_warehouse_assets'  : union (fixed IN_WAREHOUSE + consumables — consumables always live in a warehouse).
+ * - 'in_transfer_assets'   : fixed assets filtered by status = IN_TRANSFER.
+ * - 'retired_assets'       : fixed assets filtered by status = RETIRED.
+ * - 'expiring_warranties'  : predicate strategy hitting the dedicated endpoint.
+ * - 'low_stock_count'      : predicate strategy hitting the low-stock endpoint.
+ * - 'active_reorders'      : predicate strategy joining reorders → consumables.
+ */
+const BROWSER_SPEC_BY_CARD: Record<StatCardKey, BrowserSpec> = {
+  total_assets: { mode: 'all', title: 'ציוד כללי' },
+  fixed_assets: { mode: 'fixed', title: 'ציוד קבוע' },
+  consumables_total: { mode: 'consumable', title: 'מתכלים' },
+  active_assets: { mode: 'fixed', statusFilter: 'ACTIVE', title: 'ציוד פעיל' },
+  in_warehouse_assets: { mode: 'all', statusFilter: 'IN_WAREHOUSE', title: 'במחסן' },
+  in_transfer_assets: { mode: 'fixed', statusFilter: 'IN_TRANSFER', title: 'בהעברה' },
+  retired_assets: { mode: 'fixed', statusFilter: 'RETIRED', title: 'נגרט' },
+  expiring_warranties: { mode: 'fixed', predicate: 'expiring_warranty', title: 'אחריות פגה בקרוב' },
+  low_stock_count: { mode: 'consumable', predicate: 'low_stock', title: 'התראות מלאי' },
+  active_reorders: { mode: 'consumable', predicate: 'active_reorder', title: 'הזמנות מחדש פעילות' },
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Format a numeric string/number: integers shown without decimals, fractions rounded to 2 places */
 function fmtQty(val: string | number): string | number {
-  const n = parseFloat(val as string)
-  if (isNaN(n)) return val
-  return n % 1 === 0 ? Math.floor(n) : parseFloat(n.toFixed(2))
-}
-
-const NO_CATEGORY_KEY = '__none__'
-const SELF_BUCKET_KEY = '__self__'
-
-interface CategorizedItem {
-  category_id: string | null | undefined
-}
-
-interface CategoryRef {
-  id: string
-  name: string
-  parent_id: string | null
-}
-
-/**
- * Groups items by their root (domain) category, then by their direct category.
- * Returns Map<rootId, Map<directCategoryId, T[]>>.
- * - Items with null/missing category_id go under NO_CATEGORY_KEY.
- * - Items whose category itself IS a root use SELF_BUCKET_KEY for the inner map.
- */
-function groupByDomainAndCategory<T extends CategorizedItem>(
-  items: T[],
-  categories: CategoryRef[],
-): Map<string, Map<string, T[]>> {
-  const byId = new Map<string, CategoryRef>()
-  for (const c of categories) byId.set(c.id, c)
-
-  const rootCache = new Map<string, string>()
-  const findRoot = (id: string): string => {
-    const cached = rootCache.get(id)
-    if (cached) return cached
-    const path: string[] = []
-    let cur: CategoryRef | undefined = byId.get(id)
-    const seen = new Set<string>()
-    while (cur && cur.parent_id && !seen.has(cur.id)) {
-      seen.add(cur.id)
-      path.push(cur.id)
-      cur = byId.get(cur.parent_id)
-    }
-    const rootId = cur ? cur.id : id
-    rootCache.set(id, rootId)
-    for (const visited of path) rootCache.set(visited, rootId)
-    return rootId
-  }
-
-  const result = new Map<string, Map<string, T[]>>()
-  for (const item of items) {
-    const catId = item.category_id ?? null
-    let rootKey: string
-    let innerKey: string
-    if (!catId) {
-      rootKey = NO_CATEGORY_KEY
-      innerKey = NO_CATEGORY_KEY
-    } else {
-      const cat = byId.get(catId)
-      if (!cat) {
-        rootKey = NO_CATEGORY_KEY
-        innerKey = NO_CATEGORY_KEY
-      } else {
-        const rootId = findRoot(catId)
-        rootKey = rootId
-        innerKey = rootId === catId ? SELF_BUCKET_KEY : catId
-      }
-    }
-    let inner = result.get(rootKey)
-    if (!inner) {
-      inner = new Map()
-      result.set(rootKey, inner)
-    }
-    const bucket = inner.get(innerKey) ?? []
-    bucket.push(item)
-    inner.set(innerKey, bucket)
-  }
-  return result
-}
-
-function categoryNameById(categories: CategoryRef[], id: string): string {
-  return categories.find(c => c.id === id)?.name ?? id.slice(0, 8)
+  const numericValue = parseFloat(val as string)
+  if (isNaN(numericValue)) return val
+  return numericValue % 1 === 0 ? Math.floor(numericValue) : parseFloat(numericValue.toFixed(2))
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-type StatCardKey = keyof InventoryReport | 'expiring_warranties' | 'consumables_total' | 'active_reorders' | 'fixed_assets'
+/**
+ * Stat-card identifiers. Some align 1:1 with `InventoryReport` fields,
+ * others are synthetic UI-only keys (e.g. `total_assets` = fixed + consumables).
+ *
+ * Kept as a closed string union (not `keyof InventoryReport`) because:
+ * - several keys are synthetic and don't exist on InventoryReport
+ * - some InventoryReport fields (pending_transfers, pending_returns, unresolved_alerts)
+ *   are not currently surfaced as cards.
+ */
+type StatCardKey =
+  | 'total_assets'
+  | 'fixed_assets'
+  | 'active_assets'
+  | 'in_warehouse_assets'
+  | 'in_transfer_assets'
+  | 'retired_assets'
+  | 'low_stock_count'
+  | 'consumables_total'
+  | 'active_reorders'
+  | 'expiring_warranties'
 
 interface StatCardConfig {
   label: string
@@ -145,19 +103,14 @@ const STAT_CARDS: StatCardConfig[] = [
   { label: 'ציוד כללי', key: 'total_assets', icon: Boxes, color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   { label: 'ציוד קבוע', key: 'fixed_assets', icon: Package, color: 'text-sky-600 dark:text-sky-400', bgColor: 'bg-sky-100 dark:bg-sky-900/30' },
   { label: 'ציוד פעיל', key: 'active_assets', icon: CheckCircle, color: 'text-green-600 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
-  { label: 'במחסן', key: 'in_warehouse', icon: WarehouseIcon, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
-  { label: 'בהעברה', key: 'in_transfer', icon: ArrowLeftRight, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
-  { label: 'נגרט', key: 'retired', icon: Archive, color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-700' },
+  { label: 'במחסן', key: 'in_warehouse_assets', icon: WarehouseIcon, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
+  { label: 'בהעברה', key: 'in_transfer_assets', icon: ArrowLeftRight, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
+  { label: 'נגרט', key: 'retired_assets', icon: Archive, color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-700' },
   { label: 'התראות מלאי', key: 'low_stock_count', icon: Bell, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-100 dark:bg-red-900/30' },
   { label: 'מתכלים', key: 'consumables_total', icon: Layers, color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
   { label: 'הזמנות מחדש פעילות', key: 'active_reorders', icon: ShoppingCart, color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
   { label: 'אחריות פגה בקרוב', key: 'expiring_warranties', icon: Shield, color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
 ]
-
-const ALERT_TYPE_LABELS: Record<string, string> = {
-  LOW_STOCK: 'מלאי נמוך',
-  OUT_OF_STOCK: 'אזל מהמלאי',
-}
 
 const REORDER_STATUS_CONFIG: Record<string, { label: string; badgeClass: string; icon: React.ComponentType<{ className?: string }> }> = {
   PENDING: { label: 'ממתין', badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300', icon: Clock },
@@ -248,194 +201,6 @@ const HISTORY_ACTION_LABELS: Record<string, string> = {
   RETIREMENT_REJECTED: 'גריטה נדחתה',
 }
 
-// ─── Presentational Sub-Components ───────────────────────────────────────────
-
-interface AssetRowProps {
-  asset: FixedAsset
-  index: number
-  onClick: (asset: FixedAsset) => void
-}
-
-function AssetRow({ asset, index, onClick }: AssetRowProps) {
-  return (
-    <tr
-      className="hover:bg-blue-50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors"
-      onClick={() => onClick(asset)}
-    >
-      <td className="px-3 py-2 text-gray-400 dark:text-gray-500">{index + 1}</td>
-      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{asset.name}</td>
-      <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 text-xs">{asset.serial_number}</td>
-      <td className="px-3 py-2"><StatusBadge status={asset.status} /></td>
-    </tr>
-  )
-}
-
-function AssetTableHead() {
-  return (
-    <thead className="sticky top-0 bg-white dark:bg-gray-800">
-      <tr className="bg-gray-50 dark:bg-gray-700">
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">#</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">שם</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">מס' סידורי</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סטטוס</th>
-      </tr>
-    </thead>
-  )
-}
-
-interface ConsumableRowProps {
-  item: ConsumableItem
-  onClick: (item: ConsumableItem) => void
-  variant?: 'default' | 'purple'
-}
-
-function ConsumableRow({ item, onClick, variant = 'default' }: ConsumableRowProps) {
-  const isLow = parseFloat(item.quantity) <= parseFloat(item.low_stock_threshold)
-  const hoverClass = variant === 'purple'
-    ? 'hover:bg-purple-50 dark:hover:bg-purple-900/10'
-    : 'hover:bg-blue-50 dark:hover:bg-blue-900/10'
-  return (
-    <tr
-      className={`${hoverClass} cursor-pointer transition-colors`}
-      onClick={() => onClick(item)}
-    >
-      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{item.name}</td>
-      <td className={`px-3 py-2 font-medium ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-        {fmtQty(item.quantity)}
-      </td>
-      <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{fmtQty(item.low_stock_threshold)}</td>
-      <td className="px-3 py-2">
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isLow ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'}`}>
-          {isLow ? 'מלאי נמוך' : 'תקין'}
-        </span>
-      </td>
-    </tr>
-  )
-}
-
-function ConsumableTableHead({ variant = 'default' }: { variant?: 'default' | 'purple' }) {
-  if (variant === 'purple') {
-    return (
-      <thead>
-        <tr className="bg-purple-50 dark:bg-purple-900/20">
-          <th className="text-right px-3 py-2 font-medium text-purple-700 dark:text-purple-300">שם</th>
-          <th className="text-right px-3 py-2 font-medium text-purple-700 dark:text-purple-300">כמות</th>
-          <th className="text-right px-3 py-2 font-medium text-purple-700 dark:text-purple-300">סף מינימום</th>
-          <th className="text-right px-3 py-2 font-medium text-purple-700 dark:text-purple-300">סטטוס</th>
-        </tr>
-      </thead>
-    )
-  }
-  return (
-    <thead className="sticky top-0 bg-white dark:bg-gray-800">
-      <tr className="bg-gray-50 dark:bg-gray-700">
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">שם</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">כמות</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סף מינימום</th>
-        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סטטוס מלאי</th>
-      </tr>
-    </thead>
-  )
-}
-
-interface GroupedSectionProps<T extends CategorizedItem> {
-  items: T[]
-  categories: CategoryRef[]
-  renderHead: () => React.ReactNode
-  renderRow: (item: T, index: number) => React.ReactNode
-}
-
-function GroupedSection<T extends CategorizedItem>({
-  items,
-  categories,
-  renderHead,
-  renderRow,
-}: GroupedSectionProps<T>) {
-  const grouped = groupByDomainAndCategory(items, categories)
-  const rootEntries = Array.from(grouped.entries())
-
-  return (
-    <div className="space-y-4">
-      {rootEntries.map(([rootId, innerMap]) => {
-        const domainLabel = rootId === NO_CATEGORY_KEY
-          ? 'ללא קטגוריה'
-          : categoryNameById(categories, rootId)
-        const totalInDomain = Array.from(innerMap.values()).reduce((sum, arr) => sum + arr.length, 0)
-        const innerEntries = Array.from(innerMap.entries())
-
-        return (
-          <div key={rootId} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-base font-bold text-gray-800 dark:text-gray-100">{domainLabel}</span>
-              <span className="text-xs text-gray-400">({totalInDomain})</span>
-            </div>
-            <div className="space-y-3">
-              {innerEntries.map(([innerId, bucketItems]) => {
-                let subLabel: string
-                if (innerId === SELF_BUCKET_KEY) {
-                  subLabel = '— ישיר —'
-                } else if (innerId === NO_CATEGORY_KEY) {
-                  subLabel = 'ללא תת-קטגוריה'
-                } else {
-                  subLabel = categoryNameById(categories, innerId)
-                }
-                return (
-                  <div key={innerId}>
-                    <div className="flex items-center gap-2 mb-1.5 ps-2">
-                      <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">{subLabel}</span>
-                      <span className="text-xs text-gray-400">({bucketItems.length})</span>
-                    </div>
-                    <table className="w-full text-sm border-collapse">
-                      {renderHead()}
-                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {bucketItems.map((item, idx) => renderRow(item, idx))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-type GroupByMode = 'none' | 'warehouse' | 'category'
-
-interface GroupByToggleProps {
-  value: GroupByMode
-  onChange: (v: GroupByMode) => void
-  options?: ReadonlyArray<{ value: GroupByMode; label: string }>
-}
-
-const DEFAULT_GROUPBY_OPTIONS: ReadonlyArray<{ value: GroupByMode; label: string }> = [
-  { value: 'none', label: 'הכל' },
-  { value: 'warehouse', label: 'לפי מחסן' },
-  { value: 'category', label: 'לפי קטגוריה' },
-]
-
-function GroupByToggle({ value, onChange, options = DEFAULT_GROUPBY_OPTIONS }: GroupByToggleProps) {
-  return (
-    <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-full p-1 w-fit">
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-            value === opt.value
-              ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function InventoryDashboard() {
@@ -446,18 +211,12 @@ export default function InventoryDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Detail drawer state
+  // Which stat card is currently expanded into the browser modal.
   const [selectedCard, setSelectedCard] = useState<StatCardKey | null>(null)
-  const [cardAssets, setCardAssets] = useState<FixedAsset[]>([])
-  const [cardAlerts, setCardAlerts] = useState<StockAlert[]>([])
-  const [cardConsumables, setCardConsumables] = useState<ConsumableItem[]>([])
-  const [cardLoading, setCardLoading] = useState(false)
 
-  // Lookup maps for grouping
+  // Lookup data passed to the browser modal for filtering.
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [categories, setCategories] = useState<AssetCategory[]>([])
-  // Grouping toggle for asset modal
-  const [groupBy, setGroupBy] = useState<GroupByMode>('none')
 
   // Item detail panel state
   const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null)
@@ -478,7 +237,6 @@ export default function InventoryDashboard() {
       const res = await cemsApi.uploadAssetPhoto(asset.id, file)
       const updated = res.data
       setSelectedAsset(updated)
-      setCardAssets(prev => prev.map(a => (a.id === updated.id ? updated : a)))
     } catch {
       // silent
     } finally {
@@ -518,62 +276,13 @@ export default function InventoryDashboard() {
     }
   }
 
-  const STATUS_BY_CARD_KEY: Record<string, string | undefined> = {
-    total_assets: undefined,
-    active_assets: 'ACTIVE',
-    in_warehouse: 'IN_WAREHOUSE',
-    in_transfer: 'IN_TRANSFER',
-    retired: 'RETIRED',
-  }
-
-  async function handleCardClick(key: StatCardKey) {
-    if (selectedCard === key) {
-      setSelectedCard(null)
-      return
-    }
-    setSelectedCard(key)
-    setGroupBy('none')
-    setCardLoading(true)
-    setCardAssets([])
-    setCardAlerts([])
-    setCardConsumables([])
-    try {
-      if (key in BROWSER_MODAL_MODE_BY_CARD) {
-        // The product-grid browser modal fetches its own data with filters.
-        // Nothing to preload here.
-      } else if (key === 'expiring_warranties') {
-        setCardAssets(expiringWarranties)
-      } else if (key === 'consumables_total') {
-        setCardConsumables(consumables)
-      } else if (key === 'active_reorders') {
-        // Refresh in background
-        try {
-          const res = await cemsApi.getReorderRequests()
-          setReorders(res.data)
-        } catch {
-          // silent — keep stale list
-        }
-      } else if (key === 'low_stock_count') {
-        // Re-fetch fresh alerts + consumables together so names are always available
-        const [alertsRes, consumablesRes] = await Promise.allSettled([
-          cemsApi.getAlerts(),
-          cemsApi.getConsumables(),
-        ])
-        if (alertsRes.status === 'fulfilled') setCardAlerts(alertsRes.value.data)
-        if (consumablesRes.status === 'fulfilled') setConsumables(consumablesRes.value.data)
-      } else {
-        const status = STATUS_BY_CARD_KEY[key]
-        const res = await cemsApi.getAssets(status ? { status } : {})
-        setCardAssets(res.data)
-        if (key === 'in_warehouse') {
-          setCardConsumables(consumables)
-        }
-      }
-    } catch {
-      // silent – card just shows empty
-    } finally {
-      setCardLoading(false)
-    }
+  /**
+   * Toggle the expanded browser modal for a stat card. Every card opens the same
+   * product-grid modal; the modal fetches its own data from the BrowserSpec, so
+   * no per-card preloading happens here.
+   */
+  function handleCardClick(key: StatCardKey) {
+    setSelectedCard(prev => (prev === key ? null : key))
   }
 
   const activeReorders = reorders.filter((r) => r.status === 'PENDING' || r.status === 'ORDERED')
@@ -582,9 +291,9 @@ export default function InventoryDashboard() {
     if (key === 'expiring_warranties') return expiringWarranties.length
     if (key === 'consumables_total') return consumables.length
     if (key === 'active_reorders') return activeReorders.length
-    // The backend's `total_assets` counts fixed-asset rows; reuse it for the
+    // The backend's `total_fixed_assets` counts fixed-asset rows; reuse it for the
     // "ציוד קבוע" (fixed-only) card. The "ציוד כללי" card surfaces the union.
-    const fixedCount = Number(report?.total_assets ?? 0)
+    const fixedCount = Number(report?.total_fixed_assets ?? 0)
     const consumablesCount = consumables.length
     if (key === 'fixed_assets') return fixedCount
     if (key === 'total_assets') return fixedCount + consumablesCount
@@ -671,274 +380,17 @@ export default function InventoryDashboard() {
         }}
       />
 
-      {/* Product-grid browser modal — opens for total_assets (fixed) and consumables_total (consumable) */}
+      {/* Product-grid browser modal — every stat card expands into this same
+          image-rich grid; the BrowserSpec decides which data + filters apply. */}
       <TotalAssetsBrowserModal
-        open={selectedCard !== null && selectedCard in BROWSER_MODAL_MODE_BY_CARD}
-        mode={selectedCard ? BROWSER_MODAL_MODE_BY_CARD[selectedCard] : undefined}
+        open={selectedCard !== null}
+        spec={selectedCard ? BROWSER_SPEC_BY_CARD[selectedCard] : undefined}
         warehouses={warehouses}
         categories={categories}
         onClose={() => setSelectedCard(null)}
         onSelectAsset={(asset) => openAssetDetail(asset)}
         onSelectConsumable={(item) => setSelectedConsumable(item)}
       />
-
-      {/* Detail Modal — rendered via portal to escape stacking context */}
-      {selectedCard && !(selectedCard in BROWSER_MODAL_MODE_BY_CARD) && report && createPortal(
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm bg-black/40"
-          onClick={() => setSelectedCard(null)}
-        >
-          <div
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {STAT_CARDS.find(c => c.key === selectedCard)?.label}
-                <span className="mr-2 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({getCardCount(selectedCard)} פריטים)
-                </span>
-              </h3>
-              <button
-                onClick={() => setSelectedCard(null)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                aria-label="סגור"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {cardLoading ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">טוען...</p>
-              ) : selectedCard === 'low_stock_count' ? (
-                cardAlerts.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין התראות</p>
-                ) : (
-                  <table className="w-full text-sm border-collapse">
-                    <thead className="sticky top-0 bg-white dark:bg-gray-800">
-                      <tr className="bg-gray-50 dark:bg-gray-700">
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">פריט</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סוג התראה</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">כמות בהתראה</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">כמות נוכחית</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סף מינימום</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סטטוס</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {cardAlerts.map(alert => {
-                        const item = consumables.find(c => c.id === alert.item_id)
-                        return (
-                          <tr
-                            key={alert.id}
-                            className="hover:bg-blue-50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors"
-                            onClick={() => item && setSelectedConsumable(item)}
-                          >
-                            <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">
-                              {item?.name ?? <span className="text-gray-400 dark:text-gray-500 text-xs">{alert.item_id.slice(0, 8)}…</span>}
-                            </td>
-                            <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{ALERT_TYPE_LABELS[alert.alert_type] || alert.alert_type}</td>
-                            <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{fmtQty(alert.quantity_at_alert as unknown as string)}</td>
-                            <td className="px-3 py-2">
-                              {item ? (
-                                <span className={`font-medium ${parseFloat(item.quantity) <= parseFloat(item.low_stock_threshold) ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                                  {fmtQty(item.quantity)}
-                                </span>
-                              ) : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
-                              {item ? fmtQty(item.low_stock_threshold) : '—'}
-                            </td>
-                            <td className="px-3 py-2">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${alert.resolved ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'}`}>
-                                {alert.resolved ? 'טופל' : 'פעיל'}
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )
-              ) : selectedCard === 'consumables_total' ? (
-                cardConsumables.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין פריטים</p>
-                ) : (
-                  <div className="space-y-4">
-                    <GroupByToggle value={groupBy} onChange={setGroupBy} />
-                    {groupBy === 'category' ? (
-                      <GroupedSection<ConsumableItem>
-                        items={cardConsumables}
-                        categories={categories}
-                        renderHead={() => <ConsumableTableHead />}
-                        renderRow={(item) => (
-                          <ConsumableRow key={item.id} item={item} onClick={setSelectedConsumable} />
-                        )}
-                      />
-                    ) : (
-                      <table className="w-full text-sm border-collapse">
-                        <ConsumableTableHead />
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {cardConsumables.map(item => (
-                            <ConsumableRow key={item.id} item={item} onClick={setSelectedConsumable} />
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )
-              ) : selectedCard === 'active_reorders' ? (
-                activeReorders.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין הזמנות מחדש פעילות</p>
-                ) : (
-                  <ActiveReordersPanel
-                    reorders={activeReorders}
-                    onClickItem={(itemId) => {
-                      const item = consumables.find((c) => c.id === itemId)
-                      if (item) setSelectedConsumable(item)
-                    }}
-                  />
-                )
-              ) : selectedCard === 'expiring_warranties' ? (
-                cardAssets.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">אין ציוד עם אחריות שעומדת לפוג</p>
-                ) : (
-                  <table className="w-full text-sm border-collapse">
-                    <thead className="sticky top-0 bg-white dark:bg-gray-800">
-                      <tr className="bg-gray-50 dark:bg-gray-700">
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">שם</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">מס' סידורי</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">תפוגת אחריות</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500 dark:text-gray-400">סטטוס</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {cardAssets.map(asset => (
-                        <tr
-                          key={asset.id}
-                          className="hover:bg-blue-50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors"
-                          onClick={() => openAssetDetail(asset)}
-                        >
-                          <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{asset.name}</td>
-                          <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400 text-xs">{asset.serial_number}</td>
-                          <td className="px-3 py-2 text-orange-600 dark:text-orange-400">
-                            {asset.warranty_expiry ? new Date(asset.warranty_expiry).toLocaleDateString('he-IL') : '—'}
-                          </td>
-                          <td className="px-3 py-2"><StatusBadge status={asset.status} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )
-              ) : (
-                <div className="space-y-6">
-                  <GroupByToggle value={groupBy} onChange={setGroupBy} />
-
-                  {/* Fixed assets section */}
-                  <div>
-                    {selectedCard === 'in_warehouse' && (
-                      <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full bg-indigo-500" />
-                        ציוד קבוע ({cardAssets.length})
-                      </h4>
-                    )}
-                    {cardAssets.length === 0 ? (
-                      <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">אין ציוד קבוע</p>
-                    ) : groupBy === 'none' ? (
-                      <table className="w-full text-sm border-collapse">
-                        <AssetTableHead />
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {cardAssets.map((asset, idx) => (
-                            <AssetRow key={asset.id} asset={asset} index={idx} onClick={openAssetDetail} />
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : groupBy === 'warehouse' ? (
-                      <div>
-                        {Array.from(
-                          cardAssets.reduce((groups, asset) => {
-                            const key = asset.current_warehouse_id ?? NO_CATEGORY_KEY
-                            const existing = groups.get(key) ?? []
-                            existing.push(asset)
-                            groups.set(key, existing)
-                            return groups
-                          }, new Map<string, FixedAsset[]>())
-                        ).map(([groupKey, items]) => {
-                          const groupLabel = groupKey === NO_CATEGORY_KEY
-                            ? 'ללא מחסן'
-                            : warehouses.find(w => w.id === groupKey)?.name ?? groupKey.slice(0, 8)
-                          return (
-                            <div key={groupKey}>
-                              <div className="flex items-center gap-2 mb-2 mt-4 first:mt-0">
-                                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide">{groupLabel}</span>
-                                <span className="text-xs text-gray-400">({items.length})</span>
-                              </div>
-                              <table className="w-full text-sm border-collapse mb-2">
-                                <AssetTableHead />
-                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                  {items.map((asset, idx) => (
-                                    <AssetRow key={asset.id} asset={asset} index={idx} onClick={openAssetDetail} />
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ) : (
-                      <GroupedSection<FixedAsset>
-                        items={cardAssets}
-                        categories={categories}
-                        renderHead={() => <AssetTableHead />}
-                        renderRow={(asset, idx) => (
-                          <AssetRow key={asset.id} asset={asset} index={idx} onClick={openAssetDetail} />
-                        )}
-                      />
-                    )}
-                  </div>
-
-                  {/* Consumables section — only shown for "במחסן" */}
-                  {selectedCard === 'in_warehouse' && (
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
-                        מתכלים ({cardConsumables.length})
-                      </h4>
-                      {cardConsumables.length === 0 ? (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">אין מתכלים</p>
-                      ) : groupBy === 'category' ? (
-                        <GroupedSection<ConsumableItem>
-                          items={cardConsumables}
-                          categories={categories}
-                          renderHead={() => <ConsumableTableHead variant="purple" />}
-                          renderRow={(item) => (
-                            <ConsumableRow key={item.id} item={item} onClick={setSelectedConsumable} variant="purple" />
-                          )}
-                        />
-                      ) : (
-                        <table className="w-full text-sm border-collapse">
-                          <ConsumableTableHead variant="purple" />
-                          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {cardConsumables.map(item => (
-                              <ConsumableRow key={item.id} item={item} onClick={setSelectedConsumable} variant="purple" />
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* Asset Detail Panel */}
       {selectedAsset && (() => {

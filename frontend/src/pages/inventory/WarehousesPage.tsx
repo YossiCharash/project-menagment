@@ -23,7 +23,10 @@ import {
   CheckCircle,
   Users,
   History,
+  Settings,
+  Mail,
 } from 'lucide-react'
+import WarehouseSettingsModal from '../../components/inventory/WarehouseSettingsModal'
 import {
   cemsApi,
   type Warehouse,
@@ -64,12 +67,22 @@ export default function WarehousesPage() {
   // Employee assignment
   const [assignDropdownWarehouseId, setAssignDropdownWarehouseId] = useState<string | null>(null)
   const [assigningUserId, setAssigningUserId] = useState<number | null>(null)
+  const [notifyingUserId, setNotifyingUserId] = useState<number | null>(null)
+  const [notifyFeedback, setNotifyFeedback] = useState<{
+    warehouseId: string
+    userId: number
+    ok: boolean
+    message: string
+  } | null>(null)
 
   // Modals
   const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false)
   const [editProjectsWarehouseId, setEditProjectsWarehouseId] = useState<string | null>(null)
   const [inventoryModalWarehouse, setInventoryModalWarehouse] = useState<Warehouse | null>(null)
   const [inventoryModalMode, setInventoryModalMode] = useState<'summary' | 'transfer-consumables' | 'transfer-assets'>('summary')
+
+  // Settings modal
+  const [settingsWarehouseId, setSettingsWarehouseId] = useState<string | null>(null)
 
   // Manager history
   const [historyWarehouseId, setHistoryWarehouseId] = useState<string | null>(null)
@@ -163,6 +176,33 @@ export default function WarehousesPage() {
       // silent
     } finally {
       setAssigningUserId(null)
+    }
+  }
+
+  async function handleNotifyEmployee(warehouseId: string, userId: number) {
+    setNotifyingUserId(userId)
+    setNotifyFeedback(null)
+    try {
+      const res = await cemsApi.notifyEmployeePendingItems(warehouseId, userId)
+      setNotifyFeedback({
+        warehouseId,
+        userId,
+        ok: true,
+        message: `נשלח מייל עם ${res.data.items_count} פריטים ממתינים`,
+      })
+    } catch (err: any) {
+      const detail: string | undefined = err?.response?.data?.detail
+      const isNoItems = typeof detail === 'string' && detail.includes('אין פריטים')
+      setNotifyFeedback({
+        warehouseId,
+        userId,
+        ok: false,
+        message: isNoItems
+          ? 'אין פריטים ממתינים לעובד זה'
+          : detail || 'שליחת ההתראה נכשלה. נסה שנית.',
+      })
+    } finally {
+      setNotifyingUserId(null)
     }
   }
 
@@ -282,6 +322,20 @@ export default function WarehousesPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {(isAdmin || warehouse.current_manager_id === me?.id) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSettingsWarehouseId(warehouse.id)
+                          }}
+                          className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400 transition-colors"
+                          title="הגדרות מחסן"
+                          aria-label="הגדרות מחסן"
+                        >
+                          <Settings className="w-5 h-5" />
+                        </button>
+                      )}
                       {isExpanded ? (
                         <ChevronUp className="w-5 h-5 text-gray-400" />
                       ) : (
@@ -464,27 +518,55 @@ export default function WarehousesPage() {
                             ) : (
                               <div className="space-y-1.5">
                                 {getAssignedEmployees(warehouse.id).map((emp) => (
-                                  <div
-                                    key={emp.id}
-                                    className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-750 rounded-lg text-sm"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <User className="w-3.5 h-3.5 text-gray-400" />
-                                      <span className="text-gray-900 dark:text-white">{emp.full_name}</span>
-                                      <span className="text-xs text-gray-500 dark:text-gray-400">({emp.email})</span>
-                                    </div>
-                                    <button
-                                      disabled={assigningUserId === emp.id}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleUnassignEmployee(emp.id)
-                                      }}
-                                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
-                                      title="הסר שיוך"
+                                  <div key={emp.id} className="space-y-1">
+                                    <div
+                                      className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-750 rounded-lg text-sm"
                                     >
-                                      <UserMinus className="w-3 h-3" />
-                                      הסר
-                                    </button>
+                                      <div className="flex items-center gap-2">
+                                        <User className="w-3.5 h-3.5 text-gray-400" />
+                                        <span className="text-gray-900 dark:text-white">{emp.full_name}</span>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">({emp.email})</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          disabled={notifyingUserId === emp.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleNotifyEmployee(warehouse.id, emp.id)
+                                          }}
+                                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+                                          title="שלח לעובד התראה על פריטים ממתינים במחסן"
+                                        >
+                                          <Mail className="w-3 h-3" />
+                                          {notifyingUserId === emp.id ? 'שולח…' : 'שלח התראה'}
+                                        </button>
+                                        <button
+                                          disabled={assigningUserId === emp.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleUnassignEmployee(emp.id)
+                                          }}
+                                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                                          title="הסר שיוך"
+                                        >
+                                          <UserMinus className="w-3 h-3" />
+                                          הסר
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {notifyFeedback &&
+                                      notifyFeedback.warehouseId === warehouse.id &&
+                                      notifyFeedback.userId === emp.id && (
+                                        <p
+                                          className={`text-xs px-3 ${
+                                            notifyFeedback.ok
+                                              ? 'text-green-600 dark:text-green-400'
+                                              : 'text-red-600 dark:text-red-400'
+                                          }`}
+                                        >
+                                          {notifyFeedback.message}
+                                        </p>
+                                      )}
                                   </div>
                                 ))}
                               </div>
@@ -572,6 +654,18 @@ export default function WarehousesPage() {
           onClose={() => setInventoryModalWarehouse(null)}
         />
       )}
+      {settingsWarehouseId && (() => {
+        const target = warehouses.find((w) => w.id === settingsWarehouseId)
+        if (!target) return null
+        return (
+          <WarehouseSettingsModal
+            warehouse={target}
+            users={users}
+            onClose={() => setSettingsWarehouseId(null)}
+            onUpdated={loadData}
+          />
+        )
+      })()}
     </div>
   )
 }

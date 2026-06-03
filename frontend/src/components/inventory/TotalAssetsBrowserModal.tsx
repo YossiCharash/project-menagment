@@ -6,6 +6,7 @@ import {
   type FixedAsset,
   type ConsumableItem,
   type AssetCategory,
+  type AssetStatus,
   type Warehouse,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
@@ -16,14 +17,39 @@ import { StatusBadge } from '../../pages/inventory/InventoryDashboard'
 /** Which underlying inventory domain(s) the modal browses. */
 export type BrowserMode = 'all' | 'fixed' | 'consumable'
 
+/**
+ * Server-side or client-side predicates applied on top of the base mode.
+ * - 'expiring_warranty' : fixed assets only — uses a dedicated backend endpoint.
+ * - 'low_stock'         : consumables only — items at/below their threshold.
+ * - 'active_reorder'    : consumables only — items with PENDING/ORDERED reorders.
+ */
+export type BrowserPredicate = 'expiring_warranty' | 'low_stock' | 'active_reorder'
+
+/**
+ * Declarative specification of what the modal should browse.
+ * The mode chooses the data source (Strategy); the optional filters narrow it.
+ */
+export interface BrowserSpec {
+  mode: BrowserMode
+  /** Restrict fixed-asset results to a single status (e.g. ACTIVE, IN_TRANSFER). */
+  statusFilter?: AssetStatus
+  /** Apply a domain predicate on top of the base mode. */
+  predicate?: BrowserPredicate
+  /** Header title (Hebrew) shown in the modal — overrides the strategy default. */
+  title?: string
+}
+
 interface BrowserFilters {
   warehouseIds: string[]
   categoryId?: string
+  statusFilter?: AssetStatus
+  predicate?: BrowserPredicate
 }
 
 interface TotalAssetsBrowserModalProps {
   open: boolean
-  mode?: BrowserMode
+  /** Declarative spec describing what to browse. Falls back to "all" when omitted. */
+  spec?: BrowserSpec
   warehouses: Warehouse[]
   categories: AssetCategory[]
   onClose: () => void
@@ -119,15 +145,22 @@ function adaptConsumable(
   }
 }
 
+/** Generic fetcher param shape that any of our list endpoints accepts. */
+interface ListFetchParams {
+  warehouse_id?: string
+  category_id?: string
+  status?: string
+}
+
 /** Fan-out helper: backend takes a single warehouse_id; we parallelize when multiple are picked. */
 async function fanOutFetch<T extends { id: string }>(
   warehouseIds: string[],
-  fetcher: (params: { warehouse_id?: string; category_id?: string }) => Promise<{ data: T[] }>,
-  categoryId?: string,
+  fetcher: (params: ListFetchParams) => Promise<{ data: T[] }>,
+  extraParams: Omit<ListFetchParams, 'warehouse_id'> = {},
 ): Promise<T[]> {
   const requests = warehouseIds.length === 0
-    ? [fetcher({ category_id: categoryId })]
-    : warehouseIds.map(id => fetcher({ warehouse_id: id, category_id: categoryId }))
+    ? [fetcher({ ...extraParams })]
+    : warehouseIds.map(id => fetcher({ ...extraParams, warehouse_id: id }))
   const results = await Promise.allSettled(requests)
   const merged = new Map<string, T>()
   for (const r of results) {
@@ -136,10 +169,50 @@ async function fanOutFetch<T extends { id: string }>(
   return Array.from(merged.values())
 }
 
+/** Pure helper: apply client-side warehouse/category filters to a pre-fetched list. */
+export function filterFixedAssets(
+  assets: FixedAsset[],
+  filters: BrowserFilters,
+): FixedAsset[] {
+  return assets.filter(asset => {
+    if (filters.warehouseIds.length > 0) {
+      if (!asset.current_warehouse_id) return false
+      if (!filters.warehouseIds.includes(asset.current_warehouse_id)) return false
+    }
+    if (filters.categoryId && asset.category_id !== filters.categoryId) return false
+    if (filters.statusFilter && asset.status !== filters.statusFilter) return false
+    return true
+  })
+}
+
+/** Pure helper: apply client-side warehouse/category filters to consumables. */
+export function filterConsumables(
+  items: ConsumableItem[],
+  filters: BrowserFilters,
+): ConsumableItem[] {
+  return items.filter(item => {
+    if (filters.warehouseIds.length > 0 && !filters.warehouseIds.includes(item.warehouse_id)) {
+      return false
+    }
+    if (filters.categoryId && item.category_id !== filters.categoryId) return false
+    return true
+  })
+}
+
+/** Pure helper: identify consumables currently at/below their low-stock threshold. */
+export function isLowStock(item: ConsumableItem): boolean {
+  return parseFloat(item.quantity) <= parseFloat(item.low_stock_threshold)
+}
+
+// ─── Strategies for the base modes ───────────────────────────────────────────
+
 const fixedStrategy: BrowserStrategy = {
   title: 'ציוד קבוע',
   async fetch(filters, ctx) {
-    const items = await fanOutFetch(filters.warehouseIds, cemsApi.getAssets, filters.categoryId)
+    const items = await fanOutFetch(filters.warehouseIds, cemsApi.getAssets, {
+      category_id: filters.categoryId,
+      status: filters.statusFilter,
+    })
     return items.map(a => adaptAsset(a, ctx.categoriesById, ctx.warehousesById))
   },
 }
@@ -147,7 +220,9 @@ const fixedStrategy: BrowserStrategy = {
 const consumableStrategy: BrowserStrategy = {
   title: 'מתכלים',
   async fetch(filters, ctx) {
-    const items = await fanOutFetch(filters.warehouseIds, cemsApi.getConsumables, filters.categoryId)
+    const items = await fanOutFetch(filters.warehouseIds, cemsApi.getConsumables, {
+      category_id: filters.categoryId,
+    })
     return items.map(c => adaptConsumable(c, ctx.categoriesById, ctx.warehousesById))
   },
 }
@@ -155,18 +230,81 @@ const consumableStrategy: BrowserStrategy = {
 const allStrategy: BrowserStrategy = {
   title: 'כל הציוד',
   async fetch(filters, ctx) {
-    const [assets, consumables] = await Promise.all([
-      fixedStrategy.fetch(filters, ctx),
-      consumableStrategy.fetch(filters, ctx),
-    ])
+    // For unions we deliberately skip status filtering on consumables (which lack a status field).
+    // When a status filter is active in 'all' mode, consumables are dropped from the result set
+    // because the filter conceptually only applies to fixed assets.
+    const fetchAssets = fixedStrategy.fetch(filters, ctx)
+    const fetchConsumables = filters.statusFilter
+      ? Promise.resolve<BrowsableItem[]>([])
+      : consumableStrategy.fetch(filters, ctx)
+    const [assets, consumables] = await Promise.all([fetchAssets, fetchConsumables])
     return [...assets, ...consumables]
   },
 }
 
-const STRATEGIES: Record<BrowserMode, BrowserStrategy> = {
+const BASE_STRATEGIES: Record<BrowserMode, BrowserStrategy> = {
   all: allStrategy,
   fixed: fixedStrategy,
   consumable: consumableStrategy,
+}
+
+// ─── Predicate-decorated strategies ──────────────────────────────────────────
+// Each predicate decorates a base strategy with a domain-specific data source.
+
+const expiringWarrantyStrategy: BrowserStrategy = {
+  title: 'אחריות פגה בקרוב',
+  async fetch(filters, ctx) {
+    const res = await cemsApi.getExpiringWarranties()
+    const matching = filterFixedAssets(res.data, filters)
+    return matching.map(a => adaptAsset(a, ctx.categoriesById, ctx.warehousesById))
+  },
+}
+
+const lowStockStrategy: BrowserStrategy = {
+  title: 'התראות מלאי',
+  async fetch(filters, ctx) {
+    const res = await cemsApi.getLowStock()
+    const matching = filterConsumables(res.data, filters)
+    return matching.map(c => adaptConsumable(c, ctx.categoriesById, ctx.warehousesById))
+  },
+}
+
+const activeReorderStrategy: BrowserStrategy = {
+  title: 'הזמנות מחדש פעילות',
+  async fetch(filters, ctx) {
+    // Fetch active reorders + the consumables list, then keep only consumables referenced
+    // by a PENDING/ORDERED reorder. This honours the "show items, not requests" UX choice
+    // while still surfacing exactly the set of items with open reorders.
+    const [reordersRes, consumables] = await Promise.all([
+      cemsApi.getReorderRequests(),
+      fanOutFetch(filters.warehouseIds, cemsApi.getConsumables, {
+        category_id: filters.categoryId,
+      }),
+    ])
+    const activeItemIds = new Set(
+      reordersRes.data
+        .filter(r => r.status === 'PENDING' || r.status === 'ORDERED')
+        .map(r => r.item_id),
+    )
+    return consumables
+      .filter(c => activeItemIds.has(c.id))
+      .map(c => adaptConsumable(c, ctx.categoriesById, ctx.warehousesById))
+  },
+}
+
+const PREDICATE_STRATEGIES: Record<BrowserPredicate, BrowserStrategy> = {
+  expiring_warranty: expiringWarrantyStrategy,
+  low_stock: lowStockStrategy,
+  active_reorder: activeReorderStrategy,
+}
+
+/**
+ * Resolves a spec into the strategy that should fetch its data.
+ * Predicate strategies take precedence over base mode strategies.
+ */
+function resolveStrategy(spec: BrowserSpec): BrowserStrategy {
+  if (spec.predicate) return PREDICATE_STRATEGIES[spec.predicate]
+  return BASE_STRATEGIES[spec.mode]
 }
 
 // ─── Sub-components (SRP) ────────────────────────────────────────────────────
@@ -381,9 +519,11 @@ function ItemCard({ item, onClick }: ItemCardProps) {
 
 // ─── Main Modal ──────────────────────────────────────────────────────────────
 
+const DEFAULT_SPEC: BrowserSpec = { mode: 'all' }
+
 export default function TotalAssetsBrowserModal({
   open,
-  mode = 'all',
+  spec = DEFAULT_SPEC,
   warehouses,
   categories,
   onClose,
@@ -396,7 +536,8 @@ export default function TotalAssetsBrowserModal({
   const [items, setItems] = useState<BrowsableItem[]>([])
   const [loading, setLoading] = useState(false)
 
-  const strategy = STRATEGIES[mode]
+  const strategy = resolveStrategy(spec)
+  const headerTitle = spec.title ?? strategy.title
 
   const categoriesById = useMemo(() => indexById(categories), [categories])
   const warehousesById = useMemo(() => indexById(warehouses), [warehouses])
@@ -409,7 +550,7 @@ export default function TotalAssetsBrowserModal({
     [categories, parentCategoryId],
   )
 
-  // Reset state when modal closes or mode changes
+  // Reset state when modal closes or spec changes (mode/predicate/status)
   useEffect(() => {
     if (!open) {
       setSelectedWarehouses(new Set())
@@ -417,7 +558,7 @@ export default function TotalAssetsBrowserModal({
       setSubCategoryId(null)
       setItems([])
     }
-  }, [open, mode])
+  }, [open, spec.mode, spec.predicate, spec.statusFilter])
 
   // Fetch items whenever filters change while open
   useEffect(() => {
@@ -426,6 +567,8 @@ export default function TotalAssetsBrowserModal({
     const filters: BrowserFilters = {
       warehouseIds: Array.from(selectedWarehouses),
       categoryId: effectiveCategoryId,
+      statusFilter: spec.statusFilter,
+      predicate: spec.predicate,
     }
 
     let cancelled = false
@@ -437,7 +580,7 @@ export default function TotalAssetsBrowserModal({
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [open, strategy, selectedWarehouses, parentCategoryId, subCategoryId, categoriesById, warehousesById])
+  }, [open, strategy, selectedWarehouses, parentCategoryId, subCategoryId, categoriesById, warehousesById, spec.statusFilter, spec.predicate])
 
   if (!open) return null
 
@@ -475,7 +618,7 @@ export default function TotalAssetsBrowserModal({
           <div className="flex items-center gap-2">
             <Package className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {strategy.title}
+              {headerTitle}
               <span className="mr-2 text-sm font-normal text-gray-500 dark:text-gray-400">
                 ({items.length} פריטים)
               </span>

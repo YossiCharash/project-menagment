@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   X,
-  ArrowLeftRight,
   MapPin,
   Trash2,
   UserCheck,
@@ -109,7 +108,6 @@ interface AssetViewModalProps {
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
-  onAssignToEmployee: () => void
 }
 
 type TabKey = 'history' | 'docs'
@@ -127,7 +125,6 @@ export function AssetViewModal({
   onTransfer,
   onRetire,
   onMoveToWarehouse,
-  onAssignToEmployee,
 }: AssetViewModalProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('history')
   const [showEdit, setShowEdit] = useState(false)
@@ -176,9 +173,8 @@ export function AssetViewModal({
   }
 
   // Derived action visibility
-  const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  const canHandToEmployee = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
   const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
-  const canAssignToEmployee = asset.status === 'IN_WAREHOUSE' || (asset.status === 'ACTIVE' && asset.current_custodian_id === null)
   const canRetire = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
 
   // Load history on mount
@@ -355,13 +351,13 @@ export function AssetViewModal({
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">
-            {canTransfer && (
+            {canHandToEmployee && (
               <button
                 onClick={onTransfer}
                 className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
-                title="העבר ציוד"
+                title="מסירה לעובד"
               >
-                <ArrowLeftRight className="w-4 h-4" />
+                <UserCheck className="w-4 h-4" />
               </button>
             )}
             {canMoveToWarehouse && (
@@ -371,15 +367,6 @@ export function AssetViewModal({
                 title="החזר למחסן"
               >
                 <MapPin className="w-4 h-4" />
-              </button>
-            )}
-            {canAssignToEmployee && (
-              <button
-                onClick={onAssignToEmployee}
-                className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
-                title="הקצה לעובד"
-              >
-                <UserCheck className="w-4 h-4" />
               </button>
             )}
             {canRetire && (

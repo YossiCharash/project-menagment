@@ -9,9 +9,12 @@ from backend.cems.api.deps import get_current_user, get_db, get_employee_warehou
 from backend.cems.models.user import User
 from backend.cems.repositories.asset_repository import AssetRepository
 from backend.cems.repositories.consumable_repository import ConsumableRepository
+from backend.cems.repositories.transfer_repository import TransferRepository
 from backend.cems.repositories.user_repository import UserRepository
 from backend.cems.repositories.warehouse_repository import WarehouseRepository
 from backend.cems.schemas.fixed_asset import FixedAssetRead
+from backend.cems.services.warehouse_notification_service import WarehouseNotificationService
+from backend.services.email_service import EmailService
 from backend.cems.schemas.warehouse import (
     ChangeManagerRequest,
     ManagerHistoryReadWithNames,
@@ -168,6 +171,27 @@ async def update_warehouse_projects(
     await repo.set_warehouse_projects(warehouse_id, payload.project_ids)
     warehouse = await repo.get_with_projects(warehouse_id)
     return _warehouse_to_read(warehouse)
+
+
+@router.post("/{warehouse_id}/notify-employee/{employee_user_id}")
+async def notify_employee_about_pending_items(
+    warehouse_id: uuid.UUID,
+    employee_user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RequireWarehouseManager()),
+) -> dict:
+    """Email the employee a list of equipment waiting for them in this warehouse."""
+    service = WarehouseNotificationService(
+        email_service=EmailService(),
+        transfer_repo=TransferRepository(db),
+        warehouse_repo=WarehouseRepository(db),
+        user_repo=UserRepository(db),
+    )
+    items_count = await service.notify_employee_about_pending_items(
+        warehouse_id=warehouse_id,
+        employee_user_id=employee_user_id,
+    )
+    return {"sent": True, "items_count": items_count}
 
 
 @router.get("/{warehouse_id}/inventory", response_model=List[FixedAssetRead])

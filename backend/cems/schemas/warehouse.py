@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict
 class WarehouseBase(BaseModel):
     name: str
     location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class WarehouseCreate(WarehouseBase):
@@ -19,13 +21,15 @@ class WarehouseCreate(WarehouseBase):
 class WarehouseUpdate(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class WarehouseRead(WarehouseBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    current_manager_id: Optional[uuid.UUID]
+    current_manager_id: Optional[int] = None
     project_ids: List[uuid.UUID] = []
     project_names: List[str] = []
     created_at: datetime

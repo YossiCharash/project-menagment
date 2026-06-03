@@ -17,6 +17,8 @@ from backend.cems.schemas.transfer import (
     CompleteTransferRequest,
     RejectTransferRequest,
     RetirementRead,
+    TransferConfirmRead,
+    TransferConfirmResultRead,
     TransferCreate,
     TransferRead,
     WarehouseReturnCreate,
@@ -24,12 +26,37 @@ from backend.cems.schemas.transfer import (
 )
 from backend.cems.services.retirement_service import RetirementService
 from backend.cems.services.return_service import ReturnService
+from backend.cems.services.transfer_confirmation_service import (
+    TransferConfirmationService,
+)
 from backend.cems.services.transfer_service import TransferService
+from backend.core.config import settings
+from backend.services.email_service import EmailService
+from fastapi import Request
 
 router = APIRouter(prefix="/transfers", tags=["CEMS Transfers"])
 
 
 # ---------- Transfers ----------
+
+def _build_confirmation_service(db: AsyncSession) -> TransferConfirmationService:
+    """Wire up the confirmation service with all its dependencies.
+
+    Single place for the injection graph so endpoints stay slim and the
+    service's Dependency-Inversion contract is honored.
+    """
+    asset_repo = AssetRepository(db)
+    transfer_repo = TransferRepository(db)
+    user_repo = UserRepository(db)
+    transfer_service = TransferService(asset_repo, transfer_repo)
+    return TransferConfirmationService(
+        email_service=EmailService(),
+        transfer_service=transfer_service,
+        transfer_repo=transfer_repo,
+        asset_repo=asset_repo,
+        user_repo=user_repo,
+    )
+
 
 @router.post("", response_model=TransferRead, status_code=201)
 async def initiate_transfer(
@@ -47,7 +74,30 @@ async def initiate_transfer(
         initiated_by_id=current_user.id,
         notes=payload.notes,
     )
-    return TransferRead.model_validate(transfer)
+
+    email_sent: Optional[bool] = None
+    if payload.send_email_notification:
+        try:
+            confirmation_service = _build_confirmation_service(db)
+            email_sent = await confirmation_service.send_confirmation_email(
+                transfer_id=transfer.id,
+                frontend_base_url=settings.FRONTEND_URL,
+            )
+        except HTTPException:
+            # Surface validation errors (e.g. employee has no email) to the
+            # caller so the UI can show a clear Hebrew message.
+            raise
+        except Exception:  # noqa: BLE001 — never roll back the transfer on email failure
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "Transfer %s created but confirmation email failed", transfer.id
+            )
+            email_sent = False
+
+    result = TransferRead.model_validate(transfer)
+    if payload.send_email_notification:
+        result.email_sent = bool(email_sent)
+    return result
 
 
 @router.get("", response_model=List[TransferRead])
@@ -239,6 +289,55 @@ async def reject_retirement(
         reason=payload.reason,
     )
     return RetirementRead.model_validate(retirement)
+
+
+# ---------- Public confirmation (no auth) ----------
+# These endpoints are intentionally unauthenticated: the JWT token in the URL
+# is itself the authorization. They MUST be declared before /{transfer_id}
+# routes so FastAPI does not greedily match "confirm" as a UUID path param.
+
+@router.get("/confirm/{token}", response_model=TransferConfirmRead)
+async def get_transfer_confirm_preview(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> TransferConfirmRead:
+    confirmation_service = _build_confirmation_service(db)
+    transfer, asset_name, asset_serial, employee_name = (
+        await confirmation_service.load_preview(token)
+    )
+    from_user_name = await confirmation_service.resolve_from_user_name(
+        transfer.from_user_id
+    )
+    return TransferConfirmRead(
+        id=transfer.id,
+        asset_name=asset_name,
+        asset_serial_number=asset_serial,
+        from_user_name=from_user_name,
+        to_user_name=employee_name,
+        initiated_at=transfer.initiated_at,
+        status=transfer.status,
+        notes=transfer.notes,
+    )
+
+
+@router.post("/confirm/{token}", response_model=TransferConfirmResultRead)
+async def confirm_transfer_via_link(
+    token: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TransferConfirmResultRead:
+    confirmation_service = _build_confirmation_service(db)
+    client_ip = request.client.host if request.client else None
+    transfer = await confirmation_service.confirm_via_token(
+        token=token,
+        ip_address=client_ip,
+    )
+    asset_repo = AssetRepository(db)
+    asset = await asset_repo.get_by_id(transfer.asset_id)
+    return TransferConfirmResultRead(
+        confirmed=True,
+        asset_name=asset.name if asset else "",
+    )
 
 
 # ---------- Transfers: catch-all by transfer_id ----------

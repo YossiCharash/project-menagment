@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.cems.models.retirement import AssetRetirement
 from backend.cems.models.signature import Signature
@@ -15,17 +16,24 @@ class TransferRepository(BaseRepository[Transfer]):
         super().__init__(Transfer, session)
 
     async def get_pending_for_user(self, user_id: int) -> List[Transfer]:
-        stmt = select(Transfer).where(
-            Transfer.to_user_id == user_id,
-            Transfer.status == TransferStatus.PENDING,
+        stmt = (
+            select(Transfer)
+            .options(selectinload(Transfer.asset))
+            .where(
+                Transfer.to_user_id == user_id,
+                Transfer.status == TransferStatus.PENDING,
+            )
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_active_transfers_for_asset(self, asset_id: uuid.UUID) -> List[Transfer]:
-        stmt = select(Transfer).where(
-            Transfer.asset_id == asset_id,
-            Transfer.status.in_([TransferStatus.PENDING, TransferStatus.APPROVED]),
+        stmt = (
+            select(Transfer)
+            .where(
+                Transfer.asset_id == asset_id,
+                Transfer.status.in_([TransferStatus.PENDING, TransferStatus.APPROVED]),
+            )
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
@@ -35,7 +43,19 @@ class TransferRepository(BaseRepository[Transfer]):
     ) -> List[Transfer]:
         stmt = (
             select(Transfer)
+            .options(selectinload(Transfer.asset))
             .where(Transfer.status == status)
+            .order_by(Transfer.initiated_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all(self, skip: int = 0, limit: int = 100) -> List[Transfer]:
+        stmt = (
+            select(Transfer)
+            .options(selectinload(Transfer.asset))
             .order_by(Transfer.initiated_at.desc())
             .offset(skip)
             .limit(limit)
