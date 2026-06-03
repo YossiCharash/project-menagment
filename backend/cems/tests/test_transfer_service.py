@@ -32,7 +32,6 @@ async def test_transfer_creates_pending_record(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -45,6 +44,45 @@ async def test_transfer_creates_pending_record(
 
 
 @pytest.mark.asyncio
+async def test_handover_from_warehouse_without_custodian(
+    async_session: AsyncSession,
+    seed_users: dict[str, User],
+    seed_warehouse: dict,
+    seed_category,
+):
+    """An asset sitting in a warehouse (no custodian) can be handed to an
+    employee, producing a pending transfer whose source employee is null."""
+    warehouse_asset = FixedAsset(
+        id=uuid.uuid4(),
+        name="Ladder",
+        serial_number="SN-WH-1",
+        category_id=seed_category.id,
+        current_custodian_id=None,
+        current_warehouse_id=seed_warehouse["warehouse"].id,
+        status=AssetStatus.IN_WAREHOUSE,
+    )
+    async_session.add(warehouse_asset)
+    await async_session.flush()
+
+    service = _build_service(async_session)
+    transfer = await service.transfer_asset(
+        asset_id=warehouse_asset.id,
+        to_user_id=seed_users["recipient"].id,
+        to_warehouse_id=seed_warehouse["warehouse"].id,
+        initiated_by_id=seed_users["manager"].id,
+    )
+
+    assert transfer.status == TransferStatus.PENDING
+    assert transfer.from_user_id is None
+    assert transfer.to_user_id == seed_users["recipient"].id
+
+    repo = AssetRepository(async_session)
+    refreshed = await repo.get_by_id(warehouse_asset.id)
+    assert refreshed is not None
+    assert refreshed.status == AssetStatus.IN_TRANSFER
+
+
+@pytest.mark.asyncio
 async def test_transfer_sets_asset_in_transfer(
     async_session: AsyncSession,
     seed_users: dict[str, User],
@@ -54,7 +92,6 @@ async def test_transfer_sets_asset_in_transfer(
     service = _build_service(async_session)
     await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -76,7 +113,6 @@ async def test_complete_transfer_requires_correct_recipient(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -104,7 +140,6 @@ async def test_complete_transfer_creates_signature(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -137,7 +172,6 @@ async def test_complete_transfer_updates_asset_custodian(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -167,7 +201,6 @@ async def test_complete_transfer_logs_history(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,
@@ -196,7 +229,6 @@ async def test_reject_transfer_restores_asset_status(
     service = _build_service(async_session)
     transfer = await service.transfer_asset(
         asset_id=seed_asset.id,
-        from_user_id=seed_users["employee"].id,
         to_user_id=seed_users["recipient"].id,
         to_warehouse_id=seed_warehouse["warehouse"].id,
         initiated_by_id=seed_users["manager"].id,

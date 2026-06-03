@@ -1,4 +1,16 @@
+import axios from 'axios'
 import api from './api'
+
+/**
+ * Plain axios instance with NO auth interceptor — used for the public,
+ * unauthenticated transfer-confirmation endpoints. The JWT token in the
+ * URL itself authorizes the request, so we must not attach a Bearer token.
+ */
+const publicApi = axios.create({
+  baseURL: api.defaults.baseURL,
+  timeout: 60000,
+  withCredentials: false,
+})
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,9 +26,18 @@ export interface Warehouse {
   id: string
   name: string
   location: string | null
+  latitude: number | null
+  longitude: number | null
   current_manager_id: number | null
   project_ids: string[]
   project_names: string[]
+}
+
+export interface WarehouseUpdatePayload {
+  name?: string
+  location?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface AssetCategory {
@@ -135,6 +156,7 @@ export interface AssetRetirement {
   requested_by_id: number
   approved_by_id: number | null
   reason: string
+  what_happened?: string | null
   disposal_method: string
   status: RetirementStatus
   requested_at: string
@@ -178,7 +200,13 @@ export type TransferStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 export interface Transfer {
   id: string
   asset_id: string
-  from_user_id: number
+  /** Asset name — denormalised by the backend for display purposes. */
+  asset_name: string | null
+  /** Asset primary photo URL — denormalised for display. */
+  asset_photo_url: string | null
+  asset_serial_number: string | null
+  /** Null when the equipment was handed out straight from a warehouse. */
+  from_user_id: number | null
   to_user_id: number
   status: TransferStatus
   initiated_at: string
@@ -203,13 +231,22 @@ export interface WarehouseReturn {
   updated_at: string
 }
 
+/**
+ * Mirrors the backend `DashboardSummary` schema (backend/cems/schemas/alerts.py).
+ * Field names MUST match the backend exactly — any drift renders as `undefined`
+ * (displayed as 0) on the dashboard tiles.
+ */
 export interface InventoryReport {
-  total_assets: number
+  total_fixed_assets: number
   active_assets: number
-  in_warehouse: number
-  in_transfer: number
-  retired: number
+  in_transfer_assets: number
+  in_warehouse_assets: number
+  retired_assets: number
+  total_consumables: number
   low_stock_count: number
+  pending_transfers: number
+  pending_returns: number
+  unresolved_alerts: number
 }
 
 export type DocumentType = 'WARRANTY' | 'INVOICE' | 'OTHER' | 'PHOTO'
@@ -258,6 +295,27 @@ interface InitiateTransferPayload {
   to_user_id: number
   to_warehouse_id?: string
   notes?: string
+  /**
+   * When true, the backend emails the recipient a stateless confirmation
+   * link so they can confirm receipt without logging in.
+   */
+  send_email_notification?: boolean
+}
+
+export interface TransferConfirmPreview {
+  id: string
+  asset_name: string
+  asset_serial_number: string | null
+  from_user_name: string | null
+  to_user_name: string
+  initiated_at: string
+  status: TransferStatus
+  notes: string | null
+}
+
+export interface TransferConfirmResult {
+  confirmed: boolean
+  asset_name: string
 }
 
 interface CompleteTransferPayload {
@@ -311,11 +369,20 @@ export const cemsApi = {
     api.get<FixedAsset[]>(`${CEMS_BASE}/assets/expiring-warranties`),
 
   // ── Retirements ────────────────────────────────────────────────────────
-  retireAsset: (assetId: string, reason: string, disposalMethod: string) =>
+  retireAsset: (
+    assetId: string,
+    reason: string,
+    disposalMethod: string,
+    whatHappened: string,
+  ) =>
     api.post<AssetRetirement>(`${CEMS_BASE}/assets/${assetId}/retire`, {
       reason,
+      what_happened: whatHappened,
       disposal_method: disposalMethod,
     }),
+
+  deleteAssetPermanently: (assetId: string) =>
+    api.delete<void>(`${CEMS_BASE}/assets/${assetId}/permanent`),
 
   getRetirements: (status?: string) =>
     api.get<AssetRetirement[]>(`${CEMS_BASE}/assets/retirements`, {
@@ -379,6 +446,13 @@ export const cemsApi = {
   completeTransfer: (id: string, data: CompleteTransferPayload) =>
     api.post(`${CEMS_BASE}/transfers/${id}/complete`, data),
 
+  // Public (no auth) confirmation flow ─ used by ConfirmTransferPage.
+  getTransferConfirmPreview: (token: string) =>
+    publicApi.get<TransferConfirmPreview>(`${CEMS_BASE}/transfers/confirm/${token}`),
+
+  confirmTransfer: (token: string) =>
+    publicApi.post<TransferConfirmResult>(`${CEMS_BASE}/transfers/confirm/${token}`),
+
   rejectTransfer: (id: string, data: { reason: string }) =>
     api.post(`${CEMS_BASE}/transfers/${id}/reject`, data),
 
@@ -407,6 +481,9 @@ export const cemsApi = {
   createWarehouse: (data: CreateWarehousePayload) =>
     api.post<Warehouse>(`${CEMS_BASE}/warehouses`, data),
 
+  updateWarehouse: (id: string, data: WarehouseUpdatePayload) =>
+    api.put<Warehouse>(`${CEMS_BASE}/warehouses/${id}`, data),
+
   getWarehouseInventory: (id: string) =>
     api.get(`${CEMS_BASE}/warehouses/${id}/inventory`),
 
@@ -424,6 +501,9 @@ export const cemsApi = {
 
   deleteWarehouse: (id: string) =>
     api.delete(`${CEMS_BASE}/warehouses/${id}`),
+
+  notifyEmployeePendingItems: (warehouseId: string, userId: number) =>
+    api.post<{ sent: boolean; items_count: number }>(`${CEMS_BASE}/warehouses/${warehouseId}/notify-employee/${userId}`),
 
   // ── Users ───────────────────────────────────────────────────────────────
   getUsers: () =>

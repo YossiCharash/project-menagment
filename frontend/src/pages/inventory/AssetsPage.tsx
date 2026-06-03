@@ -5,7 +5,6 @@ import type { RootState } from '../../store'
 import {
   Plus,
   Search,
-  ArrowLeftRight,
   Trash2,
   X,
   AlertTriangle,
@@ -129,17 +128,18 @@ export default function AssetsPage() {
   const [transferAsset, setTransferAsset] = useState<FixedAsset | null>(null)
   const [retireAsset, setRetireAsset] = useState<FixedAsset | null>(null)
   const [moveAssetTarget, setMoveAssetTarget] = useState<FixedAsset | null>(null)
-  const [assignAssetTarget, setAssignAssetTarget] = useState<FixedAsset | null>(null)
 
   // Retirement workflow
   const [showRetiredSection, setShowRetiredSection] = useState(false)
   const [retirements, setRetirements] = useState<AssetRetirement[]>([])
+  const [approvedRetirements, setApprovedRetirements] = useState<AssetRetirement[]>([])
   const [retiredAssets, setRetiredAssets] = useState<FixedAsset[]>([])
   const [retirementLoading, setRetirementLoading] = useState(false)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [approveNotes, setApproveNotes] = useState('')
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [permanentDeleteAsset, setPermanentDeleteAsset] = useState<FixedAsset | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -175,15 +175,17 @@ export default function AssetsPage() {
     loadData()
   }, [loadData])
 
-  // Retirement data
+  // Retirement data: pending requests + approved retirements (for archive enrichment) + retired assets
   const loadRetirementData = useCallback(async () => {
     setRetirementLoading(true)
     try {
-      const [retRes, retiredRes] = await Promise.all([
+      const [pendingRes, approvedRes, retiredRes] = await Promise.all([
         cemsApi.getRetirements('PENDING'),
+        cemsApi.getRetirements('APPROVED'),
         cemsApi.getAssets({ status: 'RETIRED' }),
       ])
-      setRetirements(retRes.data)
+      setRetirements(pendingRes.data)
+      setApprovedRetirements(approvedRes.data)
       setRetiredAssets(retiredRes.data)
     } catch {
       // silently fail for secondary data
@@ -191,6 +193,19 @@ export default function AssetsPage() {
       setRetirementLoading(false)
     }
   }, [])
+
+  // Map asset_id -> most-recent APPROVED retirement so the archive table can
+  // display the captured `what_happened` and `reason` alongside the asset.
+  const approvedRetirementByAssetId = useMemo(() => {
+    const lookup = new Map<string, AssetRetirement>()
+    for (const entry of approvedRetirements) {
+      const existing = lookup.get(entry.asset_id)
+      if (!existing || new Date(entry.requested_at) > new Date(existing.requested_at)) {
+        lookup.set(entry.asset_id, entry)
+      }
+    }
+    return lookup
+  }, [approvedRetirements])
 
   useEffect(() => {
     if (showRetiredSection) {
@@ -554,16 +569,16 @@ export default function AssetsPage() {
             </div>
           )}
 
-          {/* Section 2: Retired assets -- visible to all */}
+          {/* Section 2: Archived assets -- visible to all; permanent-delete is manager-only */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ציוד נגרט</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ארכיון ציוד</h2>
             </div>
             {retirementLoading ? (
               <div className="p-6 text-center text-gray-500 dark:text-gray-400">טוען...</div>
             ) : retiredAssets.length === 0 ? (
               <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                אין ציוד נגרט
+                אין ציוד בארכיון
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -571,20 +586,51 @@ export default function AssetsPage() {
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700">
                       <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שם</th>
-                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">תיאור</th>
                       <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">קטגוריה</th>
-                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">הערות</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">מה קרה</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">סיבת ארכוב</th>
+                      <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">שיטת סילוק</th>
+                      {isManagerOrAdmin && (
+                        <th className="text-right text-xs font-medium text-gray-500 dark:text-gray-400 px-4 py-3">פעולות</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {retiredAssets.map((asset) => (
-                      <tr key={asset.id}>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{asset.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(asset.category_id)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{asset.notes || '-'}</td>
-                      </tr>
-                    ))}
+                    {retiredAssets.map((asset) => {
+                      const matchingRetirement = approvedRetirementByAssetId.get(asset.id)
+                      return (
+                        <tr key={asset.id}>
+                          <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{asset.name}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(asset.category_id)}</td>
+                          <td
+                            className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate"
+                            title={matchingRetirement?.what_happened ?? ''}
+                          >
+                            {matchingRetirement?.what_happened || '—'}
+                          </td>
+                          <td
+                            className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate"
+                            title={matchingRetirement?.reason ?? ''}
+                          >
+                            {matchingRetirement?.reason || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                            {matchingRetirement?.disposal_method || '—'}
+                          </td>
+                          {isManagerOrAdmin && (
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => setPermanentDeleteAsset(asset)}
+                                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                title="מחק לצמיתות"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -626,7 +672,6 @@ export default function AssetsPage() {
                     onTransfer={() => setTransferAsset(asset)}
                     onRetire={() => setRetireAsset(asset)}
                     onMoveToWarehouse={() => setMoveAssetTarget(asset)}
-                    onAssignToEmployee={() => setAssignAssetTarget(asset)}
                   />
                 ))
               )}
@@ -651,7 +696,6 @@ export default function AssetsPage() {
           onTransfer={() => { setTransferAsset(viewAsset); setViewAsset(null) }}
           onRetire={() => { setRetireAsset(viewAsset); setViewAsset(null) }}
           onMoveToWarehouse={() => { setMoveAssetTarget(viewAsset); setViewAsset(null) }}
-          onAssignToEmployee={() => { setAssignAssetTarget(viewAsset); setViewAsset(null) }}
         />
       )}
       {showAddModal && (
@@ -685,12 +729,14 @@ export default function AssetsPage() {
           onMoved={loadData}
         />
       )}
-      {assignAssetTarget && (
-        <AssignAssetModal
-          asset={assignAssetTarget}
-          users={users}
-          onClose={() => setAssignAssetTarget(null)}
-          onAssigned={loadData}
+      {permanentDeleteAsset && (
+        <ConfirmPermanentDeleteModal
+          asset={permanentDeleteAsset}
+          onClose={() => setPermanentDeleteAsset(null)}
+          onDeleted={async () => {
+            setPermanentDeleteAsset(null)
+            await Promise.all([loadRetirementData(), loadData()])
+          }}
         />
       )}
     </div>
@@ -707,7 +753,6 @@ interface AssetRowProps {
   onTransfer: () => void
   onRetire: () => void
   onMoveToWarehouse: () => void
-  onAssignToEmployee: () => void
 }
 
 function AssetRow({
@@ -718,11 +763,12 @@ function AssetRow({
   onTransfer,
   onRetire,
   onMoveToWarehouse,
-  onAssignToEmployee,
 }: AssetRowProps) {
-  const canTransfer = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
+  // A single "hand to employee" action covers both first-time handout from a
+  // warehouse and re-assignment from another employee. Both create a pending
+  // transfer the recipient must accept.
+  const canHandToEmployee = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
   const canMoveToWarehouse = asset.status === 'ACTIVE' && asset.current_custodian_id !== null
-  const canAssignToEmployee = asset.status === 'IN_WAREHOUSE' || (asset.status === 'ACTIVE' && asset.current_custodian_id === null)
   const canRetire = asset.status === 'ACTIVE' || asset.status === 'IN_WAREHOUSE'
 
   return (
@@ -752,13 +798,13 @@ function AssetRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          {canTransfer && (
+          {canHandToEmployee && (
             <button
               onClick={onTransfer}
               className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors"
-              title="העבר ציוד"
+              title="מסירה לעובד"
             >
-              <ArrowLeftRight className="w-4 h-4" />
+              <UserCheck className="w-4 h-4" />
             </button>
           )}
           {canMoveToWarehouse && (
@@ -768,15 +814,6 @@ function AssetRow({
               title="החזר למחסן"
             >
               <MapPin className="w-4 h-4" />
-            </button>
-          )}
-          {canAssignToEmployee && (
-            <button
-              onClick={onAssignToEmployee}
-              className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 transition-colors"
-              title="הקצה לעובד"
-            >
-              <UserCheck className="w-4 h-4" />
             </button>
           )}
           {canRetire && (
@@ -1039,8 +1076,10 @@ function TransferModal({ asset, users, warehouses, onClose, onTransferred }: Tra
   const [toUserId, setToUserId] = useState('')
   const [toWarehouseId, setToWarehouseId] = useState('')
   const [notes, setNotes] = useState('')
+  const [sendEmailNotification, setSendEmailNotification] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -1051,17 +1090,34 @@ function TransferModal({ asset, users, warehouses, onClose, onTransferred }: Tra
 
     setSubmitting(true)
     setError(null)
+    setSuccessMessage(null)
     try {
-      await cemsApi.initiateTransfer({
+      const response = await cemsApi.initiateTransfer({
         asset_id: asset.id,
         to_user_id: Number(toUserId),
         to_warehouse_id: toWarehouseId || undefined,
         notes: notes.trim() || undefined,
+        send_email_notification: sendEmailNotification,
       })
-      onTransferred()
-      onClose()
-    } catch {
-      setError('שגיאה ביצירת העברה')
+      if (sendEmailNotification) {
+        const emailDelivered = response?.data?.email_sent
+        setSuccessMessage(
+          emailDelivered === false
+            ? 'ההעברה נוצרה, אך שליחת המייל נכשלה. ניתן לאשר ידנית.'
+            : 'נשלח לעובד מייל עם קישור לאישור.'
+        )
+        // Brief delay so the user actually sees the confirmation banner.
+        window.setTimeout(() => {
+          onTransferred()
+          onClose()
+        }, 1500)
+      } else {
+        onTransferred()
+        onClose()
+      }
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : 'שגיאה ביצירת העברה')
     } finally {
       setSubmitting(false)
     }
@@ -1072,7 +1128,7 @@ function TransferModal({ asset, users, warehouses, onClose, onTransferred }: Tra
       <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            העברת ציוד: {asset.name}
+            מסירה לעובד: {asset.name}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <X className="w-5 h-5 text-gray-500" />
@@ -1102,10 +1158,33 @@ function TransferModal({ asset, users, warehouses, onClose, onTransferred }: Tra
             <label className={LABEL_CLASS}>הערות</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={INPUT_CLASS} rows={3} />
           </div>
+          <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <input
+              id="send-email-notification"
+              type="checkbox"
+              checked={sendEmailNotification}
+              onChange={(e) => setSendEmailNotification(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label
+              htmlFor="send-email-notification"
+              className="text-sm text-blue-900 dark:text-blue-200 cursor-pointer select-none"
+            >
+              שלח לעובד מייל עם קישור לאישור קבלה
+              <span className="block text-xs text-blue-700 dark:text-blue-300 mt-1">
+                העובד יוכל לאשר את קבלת הציוד בלחיצה על הקישור, ללא צורך בהתחברות.
+              </span>
+            </label>
+          </div>
+          {successMessage && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 text-sm text-green-800 dark:text-green-300">
+              {successMessage}
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting} className={BTN_PRIMARY}>
-              {submitting ? 'מעביר...' : 'העבר ציוד'}
+              {submitting ? 'מוסר...' : 'מסור לעובד'}
             </button>
           </div>
         </form>
@@ -1123,22 +1202,32 @@ interface RetirementModalProps {
 }
 
 function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
+  const [whatHappened, setWhatHappened] = useState('')
   const [reason, setReason] = useState('')
   const [disposalMethod, setDisposalMethod] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleSubmit(formEvent: React.FormEvent) {
+    formEvent.preventDefault()
+    if (!whatHappened.trim()) {
+      setError('יש למלא תיאור של מה שקרה לציוד')
+      return
+    }
     if (!reason.trim()) {
-      setError('יש למלא סיבה לגריטה')
+      setError('יש למלא סיבת העברה לארכיון')
       return
     }
 
     setSubmitting(true)
     setError(null)
     try {
-      await cemsApi.retireAsset(asset.id, reason.trim(), disposalMethod || 'אחר')
+      await cemsApi.retireAsset(
+        asset.id,
+        reason.trim(),
+        disposalMethod || 'אחר',
+        whatHappened.trim(),
+      )
       onRetired()
       onClose()
     } catch {
@@ -1169,13 +1258,24 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
             שים לב: הבקשה תועבר לאישור מנהל.
           </div>
           <div>
-            <label className={LABEL_CLASS}>סיבה לגריטה *</label>
+            <label className={LABEL_CLASS}>מה קרה לציוד? *</label>
+            <textarea
+              value={whatHappened}
+              onChange={(e) => setWhatHappened(e.target.value)}
+              className={INPUT_CLASS}
+              rows={3}
+              placeholder="תאר מה קרה לציוד – נשבר, אבד, נגנב וכו'..."
+              required
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>סיבת העברה לארכיון *</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className={INPUT_CLASS}
               rows={3}
-              placeholder="תאר את הסיבה לפרישת הציוד..."
+              placeholder="מדוע הציוד עובר לארכיון?"
               required
             />
           </div>
@@ -1197,6 +1297,98 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Confirm Permanent Delete Modal ──────────────────────────────────────────
+
+interface ConfirmPermanentDeleteModalProps {
+  asset: FixedAsset
+  onClose: () => void
+  onDeleted: () => void | Promise<void>
+}
+
+function ConfirmPermanentDeleteModal({
+  asset,
+  onClose,
+  onDeleted,
+}: ConfirmPermanentDeleteModalProps) {
+  const [typedSerial, setTypedSerial] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const serialMatches = typedSerial === asset.serial_number
+
+  async function handleConfirm() {
+    if (!serialMatches) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await cemsApi.deleteAssetPermanently(asset.id)
+      await onDeleted()
+    } catch {
+      setError('שגיאה במחיקה לצמיתות של הציוד')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-red-700 dark:text-red-400 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            מחיקה לצמיתות: {asset.name}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4" dir="rtl">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
+              {error}
+            </div>
+          )}
+          <div className="bg-red-50 dark:bg-red-900/30 border-2 border-red-300 dark:border-red-700 rounded-lg p-4 text-sm text-red-900 dark:text-red-200">
+            <p className="font-semibold mb-2">אזהרה</p>
+            <p>
+              מחיקה לצמיתות תמחק את הציוד, כל ההיסטוריה, בקשות הגריטה,
+              ההעברות והמסמכים. פעולה זו אינה הפיכה.
+            </p>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>
+              הקלד את המספר הסידורי של הציוד לאישור:{' '}
+              <span className="font-mono font-bold text-gray-900 dark:text-white">
+                {asset.serial_number}
+              </span>
+            </label>
+            <input
+              type="text"
+              value={typedSerial}
+              onChange={(e) => setTypedSerial(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="הקלד את המספר הסידורי כאן"
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className={BTN_SECONDARY}>
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={!serialMatches || submitting}
+              className={`${BTN_DANGER} disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {submitting ? 'מוחק...' : 'מחק לצמיתות'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1275,82 +1467,6 @@ function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
               {submitting ? 'מעביר...' : 'העבר למחסן'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ─── Assign Asset Modal ───────────────────────────────────────────────────────
-
-interface AssignAssetModalProps {
-  asset: FixedAsset
-  users: CemsUser[]
-  onClose: () => void
-  onAssigned: () => void
-}
-
-function AssignAssetModal({ asset, users, onClose, onAssigned }: AssignAssetModalProps) {
-  const [toUserId, setToUserId] = useState('')
-  const [notes, setNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!toUserId) {
-      setError('יש לבחור עובד')
-      return
-    }
-    setSubmitting(true)
-    setError(null)
-    try {
-      await cemsApi.assignAsset(asset.id, Number(toUserId), notes.trim() || undefined)
-      onAssigned()
-      onClose()
-    } catch {
-      setError('שגיאה בהקצאת הציוד לעובד')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className={MODAL_OVERLAY} onClick={onClose}>
-      <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            הקצאת ציוד לעובד: {asset.name}
-          </h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4" dir="rtl">
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-300">
-              {error}
-            </div>
-          )}
-          <div>
-            <label className={LABEL_CLASS}>בחר עובד *</label>
-            <select value={toUserId} onChange={(e) => setToUserId(e.target.value)} className={INPUT_CLASS} required>
-              <option value="">בחר עובד</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>הערות</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={INPUT_CLASS} rows={2} placeholder="הערות (אופציונלי)" />
-          </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
-            <button type="submit" disabled={submitting || !toUserId} className={BTN_PRIMARY}>
-              {submitting ? 'מקצה...' : 'הקצה לעובד'}
             </button>
           </div>
         </form>

@@ -41,18 +41,18 @@ class TransferService:
                 detail="Asset not found.",
             )
 
-        if asset.status != AssetStatus.ACTIVE:
+        # A handover may start either from an employee already holding the asset
+        # (status ACTIVE) or directly from a warehouse (status IN_WAREHOUSE).
+        # Both flows produce the same pending transfer awaiting recipient approval.
+        transferable_statuses = (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE)
+        if asset.status not in transferable_statuses:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Asset is not transferable (current status: {asset.status.value}).",
+                detail=f"לא ניתן למסור את הנכס במצב הנוכחי (סטטוס: {asset.status.value}).",
             )
 
+        # May be None when the asset is being handed out straight from a warehouse.
         from_user_id = asset.current_custodian_id
-        if from_user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="הנכס אינו מוקצה לעובד כלשהו ולא ניתן להעבירו. יש להקצות אותו תחילה.",
-            )
 
         active_transfers = await self._transfer_repo.get_active_transfers_for_asset(asset_id)
         if active_transfers:

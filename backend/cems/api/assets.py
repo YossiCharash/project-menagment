@@ -27,7 +27,18 @@ from backend.cems.schemas.fixed_asset import (
 from backend.cems.schemas.transfer import ApproveRetirementRequest, RetirementRead
 from backend.cems.services.photo_storage import store_photo, validate_photo
 from backend.cems.services.retirement_service import RetirementService
+from backend.core.exceptions.cems import RetirementError
 from backend.models import User
+
+
+def _raise_http_from_retirement_error(error: RetirementError) -> None:
+    """Translate a domain ``RetirementError`` into an HTTPException.
+
+    Single-responsibility helper that keeps the service layer free of
+    FastAPI primitives while presenting the Hebrew detail message to the
+    client at the appropriate HTTP status code.
+    """
+    raise HTTPException(status_code=error.http_status, detail=error.detail)
 
 
 class MoveAssetRequest(PydanticBaseModel):
@@ -138,11 +149,14 @@ async def approve_retirement(
     service = RetirementService(
         AssetRepository(db), TransferRepository(db), UserRepository(db),
     )
-    retirement = await service.approve_retirement(
-        retirement_id=retirement_id,
-        manager_id=current_user.id,
-        notes=payload.notes,
-    )
+    try:
+        retirement = await service.approve_retirement(
+            retirement_id=retirement_id,
+            manager_id=current_user.id,
+            notes=payload.notes,
+        )
+    except RetirementError as error:
+        _raise_http_from_retirement_error(error)
     return RetirementRead.model_validate(retirement)
 
 
@@ -157,11 +171,14 @@ async def reject_retirement(
     service = RetirementService(
         AssetRepository(db), TransferRepository(db), UserRepository(db),
     )
-    retirement = await service.reject_retirement(
-        retirement_id=retirement_id,
-        manager_id=current_user.id,
-        reason=payload.reason,
-    )
+    try:
+        retirement = await service.reject_retirement(
+            retirement_id=retirement_id,
+            manager_id=current_user.id,
+            reason=payload.reason,
+        )
+    except RetirementError as error:
+        _raise_http_from_retirement_error(error)
     return RetirementRead.model_validate(retirement)
 
 
@@ -345,10 +362,37 @@ async def retire_asset(
     transfer_repo = TransferRepository(db)
     user_repo = UserRepository(db)
     service = RetirementService(asset_repo, transfer_repo, user_repo)
-    retirement = await service.request_retirement(
-        asset_id=asset_id,
-        requested_by_id=current_user.id,
-        reason=payload.reason,
-        disposal_method=payload.disposal_method,
-    )
+    try:
+        retirement = await service.request_retirement(
+            asset_id=asset_id,
+            requested_by_id=current_user.id,
+            reason=payload.reason,
+            disposal_method=payload.disposal_method,
+            what_happened=payload.what_happened,
+        )
+    except RetirementError as error:
+        _raise_http_from_retirement_error(error)
     return RetirementRead.model_validate(retirement)
+
+
+@router.delete("/{asset_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+async def permanently_delete_archived_asset(
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager),
+) -> None:
+    """Permanently delete an archived asset and all its dependent rows.
+
+    Only Admin or Manager may call this endpoint.  The asset MUST already
+    be ``RETIRED`` — attempting to hard-delete a live asset returns 409.
+    """
+    service = RetirementService(
+        AssetRepository(db), TransferRepository(db), UserRepository(db),
+    )
+    try:
+        await service.delete_archived_asset(
+            asset_id=asset_id,
+            manager_id=current_user.id,
+        )
+    except RetirementError as error:
+        _raise_http_from_retirement_error(error)
