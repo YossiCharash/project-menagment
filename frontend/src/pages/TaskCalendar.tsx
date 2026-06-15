@@ -685,12 +685,12 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     const el = document.querySelector('.task-calendar-wrap .fc-toolbar-title')
     if (!el) return
 
+    const midDate = new Date((dateRange.start.getTime() + dateRange.end.getTime()) / 2)
     let desiredTitle: string
     if (localCalendarDateDisplay === 'hebrew' || localCalendarDateDisplay === 'both') {
-      const midDate = new Date((dateRange.start.getTime() + dateRange.end.getTime()) / 2)
       desiredTitle = getHebrewMonthYearHeader(midDate)
     } else {
-      desiredTitle = dateRange.start.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
+      desiredTitle = midDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
     }
 
     const applyTitle = () => {
