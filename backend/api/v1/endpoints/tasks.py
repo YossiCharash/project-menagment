@@ -301,15 +301,13 @@ async def archive_task(
         db: DBSessionDep,
         user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
 ):
-    """Archive a single completed task. Only completed tasks can be archived."""
+    """Archive a single task (removes it from the active calendar; can be restored)."""
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.is_archived:
         raise HTTPException(status_code=400, detail="המשימה כבר נמצאת בארכיון")
-    if task.status != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="ניתן לארכב רק משימה שטופלה (במצב 'טופלה')")
     task.is_archived = True
     task.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await repo.update(task)
