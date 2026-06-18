@@ -326,6 +326,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     info: EventChangeArg | null
   } | null>(null)
   const [dropConfirmSaving, setDropConfirmSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<Task | null>(null)
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
   const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
@@ -658,8 +659,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     setSelectedTask(task)
   }
 
-  const handleDeleteTask = async (task: Task) => {
-    if (!confirm(`למחוק את "${task.title}"? פעולה זו אינה ניתנת לביטול.`)) return
+  const performDeleteTask = async (task: Task) => {
     setDeletingTaskId(task.id)
     try {
       await api.delete(`/tasks/${task.id}`)
@@ -678,8 +678,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     }
   }
 
-  const handleArchiveTask = async (task: Task) => {
-    if (!confirm(`לארכב את "${task.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
+  const performArchiveTask = async (task: Task) => {
     setArchivingTaskId(task.id)
     try {
       await api.post(`/tasks/${task.id}/archive`)
@@ -696,6 +695,11 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     } finally {
       setArchivingTaskId(null)
     }
+  }
+
+  const handleArchiveTask = async (task: Task) => {
+    if (!confirm(`לארכב את "${task.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
+    await performArchiveTask(task)
   }
 
   const handleRemindTask = async (task: Task) => {
@@ -781,6 +785,15 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const toDateTimeLocal = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const DEFAULT_TASK_DURATION_MINUTES = 30
+  const addMinutesToLocalDateTime = (localDateTime: string, minutes: number): string => {
+    if (!localDateTime) return ''
+    const parsed = new Date(localDateTime)
+    if (Number.isNaN(parsed.getTime())) return ''
+    parsed.setMinutes(parsed.getMinutes() + minutes)
+    return toDateTimeLocal(parsed)
   }
 
   /** Local ISO string with seconds — matches the format used by the create flow.
@@ -1940,6 +1953,47 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         </Modal>
       )}
 
+      {deleteConfirm && (
+        <Modal
+          isOpen={!!deleteConfirm}
+          onClose={() => setDeleteConfirm(null)}
+          title="מחיקת משימה"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              האם למחוק את "{deleteConfirm.title}"? מחיקה היא לצמיתות ואינה ניתנת לשחזור. במקום זאת אפשר לארכב את המשימה — היא תוסר מהיומן אך תישמר בארכיון וניתן לשחזר אותה בכל עת.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button
+                type="button"
+                onClick={async () => { await performArchiveTask(deleteConfirm); setDeleteConfirm(null) }}
+                disabled={archivingTaskId === deleteConfirm.id}
+                className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+              >
+                <Archive className="w-4 h-4" />
+                {archivingTaskId === deleteConfirm.id ? 'מארכב...' : 'ארכב במקום'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => { await performDeleteTask(deleteConfirm); setDeleteConfirm(null) }}
+                disabled={deletingTaskId === deleteConfirm.id}
+                className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deletingTaskId === deleteConfirm.id ? 'מוחק...' : 'מחק לצמיתות'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {selectedTask && (() => {
         const overdueInfo = getOverdueInfo(selectedTask)
         return (
@@ -2152,7 +2206,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               )}
               <button
                 type="button"
-                onClick={() => selectedTask && handleDeleteTask(selectedTask)}
+                onClick={() => selectedTask && setDeleteConfirm(selectedTask)}
                 disabled={!!deletingTaskId}
                 className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
               >
@@ -2336,7 +2390,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                       name="edit-start-time"
                       type="datetime-local"
                       value={editForm.start_time}
-                      onChange={(e) => setEditForm(f => f ? { ...f, start_time: e.target.value } : f)}
+                      onChange={(e) => {
+                        const newStart = e.target.value
+                        setEditForm(f => f ? { ...f, start_time: newStart, end_time: newStart ? addMinutesToLocalDateTime(newStart, DEFAULT_TASK_DURATION_MINUTES) : f.end_time } : f)
+                      }}
                       className={cn(
                         "w-full px-3 py-2 border rounded-lg",
                         "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -2671,7 +2728,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                       name="create-start-time"
                       type="datetime-local"
                       value={createForm.start_time}
-                      onChange={(e) => setCreateForm(f => ({ ...f, start_time: e.target.value }))}
+                      onChange={(e) => {
+                        const newStart = e.target.value
+                        setCreateForm(f => ({ ...f, start_time: newStart, end_time: newStart ? addMinutesToLocalDateTime(newStart, DEFAULT_TASK_DURATION_MINUTES) : f.end_time }))
+                      }}
                       required={taskType === 'meeting'}
                       className={cn(
                         "w-full px-2 py-1.5 border rounded-lg text-sm",
