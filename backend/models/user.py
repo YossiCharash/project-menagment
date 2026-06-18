@@ -51,7 +51,8 @@ class User(Base):
 
     projects: Mapped[list["Project"]] = relationship(back_populates="manager")
     tasks: Mapped[list["Task"]] = relationship(
-        "Task", back_populates="assigned_user", lazy="selectin"
+        "Task", back_populates="assigned_user",
+        foreign_keys="Task.assigned_to_user_id", lazy="selectin"
     )
     task_participations: Mapped[list["TaskParticipant"]] = relationship(
         "TaskParticipant", back_populates="user", lazy="selectin"

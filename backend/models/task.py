@@ -74,6 +74,9 @@ class Task(Base):
     assigned_to_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     unique_tag: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, default=generate_unique_tag
     )
@@ -95,9 +98,13 @@ class Task(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     requires_closure_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_super_task: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    is_backlog: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     assigned_user: Mapped["User"] = relationship(
-        "User", back_populates="tasks", lazy="selectin"
+        "User", back_populates="tasks", foreign_keys=[assigned_to_user_id], lazy="selectin"
+    )
+    created_by_user: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[created_by_user_id], lazy="selectin"
     )
     attachments: Mapped[list["TaskAttachment"]] = relationship(
         "TaskAttachment", back_populates="task", cascade="all, delete-orphan"

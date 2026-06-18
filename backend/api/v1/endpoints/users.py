@@ -30,19 +30,16 @@ async def get_me(current = Depends(get_current_user)):
 
 @router.get("/for-tasks")
 async def list_users_for_tasks(db: DBSessionDep, user=Depends(get_current_user)):
-    """List users for task assignment: Admin sees all; Member sees only themselves. Includes calendar_color and avatar_url."""
+    """List active users for task assignment. All roles (Admin and Member) get the full list so any user can pick another person as assignee/participant in the task calendar. Includes calendar_color and avatar_url, ordered by full_name."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from backend.models.user import User
-    if user.role == "Admin":
-        res = await db.execute(
-            select(User).where(User.is_active == True).order_by(User.full_name)
-            .options(selectinload(User.preferences))
-        )
-        rows = res.scalars().all()
-        return [{"id": r.id, "full_name": r.full_name, "calendar_color": r.preferences.calendar_color if r.preferences else None, "avatar_url": r.avatar_url} for r in rows]
-    pref_color = user.preferences.calendar_color if user.preferences else None
-    return [{"id": user.id, "full_name": user.full_name, "calendar_color": pref_color, "avatar_url": user.avatar_url}]
+    res = await db.execute(
+        select(User).where(User.is_active == True).order_by(User.full_name)
+        .options(selectinload(User.preferences))
+    )
+    rows = res.scalars().all()
+    return [{"id": r.id, "full_name": r.full_name, "calendar_color": r.preferences.calendar_color if r.preferences else None, "avatar_url": r.avatar_url} for r in rows]
 
 
 @router.get("/for-invite")
