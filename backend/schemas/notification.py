@@ -2,7 +2,7 @@
 from datetime import datetime
 from pydantic import BaseModel
 
-NOTIFICATION_TYPE_VALUES = ("instruction", "task_assignment", "task_reminder", "general")
+NOTIFICATION_TYPE_VALUES = ("instruction", "task_assignment", "task_reminder", "general", "task_message")
 
 
 class NotificationOut(BaseModel):

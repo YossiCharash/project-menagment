@@ -346,7 +346,7 @@ export interface UnforeseenTransactionUpdate {
 }
 
 // User notifications (הודעות, הוראות, תזכורות)
-export type NotificationType = 'instruction' | 'task_assignment' | 'task_reminder' | 'general'
+export type NotificationType = 'instruction' | 'task_assignment' | 'task_reminder' | 'general' | 'task_message'
 
 export interface Notification {
   id: number

@@ -42,6 +42,23 @@ class NotificationRepository:
         result = await self.db.execute(q)
         return list(result.unique().scalars().all())
 
+    async def find_unread_for_task(
+        self, user_id: int, task_id: int, notification_type: str
+    ) -> UserNotification | None:
+        """Return the user's unread notification of the given type for a task, if any (for dedup)."""
+        result = await self.db.execute(
+            select(UserNotification)
+            .where(
+                UserNotification.user_id == user_id,
+                UserNotification.task_id == task_id,
+                UserNotification.type == notification_type,
+                UserNotification.read_at.is_(None),
+            )
+            .order_by(UserNotification.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, notification_id: int, user_id: int) -> UserNotification | None:
         result = await self.db.execute(
             select(UserNotification)

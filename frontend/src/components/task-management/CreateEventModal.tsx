@@ -4,6 +4,7 @@ import Modal from '../Modal'
 import { Tag, Paperclip, X, Zap } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType, RecurrenceRule } from '../../pages/TaskCalendar'
+import { useDeleteTaskLabel } from './useDeleteTaskLabel'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,15 +81,29 @@ function todayDateString(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
+const DEFAULT_MEETING_DURATION_MINUTES = 30
+
+function formatLocalDateTime(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function addMinutesToLocalDateTime(localDateTime: string, minutes: number): string {
+  if (!localDateTime) return ''
+  const parsed = new Date(localDateTime)
+  if (Number.isNaN(parsed.getTime())) return ''
+  parsed.setMinutes(parsed.getMinutes() + minutes)
+  return formatLocalDateTime(parsed)
+}
+
 function defaultMeetingTimes(): { start_time: string; end_time: string } {
   const now = new Date()
   const start = new Date(now)
   start.setHours(9, 0, 0, 0)
-  const end = new Date(now)
-  end.setHours(10, 0, 0, 0)
+  const end = new Date(start)
+  end.setMinutes(start.getMinutes() + DEFAULT_MEETING_DURATION_MINUTES)
   return {
-    start_time: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`,
-    end_time: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`,
+    start_time: formatLocalDateTime(start),
+    end_time: formatLocalDateTime(end),
   }
 }
 
@@ -113,6 +128,13 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
   const [addingLabel, setAddingLabel] = useState(false)
+
+  const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
+    onDeleted: (labelId) => {
+      setTaskLabels(prev => prev.filter(x => x.id !== labelId))
+      setCreateForm(f => ({ ...f, label_ids: f.label_ids.filter(id => id !== labelId) }))
+    },
+  })
 
   // -- Fetch users & labels on mount --
   useEffect(() => {
@@ -330,11 +352,22 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
           </label>
           <div className="flex flex-wrap gap-1.5 mb-1">
             {taskLabels.map((l) => (
-              <label key={l.id} className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer', createForm.label_ids.includes(l.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700')} style={createForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}>
-                <input type="checkbox" checked={createForm.label_ids.includes(l.id)} onChange={(e) => { if (e.target.checked) setCreateForm(f => ({ ...f, label_ids: [...f.label_ids, l.id] })); else setCreateForm(f => ({ ...f, label_ids: f.label_ids.filter(id => id !== l.id) })) }} className="sr-only" />
-                <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                {l.name}
-              </label>
+              <span key={l.id} className="inline-flex items-center gap-0.5">
+                <label className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer', createForm.label_ids.includes(l.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700')} style={createForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}>
+                  <input type="checkbox" checked={createForm.label_ids.includes(l.id)} onChange={(e) => { if (e.target.checked) setCreateForm(f => ({ ...f, label_ids: [...f.label_ids, l.id] })); else setCreateForm(f => ({ ...f, label_ids: f.label_ids.filter(id => id !== l.id) })) }} className="sr-only" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
+                  {l.name}
+                </label>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
+                  disabled={deletingLabelId === l.id}
+                  title="מחק לייבל"
+                  className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
             ))}
             <input type="text" placeholder="לייבל חדש" value={newLabelName} onChange={(e) => setNewLabelName(e.target.value)} className="px-2 py-1 border rounded text-xs w-24 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100" />
             <input type="color" value={newLabelColor} onChange={(e) => setNewLabelColor(e.target.value)} className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent" />
@@ -355,7 +388,12 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label htmlFor="ce-start" className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">משעה *</label>
-                <input id="ce-start" type="datetime-local" value={createForm.start_time} onChange={(e) => setCreateForm(f => ({ ...f, start_time: e.target.value }))}
+                <input id="ce-start" type="datetime-local" value={createForm.start_time} onChange={(e) => {
+                  const newStartTime = e.target.value
+                  setCreateForm(f => newStartTime
+                    ? { ...f, start_time: newStartTime, end_time: addMinutesToLocalDateTime(newStartTime, DEFAULT_MEETING_DURATION_MINUTES) }
+                    : { ...f, start_time: newStartTime })
+                }}
                   className="w-full px-2 py-1.5 border rounded-lg text-sm border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100" />
               </div>
               <div>
