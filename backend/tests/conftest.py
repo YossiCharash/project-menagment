@@ -17,6 +17,12 @@ from backend.models.category import Category
 from backend.models.supplier import Supplier
 from backend.core.security import hash_password
 
+# Import CEMS models so their tables (e.g. cems_warehouses) are registered on
+# the shared metadata before create_all(). User.cems_warehouse_id has a FK to
+# cems_warehouses.id; without this import the table is missing and metadata
+# resolution raises NoReferencedTableError.
+import backend.cems.models  # noqa: F401,E402
+
 # ── SQLite compatibility ────────────────────────────────────────────────────────
 # PostgreSQL-specific JSONB has no native SQLite equivalent.
 # Teach SQLite's DDL compiler to render it as TEXT so create_all() works.

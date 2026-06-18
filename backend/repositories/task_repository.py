@@ -136,6 +136,37 @@ class TaskRepository:
         result = await self.db.execute(q)
         return list(result.unique().scalars().all())
 
+    async def list_backlog(
+        self,
+        assigned_to_user_id: int | None = None,
+        for_user_id: int | None = None,
+    ) -> list[Task]:
+        """Return non-archived, non-completed backlog tasks. Member sees own/invited; Admin can filter by user."""
+        q = (
+            select(Task)
+            .options(
+                selectinload(Task.assigned_user),
+                selectinload(Task.attachments),
+                selectinload(Task.labels),
+                selectinload(Task.participants).selectinload(TaskParticipant.user),
+            )
+            .where(Task.is_backlog == True)   # noqa: E712
+            .where(Task.is_archived == False)  # noqa: E712
+            .where(Task.status != TaskStatus.COMPLETED)
+            .order_by(Task.created_at.asc())
+        )
+        if for_user_id is not None:
+            q = q.where(
+                or_(
+                    Task.assigned_to_user_id == for_user_id,
+                    exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == for_user_id),
+                )
+            )
+        elif assigned_to_user_id is not None:
+            q = q.where(Task.assigned_to_user_id == assigned_to_user_id)
+        result = await self.db.execute(q)
+        return list(result.unique().scalars().all())
+
     async def archive_completed_tasks(self) -> int:
         today_midnight = datetime.combine(date.today(), datetime.min.time())
         now = datetime.now(timezone.utc).replace(tzinfo=None)

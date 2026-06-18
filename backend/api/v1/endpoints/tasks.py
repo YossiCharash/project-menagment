@@ -301,15 +301,13 @@ async def archive_task(
         db: DBSessionDep,
         user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
 ):
-    """Archive a single completed task. Only completed tasks can be archived."""
+    """Archive a single task (removes it from the active calendar; can be restored)."""
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.is_archived:
         raise HTTPException(status_code=400, detail="המשימה כבר נמצאת בארכיון")
-    if task.status != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="ניתן לארכב רק משימה שטופלה (במצב 'טופלה')")
     task.is_archived = True
     task.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await repo.update(task)
@@ -347,6 +345,15 @@ def _can_access_task(task: Task, user) -> bool:
         return True
     participants = getattr(task, "participants", None) or []
     return any(getattr(p, "user_id", None) == user.id for p in participants)
+
+
+def _can_manage_task(task: Task, user) -> bool:
+    """True if user may add/manage attachments on this task: Admin, the assignee, or the creator."""
+    if user.role == "Admin":
+        return True
+    if task.assigned_to_user_id == user.id:
+        return True
+    return getattr(task, "created_by_user_id", None) == user.id
 
 
 @router.get("/{task_id}/messages", response_model=list[TaskMessageOut])
@@ -479,6 +486,7 @@ async def create_task(
         status=initial_status,
         event_type=event_type,
         assigned_to_user_id=data.assigned_to_user_id,
+        created_by_user_id=user.id,
         recurrence_rule=recurrence_rule,
         recurrence_end_date=recurrence_end_date,
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
@@ -696,15 +704,15 @@ async def delete_task(
 async def upload_task_attachment(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(require_permission("write", "task", resource_id_param="task_id", project_id_param=None)),
         file: UploadFile = File(...),
 ):
-    """Upload a file or image attachment to a task. Only task owner or Admin can add attachments."""
+    """Upload a file or image attachment to a task. Only task creator, assignee, or Admin can add attachments."""
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin" and task.assigned_to_user_id != user.id:
+    if not _can_manage_task(task, user):
         raise HTTPException(status_code=403, detail="Access denied.")
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
     if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:

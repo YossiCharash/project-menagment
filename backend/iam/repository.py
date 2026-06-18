@@ -68,8 +68,12 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.CEMS_REPORT.value: _ALL_ACTIONS,
     },
     GlobalRole.MEMBER.value: {
-        rt.value: set()
-        for rt in ResourceType
+        # Members get an empty permission set on every resource by default...
+        **{rt.value: set() for rt in ResourceType},
+        # ...except they may CREATE (write) tasks for any user via the task
+        # calendar. Read/update/delete remain denied so Members cannot edit or
+        # delete shared task labels gated by the generic "task" resource.
+        ResourceType.TASK.value: {Action.WRITE.value},
     },
 }
 
