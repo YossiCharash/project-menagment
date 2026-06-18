@@ -49,6 +49,7 @@ from backend.services.outlook_sync_service import (
 )
 from backend.services.notification_service import (
     create_task_assignment_notifications,
+    create_task_message_notifications,
     create_task_reminder,
     create_closure_approval_notification,
 )
@@ -226,6 +227,19 @@ async def update_task_label(
     return TaskLabelOut.model_validate(updated)
 
 
+@router.get("/labels/{label_id}/usage")
+async def get_task_label_usage(
+        label_id: int, db: DBSessionDep, user=Depends(get_current_user)
+):
+    """Return how many tasks use this label (for delete confirmation)."""
+    repo = TaskLabelRepository(db)
+    label = await repo.get_by_id(label_id)
+    if not label:
+        raise HTTPException(status_code=404, detail="Label not found")
+    task_count = await repo.count_tasks_for_label(label_id)
+    return {"task_count": task_count}
+
+
 @router.delete("/labels/{label_id}", status_code=204)
 async def delete_task_label(
         label_id: int, db: DBSessionDep, user=Depends(require_permission("delete", "task", project_id_param=None))
@@ -279,6 +293,28 @@ async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
     repo = TaskRepository(db)
     tasks = await repo.list_super_tasks()
     return [_task_to_out(t) for t in tasks]
+
+
+@router.post("/{task_id}/archive", response_model=TaskOut)
+async def archive_task(
+        task_id: int,
+        db: DBSessionDep,
+        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+):
+    """Archive a single completed task. Only completed tasks can be archived."""
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.is_archived:
+        raise HTTPException(status_code=400, detail="המשימה כבר נמצאת בארכיון")
+    if task.status != TaskStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="ניתן לארכב רק משימה שטופלה (במצב 'טופלה')")
+    task.is_archived = True
+    task.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await repo.update(task)
+    updated = await repo.get(task.id)
+    return _task_to_out(updated)
 
 
 @router.post("/{task_id}/restore", response_model=TaskOut)
@@ -371,6 +407,10 @@ async def create_task_message(
     db.add(msg)
     await db.flush()
     await db.refresh(msg)
+    try:
+        await create_task_message_notifications(db, task, user.id, msg_text)
+    except Exception:
+        logger.warning(f"Failed to create message notifications for task {task_id}", exc_info=True)
     author = getattr(msg, "user", None) or user
     return TaskMessageOut(
         id=msg.id,

@@ -25,14 +25,16 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   instruction: 'הוראה',
   task_assignment: 'משימה',
   task_reminder: 'תזכורת',
-  general: 'הודעה'
+  general: 'הודעה',
+  task_message: 'הודעת משימה'
 }
 
 const TYPE_ICONS: Record<NotificationType, typeof Mail> = {
   instruction: FileText,
   task_assignment: Calendar,
   task_reminder: Bell,
-  general: MessageSquare
+  general: MessageSquare,
+  task_message: MessageSquare
 }
 
 function formatDate(s: string) {
@@ -354,7 +356,7 @@ export default function Notifications({ embedded }: NotificationsProps = {}) {
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         {n.task_id && (
                           <Link
-                            to="/task-management?tab=calendar"
+                            to={`/task-management?tab=calendar&taskId=${n.task_id}`}
                             className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
                           >
                             <Calendar className="w-4 h-4" />

@@ -13,6 +13,7 @@ class NotificationType:
     TASK_ASSIGNMENT = "task_assignment"
     TASK_REMINDER = "task_reminder"
     GENERAL = "general"
+    TASK_MESSAGE = "task_message"  # הודעת צ'אט חדשה במשימה
 
 
 class UserNotification(Base):

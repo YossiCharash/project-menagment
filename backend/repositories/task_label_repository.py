@@ -1,8 +1,8 @@
 """Task label repository."""
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.task import TaskLabel
+from backend.models.task import TaskLabel, task_task_labels
 
 
 class TaskLabelRepository:
@@ -22,6 +22,15 @@ class TaskLabelRepository:
             return []
         result = await self.db.execute(select(TaskLabel).where(TaskLabel.id.in_(ids)))
         return list(result.scalars().all())
+
+    async def count_tasks_for_label(self, label_id: int) -> int:
+        """Count how many tasks are tagged with this label (via the association table)."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(task_task_labels)
+            .where(task_task_labels.c.task_label_id == label_id)
+        )
+        return result.scalar_one()
 
     async def create(self, label: TaskLabel) -> TaskLabel:
         self.db.add(label)

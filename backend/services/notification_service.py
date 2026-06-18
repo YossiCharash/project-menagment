@@ -1,4 +1,5 @@
 """Service for creating user notifications (e.g. on task assignment)."""
+from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +55,69 @@ async def create_task_assignment_notifications(
                     body=body,
                 )
                 await repo.create(n)
+    await db.flush()
+
+
+def _collect_task_recipient_ids(task: Task, exclude_user_id: int) -> set[int]:
+    """User ids tied to a task (assignee + participants), excluding one user."""
+    recipient_ids: set[int] = set()
+    if task.assigned_to_user_id:
+        recipient_ids.add(task.assigned_to_user_id)
+    for participant in getattr(task, "participants", None) or []:
+        participant_user_id = getattr(participant, "user_id", None)
+        if participant_user_id:
+            recipient_ids.add(participant_user_id)
+    recipient_ids.discard(exclude_user_id)
+    return recipient_ids
+
+
+def _build_message_preview(message_text: str, max_length: int = 120) -> str:
+    """One-line preview of a chat message for the notification body."""
+    preview = (message_text or "").strip()
+    if len(preview) > max_length:
+        preview = preview[:max_length].rstrip() + "…"
+    return preview
+
+
+async def create_task_message_notifications(
+    db: AsyncSession,
+    task: Task,
+    from_user_id: int,
+    message_text: str,
+) -> None:
+    """
+    Notify everyone tied to the task (assignee + participants) about a new chat
+    message, EXCEPT the message author. Keeps at most one UNREAD notification of
+    type task_message per (user, task): if one exists it is bumped to 'now' and its
+    body refreshed; otherwise a new one is created.
+    """
+    recipient_ids = _collect_task_recipient_ids(task, from_user_id)
+    if not recipient_ids:
+        return
+
+    repo = NotificationRepository(db)
+    title = f"הודעה חדשה במשימה: {task.title}"
+    preview = _build_message_preview(message_text)
+
+    for recipient_id in recipient_ids:
+        existing = await repo.find_unread_for_task(
+            recipient_id, task.id, NotificationType.TASK_MESSAGE
+        )
+        if existing:
+            existing.title = title
+            existing.body = preview
+            existing.from_user_id = from_user_id
+            existing.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            notification = UserNotification(
+                user_id=recipient_id,
+                from_user_id=from_user_id,
+                task_id=task.id,
+                type=NotificationType.TASK_MESSAGE,
+                title=title,
+                body=preview,
+            )
+            await repo.create(notification)
     await db.flush()
 
 

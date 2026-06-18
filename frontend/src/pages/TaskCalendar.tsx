@@ -13,6 +13,7 @@ import { getToken } from '../lib/authCache'
 import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive } from 'lucide-react'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
+import { useDeleteTaskLabel } from '../components/task-management/useDeleteTaskLabel'
 import { cn } from '../lib/utils'
 import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
@@ -207,7 +208,8 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [users, setUsers] = useState<UserForTask[]>([])
   const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterUserId, setFilterUserId] = useState<number | null>(null)
+  const [filterUserId, setFilterUserId] = useState<number | null>(me?.id ?? null)
+  const didInitFilterRef = useRef(me?.id != null)
   const [includeArchived, setIncludeArchived] = useState(false)
   const [mobileSelectedDate, setMobileSelectedDate] = useState<Date>(() => new Date())
   // dedupe by day so re-emitted ranges from the child don't cause refetch churn
@@ -327,6 +329,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
   const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
+  const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const { toast, showToast, hideToast } = useToast()
 
   const setTaskTypeWithDefaults = useCallback((type: 'meeting' | 'all_day' | 'no_date') => {
@@ -355,6 +358,15 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
   const [addingLabel, setAddingLabel] = useState(false)
+
+  const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
+    onDeleted: (labelId) => {
+      setTaskLabels(prev => prev.filter(x => x.id !== labelId))
+      setCreateForm(f => ({ ...f, label_ids: f.label_ids.filter(id => id !== labelId) }))
+      setEditForm(f => (f ? { ...f, label_ids: f.label_ids.filter(id => id !== labelId) } : f))
+    },
+    onError: (message) => showToast(message, 'error'),
+  })
 
   const [localCalendarDateDisplay, setLocalCalendarDateDisplay] = useState<CalendarDateDisplay>(() => {
     try {
@@ -433,6 +445,13 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       setTaskLabels([])
     }
   }, [])
+
+  useEffect(() => {
+    if (!didInitFilterRef.current && me?.id != null) {
+      setFilterUserId(me.id)
+      didInitFilterRef.current = true
+    }
+  }, [me?.id])
 
   useEffect(() => {
     fetchUsers()
@@ -516,6 +535,28 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [fetchOutlookStatus])
+
+  // Open a specific task when arriving from a notification deep link (?taskId=…)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const taskIdParam = params.get('taskId')
+    if (!taskIdParam) return
+    const taskId = parseInt(taskIdParam, 10)
+    // Remove taskId from the URL (keep other params like tab) so it won't reopen on re-render/back
+    params.delete('taskId')
+    const remaining = params.toString()
+    window.history.replaceState({}, '', `${window.location.pathname}${remaining ? `?${remaining}` : ''}`)
+    if (Number.isNaN(taskId)) return
+    let cancelled = false
+    api.get<Task>(`/tasks/${taskId}`)
+      .then(({ data }) => {
+        if (!cancelled) setSelectedTask(data)
+      })
+      .catch(() => {
+        if (!cancelled) showToast('לא ניתן לפתוח את המשימה המבוקשת', 'error')
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const handleOutlookConnect = () => {
     const token = getToken()
@@ -634,6 +675,26 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       console.error('Failed to delete task:', err)
     } finally {
       setDeletingTaskId(null)
+    }
+  }
+
+  const handleArchiveTask = async (task: Task) => {
+    if (!confirm(`לארכב את "${task.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
+    setArchivingTaskId(task.id)
+    try {
+      await api.post(`/tasks/${task.id}/archive`)
+      setSelectedTask(null)
+      try {
+        sessionStorage.setItem('taskCalendarView', currentViewType)
+        if (dateRange?.start) sessionStorage.setItem('taskCalendarDate', dateRange.start.toISOString())
+      } catch {
+        /* ignore */
+      }
+      await fetchTasks()
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail ?? 'שגיאה בארכוב המשימה', 'error')
+    } finally {
+      setArchivingTaskId(null)
     }
   }
 
@@ -2077,6 +2138,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 <Pencil className="w-4 h-4" />
                 עריכה
               </button>
+              {selectedTask.status === 'completed' && !selectedTask.is_archived && (
+                <button
+                  type="button"
+                  onClick={() => selectedTask && handleArchiveTask(selectedTask)}
+                  disabled={archivingTaskId === selectedTask?.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                  title="ארכב את המשימה שטופלה"
+                >
+                  <Archive className="w-4 h-4" />
+                  {archivingTaskId === selectedTask?.id ? 'מארכב...' : 'ארכב'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => selectedTask && handleDeleteTask(selectedTask)}
@@ -2183,31 +2256,41 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               </label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {taskLabels.map((l) => (
-                  <label
-                    key={l.id}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border cursor-pointer transition-colors',
-                      editForm.label_ids.includes(l.id)
-                        ? 'border-transparent text-white'
-                        : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                    )}
-                    style={editForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editForm.label_ids.includes(l.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setEditForm((f) => (f ? { ...f, label_ids: [...f.label_ids, l.id] } : f))
-                        } else {
-                          setEditForm((f) => (f ? { ...f, label_ids: f.label_ids.filter((id) => id !== l.id) } : f))
-                        }
-                      }}
-                      className="sr-only"
-                    />
-                    <span className="w-2 h-2 rounded-full bg-white/80 flex-shrink-0" style={editForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                    {l.name}
-                  </label>
+                  <span key={l.id} className="inline-flex items-center gap-0.5">
+                    <label
+                      className={cn(
+                        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border cursor-pointer transition-colors',
+                        editForm.label_ids.includes(l.id)
+                          ? 'border-transparent text-white'
+                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      )}
+                      style={editForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editForm.label_ids.includes(l.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditForm((f) => (f ? { ...f, label_ids: [...f.label_ids, l.id] } : f))
+                          } else {
+                            setEditForm((f) => (f ? { ...f, label_ids: f.label_ids.filter((id) => id !== l.id) } : f))
+                          }
+                        }}
+                        className="sr-only"
+                      />
+                      <span className="w-2 h-2 rounded-full bg-white/80 flex-shrink-0" style={editForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
+                      {l.name}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
+                      disabled={deletingLabelId === l.id}
+                      title="מחק לייבל"
+                      className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
                 ))}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2514,26 +2597,36 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               </label>
               <div className="flex flex-wrap gap-1.5 mb-1">
                 {taskLabels.map((l) => (
-                  <label
-                    key={l.id}
-                    className={cn(
-                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer',
-                      createForm.label_ids.includes(l.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
-                    )}
-                    style={createForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={createForm.label_ids.includes(l.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setCreateForm((f) => ({ ...f, label_ids: [...f.label_ids, l.id] }))
-                        else setCreateForm((f) => ({ ...f, label_ids: f.label_ids.filter((id) => id !== l.id) }))
-                      }}
-                      className="sr-only"
-                    />
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                    {l.name}
-                  </label>
+                  <span key={l.id} className="inline-flex items-center gap-0.5">
+                    <label
+                      className={cn(
+                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer',
+                        createForm.label_ids.includes(l.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
+                      )}
+                      style={createForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createForm.label_ids.includes(l.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setCreateForm((f) => ({ ...f, label_ids: [...f.label_ids, l.id] }))
+                          else setCreateForm((f) => ({ ...f, label_ids: f.label_ids.filter((id) => id !== l.id) }))
+                        }}
+                        className="sr-only"
+                      />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
+                      {l.name}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
+                      disabled={deletingLabelId === l.id}
+                      title="מחק לייבל"
+                      className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
                 ))}
                 <input
                   id="create-new-label-name"
