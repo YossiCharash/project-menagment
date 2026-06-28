@@ -9,6 +9,7 @@ import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
 import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
 import SuperTasksPanel from '../components/task-management/SuperTasksPanel'
+import BacklogPanel from '../components/task-management/BacklogPanel'
 
 type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
 
@@ -76,6 +77,7 @@ export default function TaskManagement() {
             )
           })}
           <SuperTasksPanel />
+          <BacklogPanel />
         </div>
 
         {/* Tab Content */}

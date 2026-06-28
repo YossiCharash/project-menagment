@@ -22,6 +22,24 @@ def to_utc_z(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z")
 
 
+def to_wall_clock_iso(value: datetime | None) -> str | None:
+    """Serialize a user-entered wall-clock datetime WITHOUT a timezone marker.
+
+    Task ``start_time``/``end_time`` are scheduling values entered by the user
+    and stored as naive *local* (Israel) wall-clock times — NOT UTC. They must
+    be emitted exactly as stored (no 'Z'/offset) so the frontend's
+    ``new Date(...)`` parses them as local time without shifting the hours.
+    Using `to_utc_z` here would shift e.g. an all-day task's 00:00–23:59 to
+    03:00–02:59 local, which breaks all-day detection and shows a bogus time
+    range on tasks that have no time range.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.replace(tzinfo=None)
+    return value.isoformat()
+
+
 TASK_STATUS_VALUES = ("pending", "in_progress", "completed", "pending_closure")
 
 PARTICIPANT_RESPONSE_VALUES = ("pending", "accepted", "declined")
@@ -36,6 +54,13 @@ class TaskParticipantOut(BaseModel):
     avatar_url: str | None = None
 
 
+class TaskMessageAttachmentOut(BaseModel):
+    id: int
+    file_name: str
+    """URL path to download the file (e.g. /uploads/task_message_attachments/...)"""
+    file_url: str
+
+
 class TaskMessageOut(BaseModel):
     id: int
     task_id: int
@@ -44,6 +69,7 @@ class TaskMessageOut(BaseModel):
     avatar_url: str | None = None
     message: str
     created_at: datetime
+    attachments: list[TaskMessageAttachmentOut] = []
 
     _serialize_created_at = field_serializer("created_at")(staticmethod(to_utc_z))
 
@@ -167,9 +193,8 @@ class TaskOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    _serialize_dt = field_serializer(
-        "start_time",
-        "end_time",
+    # Backend-generated audit timestamps are stored as naive UTC → emit with 'Z'.
+    _serialize_utc_dt = field_serializer(
         "created_at",
         "updated_at",
         "assignee_acknowledged_at",
@@ -177,6 +202,12 @@ class TaskOut(BaseModel):
         "archived_at",
         "completed_at",
     )(staticmethod(to_utc_z))
+
+    # User-scheduled times are naive local wall-clock → emit without a tz marker.
+    _serialize_wall_clock_dt = field_serializer(
+        "start_time",
+        "end_time",
+    )(staticmethod(to_wall_clock_iso))
 
 
 ARCHIVED_PRESET_VALUES = ("last_week", "last_month", "last_3_months")

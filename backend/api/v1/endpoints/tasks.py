@@ -5,7 +5,7 @@ import os
 import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile, Form
 
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
@@ -22,7 +22,7 @@ from backend.schemas.task import (
     TaskParticipantOut,
     TaskAttachmentOut,
     TaskMessageOut,
-    TaskMessageCreate,
+    TaskMessageAttachmentOut,
     ArchivedTasksFilter,
     TaskChecklistItemCreate,
     TaskChecklistItemUpdate,
@@ -36,6 +36,7 @@ from backend.models.task import (
     TaskParticipant,
     TaskAttachment,
     TaskMessage,
+    TaskMessageAttachment,
     TaskChecklistItem,
     TaskStatus,
     EventType,
@@ -72,18 +73,63 @@ def _get_uploads_dir() -> str:
     return os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
 
 
-def _get_task_attachments_dir() -> str:
-    d = os.path.join(_get_uploads_dir(), "task_attachments")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
 # Allowed extensions for task attachments (images + common docs)
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv", ".zip",
 }
 MAX_ATTACHMENT_SIZE_MB = 15
+
+
+async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
+    """Validate and persist an uploaded file under ``uploads/<subdir>``.
+
+    Returns ``(relative_path, original_file_name)``. Raises HTTPException(400)
+    for an unsupported extension or oversized file. Shared by task attachments
+    and task-message attachments so both enforce identical limits (DRY).
+    """
+    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"סוג קובץ לא נתמך. מותרים: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}",
+        )
+    content = await file.read()
+    if len(content) > MAX_ATTACHMENT_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail=f"גודל קובץ מקסימלי: {MAX_ATTACHMENT_SIZE_MB} MB",
+        )
+    target_dir = os.path.join(_get_uploads_dir(), subdir)
+    os.makedirs(target_dir, exist_ok=True)
+    safe_name = (file.filename or "file").strip() or "file"
+    for char in ['/', '\\', '\0', '..']:
+        safe_name = safe_name.replace(char, "_")
+    stored_name = f"{uuid.uuid4().hex[:12]}_{safe_name}"
+    with open(os.path.join(target_dir, stored_name), "wb") as out_file:
+        out_file.write(content)
+    return f"{subdir}/{stored_name}", file.filename or stored_name
+
+
+def _message_to_out(msg: TaskMessage, author) -> TaskMessageOut:
+    """Build a TaskMessageOut (with attachments) from a TaskMessage."""
+    attachments = []
+    for att in getattr(msg, "attachments", None) or []:
+        path = getattr(att, "file_path", None) or ""
+        file_url = path if path.startswith("/") else (f"/uploads/{path}" if path else "")
+        attachments.append(
+            TaskMessageAttachmentOut(id=att.id, file_name=att.file_name or "", file_url=file_url)
+        )
+    return TaskMessageOut(
+        id=msg.id,
+        task_id=msg.task_id,
+        user_id=msg.user_id,
+        full_name=getattr(author, "full_name", "") or "",
+        avatar_url=getattr(author, "avatar_url", None),
+        message=msg.message,
+        created_at=msg.created_at,
+        attachments=attachments,
+    )
 
 
 def _to_naive_utc(dt: datetime | None) -> datetime | None:
@@ -153,6 +199,7 @@ def _task_to_out(task: Task) -> dict:
         "completed_at": getattr(task, "completed_at", None),
         "requires_closure_approval": getattr(task, "requires_closure_approval", False),
         "is_super_task": getattr(task, "is_super_task", False),
+        "is_backlog": getattr(task, "is_backlog", False),
         "assigned_user_name": task.assigned_user.full_name if task.assigned_user else None,
         "assigned_user_color": color,
         "assigned_user_avatar": getattr(task.assigned_user, "avatar_url", None) if task.assigned_user else None,
@@ -295,6 +342,21 @@ async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
     return [_task_to_out(t) for t in tasks]
 
 
+@router.get("/backlog", response_model=list[TaskOut])
+async def list_backlog_tasks(
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+        assigned_to_user_id: int | None = Query(None, description="Filter by assigned user ID (admin only)"),
+):
+    """Return active backlog tasks (unscheduled). Admin sees all; Member sees own/invited."""
+    repo = TaskRepository(db)
+    if user.role != "Admin":
+        tasks = await repo.list_backlog(for_user_id=user.id)
+    else:
+        tasks = await repo.list_backlog(assigned_to_user_id=assigned_to_user_id)
+    return [_task_to_out(t) for t in tasks]
+
+
 @router.post("/{task_id}/archive", response_model=TaskOut)
 async def archive_task(
         task_id: int,
@@ -371,63 +433,57 @@ async def list_task_messages(
         raise HTTPException(status_code=403, detail="Access denied")
     result = await db.execute(
         select(TaskMessage)
-        .options(selectinload(TaskMessage.user))
+        .options(selectinload(TaskMessage.user), selectinload(TaskMessage.attachments))
         .where(TaskMessage.task_id == task_id)
         .order_by(TaskMessage.created_at)
     )
     messages_sorted = list(result.scalars().unique().all())
-    out = []
-    for m in messages_sorted:
-        author = getattr(m, "user", None)
-        out.append(
-            TaskMessageOut(
-                id=m.id,
-                task_id=m.task_id,
-                user_id=m.user_id,
-                full_name=author.full_name if author else "",
-                avatar_url=getattr(author, "avatar_url", None) if author else None,
-                message=m.message,
-                created_at=m.created_at,
-            )
-        )
-    return out
+    return [_message_to_out(m, getattr(m, "user", None)) for m in messages_sorted]
 
 
 @router.post("/{task_id}/messages", response_model=TaskMessageOut)
 async def create_task_message(
         task_id: int,
-        data: TaskMessageCreate,
         db: DBSessionDep,
         user=Depends(get_current_user),
+        message: str = Form(""),
+        files: list[UploadFile] = File(default=[]),
 ):
-    """Add a chat message to a task. Only assignee, participants, or Admin can post."""
+    """Add a chat message (optionally with file attachments) to a task.
+
+    Sent as multipart/form-data: a ``message`` text field plus zero or more
+    ``files``. A message must contain text and/or at least one file. Only the
+    assignee, participants, or Admin can post.
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if not _can_access_task(task, user):
         raise HTTPException(status_code=403, detail="Access denied")
-    msg_text = (data.message or "").strip()
-    if not msg_text:
-        raise HTTPException(status_code=400, detail="הודעה לא יכולה להיות ריקה")
+    msg_text = (message or "").strip()
+    valid_files = [f for f in (files or []) if f and f.filename]
+    if not msg_text and not valid_files:
+        raise HTTPException(status_code=400, detail="יש לכתוב הודעה או לצרף קובץ")
     msg = TaskMessage(task_id=task_id, user_id=user.id, message=msg_text)
     db.add(msg)
     await db.flush()
+    for upload in valid_files:
+        relative_path, original_name = await _save_upload_file(upload, "task_message_attachments")
+        db.add(TaskMessageAttachment(message_id=msg.id, file_path=relative_path, file_name=original_name))
+    await db.flush()
     await db.refresh(msg)
+    if msg_text:
+        notify_text = msg_text
+    elif len(valid_files) == 1:
+        notify_text = "צירף קובץ"
+    else:
+        notify_text = f"צירף {len(valid_files)} קבצים"
     try:
-        await create_task_message_notifications(db, task, user.id, msg_text)
+        await create_task_message_notifications(db, task, user.id, notify_text)
     except Exception:
         logger.warning(f"Failed to create message notifications for task {task_id}", exc_info=True)
-    author = getattr(msg, "user", None) or user
-    return TaskMessageOut(
-        id=msg.id,
-        task_id=msg.task_id,
-        user_id=msg.user_id,
-        full_name=getattr(author, "full_name", "") or user.full_name,
-        avatar_url=getattr(author, "avatar_url", None),
-        message=msg.message,
-        created_at=msg.created_at,
-    )
+    return _message_to_out(msg, getattr(msg, "user", None) or user)
 
 
 @router.get("/{task_id}", response_model=TaskOut)
@@ -491,6 +547,7 @@ async def create_task(
         recurrence_end_date=recurrence_end_date,
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
         is_super_task=getattr(data, "is_super_task", False),
+        is_backlog=getattr(data, "is_backlog", False),
     )
     if initial_status == TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -540,6 +597,9 @@ async def update_task(
     # Only admins can toggle super task flag
     if "is_super_task" in update_data and user.role != "Admin":
         update_data.pop("is_super_task", None)
+    # Scheduling a backlog task (giving it a real start_time) removes it from the backlog
+    if update_data.get("start_time") is not None and "is_backlog" not in update_data:
+        update_data["is_backlog"] = False
     if "status" in update_data and update_data["status"] not in TASK_STATUS_VALUES:
         update_data.pop("status", None)
     # Intercept: non-admin trying to complete a task that requires closure approval
@@ -714,32 +774,11 @@ async def upload_task_attachment(
         raise HTTPException(status_code=404, detail="Task not found")
     if not _can_manage_task(task, user):
         raise HTTPException(status_code=403, detail="Access denied.")
-    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
-    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"סוג קובץ לא נתמך. מותרים: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}",
-        )
-    content = await file.read()
-    if len(content) > MAX_ATTACHMENT_SIZE_MB * 1024 * 1024:
-        raise HTTPException(
-            status_code=400,
-            detail=f"גודל קובץ מקסימלי: {MAX_ATTACHMENT_SIZE_MB} MB",
-        )
-    attach_dir = _get_task_attachments_dir()
-    safe_name = (file.filename or "file").strip() or "file"
-    for c in ['/', '\\', '\0', '..']:
-        safe_name = safe_name.replace(c, "_")
-    unique = uuid.uuid4().hex[:12]
-    stored_name = f"{unique}_{safe_name}"
-    file_path = os.path.join(attach_dir, stored_name)
-    with open(file_path, "wb") as f:
-        f.write(content)
-    relative_path = f"task_attachments/{stored_name}"
+    relative_path, original_name = await _save_upload_file(file, "task_attachments")
     attachment = TaskAttachment(
         task_id=task_id,
         file_path=relative_path,
-        file_name=file.filename or stored_name,
+        file_name=original_name,
     )
     db.add(attachment)
     await db.flush()
