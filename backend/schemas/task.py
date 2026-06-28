@@ -44,7 +44,9 @@ TASK_STATUS_VALUES = ("pending", "in_progress", "completed", "pending_closure")
 
 PARTICIPANT_RESPONSE_VALUES = ("pending", "accepted", "declined")
 
-RECURRENCE_RULE_VALUES = ("", "weekly", "monthly")
+RECURRENCE_RULE_VALUES = ("", "daily", "weekly", "monthly", "yearly")
+
+RECURRENCE_MONTHLY_MODE_VALUES = ("day_of_month", "day_of_week")
 
 
 class TaskParticipantOut(BaseModel):
@@ -134,6 +136,10 @@ class TaskBase(BaseModel):
     assigned_to_user_id: int
     recurrence_rule: str = ""
     recurrence_end_date: date | None = None
+    recurrence_interval: int = 1
+    recurrence_weekdays: str | None = None
+    recurrence_monthly_mode: str | None = None
+    recurrence_count: int | None = None
     requires_closure_approval: bool = False
     is_super_task: bool = False
     is_backlog: bool = False
@@ -155,6 +161,10 @@ class TaskUpdate(BaseModel):
     label_ids: list[int] | None = None
     recurrence_rule: str | None = None
     recurrence_end_date: date | None = None
+    recurrence_interval: int | None = None
+    recurrence_weekdays: str | None = None
+    recurrence_monthly_mode: str | None = None
+    recurrence_count: int | None = None
     participant_ids: list[int] | None = None
     requires_closure_approval: bool | None = None
     is_super_task: bool | None = None
@@ -173,6 +183,10 @@ class TaskOut(BaseModel):
     unique_tag: str
     recurrence_rule: str = ""
     recurrence_end_date: date | None = None
+    recurrence_interval: int = 1
+    recurrence_weekdays: str | None = None
+    recurrence_monthly_mode: str | None = None
+    recurrence_count: int | None = None
     created_at: datetime
     updated_at: datetime
     assignee_acknowledged_at: datetime | None = None
