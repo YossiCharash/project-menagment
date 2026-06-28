@@ -159,6 +159,27 @@ class TaskMessage(Base):
 
     task: Mapped["Task"] = relationship("Task", back_populates="messages")
     user: Mapped["User"] = relationship("User", back_populates="task_messages", lazy="selectin")
+    attachments: Mapped[list["TaskMessageAttachment"]] = relationship(
+        "TaskMessageAttachment",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class TaskMessageAttachment(Base):
+    """File/image attached to a single task chat message."""
+    __tablename__ = "task_message_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("task_messages.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_path: Mapped[str] = mapped_column(String(512))
+    file_name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+    message: Mapped["TaskMessage"] = relationship("TaskMessage", back_populates="attachments")
 
 
 class TaskAttachment(Base):
