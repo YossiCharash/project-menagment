@@ -81,8 +81,19 @@ class Task(Base):
         String(64), unique=True, index=True, default=generate_unique_tag
     )
     outlook_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # Recurrence: rule = "" | daily | weekly | monthly | yearly. The fields below
+    # refine it Outlook-style (interval, specific weekdays, monthly-by-weekday,
+    # and an optional occurrence count). See `getTaskOccurrences` on the frontend.
     recurrence_rule: Mapped[str] = mapped_column(String(32), default="", nullable=False, index=True)
     recurrence_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # "every N" units (1 = every day/week/month/year). >= 1.
+    recurrence_interval: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Weekly only: comma-separated weekday numbers (0=Sunday .. 6=Saturday), e.g. "0,2,4".
+    recurrence_weekdays: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Monthly only: "day_of_month" (default) or "day_of_week" (e.g. first Monday).
+    recurrence_monthly_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Optional end-after-N-occurrences (mutually exclusive with recurrence_end_date).
+    recurrence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None)

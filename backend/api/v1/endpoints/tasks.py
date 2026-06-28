@@ -132,6 +132,51 @@ def _message_to_out(msg: TaskMessage, author) -> TaskMessageOut:
     )
 
 
+VALID_WEEKDAYS = {"0", "1", "2", "3", "4", "5", "6"}
+VALID_MONTHLY_MODES = ("day_of_month", "day_of_week")
+
+
+def _normalize_recurrence(
+    rule: str | None,
+    interval: int | None,
+    weekdays: str | None,
+    monthly_mode: str | None,
+    count: int | None,
+) -> dict:
+    """Sanitize Outlook-style recurrence inputs into safe DB values.
+
+    Returns the cleaned ``recurrence_*`` fields. A non-recurring task ('' rule)
+    resets every refinement so stale settings can't linger. Weekday/monthly-mode
+    refinements only apply to their relevant frequency.
+    """
+    clean_rule = (rule or "").strip().lower()
+    if clean_rule not in ("daily", "weekly", "monthly", "yearly"):
+        return {
+            "recurrence_rule": "",
+            "recurrence_interval": 1,
+            "recurrence_weekdays": None,
+            "recurrence_monthly_mode": None,
+            "recurrence_count": None,
+        }
+    clean_interval = interval if isinstance(interval, int) and interval >= 1 else 1
+    clean_weekdays = None
+    if clean_rule == "weekly" and weekdays:
+        days = [d.strip() for d in str(weekdays).split(",") if d.strip() in VALID_WEEKDAYS]
+        # de-duplicate while preserving ascending order
+        clean_weekdays = ",".join(sorted(set(days), key=int)) or None
+    clean_monthly_mode = None
+    if clean_rule == "monthly":
+        clean_monthly_mode = monthly_mode if monthly_mode in VALID_MONTHLY_MODES else "day_of_month"
+    clean_count = count if isinstance(count, int) and count >= 1 else None
+    return {
+        "recurrence_rule": clean_rule,
+        "recurrence_interval": clean_interval,
+        "recurrence_weekdays": clean_weekdays,
+        "recurrence_monthly_mode": clean_monthly_mode,
+        "recurrence_count": clean_count,
+    }
+
+
 def _to_naive_utc(dt: datetime | None) -> datetime | None:
     """Convert timezone-aware datetime to naive UTC for DB comparison."""
     if dt is None:
@@ -190,6 +235,10 @@ def _task_to_out(task: Task) -> dict:
         "unique_tag": task.unique_tag,
         "recurrence_rule": recurrence_rule if recurrence_rule in RECURRENCE_RULE_VALUES else "",
         "recurrence_end_date": recurrence_end_date,
+        "recurrence_interval": getattr(task, "recurrence_interval", 1) or 1,
+        "recurrence_weekdays": getattr(task, "recurrence_weekdays", None),
+        "recurrence_monthly_mode": getattr(task, "recurrence_monthly_mode", None),
+        "recurrence_count": getattr(task, "recurrence_count", None),
         "created_at": task.created_at,
         "updated_at": task.updated_at,
         "assignee_acknowledged_at": getattr(task, "assignee_acknowledged_at", None),
@@ -529,10 +578,15 @@ async def create_task(
     start_val = _to_naive_utc(data.start_time) if data.start_time else data.start_time
     end_val = _to_naive_utc(data.end_time) if data.end_time else data.end_time
     event_type = (data.event_type if data.event_type in (EventType.MEETING, EventType.TASK) else EventType.TASK)
-    recurrence_rule = (data.recurrence_rule or "").strip().lower() if getattr(data, "recurrence_rule", None) else ""
-    if recurrence_rule and recurrence_rule not in ("weekly", "monthly"):
-        recurrence_rule = ""
-    recurrence_end_date = getattr(data, "recurrence_end_date", None)
+    recurrence = _normalize_recurrence(
+        getattr(data, "recurrence_rule", None),
+        getattr(data, "recurrence_interval", None),
+        getattr(data, "recurrence_weekdays", None),
+        getattr(data, "recurrence_monthly_mode", None),
+        getattr(data, "recurrence_count", None),
+    )
+    # end-after-N (count) and end-by-date are mutually exclusive; count wins if both sent.
+    recurrence_end_date = None if recurrence["recurrence_count"] else getattr(data, "recurrence_end_date", None)
     initial_status = data.status if data.status in TASK_STATUS_VALUES else TaskStatus.PENDING
     task = Task(
         title=data.title,
@@ -543,8 +597,12 @@ async def create_task(
         event_type=event_type,
         assigned_to_user_id=data.assigned_to_user_id,
         created_by_user_id=user.id,
-        recurrence_rule=recurrence_rule,
+        recurrence_rule=recurrence["recurrence_rule"],
         recurrence_end_date=recurrence_end_date,
+        recurrence_interval=recurrence["recurrence_interval"],
+        recurrence_weekdays=recurrence["recurrence_weekdays"],
+        recurrence_monthly_mode=recurrence["recurrence_monthly_mode"],
+        recurrence_count=recurrence["recurrence_count"],
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
         is_super_task=getattr(data, "is_super_task", False),
         is_backlog=getattr(data, "is_backlog", False),
@@ -615,10 +673,26 @@ async def update_task(
             logger.warning(f"Failed to create closure approval notification for task {task.id}", exc_info=True)
     if "event_type" in update_data and update_data["event_type"] not in (EventType.MEETING, EventType.TASK):
         update_data.pop("event_type", None)
-    if "recurrence_rule" in update_data:
-        r = (update_data["recurrence_rule"] or "").strip().lower()
-        update_data["recurrence_rule"] = r if r in ("", "weekly", "monthly") else (
-                    getattr(task, "recurrence_rule", None) or "")
+    recurrence_keys = {
+        "recurrence_rule", "recurrence_interval", "recurrence_weekdays",
+        "recurrence_monthly_mode", "recurrence_count",
+    }
+    if recurrence_keys & update_data.keys():
+        # Recompute the whole recurrence block from the incoming values, falling
+        # back to the task's current values for any field not sent in this update.
+        def _pick(field):
+            return update_data[field] if field in update_data else getattr(task, field, None)
+        recurrence = _normalize_recurrence(
+            _pick("recurrence_rule"),
+            _pick("recurrence_interval"),
+            _pick("recurrence_weekdays"),
+            _pick("recurrence_monthly_mode"),
+            _pick("recurrence_count"),
+        )
+        update_data.update(recurrence)
+        # count and end-date are mutually exclusive; a chosen count clears the date.
+        if recurrence["recurrence_count"]:
+            update_data["recurrence_end_date"] = None
     if "assigned_to_user_id" in update_data and update_data["assigned_to_user_id"]:
         if user.role != "Admin":
             update_data.pop("assigned_to_user_id", None)  # Only Admin can reassign

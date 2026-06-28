@@ -52,11 +52,29 @@ class TaskRepository:
             q = q.where(
                 or_(
                     and_(Task.start_time.is_(None), Task.end_time.is_(None)),
-                    and_(Task.end_time >= start, Task.start_time <= end)
+                    and_(Task.end_time >= start, Task.start_time <= end),
+                    # Recurring series that started on/before the range end and
+                    # haven't ended yet may project occurrences INTO this range,
+                    # even though their stored (first) occurrence is in the past.
+                    # The frontend expands the actual occurrences per range.
+                    and_(
+                        Task.recurrence_rule != "",
+                        Task.start_time <= end,
+                        or_(
+                            Task.recurrence_end_date.is_(None),
+                            Task.recurrence_end_date >= start.date(),
+                        ),
+                    ),
                 )
             )
         elif start is not None:
-            q = q.where(or_(Task.start_time.is_(None), Task.end_time >= start))
+            q = q.where(
+                or_(
+                    Task.start_time.is_(None),
+                    Task.end_time >= start,
+                    Task.recurrence_rule != "",
+                )
+            )
         elif end is not None:
             q = q.where(or_(Task.start_time.is_(None), Task.start_time <= end))
         result = await self.db.execute(q)

@@ -14,6 +14,7 @@ import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag,
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import { useDeleteTaskLabel } from '../components/task-management/useDeleteTaskLabel'
+import TaskChecklist from '../components/task-management/TaskChecklist'
 import { cn } from '../lib/utils'
 import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
@@ -38,7 +39,12 @@ export interface TaskLabelType {
   color: string
 }
 
-export type RecurrenceRule = '' | 'weekly' | 'monthly'
+export type RecurrenceRule = '' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+export type MonthlyMode = 'day_of_month' | 'day_of_week'
+
+/** How a recurring series ends: never, on a date, or after N occurrences. */
+export type RecurrenceEndMode = 'never' | 'date' | 'count'
 
 export interface Task {
   id: number
@@ -50,10 +56,18 @@ export interface Task {
   event_type?: EventType
   assigned_to_user_id: number
   unique_tag: string
-  /** משימה מחזורית: '' | 'weekly' | 'monthly' */
+  /** משימה מחזורית: '' | 'daily' | 'weekly' | 'monthly' | 'yearly' */
   recurrence_rule?: RecurrenceRule
   /** תאריך סיום סדרת החזרות (אופציונלי) */
   recurrence_end_date?: string | null
+  /** מרווח חזרה: כל N ימים/שבועות/חודשים/שנים */
+  recurrence_interval?: number | null
+  /** שבועי: ימי שבוע נבחרים, מספרים מופרדים בפסיק (0=ראשון .. 6=שבת) */
+  recurrence_weekdays?: string | null
+  /** חודשי: 'day_of_month' (לפי תאריך) או 'day_of_week' (לפי יום בשבוע) */
+  recurrence_monthly_mode?: MonthlyMode | null
+  /** סיום אחרי N מופעים (חלופי ל-recurrence_end_date) */
+  recurrence_count?: number | null
   assigned_user_name?: string | null
   /** צבע לוח שנה של המשתמש המוקצה (מוגדר בהגדרות עובד) */
   assigned_user_color?: string | null
@@ -125,8 +139,61 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
 
 const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
   '': 'ללא חזרות',
+  daily: 'כל יום',
   weekly: 'כל שבוע',
   monthly: 'כל חודש',
+  yearly: 'כל שנה',
+}
+
+/** Hebrew weekday names indexed by JS getDay() (0=Sunday .. 6=Saturday). */
+const WEEKDAY_LABELS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
+const WEEKDAY_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']
+
+/** Parse a "0,2,4" weekday string into a sorted unique number[] (0–6). */
+function parseWeekdays(value: string | null | undefined): number[] {
+  if (!value) return []
+  return Array.from(
+    new Set(
+      String(value)
+        .split(',')
+        .map((part) => parseInt(part.trim(), 10))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+    )
+  ).sort((a, b) => a - b)
+}
+
+/** Ordinal (1st..5th / last) of a date within its month, by weekday. */
+function weekdayOrdinalInMonth(date: Date): number {
+  return Math.floor((date.getDate() - 1) / 7) + 1
+}
+
+/** Human Hebrew summary of a task's recurrence settings (for the detail view). */
+function describeRecurrence(task: Task): string {
+  const rule = (task.recurrence_rule || '') as RecurrenceRule
+  if (!rule) return RECURRENCE_LABELS['']
+  const interval = task.recurrence_interval && task.recurrence_interval > 1 ? task.recurrence_interval : 1
+  const unitMap: Record<Exclude<RecurrenceRule, ''>, [string, string]> = {
+    daily: ['כל יום', 'ימים'],
+    weekly: ['כל שבוע', 'שבועות'],
+    monthly: ['כל חודש', 'חודשים'],
+    yearly: ['כל שנה', 'שנים'],
+  }
+  const [single, plural] = unitMap[rule as Exclude<RecurrenceRule, ''>]
+  let text = interval === 1 ? single : `כל ${interval} ${plural}`
+  if (rule === 'weekly') {
+    const days = parseWeekdays(task.recurrence_weekdays)
+    if (days.length > 0) text += ` (${days.map((d) => WEEKDAY_LABELS[d]).join(', ')})`
+  }
+  if (rule === 'monthly' && task.recurrence_monthly_mode === 'day_of_week' && task.start_time) {
+    const start = new Date(task.start_time)
+    text += ` (יום ${WEEKDAY_LABELS[start.getDay()]} ה-${weekdayOrdinalInMonth(start)} בחודש)`
+  }
+  if (task.recurrence_count && task.recurrence_count > 0) {
+    text += ` · ${task.recurrence_count} פעמים`
+  } else if (task.recurrence_end_date) {
+    text += ` · עד ${task.recurrence_end_date}`
+  }
+  return text
 }
 
 /** Returns overdue info for a task that wasn't completed and has a due date in the past. */
@@ -169,7 +236,76 @@ export function isAllDayTask(task: Pick<Task, 'start_time' | 'end_time'>): boole
   )
 }
 
-/** Expand one task into one or more { start, end } for the calendar (for recurring tasks). */
+/** Recurrence fields shared by the create and edit forms. */
+interface RecurrenceFormFields {
+  recurrence_rule: RecurrenceRule
+  recurrence_interval: number
+  recurrence_weekdays: number[]
+  recurrence_monthly_mode: MonthlyMode
+  recurrence_end_mode: RecurrenceEndMode
+  recurrence_end_date: string
+  recurrence_count: string
+}
+
+/** Convert the form's recurrence fields into the API payload (used by both create and edit). */
+export function buildRecurrencePayload(form: RecurrenceFormFields): {
+  recurrence_rule: RecurrenceRule
+  recurrence_interval: number
+  recurrence_weekdays: string | null
+  recurrence_monthly_mode: MonthlyMode | null
+  recurrence_end_date: string | null
+  recurrence_count: number | null
+} {
+  const rule = (form.recurrence_rule || '') as RecurrenceRule
+  if (!rule) {
+    return {
+      recurrence_rule: '',
+      recurrence_interval: 1,
+      recurrence_weekdays: null,
+      recurrence_monthly_mode: null,
+      recurrence_end_date: null,
+      recurrence_count: null,
+    }
+  }
+  const interval = Math.max(1, Math.floor(form.recurrence_interval || 1))
+  const weekdays =
+    rule === 'weekly' && form.recurrence_weekdays.length > 0
+      ? [...form.recurrence_weekdays].sort((a, b) => a - b).join(',')
+      : null
+  const monthlyMode = rule === 'monthly' ? form.recurrence_monthly_mode : null
+  let endDate: string | null = null
+  let count: number | null = null
+  if (form.recurrence_end_mode === 'date') {
+    endDate = form.recurrence_end_date.trim() || null
+  } else if (form.recurrence_end_mode === 'count') {
+    const parsed = parseInt(form.recurrence_count, 10)
+    count = Number.isInteger(parsed) && parsed >= 1 ? parsed : null
+  }
+  return {
+    recurrence_rule: rule,
+    recurrence_interval: interval,
+    recurrence_weekdays: weekdays,
+    recurrence_monthly_mode: monthlyMode,
+    recurrence_end_date: endDate,
+    recurrence_count: count,
+  }
+}
+
+/** Nth occurrence (1-based) of `weekday` (0–6) within month `year`/`monthIndex`, or null if it doesn't exist. */
+function nthWeekdayOfMonth(year: number, monthIndex: number, weekday: number, ordinal: number): Date | null {
+  const first = new Date(year, monthIndex, 1)
+  const offset = (weekday - first.getDay() + 7) % 7
+  const day = 1 + offset + (ordinal - 1) * 7
+  const candidate = new Date(year, monthIndex, day)
+  if (candidate.getMonth() !== monthIndex) return null // ordinal beyond this month (e.g. 5th Monday)
+  return candidate
+}
+
+/**
+ * Expand one task into its occurrences within [rangeStart, rangeEnd) for the calendar.
+ * Supports daily/weekly/monthly/yearly with an interval ("every N"), weekly-on-specific-
+ * weekdays, monthly-by-day-of-week, and ending by date OR after N occurrences.
+ */
 export function getTaskOccurrences(
   task: Task,
   rangeStart: Date,
@@ -182,33 +318,309 @@ export function getTaskOccurrences(
   const end = new Date(endTime)
   const durationMs = end.getTime() - start.getTime()
   const rule = (task.recurrence_rule || '') as RecurrenceRule
-  const endDateStr = task.recurrence_end_date || null
-  const seriesEnd = endDateStr ? new Date(endDateStr) : new Date(start.getFullYear() + 1, start.getMonth(), start.getDate())
 
   const occurrences: { start: Date; end: Date }[] = []
-  if (!rule || rule === '') {
+  if (!rule) {
     if (start.getTime() < rangeEnd.getTime() && end.getTime() > rangeStart.getTime()) {
       occurrences.push({ start, end })
     }
     return occurrences
   }
 
-  let current = new Date(start)
-  const maxOccurrences = 500
-  let count = 0
-  while (current.getTime() <= seriesEnd.getTime() && count < maxOccurrences) {
-    const occEnd = new Date(current.getTime() + durationMs)
-    if (current.getTime() < rangeEnd.getTime() && occEnd.getTime() > rangeStart.getTime()) {
-      occurrences.push({ start: new Date(current), end: occEnd })
+  const interval = Math.max(1, task.recurrence_interval || 1)
+  const maxCount = task.recurrence_count && task.recurrence_count > 0 ? task.recurrence_count : null
+  // recurrence_end_date is an inclusive whole day
+  const seriesEnd = task.recurrence_end_date ? new Date(`${task.recurrence_end_date}T23:59:59`) : null
+  const HARD_CAP = 1500
+  const hours = start.getHours()
+  const minutes = start.getMinutes()
+  const seconds = start.getSeconds()
+
+  let produced = 0 // total occurrences generated (for the count limit), regardless of visible range
+  let iterations = 0
+
+  const atTimeOfDay = (d: Date): Date => {
+    const occ = new Date(d)
+    occ.setHours(hours, minutes, seconds, 0)
+    return occ
+  }
+  // Returns true to keep going, false to stop the whole series.
+  const emit = (occStart: Date): boolean => {
+    if (occStart.getTime() < start.getTime()) return true // before the real series start → skip but continue
+    if (seriesEnd && occStart.getTime() > seriesEnd.getTime()) return false
+    if (maxCount !== null && produced >= maxCount) return false
+    produced++
+    const occEnd = new Date(occStart.getTime() + durationMs)
+    if (occStart.getTime() < rangeEnd.getTime() && occEnd.getTime() > rangeStart.getTime()) {
+      occurrences.push({ start: occStart, end: occEnd })
     }
-    count++
-    if (rule === 'weekly') {
-      current.setDate(current.getDate() + 7)
+    return true
+  }
+  // Once we are past the visible range and there is no count limit, no later occurrence can fall in range.
+  const pastRange = (d: Date) => maxCount === null && d.getTime() > rangeEnd.getTime()
+
+  if (rule === 'daily') {
+    const current = new Date(start)
+    // Fast-forward near the visible range for old open-ended dailies (avoids the HARD_CAP).
+    if (maxCount === null) {
+      const dayMs = 86_400_000
+      const gap = rangeStart.getTime() - end.getTime()
+      if (gap > 0) {
+        const steps = Math.floor(gap / (interval * dayMs))
+        if (steps > 0) current.setDate(current.getDate() + steps * interval)
+      }
+    }
+    while (iterations < HARD_CAP) {
+      if (!emit(atTimeOfDay(current))) break
+      current.setDate(current.getDate() + interval)
+      if (pastRange(current)) break
+      iterations++
+    }
+    return occurrences
+  }
+
+  if (rule === 'weekly') {
+    const weekdays = parseWeekdays(task.recurrence_weekdays)
+    const days = weekdays.length > 0 ? weekdays : [start.getDay()]
+    // Anchor on the Sunday of the start's week, then advance whole interval-week blocks.
+    const weekAnchor = new Date(start)
+    weekAnchor.setDate(start.getDate() - start.getDay())
+    weekAnchor.setHours(0, 0, 0, 0)
+    let stop = false
+    while (!stop && iterations < HARD_CAP) {
+      for (const weekday of days) {
+        const occDay = new Date(weekAnchor)
+        occDay.setDate(weekAnchor.getDate() + weekday)
+        if (!emit(atTimeOfDay(occDay))) { stop = true; break }
+      }
+      weekAnchor.setDate(weekAnchor.getDate() + 7 * interval)
+      if (pastRange(weekAnchor)) break
+      if (seriesEnd && weekAnchor.getTime() > seriesEnd.getTime()) break
+      iterations++
+    }
+    return occurrences
+  }
+
+  // monthly / yearly: index-based stepping from the start month/year (avoids day-overflow drift).
+  const monthlyMode = task.recurrence_monthly_mode === 'day_of_week' ? 'day_of_week' : 'day_of_month'
+  const startWeekday = start.getDay()
+  const startOrdinal = weekdayOrdinalInMonth(start)
+  const startDayOfMonth = start.getDate()
+  let step = 0
+  while (iterations < HARD_CAP) {
+    let occStart: Date | null = null
+    if (rule === 'monthly') {
+      const target = new Date(start.getFullYear(), start.getMonth() + step * interval, 1)
+      const year = target.getFullYear()
+      const monthIndex = target.getMonth()
+      if (monthlyMode === 'day_of_week') {
+        occStart = nthWeekdayOfMonth(year, monthIndex, startWeekday, startOrdinal)
+      } else {
+        const candidate = new Date(year, monthIndex, startDayOfMonth)
+        occStart = candidate.getMonth() === monthIndex ? candidate : null // skip months without that day (e.g. 31st)
+      }
     } else {
-      current.setMonth(current.getMonth() + 1)
+      // yearly
+      const year = start.getFullYear() + step * interval
+      const candidate = new Date(year, start.getMonth(), startDayOfMonth)
+      occStart = candidate.getMonth() === start.getMonth() ? candidate : null // skip Feb 29 on non-leap years
     }
+    if (occStart) {
+      if (!emit(atTimeOfDay(occStart))) break
+      if (pastRange(occStart)) break
+    } else {
+      // A skipped slot: still bail out if we've clearly run past the range/series.
+      const probe = new Date(
+        rule === 'monthly' ? start.getFullYear() : start.getFullYear() + step * interval,
+        rule === 'monthly' ? start.getMonth() + step * interval : start.getMonth(),
+        1
+      )
+      if (pastRange(probe)) break
+      if (seriesEnd && probe.getTime() > seriesEnd.getTime()) break
+    }
+    step++
+    iterations++
   }
   return occurrences
+}
+
+const RECURRENCE_INTERVAL_UNITS: Record<Exclude<RecurrenceRule, ''>, string> = {
+  daily: 'ימים',
+  weekly: 'שבועות',
+  monthly: 'חודשים',
+  yearly: 'שנים',
+}
+
+/**
+ * Outlook-style recurrence editor shared by the create and edit task forms.
+ * Operates on the recurrence subset of a form via an onChange patch callback.
+ */
+function RecurrenceEditor({
+  value,
+  onChange,
+  startDate,
+  idPrefix,
+}: {
+  value: RecurrenceFormFields
+  onChange: (patch: Partial<RecurrenceFormFields>) => void
+  startDate: Date | null
+  idPrefix: string
+}) {
+  const rule = value.recurrence_rule
+  const toggleWeekday = (weekday: number) => {
+    const has = value.recurrence_weekdays.includes(weekday)
+    const next = has
+      ? value.recurrence_weekdays.filter((d) => d !== weekday)
+      : [...value.recurrence_weekdays, weekday].sort((a, b) => a - b)
+    onChange({ recurrence_weekdays: next })
+  }
+  const monthlyDayOfWeekLabel = startDate
+    ? `יום ${WEEKDAY_LABELS[startDate.getDay()]} ה-${weekdayOrdinalInMonth(startDate)} בחודש`
+    : 'לפי יום בשבוע'
+  const monthlyDayOfMonthLabel = startDate ? `בכל ${startDate.getDate()} בחודש` : 'לפי תאריך בחודש'
+
+  return (
+    <div className="p-2 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${idPrefix}-recurrence`} className="text-xs font-medium text-gray-700 dark:text-gray-300">חזרה</label>
+        <select
+          id={`${idPrefix}-recurrence`}
+          value={rule}
+          onChange={(e) => onChange({ recurrence_rule: e.target.value as RecurrenceRule })}
+          className={cn(
+            'px-2 py-1 border rounded text-sm',
+            'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+          )}
+        >
+          {(Object.keys(RECURRENCE_LABELS) as RecurrenceRule[]).map((r) => (
+            <option key={r || 'none'} value={r}>{RECURRENCE_LABELS[r]}</option>
+          ))}
+        </select>
+        {rule && (
+          <span className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+            כל
+            <input
+              type="number"
+              min={1}
+              value={value.recurrence_interval}
+              onChange={(e) => onChange({ recurrence_interval: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+              className={cn(
+                'w-14 px-2 py-1 border rounded text-sm',
+                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+              )}
+              aria-label="מרווח חזרה"
+            />
+            {RECURRENCE_INTERVAL_UNITS[rule as Exclude<RecurrenceRule, ''>]}
+          </span>
+        )}
+      </div>
+
+      {rule === 'weekly' && (
+        <div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">בימים (ריק = לפי יום ההתחלה)</p>
+          <div className="flex flex-wrap gap-1">
+            {WEEKDAY_SHORT.map((label, weekday) => {
+              const active = value.recurrence_weekdays.includes(weekday)
+              return (
+                <button
+                  key={weekday}
+                  type="button"
+                  onClick={() => toggleWeekday(weekday)}
+                  className={cn(
+                    'w-8 h-8 rounded-full text-xs font-medium border transition-colors',
+                    active
+                      ? 'bg-violet-600 text-white border-violet-600'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                  )}
+                  title={WEEKDAY_LABELS[weekday]}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {rule === 'monthly' && (
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name={`${idPrefix}-monthly-mode`}
+              checked={value.recurrence_monthly_mode === 'day_of_month'}
+              onChange={() => onChange({ recurrence_monthly_mode: 'day_of_month' })}
+            />
+            <span>{monthlyDayOfMonthLabel}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name={`${idPrefix}-monthly-mode`}
+              checked={value.recurrence_monthly_mode === 'day_of_week'}
+              onChange={() => onChange({ recurrence_monthly_mode: 'day_of_week' })}
+            />
+            <span>{monthlyDayOfWeekLabel}</span>
+          </label>
+        </div>
+      )}
+
+      {rule && (
+        <div className="flex flex-col gap-1 pt-1 border-t border-slate-200 dark:border-slate-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">סיום</p>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name={`${idPrefix}-end-mode`}
+              checked={value.recurrence_end_mode === 'never'}
+              onChange={() => onChange({ recurrence_end_mode: 'never' })}
+            />
+            <span>ללא סיום</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name={`${idPrefix}-end-mode`}
+              checked={value.recurrence_end_mode === 'date'}
+              onChange={() => onChange({ recurrence_end_mode: 'date' })}
+            />
+            <span>עד תאריך</span>
+            <input
+              type="date"
+              value={value.recurrence_end_date}
+              onChange={(e) => onChange({ recurrence_end_date: e.target.value, recurrence_end_mode: 'date' })}
+              className={cn(
+                'px-2 py-1 border rounded text-sm',
+                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+              )}
+              aria-label="תאריך סיום חזרות"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name={`${idPrefix}-end-mode`}
+              checked={value.recurrence_end_mode === 'count'}
+              onChange={() => onChange({ recurrence_end_mode: 'count' })}
+            />
+            <span>אחרי</span>
+            <input
+              type="number"
+              min={1}
+              value={value.recurrence_count}
+              onChange={(e) => onChange({ recurrence_count: e.target.value, recurrence_end_mode: 'count' })}
+              className={cn(
+                'w-16 px-2 py-1 border rounded text-sm',
+                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+              )}
+              aria-label="מספר מופעים"
+            />
+            <span>פעמים</span>
+          </label>
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface TaskCalendarProps {
@@ -287,7 +699,12 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     label_ids: [] as number[],
     participant_ids: [] as number[],
     recurrence_rule: '' as RecurrenceRule,
+    recurrence_interval: 1,
+    recurrence_weekdays: [] as number[],
+    recurrence_monthly_mode: 'day_of_month' as MonthlyMode,
+    recurrence_end_mode: 'never' as RecurrenceEndMode,
     recurrence_end_date: '',
+    recurrence_count: '',
     requires_closure_approval: false,
   })
   const [createSaving, setCreateSaving] = useState(false)
@@ -312,7 +729,12 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     status: TaskStatus
     assigned_to_user_id: string
     recurrence_rule: RecurrenceRule
+    recurrence_interval: number
+    recurrence_weekdays: number[]
+    recurrence_monthly_mode: MonthlyMode
+    recurrence_end_mode: RecurrenceEndMode
     recurrence_end_date: string
+    recurrence_count: string
     label_ids: number[]
     participant_ids: number[]
     requires_closure_approval: boolean
@@ -1044,8 +1466,13 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     const isWithTime = hasDates && !(start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59)
     setEditTaskType(hasDates ? (isWithTime ? 'with_time' : 'date_only') : 'no_date')
     const pad = (n: number) => String(n).padStart(2, '0')
-    const recRule = (task.recurrence_rule || '') as RecurrenceRule
+    const validRules: RecurrenceRule[] = ['daily', 'weekly', 'monthly', 'yearly']
+    const recRule = validRules.includes((task.recurrence_rule || '') as RecurrenceRule)
+      ? (task.recurrence_rule as RecurrenceRule)
+      : ''
     const recEnd = task.recurrence_end_date ? task.recurrence_end_date.slice(0, 10) : ''
+    const recCount = task.recurrence_count && task.recurrence_count > 0 ? task.recurrence_count : null
+    const recEndMode: RecurrenceEndMode = recCount ? 'count' : recEnd ? 'date' : 'never'
     setEditForm({
       title: task.title,
       date: hasDates ? `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}` : '',
@@ -1054,8 +1481,13 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       description: task.description || '',
       status: (task.status || 'pending') as TaskStatus,
       assigned_to_user_id: String(task.assigned_to_user_id),
-      recurrence_rule: recRule === 'weekly' || recRule === 'monthly' ? recRule : '',
+      recurrence_rule: recRule,
+      recurrence_interval: task.recurrence_interval && task.recurrence_interval > 1 ? task.recurrence_interval : 1,
+      recurrence_weekdays: parseWeekdays(task.recurrence_weekdays),
+      recurrence_monthly_mode: task.recurrence_monthly_mode === 'day_of_week' ? 'day_of_week' : 'day_of_month',
+      recurrence_end_mode: recEndMode,
       recurrence_end_date: recEnd,
+      recurrence_count: recCount ? String(recCount) : '',
       label_ids: task.labels?.map(l => l.id) ?? [],
       participant_ids: task.participants?.map(p => p.user_id) ?? [],
       requires_closure_approval: task.requires_closure_approval ?? false,
@@ -1127,6 +1559,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       start_time = null
       end_time = null
     }
+    // No-date tasks can't recur; otherwise use the chosen recurrence settings.
+    const recurrence = editTaskType === 'no_date'
+      ? buildRecurrencePayload({ ...editForm, recurrence_rule: '' })
+      : buildRecurrencePayload(editForm)
     setEditSaving(true)
     try {
       await api.put(`/tasks/${editingTask.id}`, {
@@ -1139,8 +1575,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         assigned_to_user_id: Number(editForm.assigned_to_user_id),
         label_ids: editForm.label_ids,
         participant_ids: editForm.participant_ids,
-        recurrence_rule: editForm.recurrence_rule || '',
-        recurrence_end_date: editForm.recurrence_end_date?.trim() || null,
+        ...recurrence,
         requires_closure_approval: editForm.requires_closure_approval,
       })
       setEditingTask(null)
@@ -1190,8 +1625,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     }
     setCreateSaving(true)
     try {
-      const recurrence_rule = (taskType === 'no_date' ? '' : (createForm.recurrence_rule || '')) as RecurrenceRule
-      const recurrence_end_date = recurrence_rule && createForm.recurrence_end_date?.trim() ? createForm.recurrence_end_date.trim() : null
+      // No-date tasks can't recur; otherwise use the chosen recurrence settings.
+      const recurrence = taskType === 'no_date'
+        ? buildRecurrencePayload({ ...createForm, recurrence_rule: '' })
+        : buildRecurrencePayload(createForm)
       const { data: created } = await api.post<Task>('/tasks/', {
         title: createForm.title.trim(),
         start_time: start_time ?? null,
@@ -1202,8 +1639,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         assigned_to_user_id: Number(createForm.assigned_to_user_id),
         label_ids: createForm.label_ids,
         participant_ids: createForm.participant_ids,
-        recurrence_rule: recurrence_rule || '',
-        recurrence_end_date: recurrence_end_date || undefined,
+        ...recurrence,
         requires_closure_approval: createForm.requires_closure_approval,
       })
       for (const file of createPendingFiles) {
@@ -1214,7 +1650,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         })
       }
       setShowCreateModal(false)
-      setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_end_date: '', requires_closure_approval: false })
+      setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_interval: 1, recurrence_weekdays: [], recurrence_monthly_mode: 'day_of_month', recurrence_end_mode: 'never', recurrence_end_date: '', recurrence_count: '', requires_closure_approval: false })
       setCreatePendingFiles([])
       if (createFileInputRef.current) createFileInputRef.current.value = ''
       await fetchTasks()
@@ -2104,13 +2540,10 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             {!selectedTask.start_time && !selectedTask.end_time && (
               <p className="text-sm text-gray-600 dark:text-gray-400">משימה בלי תאריך</p>
             )}
-            {(selectedTask.recurrence_rule === 'weekly' || selectedTask.recurrence_rule === 'monthly') && (
+            {selectedTask.recurrence_rule && (
               <p className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">משימה מחזורית: </span>
-                <span className="font-medium">{RECURRENCE_LABELS[selectedTask.recurrence_rule as RecurrenceRule]}</span>
-                {selectedTask.recurrence_end_date && (
-                  <span className="text-gray-600 dark:text-gray-400"> עד {selectedTask.recurrence_end_date}</span>
-                )}
+                <span className="font-medium">{describeRecurrence(selectedTask)}</span>
               </p>
             )}
             {selectedTask.description && (
@@ -2157,6 +2590,19 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                 </div>
               </div>
             )}
+
+            {/* רשימת משימות (צ'קליסט) – זמינה גם מהיומן, לא רק מהלוח/רשימה */}
+            <TaskChecklist
+              taskId={selectedTask.id}
+              canEdit={me?.role === 'Admin' || me?.id === selectedTask.assigned_to_user_id}
+              participants={(selectedTask.participants || []).map((p) => ({
+                id: p.user_id,
+                name: p.full_name,
+                avatar: p.avatar_url ?? null,
+                color: null,
+              }))}
+              currentUserId={me?.id}
+            />
 
             {/* שיח משימה – צ'אט למשימה, גלוי לכל משתתפי המשימה */}
             <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">
@@ -2554,44 +3000,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               </div>
             )}
             {editTaskType !== 'no_date' && (editForm.start_time || editForm.date) && (
-              <div className="p-2 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-700">
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">משימה מחזורית</p>
-                <div className="flex flex-wrap items-center gap-4">
-                  <div>
-                    <label htmlFor="edit-recurrence" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">חזרה</label>
-                    <select
-                      id="edit-recurrence"
-                      name="edit-recurrence"
-                      value={editForm.recurrence_rule}
-                      onChange={(e) => setEditForm(f => f ? { ...f, recurrence_rule: e.target.value as RecurrenceRule } : f)}
-                      className={cn(
-                        "px-3 py-2 border rounded-lg text-sm",
-                        "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                      )}
-                    >
-                      {(Object.keys(RECURRENCE_LABELS) as RecurrenceRule[]).map((r) => (
-                        <option key={r || 'none'} value={r}>{RECURRENCE_LABELS[r]}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {(editForm.recurrence_rule === 'weekly' || editForm.recurrence_rule === 'monthly') && (
-                    <div>
-                      <label htmlFor="edit-recurrence-end" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">תאריך סיום חזרות (אופציונלי)</label>
-                      <input
-                        id="edit-recurrence-end"
-                        name="edit-recurrence-end"
-                        type="date"
-                        value={editForm.recurrence_end_date}
-                        onChange={(e) => setEditForm(f => f ? { ...f, recurrence_end_date: e.target.value } : f)}
-                        className={cn(
-                          "px-3 py-2 border rounded-lg text-sm",
-                          "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                        )}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <RecurrenceEditor
+                idPrefix="edit"
+                value={editForm}
+                onChange={(patch) => setEditForm(f => f ? { ...f, ...patch } : f)}
+                startDate={
+                  editForm.start_time
+                    ? new Date(editForm.start_time)
+                    : editForm.date
+                      ? new Date(`${editForm.date}T00:00:00`)
+                      : null
+                }
+              />
             )}
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
@@ -2878,38 +3298,18 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
               </div>
             )}
             {(taskType === 'meeting' || taskType === 'all_day') && (
-              <div className="p-2 bg-slate-50 dark:bg-slate-900/20 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
-                <label htmlFor="create-recurrence" className="text-xs font-medium text-gray-700 dark:text-gray-300">חזרה</label>
-                <select
-                  id="create-recurrence"
-                  name="create-recurrence"
-                  value={createForm.recurrence_rule}
-                  onChange={(e) => setCreateForm(f => ({ ...f, recurrence_rule: e.target.value as RecurrenceRule }))}
-                  className={cn(
-                    "px-2 py-1 border rounded text-sm",
-                    "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  )}
-                >
-                  {(Object.keys(RECURRENCE_LABELS) as RecurrenceRule[]).map((r) => (
-                    <option key={r || 'none'} value={r}>{RECURRENCE_LABELS[r]}</option>
-                  ))}
-                </select>
-                {(createForm.recurrence_rule === 'weekly' || createForm.recurrence_rule === 'monthly') && (
-                  <input
-                    id="create-recurrence-end"
-                    name="create-recurrence-end"
-                    type="date"
-                    value={createForm.recurrence_end_date}
-                    onChange={(e) => setCreateForm(f => ({ ...f, recurrence_end_date: e.target.value }))}
-                    className={cn(
-                      "px-2 py-1 border rounded text-sm",
-                      "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    )}
-                    title="תאריך סיום חזרות"
-                    aria-label="תאריך סיום חזרות"
-                  />
-                )}
-              </div>
+              <RecurrenceEditor
+                idPrefix="create"
+                value={createForm}
+                onChange={(patch) => setCreateForm(f => ({ ...f, ...patch }))}
+                startDate={
+                  taskType === 'meeting' && createForm.start_time
+                    ? new Date(createForm.start_time)
+                    : taskType === 'all_day' && createForm.date
+                      ? new Date(`${createForm.date}T00:00:00`)
+                      : null
+                }
+              />
             )}
             {taskType === 'all_day' && (
               <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי שעה – תופיע תחת משימות ביומן (ובלוח החודש בתא הנבחר).</p>
