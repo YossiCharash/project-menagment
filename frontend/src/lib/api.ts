@@ -137,4 +137,9 @@ export async function getSuperTasks(): Promise<import('../pages/TaskCalendar').T
   return data
 }
 
+export async function getBacklogTasks(): Promise<import('../pages/TaskCalendar').Task[]> {
+  const { data } = await api.get('/tasks/backlog')
+  return data
+}
+
 export default api
