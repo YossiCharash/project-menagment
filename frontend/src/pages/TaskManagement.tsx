@@ -77,7 +77,13 @@ export default function TaskManagement() {
             )
           })}
           <SuperTasksPanel />
-          <BacklogPanel />
+          <BacklogPanel
+            onRequestCreate={() => {
+              // Backlog tasks are created via the calendar tab's create modal — send the user there.
+              setActiveTab('calendar')
+              setSearchParams({ tab: 'calendar' }, { replace: true })
+            }}
+          />
         </div>
 
         {/* Tab Content */}

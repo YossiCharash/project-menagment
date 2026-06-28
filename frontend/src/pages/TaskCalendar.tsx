@@ -689,6 +689,8 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     return 'dayGridMonth'
   })
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createAsBacklog, setCreateAsBacklog] = useState(false)
+  const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
   const [createForm, setCreateForm] = useState({
     title: '',
     date: '',
@@ -794,6 +796,16 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       setCreateForm(f => ({ ...f, date: dateStr, start_time: '', end_time: '' }))
     }
   }, [])
+
+  // Opens the standard create-task modal pre-configured for a no-date backlog task.
+  const openBacklogCreate = useCallback(() => {
+    setTaskType('no_date')
+    setCreateAsBacklog(true)
+    const updates: Partial<typeof createForm> = { date: '', start_time: '', end_time: '' }
+    if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
+    setCreateForm(f => ({ ...f, ...updates }))
+    setShowCreateModal(true)
+  }, [me, users])
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
   const [newLabelName, setNewLabelName] = useState('')
@@ -1642,6 +1654,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
         participant_ids: createForm.participant_ids,
         ...recurrence,
         requires_closure_approval: createForm.requires_closure_approval,
+        is_backlog: createAsBacklog && taskType === 'no_date',
       })
       for (const file of createPendingFiles) {
         const fd = new FormData()
@@ -1654,6 +1667,8 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_interval: 1, recurrence_weekdays: [], recurrence_monthly_mode: 'day_of_month', recurrence_end_mode: 'never', recurrence_end_date: '', recurrence_count: '', requires_closure_approval: false })
       setCreatePendingFiles([])
       if (createFileInputRef.current) createFileInputRef.current.value = ''
+      setCreateAsBacklog(false)
+      setBacklogRefreshKey(k => k + 1)
       await fetchTasks()
     } catch (err: any) {
       setCreateError(err.response?.data?.detail ?? 'שגיאה ביצירת משימה')
@@ -1877,12 +1892,13 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <BacklogPanel />
+            <BacklogPanel onRequestCreate={openBacklogCreate} refreshSignal={backlogRefreshKey} />
             {(isAdmin || users.some(u => u.id === me?.id)) && (
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => {
+                    setCreateAsBacklog(false)
                     setTaskTypeWithDefaults('meeting')
                     const updates: Partial<typeof createForm> = {}
                     if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
@@ -1904,6 +1920,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
                   <button
                     type="button"
                     onClick={() => {
+                      setCreateAsBacklog(false)
                       setTaskType('all_day')
                       const updates: Partial<typeof createForm> = {}
                       if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
@@ -3111,8 +3128,8 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
       {showCreateModal && (
         <Modal
           isOpen={showCreateModal}
-          onClose={() => { setShowCreateModal(false); setCreatePendingFiles([]); }}
-          title="משימה חדשה"
+          onClose={() => { setShowCreateModal(false); setCreatePendingFiles([]); setCreateAsBacklog(false); }}
+          title={createAsBacklog ? 'משימה חדשה ל-Backlog' : 'משימה חדשה'}
         >
           <form onSubmit={handleCreate} className="space-y-2">
             {createError && (
