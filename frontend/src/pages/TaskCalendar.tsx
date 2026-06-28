@@ -21,6 +21,7 @@ import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHeb
 import './TaskCalendar.css'
 import { PermissionGuard } from '../components/ui/PermissionGuard'
 import OutlookMobileCalendar, { type MobileCalendarView } from '../components/task-management/OutlookMobileCalendar'
+import BacklogPanel from '../components/task-management/BacklogPanel'
 
 export interface UserForTask {
   id: number
@@ -1876,6 +1877,7 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <BacklogPanel />
             {(isAdmin || users.some(u => u.id === me?.id)) && (
               <div className="flex flex-wrap gap-2">
                 <button
