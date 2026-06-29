@@ -2304,6 +2304,58 @@ export default function TaskCalendar({
             </>
           )}
         </div>
+            {(() => {
+              // Dated tasks without a specific time (all-day) stay on the calendar as a quick list.
+              const datedNoTimeTasks = tasks.filter(task => {
+                if (!task.start_time || !task.end_time) return false
+                const start = new Date(task.start_time)
+                const end = new Date(task.end_time)
+                return start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59
+              })
+              if (datedNoTimeTasks.length === 0) return null
+              const taskItem = (task: Task) => {
+                const status = (task.status || 'pending') as TaskStatus
+                const color = TASK_STATUS_COLORS[status] ?? task.assigned_user_color ?? USER_COLORS[(task.assigned_to_user_id - 1) % USER_COLORS.length]
+                const avatarSrc = avatarUrl(task.assigned_user_avatar)
+                return (
+                  <li key={task.id} className="flex items-center gap-2">
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    )}
+                    <button type="button" onClick={() => setSelectedTask(task)} className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline">
+                      {task.title} – {task.assigned_user_name}
+                    </button>
+                  </li>
+                )
+              }
+              const tasksByDate = new Map<string, Task[]>()
+              datedNoTimeTasks.forEach(task => {
+                const dateKey = task.start_time!.slice(0, 10)
+                if (!tasksByDate.has(dateKey)) tasksByDate.set(dateKey, [])
+                tasksByDate.get(dateKey)!.push(task)
+              })
+              const sortedDates = Array.from(tasksByDate.keys()).sort()
+              return (
+                <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
+                  <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות</h3>
+                  <div>
+                    <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">עם תאריך (בלי שעה)</h4>
+                    <ul className="space-y-2 text-sm">
+                      {sortedDates.map(dateStr => (
+                        <li key={dateStr}>
+                          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{new Date(dateStr + 'T12:00:00').toLocaleDateString('he-IL')}</span>
+                          <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
+                            {tasksByDate.get(dateStr)!.map(taskItem)}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )
+            })()}
         </div>
       </div>
 
