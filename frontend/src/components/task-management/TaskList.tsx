@@ -23,18 +23,6 @@ const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending_closure: '#F59E0B',
 }
 
-function isDateOnlyTask(task: Task): boolean {
-  if (!task.start_time || !task.end_time) return false
-  const start = new Date(task.start_time)
-  const end = new Date(task.end_time)
-  return (
-    start.getHours() === 0 &&
-    start.getMinutes() === 0 &&
-    end.getHours() === 23 &&
-    end.getMinutes() === 59
-  )
-}
-
 function formatDate(s: string | null): string {
   if (!s) return '—'
   try {
@@ -107,30 +95,12 @@ export default function TaskList() {
     setSelectedTaskId(task.id)
   }, [])
 
-  // Tasks without a concrete time slot, surfaced as a quick-access panel.
+  // Tasks without a date, surfaced as a quick-access panel (dated tasks stay on the calendar).
   const noDateTasks = useMemo(
     () => tasks.filter((task) => !task.start_time && !task.end_time),
     [tasks]
   )
-  const dateOnlyTasksByDate = useMemo(() => {
-    const grouped = new Map<string, Task[]>()
-    tasks.filter(isDateOnlyTask).forEach((task) => {
-      const dateKey = task.start_time!.slice(0, 10)
-      const bucket = grouped.get(dateKey)
-      if (bucket) {
-        bucket.push(task)
-      } else {
-        grouped.set(dateKey, [task])
-      }
-    })
-    return grouped
-  }, [tasks])
-  const sortedDateKeys = useMemo(
-    () => Array.from(dateOnlyTasksByDate.keys()).sort(),
-    [dateOnlyTasksByDate]
-  )
-  const hasUnscheduledTasks =
-    noDateTasks.length > 0 || sortedDateKeys.length > 0
+  const hasUnscheduledTasks = noDateTasks.length > 0
 
   const renderUnscheduledTaskItem = (task: Task) => {
     const status = (task.status || 'pending') as TaskStatus
@@ -175,25 +145,6 @@ export default function TaskList() {
             </h4>
             <ul className="space-y-1.5 text-sm">
               {noDateTasks.map(renderUnscheduledTaskItem)}
-            </ul>
-          </div>
-        )}
-        {sortedDateKeys.length > 0 && (
-          <div>
-            <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">
-              עם תאריך (בלי שעה)
-            </h4>
-            <ul className="space-y-2 text-sm">
-              {sortedDateKeys.map((dateKey) => (
-                <li key={dateKey}>
-                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                    {new Date(dateKey + 'T12:00:00').toLocaleDateString('he-IL')}
-                  </span>
-                  <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
-                    {dateOnlyTasksByDate.get(dateKey)!.map(renderUnscheduledTaskItem)}
-                  </ul>
-                </li>
-              ))}
             </ul>
           </div>
         )}
