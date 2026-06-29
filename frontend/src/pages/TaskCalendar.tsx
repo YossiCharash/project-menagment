@@ -626,9 +626,15 @@ function RecurrenceEditor({
 
 interface TaskCalendarProps {
   embedded?: boolean
+  pendingBacklogCreate?: boolean
+  onBacklogCreateConsumed?: () => void
 }
 
-export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
+export default function TaskCalendar({
+  embedded,
+  pendingBacklogCreate,
+  onBacklogCreateConsumed,
+}: TaskCalendarProps = {}) {
   const dispatch = useDispatch()
   const me = useSelector((state: RootState) => state.auth.me)
   const isAdmin = me?.role === 'Admin'
@@ -806,6 +812,16 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
     setCreateForm(f => ({ ...f, ...updates }))
     setShowCreateModal(true)
   }, [me, users])
+
+  // When the parent (e.g. the BacklogPanel in TaskManagement) requests a backlog
+  // create, open the no-date create modal exactly once and acknowledge consumption.
+  // Works both when this component is already mounted (flag flips true) and when it
+  // mounts with the flag already true (tab switch via AnimatePresence mode="wait").
+  useEffect(() => {
+    if (!pendingBacklogCreate) return
+    openBacklogCreate()
+    onBacklogCreateConsumed?.()
+  }, [pendingBacklogCreate, openBacklogCreate, onBacklogCreateConsumed])
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
   const [newLabelName, setNewLabelName] = useState('')
@@ -2288,67 +2304,6 @@ export default function TaskCalendar({ embedded }: TaskCalendarProps = {}) {
             </>
           )}
         </div>
-            {(() => {
-              const noDateTasks = tasks.filter(t => !t.start_time && !t.end_time)
-              const tasksWithDateNoTime = tasks.filter(t => {
-                if (!t.start_time || !t.end_time) return false
-                const s = new Date(t.start_time)
-                const e = new Date(t.end_time)
-                return s.getHours() === 0 && s.getMinutes() === 0 && e.getHours() === 23 && e.getMinutes() === 59
-              })
-              const hasAny = noDateTasks.length > 0 || tasksWithDateNoTime.length > 0
-              if (!hasAny) return null
-              const taskItem = (t: Task) => {
-                const status = (t.status || 'pending') as TaskStatus
-                const color = TASK_STATUS_COLORS[status] ?? t.assigned_user_color ?? USER_COLORS[(t.assigned_to_user_id - 1) % USER_COLORS.length]
-                const avatarSrc = avatarUrl(t.assigned_user_avatar)
-                return (
-                  <li key={t.id} className="flex items-center gap-2">
-                    {avatarSrc ? (
-                      <img src={avatarSrc} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800" />
-                    ) : (
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    )}
-                    <button type="button" onClick={() => setSelectedTask(t)} className="text-left font-medium text-amber-900 dark:text-amber-100 hover:underline">
-                      {t.title} – {t.assigned_user_name}
-                    </button>
-                  </li>
-                )
-              }
-              const byDate = new Map<string, Task[]>()
-              tasksWithDateNoTime.forEach(t => {
-                const d = t.start_time!.slice(0, 10)
-                if (!byDate.has(d)) byDate.set(d, [])
-                byDate.get(d)!.push(t)
-              })
-              const sortedDates = Array.from(byDate.keys()).sort()
-              return (
-                <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
-                  <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">משימות</h3>
-                  {noDateTasks.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">בלי תאריך</h4>
-                      <ul className="space-y-1.5 text-sm">{noDateTasks.map(taskItem)}</ul>
-                    </div>
-                  )}
-                  {sortedDates.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">עם תאריך (בלי שעה)</h4>
-                      <ul className="space-y-2 text-sm">
-                        {sortedDates.map(dateStr => (
-                          <li key={dateStr}>
-                            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{new Date(dateStr + 'T12:00:00').toLocaleDateString('he-IL')}</span>
-                            <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
-                              {byDate.get(dateStr)!.map(taskItem)}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
         </div>
       </div>
 
