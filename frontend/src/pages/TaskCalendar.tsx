@@ -1872,11 +1872,17 @@ export default function TaskCalendar({
               const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59
               const isAllDayTask = isAllDay
               const eventId = occurrences.length > 1 ? `${t.id}-${i}` : String(t.id)
+              // Use local date / local-naive datetime strings (NOT toISOString, which is UTC).
+              // toISOString() shifts all-day events by the UTC offset, landing them on the wrong
+              // day (and out of the visible range near week/day boundaries). See toLocalISO note above.
+              const pad = (n: number) => String(n).padStart(2, '0')
+              const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+              const localDateTime = (d: Date) => `${localDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
               return {
                 id: eventId,
                 title: t.title,
-                start: start.toISOString(),
-                end: isAllDayTask ? undefined : end.toISOString(),
+                start: isAllDayTask ? localDate(start) : localDateTime(start),
+                end: isAllDayTask ? undefined : localDateTime(end),
                 allDay: isAllDayTask,
                 backgroundColor: isAllDayTask ? color : 'transparent',
                 borderColor: isAllDayTask ? color : 'transparent',
