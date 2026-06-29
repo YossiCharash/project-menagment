@@ -846,16 +846,10 @@ function ConsumeModal({ item, projects, onClose, onConsumed }: ConsumeModalProps
     setSubmitting(true)
     setError(null)
     try {
-      const notesParts: string[] = []
-      if (projectId) {
-        const proj = projects.find((p) => p.id === projectId)
-        if (proj) notesParts.push(`פרויקט: ${proj.name}`)
-      }
-      if (notes.trim()) notesParts.push(notes.trim())
-
       await cemsApi.consumeStock(item.id, {
         quantity,
-        notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
+        project_id: projectId || undefined,
+        notes: notes.trim() || undefined,
       })
       onConsumed()
       onClose()

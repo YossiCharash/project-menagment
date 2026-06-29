@@ -64,6 +64,36 @@ async def test_consume_stock_creates_log(
 
 
 @pytest.mark.asyncio
+async def test_consumption_history_resolves_consumer_and_project_names(
+    async_session: AsyncSession,
+    seed_users: dict[str, User],
+    seed_consumable: ConsumableItem,
+    seed_project,
+):
+    """The withdrawal report must expose who consumed and for which project.
+
+    ``get_consumption_history`` resolves the consumer and project names via
+    scalar joins and returns ``(log, consumer_name, project_name)`` rows.
+    """
+    service = _build_service(async_session)
+    await service.consume_stock(
+        item_id=seed_consumable.id,
+        consumer_id=seed_users["employee"].id,
+        quantity=Decimal("3.0000"),
+        project_id=seed_project.id,
+    )
+
+    repo = ConsumableRepository(async_session)
+    rows = await repo.get_consumption_history(seed_consumable.id)
+
+    assert len(rows) == 1
+    log, consumer_name, project_name = rows[0]
+    assert log.quantity_consumed == Decimal("3.0000")
+    assert consumer_name == seed_users["employee"].full_name
+    assert project_name == seed_project.name
+
+
+@pytest.mark.asyncio
 async def test_consume_stock_raises_on_insufficient_quantity(
     async_session: AsyncSession,
     seed_users: dict[str, User],

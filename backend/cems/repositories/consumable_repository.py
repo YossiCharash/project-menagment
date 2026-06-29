@@ -1,13 +1,17 @@
 import uuid
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.models.consumable import ConsumableItem, ConsumptionLog, StockAlert
 from backend.cems.models.consumable_movement import ConsumableMovementLog
+from backend.cems.models.project import CemsProject
 from backend.cems.repositories.base_repository import BaseRepository
+from backend.models.user import User
+
+ConsumptionLogRow = Tuple[ConsumptionLog, Optional[str], Optional[str]]
 
 
 class ConsumableRepository(BaseRepository[ConsumableItem]):
@@ -80,16 +84,26 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
 
     async def get_consumption_history(
         self, item_id: uuid.UUID, skip: int = 0, limit: int = 100
-    ) -> List[ConsumptionLog]:
+    ) -> List[ConsumptionLogRow]:
+        """Return consumption (withdrawal) rows for an item, newest first.
+
+        Each row is ``(log, consumer_name, project_name)``. The consumer and
+        project names are resolved with scalar outer joins rather than by
+        hydrating the related ORM entities, so the withdrawal report can show
+        *who* consumed the stock and *for which project* in a single query and
+        without triggering the ``lazy="raise"`` relationships.
+        """
         stmt = (
-            select(ConsumptionLog)
+            select(ConsumptionLog, User.full_name, CemsProject.name)
+            .outerjoin(User, ConsumptionLog.consumed_by_id == User.id)
+            .outerjoin(CemsProject, ConsumptionLog.project_id == CemsProject.id)
             .where(ConsumptionLog.item_id == item_id)
             .order_by(ConsumptionLog.consumed_at.desc())
             .offset(skip)
             .limit(limit)
         )
         result = await self._session.execute(stmt)
-        return list(result.scalars().all())
+        return [(row[0], row[1], row[2]) for row in result.all()]
 
     async def create_movement_log(self, data: dict) -> ConsumableMovementLog:
         log = ConsumableMovementLog(**data)
