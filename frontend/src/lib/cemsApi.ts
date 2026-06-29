@@ -137,6 +137,18 @@ export interface ConsumableMovement {
   moved_at: string
 }
 
+export interface ConsumptionLog {
+  id: string
+  item_id: string
+  consumed_by_id: number
+  consumed_by_name: string | null
+  project_id: string | null
+  project_name: string | null
+  quantity_consumed: string
+  consumed_at: string
+  notes: string | null
+}
+
 export type AlertType = 'LOW_STOCK' | 'OUT_OF_STOCK'
 
 export interface StockAlert {
@@ -325,6 +337,7 @@ interface CompleteTransferPayload {
 
 interface ConsumeStockPayload {
   quantity: number
+  project_id?: string
   notes?: string
 }
 
@@ -432,6 +445,9 @@ export const cemsApi = {
 
   getConsumableMovements: (itemId: string, params?: { skip?: number; limit?: number }) =>
     api.get<ConsumableMovement[]>(`${CEMS_BASE}/consumables/${itemId}/movements`, { params }),
+
+  getConsumptionHistory: (itemId: string, params?: { skip?: number; limit?: number }) =>
+    api.get<ConsumptionLog[]>(`${CEMS_BASE}/consumables/${itemId}/history`, { params }),
 
   getLowStock: () =>
     api.get<ConsumableItem[]>(`${CEMS_BASE}/consumables/low-stock`),

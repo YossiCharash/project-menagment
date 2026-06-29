@@ -246,8 +246,31 @@ async def consumption_history(
     current_user: User = Depends(require_any_cems_role),
 ) -> List[ConsumptionLogRead]:
     repo = ConsumableRepository(db)
-    logs = await repo.get_consumption_history(item_id, skip, limit)
-    return [ConsumptionLogRead.model_validate(l) for l in logs]
+    rows = await repo.get_consumption_history(item_id, skip, limit)
+    return [
+        _serialize_consumption_log(log, consumer_name, project_name)
+        for (log, consumer_name, project_name) in rows
+    ]
+
+
+def _serialize_consumption_log(log, consumer_name, project_name) -> ConsumptionLogRead:
+    """Build a ConsumptionLogRead enriched with the consumer and project names.
+
+    ``get_consumption_history`` resolves the consumer and project names via
+    scalar joins, so the withdrawal report can show *who* consumed the stock
+    and *for which project* without loading the related ORM entities.
+    """
+    return ConsumptionLogRead(
+        id=log.id,
+        item_id=log.item_id,
+        consumed_by_id=log.consumed_by_id,
+        consumed_by_name=consumer_name,
+        project_id=log.project_id,
+        project_name=project_name,
+        quantity_consumed=log.quantity_consumed,
+        consumed_at=log.consumed_at,
+        notes=log.notes,
+    )
 
 
 @router.get("/{item_id}/movements", response_model=List[ConsumableMovementRead])

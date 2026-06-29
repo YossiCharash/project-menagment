@@ -11,8 +11,8 @@ from backend.cems.models.base import CEMSBase, TimestampMixin, UUIDPrimaryKeyMix
 
 if TYPE_CHECKING:
     from backend.cems.models.category import AssetCategory
+    from backend.cems.models.project import CemsProject
     from backend.cems.models.warehouse import Warehouse
-    from backend.models.project import Project
     from backend.models.user import User
 
 
@@ -61,8 +61,8 @@ class ConsumptionLog(UUIDPrimaryKeyMixin, CEMSBase):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=False,
     )
-    project_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("projects.id", ondelete="SET NULL"),
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("cems_projects.id", ondelete="SET NULL"),
         nullable=True,
     )
     quantity_consumed: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
@@ -76,7 +76,9 @@ class ConsumptionLog(UUIDPrimaryKeyMixin, CEMSBase):
         primaryjoin="ConsumptionLog.consumed_by_id == User.id",
         lazy="raise",
     )
-    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id], lazy="raise")
+    project: Mapped[Optional["CemsProject"]] = relationship(
+        "CemsProject", foreign_keys=[project_id], lazy="raise"
+    )
 
 
 class StockAlert(UUIDPrimaryKeyMixin, CEMSBase):
