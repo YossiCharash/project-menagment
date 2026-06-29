@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import api from '../../lib/api'
@@ -21,6 +21,18 @@ const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   in_progress: '#3B82F6',
   completed: '#10B981',
   pending_closure: '#F59E0B',
+}
+
+function isDateOnlyTask(task: Task): boolean {
+  if (!task.start_time || !task.end_time) return false
+  const start = new Date(task.start_time)
+  const end = new Date(task.end_time)
+  return (
+    start.getHours() === 0 &&
+    start.getMinutes() === 0 &&
+    end.getHours() === 23 &&
+    end.getMinutes() === 59
+  )
 }
 
 function formatDate(s: string | null): string {
@@ -90,6 +102,105 @@ export default function TaskList() {
     return true
   })
 
+  const openTask = useCallback((task: Task) => {
+    setSelectedTask(task)
+    setSelectedTaskId(task.id)
+  }, [])
+
+  // Tasks without a concrete time slot, surfaced as a quick-access panel.
+  const noDateTasks = useMemo(
+    () => tasks.filter((task) => !task.start_time && !task.end_time),
+    [tasks]
+  )
+  const dateOnlyTasksByDate = useMemo(() => {
+    const grouped = new Map<string, Task[]>()
+    tasks.filter(isDateOnlyTask).forEach((task) => {
+      const dateKey = task.start_time!.slice(0, 10)
+      const bucket = grouped.get(dateKey)
+      if (bucket) {
+        bucket.push(task)
+      } else {
+        grouped.set(dateKey, [task])
+      }
+    })
+    return grouped
+  }, [tasks])
+  const sortedDateKeys = useMemo(
+    () => Array.from(dateOnlyTasksByDate.keys()).sort(),
+    [dateOnlyTasksByDate]
+  )
+  const hasUnscheduledTasks =
+    noDateTasks.length > 0 || sortedDateKeys.length > 0
+
+  const renderUnscheduledTaskItem = (task: Task) => {
+    const status = (task.status || 'pending') as TaskStatus
+    const indicatorColor = TASK_STATUS_COLORS[status] ?? task.assigned_user_color
+    const avatarSrc = avatarUrl(task.assigned_user_avatar)
+    return (
+      <li key={task.id} className="flex items-center gap-2">
+        {avatarSrc ? (
+          <img
+            src={avatarSrc}
+            alt=""
+            className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-2 ring-white dark:ring-gray-800"
+          />
+        ) : (
+          <span
+            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+            style={{ backgroundColor: indicatorColor }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={() => openTask(task)}
+          className="text-right font-medium text-amber-900 dark:text-amber-100 hover:underline"
+        >
+          {task.title} – {task.assigned_user_name}
+        </button>
+      </li>
+    )
+  }
+
+  const renderUnscheduledPanel = () => {
+    if (!hasUnscheduledTasks) return null
+    return (
+      <div className="rounded-2xl border border-amber-200/80 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-4 shadow-lg shadow-amber-200/20 dark:shadow-none">
+        <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">
+          משימות
+        </h3>
+        {noDateTasks.length > 0 && (
+          <div className="mb-3">
+            <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">
+              בלי תאריך
+            </h4>
+            <ul className="space-y-1.5 text-sm">
+              {noDateTasks.map(renderUnscheduledTaskItem)}
+            </ul>
+          </div>
+        )}
+        {sortedDateKeys.length > 0 && (
+          <div>
+            <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1.5">
+              עם תאריך (בלי שעה)
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {sortedDateKeys.map((dateKey) => (
+                <li key={dateKey}>
+                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                    {new Date(dateKey + 'T12:00:00').toLocaleDateString('he-IL')}
+                  </span>
+                  <ul className="mt-0.5 space-y-1 pr-2 border-r-2 border-amber-200 dark:border-amber-700">
+                    {dateOnlyTasksByDate.get(dateKey)!.map(renderUnscheduledTaskItem)}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -153,6 +264,8 @@ export default function TaskList() {
         </button>
       </div>
 
+      {renderUnscheduledPanel()}
+
       <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -191,8 +304,8 @@ export default function TaskList() {
                       key={task.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => { setSelectedTask(task); setSelectedTaskId(task.id) }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(task); setSelectedTaskId(task.id) } }}
+                      onClick={() => openTask(task)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(task) } }}
                       className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
                     >
                       <td className="py-3 px-4">

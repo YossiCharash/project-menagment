@@ -27,6 +27,7 @@ export default function TaskManagement() {
   const [activeTab, setActiveTab] = useState<TabId>(
     () => (tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : 'board')
   )
+  const [pendingBacklogCreate, setPendingBacklogCreate] = useState(false)
 
   useEffect(() => {
     if (tabParam && TABS.some((t) => t.id === tabParam)) {
@@ -79,9 +80,11 @@ export default function TaskManagement() {
           <SuperTasksPanel />
           <BacklogPanel
             onRequestCreate={() => {
-              // Backlog tasks are created via the calendar tab's create modal — send the user there.
+              // Backlog tasks are created via the calendar tab's create modal — send the
+              // user there and signal the embedded calendar to open the no-date create modal.
               setActiveTab('calendar')
               setSearchParams({ tab: 'calendar' }, { replace: true })
+              setPendingBacklogCreate(true)
             }}
           />
         </div>
@@ -108,7 +111,11 @@ export default function TaskManagement() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
               >
-                <TaskCalendar embedded />
+                <TaskCalendar
+                  embedded
+                  pendingBacklogCreate={pendingBacklogCreate}
+                  onBacklogCreateConsumed={() => setPendingBacklogCreate(false)}
+                />
               </motion.div>
             )}
             {activeTab === 'tasks' && (
