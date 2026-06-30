@@ -143,6 +143,9 @@ class TaskBase(BaseModel):
     requires_closure_approval: bool = False
     is_super_task: bool = False
     is_backlog: bool = False
+    # Building Reception Desk linkage (optional)
+    apartment_id: int | None = None
+    building_id: int | None = None
 
 
 class TaskCreate(TaskBase):
@@ -197,6 +200,8 @@ class TaskOut(BaseModel):
     requires_closure_approval: bool = False
     is_super_task: bool = False
     is_backlog: bool = False
+    apartment_id: int | None = None
+    building_id: int | None = None
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None

@@ -53,6 +53,7 @@ class ResourceType(str, Enum):
     ADMIN_INVITE = "admin_invite"
     NOTIFICATION = "notification"
     DASHBOARD = "dashboard"
+    BUILDING_RECEPTION = "building_reception"
     CEMS_WAREHOUSE = "cems_warehouse"
     CEMS_CONSUMABLE = "cems_consumable"
     CEMS_FIXED_ASSET = "cems_fixed_asset"
