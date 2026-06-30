@@ -358,35 +358,15 @@
   background-clip: padding-box;
 }
 
-/* משימה ללא שעה – קו צר בגובה 6px, ללא טקסט, לא מרחיב את התא */
+/* משימת "כל היום" (ללא שעה) – מוצגת ברשת כ-chip מלא בסגנון Outlook, כמו אירוע עם שעה */
 .task-calendar-wrap .fc-event-task-no-time {
-  height: 6px !important;
-  min-height: 0 !important;
-  max-height: 6px !important;
-  padding: 0 !important;
-  border-radius: 3px !important;
   border: none !important;
-  overflow: hidden;
-  line-height: 0;
-  margin-bottom: 2px !important;
 }
 
-.task-calendar-wrap .fc-event-task-no-time .fc-event-main,
-.task-calendar-wrap .fc-event-task-no-time .fc-event-title-container,
-.task-calendar-wrap .fc-event-task-no-time .fc-event-title,
-.task-calendar-wrap .fc-event-task-no-time .fc-event-time {
-  display: none !important;
-}
-
-/* אזור "כל היום" בתצוגת יום/שבוע – גובה קבוע, לא מתרחב */
+/* אזור "כל היום" בתצוגת יום/שבוע – מציג את משימות היום, נגלל אם יש הרבה */
 .task-calendar-wrap .fc .fc-timegrid-view .fc-daygrid-body {
-  max-height: 48px;
-  overflow: hidden;
-}
-
-.task-calendar-wrap .fc .fc-timegrid-view .fc-daygrid-day-frame {
-  max-height: 48px;
-  overflow: hidden;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .task-calendar-wrap .fc-event-holiday {
@@ -407,12 +387,6 @@
 
 .task-calendar-wrap .fc-event-holiday-islamic {
   border-right: 3px solid #3b82f6 !important;
-}
-
-/* עטיפת משימת כל-היום בתצוגת חודש – גובה 6px בלבד */
-.task-calendar-wrap .fc .fc-daygrid-event-harness:has(.fc-event-task-no-time) {
-  height: 10px;
-  overflow: hidden;
 }
 
 .task-calendar-wrap .fc .fc-daygrid-block-event .fc-event-main {

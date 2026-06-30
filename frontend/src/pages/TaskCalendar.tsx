@@ -2217,12 +2217,9 @@ export default function TaskCalendar({
                 const status = ext.status || 'pending'
                 const isRecurring = ext.isRecurring || false
                 const color = ext.color || '#6B7280'
-                const isAllDayTask = ext.isAllDayTask || false
                 const title = arg.event.title
 
-                if (isAllDayTask) return undefined
-
-                // Format time
+                // Format time (all-day tasks have no time → renders title-only Outlook chip)
                 const startDate = arg.event.start
                 const endDate = arg.event.end
                 let timeStr = ''
