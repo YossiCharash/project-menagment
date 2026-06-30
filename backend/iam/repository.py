@@ -51,7 +51,7 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.SUPPLIER.value: _ALL_ACTIONS,
         ResourceType.TASK.value: _ALL_ACTIONS,
         ResourceType.CATEGORY.value: _ALL_ACTIONS,
-        ResourceType.AUDIT_LOG.value: {Action.READ.value, Action.WRITE.value},
+        ResourceType.AUDIT_LOG.value: {Action.READ.value},
         ResourceType.CONTRACT.value: _ALL_ACTIONS,
         ResourceType.QUOTE.value: _ALL_ACTIONS,
         ResourceType.MEMBER_INVITE.value: _ALL_ACTIONS,

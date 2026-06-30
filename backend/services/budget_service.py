@@ -1,6 +1,9 @@
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, timedelta
 from typing import List, Dict, Any, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.models.contract_period import ContractPeriod
@@ -128,7 +131,7 @@ class BudgetService:
                         is_active=True,
                     )
                     await self.repository.create(new_budget)
-                    print(f"✓ [BUDGET AUTO-COPY] Copied budget '{resolved_category.name}' (amount: {amount}) from period {contract_period_id} to current period {current_period.id}")
+                    logger.info("[BUDGET AUTO-COPY] Copied budget '%s' (amount: %s) from period %s to current period %s", resolved_category.name, amount, contract_period_id, current_period.id)
         
         return created_budget
 
@@ -149,7 +152,7 @@ class BudgetService:
         all_budgets = await self.repository.list_by_project(project_id, active_only=False)
         
         if not all_budgets:
-            print(f"⚠️ [BUDGET COPY] No budgets found for project {project_id}")
+            logger.warning("[BUDGET COPY] No budgets found for project %s", project_id)
             return 0
         
         # Group by category and take the most recent budget for each category
@@ -163,7 +166,7 @@ class BudgetService:
         source_budgets = list(budgets_by_category.values())
         
         if not source_budgets:
-            print(f"⚠️ [BUDGET COPY] No unique budget categories found for project {project_id}")
+            logger.warning("[BUDGET COPY] No unique budget categories found for project %s", project_id)
             return 0
 
         new_start = to_period.start_date
@@ -178,7 +181,7 @@ class BudgetService:
         for b in source_budgets:
             # Check if a budget for this category already exists in the new period
             if b.category in existing_categories:
-                print(f"ℹ️ [BUDGET COPY] Budget for category '{b.category}' already exists in period {to_period.id}, skipping")
+                logger.info("[BUDGET COPY] Budget for category '%s' already exists in period %s, skipping", b.category, to_period.id)
                 continue
             
             end_date = None
@@ -196,12 +199,12 @@ class BudgetService:
             )
             await self.repository.create(new_budget)
             count += 1
-            print(f"✓ [BUDGET COPY] Copied budget '{b.category}' (amount: {b.amount}) to period {to_period.id}")
+            logger.info("[BUDGET COPY] Copied budget '%s' (amount: %s) to period %s", b.category, b.amount, to_period.id)
         
         if count > 0:
-            print(f"✓ [BUDGET COPY] Successfully copied {count} budget(s) to period {to_period.id} (project {project_id})")
+            logger.info("[BUDGET COPY] Successfully copied %s budget(s) to period %s (project %s)", count, to_period.id, project_id)
         else:
-            print(f"⚠️ [BUDGET COPY] No new budgets copied to period {to_period.id} (project {project_id}) - all categories already exist")
+            logger.warning("[BUDGET COPY] No new budgets copied to period %s (project %s) - all categories already exist", to_period.id, project_id)
         
         return count
 
