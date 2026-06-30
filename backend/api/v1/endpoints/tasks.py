@@ -1,4 +1,6 @@
 """Task API endpoints for Task Management Calendar."""
+import asyncio
+import io
 import logging
 from datetime import datetime, timezone, timedelta
 import os
@@ -7,8 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile, Form
 
+from backend.core.config import settings
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
+from backend.services.s3_service import S3Service
 from backend.repositories.task_repository import TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
 from backend.repositories.task_checklist_repository import TaskChecklistRepository
@@ -85,12 +89,53 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
 MAX_ATTACHMENT_SIZE_MB = 25
 
 
-async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
-    """Validate and persist an uploaded file under ``uploads/<subdir>``.
+async def _save_upload_to_s3(
+    content: bytes, file: UploadFile, subdir: str
+) -> tuple[str, str]:
+    """Persist already-read upload bytes to S3 under ``subdir``.
 
-    Returns ``(relative_path, original_file_name)``. Raises HTTPException(400)
-    for an unsupported extension or oversized file. Shared by task attachments
-    and task-message attachments so both enforce identical limits (DRY).
+    Reuses ``content`` (read by the caller) rather than re-reading the file.
+    boto3 is synchronous, so the upload runs in a worker thread to avoid
+    blocking the event loop. Returns ``(full_s3_url, original_file_name)``.
+    """
+    file_obj = io.BytesIO(content)
+    stored = await asyncio.to_thread(
+        S3Service().upload_file,
+        prefix=subdir,
+        file_obj=file_obj,
+        filename=file.filename or "file",
+        content_type=getattr(file, "content_type", None),
+    )
+    return stored, file.filename or stored
+
+
+def _save_upload_to_disk(
+    content: bytes, file: UploadFile, subdir: str
+) -> tuple[str, str]:
+    """Persist already-read upload bytes to local disk under ``uploads/<subdir>``.
+
+    Returns ``(relative_path, original_file_name)``. Used as the dev/test
+    fallback whenever no S3 bucket is configured.
+    """
+    target_dir = os.path.join(_get_uploads_dir(), subdir)
+    os.makedirs(target_dir, exist_ok=True)
+    safe_name = (file.filename or "file").strip() or "file"
+    for char in ['/', '\\', '\0', '..']:
+        safe_name = safe_name.replace(char, "_")
+    stored_name = f"{uuid.uuid4().hex[:12]}_{safe_name}"
+    with open(os.path.join(target_dir, stored_name), "wb") as out_file:
+        out_file.write(content)
+    return f"{subdir}/{stored_name}", file.filename or stored_name
+
+
+async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
+    """Validate an uploaded file and persist it via the configured backend.
+
+    Returns ``(stored_path, original_file_name)`` where ``stored_path`` is a
+    full S3 URL when ``AWS_S3_BUCKET`` is configured, otherwise a relative
+    local path. Raises HTTPException(400) for an unsupported extension or
+    oversized file. Shared by task attachments and task-message attachments so
+    both enforce identical limits (DRY).
     """
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
     if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
@@ -104,23 +149,30 @@ async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
             status_code=400,
             detail=f"גודל קובץ מקסימלי: {MAX_ATTACHMENT_SIZE_MB} MB",
         )
-    target_dir = os.path.join(_get_uploads_dir(), subdir)
-    os.makedirs(target_dir, exist_ok=True)
-    safe_name = (file.filename or "file").strip() or "file"
-    for char in ['/', '\\', '\0', '..']:
-        safe_name = safe_name.replace(char, "_")
-    stored_name = f"{uuid.uuid4().hex[:12]}_{safe_name}"
-    with open(os.path.join(target_dir, stored_name), "wb") as out_file:
-        out_file.write(content)
-    return f"{subdir}/{stored_name}", file.filename or stored_name
+    if settings.AWS_S3_BUCKET:
+        return await _save_upload_to_s3(content, file, subdir)
+    return _save_upload_to_disk(content, file, subdir)
+
+
+def _attachment_file_url(stored_path: str | None) -> str:
+    """Resolve a stored attachment path to a client URL.
+
+    Absolute http(s) URLs (S3) are returned as-is; legacy local paths are
+    served under ``/uploads/``.
+    """
+    path = stored_path or ""
+    if not path:
+        return ""
+    if path.startswith("http://") or path.startswith("https://") or path.startswith("/"):
+        return path
+    return f"/uploads/{path}"
 
 
 def _message_to_out(msg: TaskMessage, author) -> TaskMessageOut:
     """Build a TaskMessageOut (with attachments) from a TaskMessage."""
     attachments = []
     for att in getattr(msg, "attachments", None) or []:
-        path = getattr(att, "file_path", None) or ""
-        file_url = path if path.startswith("/") else (f"/uploads/{path}" if path else "")
+        file_url = _attachment_file_url(getattr(att, "file_path", None))
         attachments.append(
             TaskMessageAttachmentOut(id=att.id, file_name=att.file_name or "", file_url=file_url)
         )
@@ -215,11 +267,7 @@ def _task_to_out(task: Task) -> dict:
     attachments_raw = getattr(task, "attachments", None) or []
     attachments_data = []
     for att in attachments_raw:
-        path = getattr(att, "file_path", None) or ""
-        if path.startswith("/"):
-            file_url = path
-        else:
-            file_url = f"/uploads/{path}" if path else ""
+        file_url = _attachment_file_url(getattr(att, "file_path", None))
         attachments_data.append(
             TaskAttachmentOut(
                 id=att.id,
@@ -864,7 +912,7 @@ async def upload_task_attachment(
     return TaskAttachmentOut(
         id=attachment.id,
         file_name=attachment.file_name,
-        file_url=f"/uploads/{relative_path}",
+        file_url=_attachment_file_url(relative_path),
     )
 
 
@@ -1030,12 +1078,20 @@ async def delete_task_attachment(
     att = next((a for a in (task.attachments or []) if a.id == attachment_id), None)
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    full_path = os.path.join(_get_uploads_dir(), att.file_path)
-    if os.path.isfile(full_path):
+    stored_path = att.file_path or ""
+    is_s3_object = stored_path.startswith("http://") or stored_path.startswith("https://")
+    if is_s3_object and settings.AWS_S3_BUCKET:
         try:
-            os.remove(full_path)
-        except OSError:
-            pass
+            await asyncio.to_thread(S3Service().delete_file, stored_path)
+        except Exception:
+            logger.warning("Failed to delete S3 attachment %s", stored_path, exc_info=True)
+    else:
+        full_path = os.path.join(_get_uploads_dir(), stored_path)
+        if os.path.isfile(full_path):
+            try:
+                os.remove(full_path)
+            except OSError:
+                pass
     await db.delete(att)
     await db.flush()
     return None
