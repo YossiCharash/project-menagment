@@ -11,6 +11,8 @@ import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { getToken } from '../lib/authCache'
 import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive } from 'lucide-react'
+import AttachmentView from '../components/task-management/AttachmentView'
+import RecordButton from '../components/task-management/RecordButton'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import { useDeleteTaskLabel } from '../components/task-management/useDeleteTaskLabel'
@@ -1262,6 +1264,19 @@ export default function TaskCalendar({
     })
   }
 
+  // Open the "+N עוד" day popover on hover (FullCalendar opens it on click by default).
+  useEffect(() => {
+    const openMoreLinkOnHover = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      const moreLink = target?.closest('.fc-daygrid-more-link') as HTMLElement | null
+      if (!moreLink) return
+      if (document.querySelector('.fc-popover')) return // a popover is already open
+      moreLink.click()
+    }
+    document.addEventListener('mouseover', openMoreLinkOnHover)
+    return () => document.removeEventListener('mouseover', openMoreLinkOnHover)
+  }, [])
+
   const toDateTimeLocal = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -1524,11 +1539,11 @@ export default function TaskCalendar({
     setEditError(null)
   }, [])
 
-  const handleEditAddAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!editingTask || !e.target.files?.length) return
+  const uploadEditAttachments = useCallback(async (files: File[]) => {
+    if (!editingTask || files.length === 0) return
     setEditUploadingAttachment(true)
     try {
-      for (const file of Array.from(e.target.files)) {
+      for (const file of files) {
         const fd = new FormData()
         fd.append('file', file)
         await api.post(`/tasks/${editingTask.id}/attachments`, fd, {
@@ -1543,6 +1558,11 @@ export default function TaskCalendar({
     } finally {
       setEditUploadingAttachment(false)
     }
+  }, [editingTask])
+
+  const handleEditAddAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return
+    await uploadEditAttachments(Array.from(e.target.files))
   }
 
   const handleEditDeleteAttachment = async (attachmentId: number) => {
@@ -2305,6 +2325,9 @@ export default function TaskCalendar({
               slotMaxTime="24:00:00"
               allDayText="כל היום"
               eventDisplay="block"
+              dayMaxEvents={2}
+              moreLinkClick="popover"
+              moreLinkText={(count) => `+${count} עוד`}
             />
             </div>
             </>
@@ -2555,17 +2578,11 @@ export default function TaskCalendar({
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {selectedTask.attachments?.map((att) => (
-                    <a
+                    <AttachmentView
                       key={att.id}
-                      href={fileAttachmentUrl(att.file_url) ?? '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs hover:bg-gray-200 dark:hover:bg-gray-500 max-w-[160px]"
-                      title={att.file_name}
-                    >
-                      <Paperclip className="w-3 h-3 flex-shrink-0" />
-                      <span className="truncate">{att.file_name}</span>
-                    </a>
+                      fileName={att.file_name}
+                      fileUrl={fileAttachmentUrl(att.file_url)}
+                    />
                   ))}
                 </div>
               </div>
@@ -2622,19 +2639,13 @@ export default function TaskCalendar({
                           <p className="text-sm text-gray-900 dark:text-gray-100 break-words whitespace-pre-wrap">{msg.message}</p>
                         )}
                         {(msg.attachments?.length ?? 0) > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-1">
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             {msg.attachments?.map((att) => (
-                              <a
+                              <AttachmentView
                                 key={att.id}
-                                href={fileAttachmentUrl(att.file_url) ?? '#'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 text-xs hover:bg-gray-50 dark:hover:bg-gray-500 max-w-[160px]"
-                                title={att.file_name}
-                              >
-                                <Paperclip className="w-3 h-3 flex-shrink-0" />
-                                <span className="truncate">{att.file_name}</span>
-                              </a>
+                                fileName={att.file_name}
+                                fileUrl={fileAttachmentUrl(att.file_url)}
+                              />
                             ))}
                           </div>
                         )}
@@ -2670,7 +2681,7 @@ export default function TaskCalendar({
                   ref={taskChatFileInputRef}
                   type="file"
                   multiple
-                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                  accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
                   onChange={(e) => {
                     const files = e.target.files ? Array.from(e.target.files) : []
                     if (files.length) setTaskChatPendingFiles(prev => [...prev, ...files])
@@ -2688,6 +2699,10 @@ export default function TaskCalendar({
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
+                <RecordButton
+                  onRecorded={(file) => setTaskChatPendingFiles(prev => [...prev, file])}
+                  disabled={taskMessageSending}
+                />
                 <input
                   type="text"
                   value={taskMessageInput}
@@ -3003,7 +3018,7 @@ export default function TaskCalendar({
                 ref={editFileInputRef}
                 type="file"
                 multiple
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
                 onChange={handleEditAddAttachment}
                 className="hidden"
               />
@@ -3016,17 +3031,16 @@ export default function TaskCalendar({
                 >
                   <Paperclip className="w-3.5 h-3.5" /> {editUploadingAttachment ? 'מעלה...' : 'הוסף קובץ'}
                 </button>
+                <RecordButton
+                  onRecorded={(file) => { void uploadEditAttachments([file]) }}
+                  disabled={editUploadingAttachment}
+                />
                 {(editingTask?.attachments ?? []).map((att) => (
-                  <span key={att.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
-                    <a
-                      href={fileAttachmentUrl(att.file_url) ?? '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="truncate max-w-[120px] hover:underline"
-                      title={att.file_name}
-                    >
-                      {att.file_name}
-                    </a>
+                  <span key={att.id} className="inline-flex items-center gap-1">
+                    <AttachmentView
+                      fileName={att.file_name}
+                      fileUrl={fileAttachmentUrl(att.file_url)}
+                    />
                     <button
                       type="button"
                       onClick={() => handleEditDeleteAttachment(att.id)}
@@ -3305,7 +3319,7 @@ export default function TaskCalendar({
                 ref={createFileInputRef}
                 type="file"
                 multiple
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
                 onChange={(e) => {
                   const files = e.target.files ? Array.from(e.target.files) : []
                   setCreatePendingFiles((prev) => [...prev, ...files])
@@ -3320,6 +3334,7 @@ export default function TaskCalendar({
                 >
                   <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים
                 </button>
+                <RecordButton onRecorded={(file) => setCreatePendingFiles((prev) => [...prev, file])} />
                 {createPendingFiles.map((file, i) => (
                   <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
                     {file.name}
