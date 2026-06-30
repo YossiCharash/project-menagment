@@ -5,6 +5,7 @@ import { Tag, Paperclip, X, Zap } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType, RecurrenceRule } from '../../pages/TaskCalendar'
 import { useDeleteTaskLabel } from './useDeleteTaskLabel'
+import RecordButton from './RecordButton'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -429,11 +430,12 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
         {/* attachments */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
-          <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip" onChange={(e) => { const files = e.target.files ? Array.from(e.target.files) : []; setCreatePendingFiles(prev => [...prev, ...files]) }} className="hidden" />
+          <input ref={fileInputRef} type="file" multiple accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip" onChange={(e) => { const files = e.target.files ? Array.from(e.target.files) : []; setCreatePendingFiles(prev => [...prev, ...files]) }} className="hidden" />
           <div className="flex flex-wrap items-center gap-1.5">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600">
               <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים
             </button>
+            <RecordButton onRecorded={(file) => setCreatePendingFiles(prev => [...prev, file])} />
             {createPendingFiles.map((file, i) => (
               <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
                 {file.name}
