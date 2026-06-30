@@ -381,3 +381,95 @@ class TestAttachmentExtensionPolicy:
         assert response.status_code == 400, (
             f"Expected 400 for disallowed extension, got {response.status_code}: {response.text}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. S3 storage branch (when AWS_S3_BUCKET is configured)
+# ---------------------------------------------------------------------------
+
+_FAKE_S3_URL = (
+    "https://bucket.s3.eu-central-1.amazonaws.com/task_attachments/deadbeef.png"
+)
+
+
+@pytest.mark.api
+@pytest.mark.asyncio
+class TestAttachmentS3Storage:
+    """When ``AWS_S3_BUCKET`` is set, attachments are uploaded to S3 and the
+    persisted ``file_path`` / returned ``file_url`` are the absolute S3 URL
+    (not a ``/uploads/`` local path). No real AWS call is made — both the
+    ``settings`` flag and ``S3Service`` are patched at the endpoint module.
+    """
+
+    async def _create_task_for_other(
+        self, test_client: AsyncClient, member_token: str, other_member: User
+    ) -> int:
+        response = await test_client.post(
+            "/api/v1/tasks/",
+            headers={"Authorization": f"Bearer {member_token}"},
+            json={
+                "title": "Task with S3 attachment",
+                "assigned_to_user_id": other_member.id,
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        return response.json()["id"]
+
+    async def test_upload_uses_s3_and_stores_absolute_url(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        other_member: User,
+        monkeypatch,
+    ):
+        """A PNG upload routes to S3 and the absolute URL is persisted/returned."""
+        from unittest.mock import MagicMock, patch
+
+        from backend.api.v1.endpoints import tasks as tasks_module
+
+        # Force the S3 branch without requiring real AWS configuration.
+        monkeypatch.setattr(
+            tasks_module.settings, "AWS_S3_BUCKET", "bucket", raising=False
+        )
+
+        # Stub S3Service so constructing it needs no creds and upload_file
+        # returns a known fake URL without any network call.
+        fake_service = MagicMock()
+        fake_service.upload_file.return_value = _FAKE_S3_URL
+
+        task_id = await self._create_task_for_other(
+            test_client, member_token, other_member
+        )
+
+        with patch.object(
+            tasks_module, "S3Service", return_value=fake_service
+        ) as service_cls:
+            response = await test_client.post(
+                f"/api/v1/tasks/{task_id}/attachments",
+                headers={"Authorization": f"Bearer {member_token}"},
+                files={"file": ("note.png", _TINY_PNG_BYTES, "image/png")},
+            )
+
+        assert response.status_code in (200, 201), (
+            f"S3 attachment upload failed: {response.text}"
+        )
+        data = response.json()
+        # Absolute S3 URL is returned as-is, NOT prefixed with /uploads/.
+        assert data["file_url"] == _FAKE_S3_URL
+        assert not data["file_url"].startswith("/uploads/")
+        assert data["file_name"] == "note.png"
+
+        # S3Service.upload_file was invoked with the task_attachments prefix.
+        service_cls.assert_called()
+        _, upload_kwargs = fake_service.upload_file.call_args
+        assert upload_kwargs["prefix"] == "task_attachments"
+        assert upload_kwargs["filename"] == "note.png"
+
+        # The persisted file_path is the same absolute S3 URL.
+        result = await test_db.execute(
+            select(TaskAttachment).where(TaskAttachment.task_id == task_id)
+        )
+        attachments = list(result.scalars().all())
+        assert len(attachments) == 1
+        assert attachments[0].file_path == _FAKE_S3_URL
