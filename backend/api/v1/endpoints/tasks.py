@@ -77,6 +77,31 @@ def _get_uploads_dir() -> str:
     return os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
 
 
+async def _delete_stored_file(stored_path: str | None) -> None:
+    """Delete a stored attachment file from S3 or local disk.
+
+    No-ops on an empty/None path. When the path is an http(s) URL and an S3
+    bucket is configured, deletes the S3 object (in a worker thread, since boto3
+    is synchronous). Otherwise removes the local file under the uploads dir.
+    Failures are swallowed (logged) so a missing file never blocks the DB delete.
+    """
+    if not stored_path:
+        return
+    is_s3_object = stored_path.startswith("http://") or stored_path.startswith("https://")
+    if is_s3_object and settings.AWS_S3_BUCKET:
+        try:
+            await asyncio.to_thread(S3Service().delete_file, stored_path)
+        except Exception:
+            logger.warning("Failed to delete S3 attachment %s", stored_path, exc_info=True)
+        return
+    full_path = os.path.join(_get_uploads_dir(), stored_path)
+    if os.path.isfile(full_path):
+        try:
+            os.remove(full_path)
+        except OSError:
+            pass
+
+
 # Allowed extensions for task attachments (images + audio recordings + common docs).
 # Shared by task attachments and task-message (chat) attachments so both enforce
 # the same policy. Audio types support voice recordings; MediaRecorder typically
@@ -510,6 +535,11 @@ def _can_access_task(task: Task, user) -> bool:
     return any(getattr(p, "user_id", None) == user.id for p in participants)
 
 
+def _can_delete_message(message, user) -> bool:
+    """True if user may delete this chat message: Admin or the message's author."""
+    return user.role == "Admin" or message.user_id == user.id
+
+
 def _can_manage_task(task: Task, user) -> bool:
     """True if user may add/manage attachments on this task: Admin, the assignee, or the creator."""
     if user.role == "Admin":
@@ -585,6 +615,87 @@ async def create_task_message(
     except Exception:
         logger.warning(f"Failed to create message notifications for task {task_id}", exc_info=True)
     return _message_to_out(msg, getattr(msg, "user", None) or user)
+
+
+async def _load_message_with_attachments(db, message_id: int) -> TaskMessage | None:
+    """Load a chat message with its attachments eagerly, or None if absent."""
+    result = await db.execute(
+        select(TaskMessage)
+        .options(selectinload(TaskMessage.attachments))
+        .where(TaskMessage.id == message_id)
+    )
+    return result.scalar_one_or_none()
+
+
+@router.delete("/{task_id}/messages/{message_id}", status_code=204)
+async def delete_task_message(
+        task_id: int,
+        message_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Delete a whole chat message (text + all its attachments) from a task.
+
+    The author or an Admin may delete. Cascade removes the attachment rows; the
+    stored files (S3 or local) are deleted first.
+    """
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    msg = await _load_message_with_attachments(db, message_id)
+    if not msg or msg.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if not _can_delete_message(msg, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    for att in list(msg.attachments or []):
+        await _delete_stored_file(att.file_path)
+    await db.delete(msg)
+    await db.flush()
+    return None
+
+
+@router.delete("/{task_id}/messages/{message_id}/attachments/{attachment_id}", status_code=204)
+async def delete_task_message_attachment(
+        task_id: int,
+        message_id: int,
+        attachment_id: int,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Delete a single attachment (voice recording or document) within a chat message.
+
+    The author or an Admin may delete. If removing it leaves the message with no
+    attachments and no text, the now-empty message is deleted too.
+    """
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    msg = await _load_message_with_attachments(db, message_id)
+    if not msg or msg.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if not _can_delete_message(msg, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    att = next((a for a in (msg.attachments or []) if a.id == attachment_id), None)
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    await _delete_stored_file(att.file_path)
+    remaining = [a for a in (msg.attachments or []) if a.id != attachment_id]
+    if not remaining and not (msg.message or "").strip():
+        # The message would be left empty (no text, no attachments): delete the
+        # whole message and let the cascade remove the attachment row, rather
+        # than deleting the attachment first (which would make the cascade try
+        # to re-delete an already-removed row).
+        await db.delete(msg)
+    else:
+        await db.delete(att)
+    await db.flush()
+    return None
 
 
 @router.get("/{task_id}", response_model=TaskOut)
@@ -1078,20 +1189,7 @@ async def delete_task_attachment(
     att = next((a for a in (task.attachments or []) if a.id == attachment_id), None)
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    stored_path = att.file_path or ""
-    is_s3_object = stored_path.startswith("http://") or stored_path.startswith("https://")
-    if is_s3_object and settings.AWS_S3_BUCKET:
-        try:
-            await asyncio.to_thread(S3Service().delete_file, stored_path)
-        except Exception:
-            logger.warning("Failed to delete S3 attachment %s", stored_path, exc_info=True)
-    else:
-        full_path = os.path.join(_get_uploads_dir(), stored_path)
-        if os.path.isfile(full_path):
-            try:
-                os.remove(full_path)
-            except OSError:
-                pass
+    await _delete_stored_file(att.file_path)
     await db.delete(att)
     await db.flush()
     return None
