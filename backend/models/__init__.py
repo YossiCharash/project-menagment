@@ -27,6 +27,14 @@ from backend.models.user_notification import UserNotification
 from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
 from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
+# Building Reception Desk (דלפק הבניין)
+from backend.models.building import Building
+from backend.models.apartment import Apartment
+from backend.models.tenant import Tenant
+from backend.models.apartment_key import ApartmentKey, KeyTransfer, KeyHolder, KeyDirection
+from backend.models.authorized_vehicle import AuthorizedVehicle
+from backend.models.delivery import Delivery, DeliveryStatus
+from backend.models.apartment_activity import ApartmentActivity, ActivityKind
 from backend.iam.models import ProjectRoleAssignment, ResourcePolicy, PermissionAuditLog
 
 __all__ = [
@@ -67,6 +75,18 @@ __all__ = [
     "OutlookSync",
     "GroupTransactionDraft",
     "GroupTransactionDraftDocument",
+    "Building",
+    "Apartment",
+    "Tenant",
+    "ApartmentKey",
+    "KeyTransfer",
+    "KeyHolder",
+    "KeyDirection",
+    "AuthorizedVehicle",
+    "Delivery",
+    "DeliveryStatus",
+    "ApartmentActivity",
+    "ActivityKind",
     "ProjectRoleAssignment",
     "ResourcePolicy",
     "PermissionAuditLog",
