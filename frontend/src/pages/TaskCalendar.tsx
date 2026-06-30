@@ -1264,19 +1264,6 @@ export default function TaskCalendar({
     })
   }
 
-  // Open the "+N עוד" day popover on hover (FullCalendar opens it on click by default).
-  useEffect(() => {
-    const openMoreLinkOnHover = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null
-      const moreLink = target?.closest('.fc-daygrid-more-link') as HTMLElement | null
-      if (!moreLink) return
-      if (document.querySelector('.fc-popover')) return // a popover is already open
-      moreLink.click()
-    }
-    document.addEventListener('mouseover', openMoreLinkOnHover)
-    return () => document.removeEventListener('mouseover', openMoreLinkOnHover)
-  }, [])
-
   const toDateTimeLocal = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -2325,9 +2312,6 @@ export default function TaskCalendar({
               slotMaxTime="24:00:00"
               allDayText="כל היום"
               eventDisplay="block"
-              dayMaxEvents={2}
-              moreLinkClick="popover"
-              moreLinkText={(count) => `+${count} עוד`}
             />
             </div>
             </>
