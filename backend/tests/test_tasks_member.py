@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from backend.iam.enums import Action, ResourceType, GlobalRole
 from backend.iam.repository import _GLOBAL_ROLE_POLICIES, SQLAlchemyPermissionProvider
-from backend.models.task import Task, TaskAttachment
+from backend.models.task import Task, TaskAttachment, TaskMessage, TaskMessageAttachment
 from backend.models.user import User, UserRole
 from backend.core.security import hash_password
 
@@ -58,6 +58,17 @@ async def stranger_member(test_db: AsyncSession) -> User:
     await test_db.commit()
     await test_db.refresh(user)
     return user
+
+
+@pytest_asyncio.fixture
+async def other_token(test_client: AsyncClient, other_member: User) -> str:
+    """JWT access token for the assignee (other) member."""
+    response = await test_client.post(
+        "/api/v1/auth/login",
+        json={"email": "other@test.com", "password": "testpass123"},
+    )
+    assert response.status_code == 200, f"Other login failed: {response.text}"
+    return response.json()["access_token"]
 
 
 @pytest_asyncio.fixture
@@ -473,3 +484,263 @@ class TestAttachmentS3Storage:
         attachments = list(result.scalars().all())
         assert len(attachments) == 1
         assert attachments[0].file_path == _FAKE_S3_URL
+
+
+# ---------------------------------------------------------------------------
+# 7. Deleting task-chat messages and their attachments
+# ---------------------------------------------------------------------------
+
+@pytest.mark.api
+@pytest.mark.asyncio
+class TestDeleteTaskMessage:
+    """Author/Admin can delete a whole chat message or a single attachment.
+
+    The task is assigned to ``member_user`` (so the member is the message
+    author and can access the chat) with ``other_member`` invited as a
+    participant (so they can access the chat but are NOT the author). Only the
+    message author (or an Admin) may delete. Tests run without S3 configured, so
+    ``_delete_stored_file`` exercises its local-file branch -- we assert DB
+    rows, not the filesystem.
+    """
+
+    async def _create_task_for_other(
+        self,
+        test_client: AsyncClient,
+        member_token: str,
+        member_user: User,
+        other_member: User,
+    ) -> int:
+        """Create a task owned by the member with the other member as participant."""
+        response = await test_client.post(
+            "/api/v1/tasks/",
+            headers={"Authorization": f"Bearer {member_token}"},
+            json={
+                "title": "Task with chat",
+                "assigned_to_user_id": member_user.id,
+                "participant_ids": [other_member.id],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        return response.json()["id"]
+
+    async def _post_message(
+        self,
+        test_client: AsyncClient,
+        token: str,
+        task_id: int,
+        text: str = "",
+        files: list | None = None,
+    ) -> dict:
+        """Post a chat message (multipart) and return the created message JSON."""
+        kwargs: dict = {
+            "headers": {"Authorization": f"Bearer {token}"},
+            "data": {"message": text},
+        }
+        if files:
+            kwargs["files"] = files
+        response = await test_client.post(
+            f"/api/v1/tasks/{task_id}/messages", **kwargs
+        )
+        assert response.status_code in (200, 201), (
+            f"Posting message failed: {response.text}"
+        )
+        return response.json()
+
+    async def test_author_can_delete_own_message_with_attachment(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        member_user: User,
+        other_member: User,
+    ):
+        """Author deletes their message (204); message + attachment rows are gone."""
+        task_id = await self._create_task_for_other(
+            test_client, member_token, member_user, other_member
+        )
+        message = await self._post_message(
+            test_client,
+            member_token,
+            task_id,
+            text="hello",
+            files=[("files", ("rec.webm", _TINY_AUDIO_BYTES, "audio/webm"))],
+        )
+        message_id = message["id"]
+
+        response = await test_client.delete(
+            f"/api/v1/tasks/{task_id}/messages/{message_id}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+        msg_rows = (
+            await test_db.execute(
+                select(TaskMessage).where(TaskMessage.id == message_id)
+            )
+        ).scalars().all()
+        assert msg_rows == []
+        att_rows = (
+            await test_db.execute(
+                select(TaskMessageAttachment).where(
+                    TaskMessageAttachment.message_id == message_id
+                )
+            )
+        ).scalars().all()
+        assert att_rows == []
+
+    async def test_non_author_member_cannot_delete_others_message(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        member_user: User,
+        other_token: str,
+        other_member: User,
+    ):
+        """The assignee can access the chat but gets 403 deleting the author's message."""
+        task_id = await self._create_task_for_other(
+            test_client, member_token, member_user, other_member
+        )
+        message = await self._post_message(
+            test_client, member_token, task_id, text="author message"
+        )
+        message_id = message["id"]
+
+        response = await test_client.delete(
+            f"/api/v1/tasks/{task_id}/messages/{message_id}",
+            headers={"Authorization": f"Bearer {other_token}"},
+        )
+        assert response.status_code == 403, response.text
+
+        # The message must still exist.
+        msg_rows = (
+            await test_db.execute(
+                select(TaskMessage).where(TaskMessage.id == message_id)
+            )
+        ).scalars().all()
+        assert len(msg_rows) == 1
+
+    async def test_admin_can_delete_any_message(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        member_user: User,
+        admin_token: str,
+        other_member: User,
+    ):
+        """Admin deletes a message authored by another user (204)."""
+        task_id = await self._create_task_for_other(
+            test_client, member_token, member_user, other_member
+        )
+        message = await self._post_message(
+            test_client, member_token, task_id, text="member message"
+        )
+        message_id = message["id"]
+
+        response = await test_client.delete(
+            f"/api/v1/tasks/{task_id}/messages/{message_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+        msg_rows = (
+            await test_db.execute(
+                select(TaskMessage).where(TaskMessage.id == message_id)
+            )
+        ).scalars().all()
+        assert msg_rows == []
+
+    async def test_delete_only_attachment_of_textless_message_removes_message(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        member_user: User,
+        other_member: User,
+    ):
+        """Deleting the sole attachment of a text-less message removes the message too."""
+        task_id = await self._create_task_for_other(
+            test_client, member_token, member_user, other_member
+        )
+        message = await self._post_message(
+            test_client,
+            member_token,
+            task_id,
+            text="",
+            files=[("files", ("rec.webm", _TINY_AUDIO_BYTES, "audio/webm"))],
+        )
+        message_id = message["id"]
+        attachment_id = message["attachments"][0]["id"]
+
+        response = await test_client.delete(
+            f"/api/v1/tasks/{task_id}/messages/{message_id}/attachments/{attachment_id}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+        # The attachment is gone...
+        att_rows = (
+            await test_db.execute(
+                select(TaskMessageAttachment).where(
+                    TaskMessageAttachment.id == attachment_id
+                )
+            )
+        ).scalars().all()
+        assert att_rows == []
+        # ...and so is the now-empty message.
+        msg_rows = (
+            await test_db.execute(
+                select(TaskMessage).where(TaskMessage.id == message_id)
+            )
+        ).scalars().all()
+        assert msg_rows == []
+
+    async def test_delete_one_attachment_keeps_message_with_text(
+        self,
+        test_client: AsyncClient,
+        test_db: AsyncSession,
+        member_token: str,
+        member_user: User,
+        other_member: User,
+    ):
+        """Deleting one attachment from a message with text keeps the message."""
+        task_id = await self._create_task_for_other(
+            test_client, member_token, member_user, other_member
+        )
+        message = await self._post_message(
+            test_client,
+            member_token,
+            task_id,
+            text="keep me",
+            files=[
+                ("files", ("a.webm", _TINY_AUDIO_BYTES, "audio/webm")),
+                ("files", ("b.webm", _TINY_AUDIO_BYTES, "audio/webm")),
+            ],
+        )
+        message_id = message["id"]
+        first_attachment_id = message["attachments"][0]["id"]
+
+        response = await test_client.delete(
+            f"/api/v1/tasks/{task_id}/messages/{message_id}/attachments/{first_attachment_id}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+        # The targeted attachment is gone, the other remains.
+        remaining = (
+            await test_db.execute(
+                select(TaskMessageAttachment).where(
+                    TaskMessageAttachment.message_id == message_id
+                )
+            )
+        ).scalars().all()
+        assert len(remaining) == 1
+        assert remaining[0].id != first_attachment_id
+        # The message (with text) is preserved.
+        msg_rows = (
+            await test_db.execute(
+                select(TaskMessage).where(TaskMessage.id == message_id)
+            )
+        ).scalars().all()
+        assert len(msg_rows) == 1
