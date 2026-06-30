@@ -1,6 +1,8 @@
 """
 Integration tests for the entire system
 """
+from datetime import date, timedelta
+
 import pytest
 from httpx import AsyncClient
 
@@ -14,6 +16,13 @@ class TestSystemIntegration:
         self, test_client: AsyncClient, admin_token: str, default_category: int
     ):
         """Test complete project creation and transaction workflow"""
+        # Use dates relative to today so the project's first contract period
+        # already covers today (avoids the intentional period roll-forward) and
+        # transactions dated today fall within the active project window.
+        today = date.today()
+        project_start_date = today.isoformat()
+        project_end_date = (today + timedelta(days=365)).isoformat()
+        transaction_date = today.isoformat()
         # 1. Create project
         project_response = await test_client.post(
             "/api/v1/projects",
@@ -21,8 +30,8 @@ class TestSystemIntegration:
             json={
                 "name": "Integration Test Project",
                 "description": "Full workflow test",
-                "start_date": "2024-01-01",
-                "end_date": "2024-12-31",
+                "start_date": project_start_date,
+                "end_date": project_end_date,
                 "budget_monthly": 0.0,
                 "budget_annual": 100000.0,
             }
@@ -39,7 +48,7 @@ class TestSystemIntegration:
                 "type": "Income",
                 "amount": 10000.0,
                 "description": "Initial payment",
-                "tx_date": "2024-01-15",
+                "tx_date": transaction_date,
                 "category_id": default_category,
                 "from_fund": False,
             }
@@ -55,7 +64,7 @@ class TestSystemIntegration:
                 "type": "Expense",
                 "amount": 5000.0,
                 "description": "Material cost",
-                "tx_date": "2024-01-20",
+                "tx_date": transaction_date,
                 "category_id": default_category,
                 "from_fund": False,
             }

@@ -1,6 +1,8 @@
 """
 Tests for transactions API endpoints
 """
+from datetime import date, timedelta
+
 import pytest
 from httpx import AsyncClient
 
@@ -118,20 +120,27 @@ class TestTransactionsAPI:
         self, test_client: AsyncClient, admin_token: str, default_category: int
     ):
         """Test getting a transaction by ID"""
+        # Use dates relative to today so the project's first contract period
+        # already covers today (avoids the intentional period roll-forward) and
+        # a transaction dated today falls within the active project window.
+        today = date.today()
+        project_start_date = today.isoformat()
+        project_end_date = (today + timedelta(days=365)).isoformat()
+        transaction_date = today.isoformat()
         # Create project
         project_response = await test_client.post(
             "/api/v1/projects",
             headers={"Authorization": f"Bearer {admin_token}"},
             json={
                 "name": "Test Project",
-                "start_date": "2024-01-01",
-                "end_date": "2024-12-31",
+                "start_date": project_start_date,
+                "end_date": project_end_date,
                 "budget_monthly": 0.0,
                 "budget_annual": 0.0,
             }
         )
         project_id = project_response.json()["id"]
-        
+
         # Create transaction
         create_response = await test_client.post(
             "/api/v1/transactions",
@@ -141,7 +150,7 @@ class TestTransactionsAPI:
                 "type": "Income",
                 "amount": 5000.0,
                 "description": "Test Income",
-                "tx_date": "2024-01-15",
+                "tx_date": transaction_date,
                 "category_id": default_category,
                 "from_fund": False,
             }

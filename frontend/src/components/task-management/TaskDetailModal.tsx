@@ -1,16 +1,18 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
-import api, { avatarUrl } from '../../lib/api'
+import api, { avatarUrl, fileAttachmentUrl } from '../../lib/api'
 import Modal from '../Modal'
 import { cn } from '../../lib/utils'
 import {
   Bell,
   CheckCircle,
   MessageCircle,
+  Paperclip,
   Pencil,
   Send,
   Trash2,
+  X,
   Zap,
 } from 'lucide-react'
 import type {
@@ -22,6 +24,8 @@ import type {
 } from '../../pages/TaskCalendar'
 import { PermissionGuard } from '../ui/PermissionGuard'
 import TaskChecklist from './TaskChecklist'
+import AttachmentView from './AttachmentView'
+import RecordButton from './RecordButton'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
@@ -84,6 +88,8 @@ export default function TaskDetailModal({
   const [taskMessagesLoading, setTaskMessagesLoading] = useState(false)
   const [taskMessageInput, setTaskMessageInput] = useState('')
   const [taskMessageSending, setTaskMessageSending] = useState(false)
+  const [taskChatPendingFiles, setTaskChatPendingFiles] = useState<File[]>([])
+  const taskChatFileInputRef = useRef<HTMLInputElement>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
@@ -109,6 +115,7 @@ export default function TaskDetailModal({
       setTask(null)
       setTaskMessages([])
       setTaskMessageInput('')
+      setTaskChatPendingFiles([])
       return
     }
     if (initialTask && initialTask.id === taskId) {
@@ -194,19 +201,29 @@ export default function TaskDetailModal({
   }, [onTaskUpdated])
 
   const handleSendMessage = useCallback(async () => {
-    if (!taskId || !taskMessageInput.trim() || taskMessageSending) return
+    if (!taskId || taskMessageSending) return
     const text = taskMessageInput.trim()
+    const files = taskChatPendingFiles
+    if (!text && files.length === 0) return
     setTaskMessageInput('')
+    setTaskChatPendingFiles([])
     setTaskMessageSending(true)
     try {
-      const { data } = await api.post<TaskMessageType>(`/tasks/${taskId}/messages`, { message: text })
+      const formData = new FormData()
+      formData.append('message', text)
+      files.forEach((file) => formData.append('files', file))
+      const { data } = await api.post<TaskMessageType>(`/tasks/${taskId}/messages`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       setTaskMessages(prev => [...prev, data])
     } catch {
+      // Restore the draft (text + files) so the user can retry.
       setTaskMessageInput(text)
+      setTaskChatPendingFiles(files)
     } finally {
       setTaskMessageSending(false)
     }
-  }, [taskId, taskMessageInput, taskMessageSending])
+  }, [taskId, taskMessageInput, taskChatPendingFiles, taskMessageSending])
 
   if (!taskId) return null
 
@@ -366,6 +383,22 @@ export default function TaskDetailModal({
               {effectiveTask.description}
             </p>
           )}
+          {(effectiveTask.attachments?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1 mb-1">
+                <Paperclip className="w-3.5 h-3.5" /> קבצים מצורפים:
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {effectiveTask.attachments?.map((att) => (
+                  <AttachmentView
+                    key={att.id}
+                    fileName={att.file_name}
+                    fileUrl={fileAttachmentUrl(att.file_url)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           {(effectiveTask.labels?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-1.5 items-center">
               <span className="text-sm text-gray-600 dark:text-gray-400">לייבלים: </span>
@@ -428,7 +461,20 @@ export default function TaskDetailModal({
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{msg.full_name}</p>
-                      <p className="text-sm text-gray-900 dark:text-gray-100 break-words whitespace-pre-wrap">{msg.message}</p>
+                      {msg.message && (
+                        <p className="text-sm text-gray-900 dark:text-gray-100 break-words whitespace-pre-wrap">{msg.message}</p>
+                      )}
+                      {(msg.attachments?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {msg.attachments?.map((att) => (
+                            <AttachmentView
+                              key={att.id}
+                              fileName={att.file_name}
+                              fileUrl={fileAttachmentUrl(att.file_url)}
+                            />
+                          ))}
+                        </div>
+                      )}
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {new Date(msg.created_at).toLocaleString('he-IL')}
                       </p>
@@ -437,7 +483,52 @@ export default function TaskDetailModal({
                 ))
               )}
             </div>
+            {taskChatPendingFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {taskChatPendingFiles.map((file, idx) => (
+                  <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
+                    <Paperclip className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate max-w-[120px]" title={file.name}>{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTaskChatPendingFiles(prev => prev.filter((_, i) => i !== idx))}
+                      disabled={taskMessageSending}
+                      className="p-0.5 rounded hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50"
+                      aria-label="הסר קובץ"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="flex gap-2 mt-2">
+              <input
+                ref={taskChatFileInputRef}
+                type="file"
+                multiple
+                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                onChange={(e) => {
+                  const files = e.target.files ? Array.from(e.target.files) : []
+                  if (files.length) setTaskChatPendingFiles(prev => [...prev, ...files])
+                  if (taskChatFileInputRef.current) taskChatFileInputRef.current.value = ''
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => taskChatFileInputRef.current?.click()}
+                disabled={taskMessageSending}
+                className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                title="צרף קובץ"
+                aria-label="צרף קובץ"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <RecordButton
+                onRecorded={(file) => setTaskChatPendingFiles(prev => [...prev, file])}
+                disabled={taskMessageSending}
+              />
               <input
                 type="text"
                 value={taskMessageInput}
@@ -459,7 +550,7 @@ export default function TaskDetailModal({
               <button
                 type="button"
                 onClick={handleSendMessage}
-                disabled={!taskMessageInput.trim() || taskMessageSending}
+                disabled={(!taskMessageInput.trim() && taskChatPendingFiles.length === 0) || taskMessageSending}
                 className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 title="שלח"
               >

@@ -73,12 +73,16 @@ def _get_uploads_dir() -> str:
     return os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
 
 
-# Allowed extensions for task attachments (images + common docs)
+# Allowed extensions for task attachments (images + audio recordings + common docs).
+# Shared by task attachments and task-message (chat) attachments so both enforce
+# the same policy. Audio types support voice recordings; MediaRecorder typically
+# outputs `.webm`.
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+    ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".wav", ".aac", ".mp4",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv", ".zip",
 }
-MAX_ATTACHMENT_SIZE_MB = 15
+MAX_ATTACHMENT_SIZE_MB = 25
 
 
 async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
