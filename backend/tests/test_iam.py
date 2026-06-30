@@ -94,7 +94,7 @@ class TestEnums:
         assert "read" in [a.value for a in Action]
         assert "write" in [a.value for a in Action]
         assert "delete" in [a.value for a in Action]
-        assert "create" in [a.value for a in Action]
+        assert "update" in [a.value for a in Action]
 
     def test_resource_type_has_core_resources(self):
         assert "project" in [r.value for r in ResourceType]
