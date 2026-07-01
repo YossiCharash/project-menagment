@@ -23,6 +23,7 @@ import {
   fetchBuilding,
   createBuilding,
   fetchApartment,
+  fetchApartmentTasks,
   closeApartment,
   clearError,
   createApartment,
@@ -71,6 +72,7 @@ export default function BuildingReceptionDesk() {
   const loadingBuilding = useAppSelector((state: RootState) => state.buildingReception.loadingBuilding)
   const loadingApartment = useAppSelector((state: RootState) => state.buildingReception.loadingApartment)
   const error = useAppSelector((state: RootState) => state.buildingReception.error)
+  const apartmentTasks = useAppSelector((state: RootState) => state.buildingReception.activeApartmentTasks)
 
   const [createBuildingOpen, setCreateBuildingOpen] = useState(false)
   const [taskOpen, setTaskOpen] = useState(false)
@@ -119,6 +121,7 @@ export default function BuildingReceptionDesk() {
 
   const handleSelectApartment = (apartment: Apartment) => {
     void dispatch(fetchApartment(apartment.id))
+    void dispatch(fetchApartmentTasks(apartment.id))
   }
 
   const handleCreateBuilding = (payload: BuildingCreate) =>
@@ -130,7 +133,10 @@ export default function BuildingReceptionDesk() {
   const handleCreateTask = (payload: BuildingReceptionTaskCreate) =>
     runSubmit(
       () => BuildingReceptionAPI.createTask(payload),
-      () => setTaskOpen(false),
+      () => {
+        setTaskOpen(false)
+        if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
+      },
     )
 
   const handleTransferKey = (keyId: number, payload: KeyTransferCreate) => {
@@ -363,8 +369,10 @@ export default function BuildingReceptionDesk() {
 
       <ApartmentDetailPanel
         apartment={activeApartment}
+        tasks={apartmentTasks}
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
+        onAddTask={() => setTaskOpen(true)}
         onEditApartment={(apartment) => setEditingApartment(apartment)}
         onDeleteApartment={handleDeleteApartment}
         onAddTenant={() => {

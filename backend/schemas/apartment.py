@@ -39,6 +39,18 @@ class ApartmentOut(ApartmentBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ApartmentTaskOut(BaseModel):
+    """Lightweight view of a task linked to an apartment (reception desk)."""
+    id: int
+    title: str
+    start_time: datetime | None = None
+    status: str
+    assigned_to_user_id: int | None = None
+    assignee_name: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ApartmentDetailOut(ApartmentBase):
     """Full apartment detail – tenant, keys, vehicles, deliveries, activity feed."""
     id: int

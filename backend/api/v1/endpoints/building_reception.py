@@ -12,7 +12,14 @@ from backend.iam.enums import Action, ResourceType
 from backend.models.apartment import Apartment
 from backend.models.delivery import DeliveryStatus
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
-from backend.schemas.apartment import ApartmentCreate, ApartmentOut, ApartmentDetailOut, ApartmentUpdate
+from backend.schemas.apartment import (
+    ApartmentCreate,
+    ApartmentOut,
+    ApartmentDetailOut,
+    ApartmentUpdate,
+    ApartmentTaskOut,
+)
+from backend.repositories.task_repository import TaskRepository
 from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
 from backend.schemas.apartment_key import (
     ApartmentKeyCreate,
@@ -225,6 +232,26 @@ async def update_apartment(apartment_id: int, db: DBSessionDep, data: ApartmentU
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _apartment_to_detail(apartment)
+
+
+@router.get("/apartments/{apartment_id}/tasks", response_model=list[ApartmentTaskOut])
+async def list_apartment_tasks(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
+    try:
+        await ApartmentService(db).get_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    tasks = await TaskRepository(db).list_by_apartment(apartment_id)
+    return [
+        ApartmentTaskOut(
+            id=task.id,
+            title=task.title,
+            start_time=task.start_time,
+            status=task.status,
+            assigned_to_user_id=task.assigned_to_user_id,
+            assignee_name=(task.assigned_user.full_name if task.assigned_user else None),
+        )
+        for task in tasks
+    ]
 
 
 @router.post("/apartments/{apartment_id}/tenant", response_model=TenantOut)

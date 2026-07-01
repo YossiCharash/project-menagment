@@ -519,6 +519,15 @@ export interface ApartmentCreate {
   is_common_area?: boolean
 }
 
+export interface ApartmentTask {
+  id: number
+  title: string
+  start_time: string | null
+  status: string
+  assigned_to_user_id: number | null
+  assignee_name: string | null
+}
+
 export interface TenantCreate {
   name: string
   phone?: string | null
