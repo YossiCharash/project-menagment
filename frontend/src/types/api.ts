@@ -466,6 +466,7 @@ export interface Building {
   name: string
   address: string | null
   compound_name: string | null
+  project_id: number | null
   floors_count: number
   units_per_floor: number
   has_common_areas: boolean
@@ -479,6 +480,7 @@ export interface BuildingListItem {
   name: string
   address: string | null
   compound_name: string | null
+  project_id: number | null
   floors_count: number
   units_per_floor: number
   has_common_areas: boolean
@@ -490,9 +492,31 @@ export interface BuildingCreate {
   name: string
   address?: string | null
   compound_name?: string | null
+  project_id?: number | null
   floors_count: number
   units_per_floor: number
   has_common_areas: boolean
+}
+
+export interface BuildingProject {
+  id: number
+  name: string
+  description: string | null
+  created_at: string
+  buildings: BuildingListItem[]
+}
+
+export interface BuildingProjectListItem {
+  id: number
+  name: string
+  description: string | null
+  created_at: string
+  buildings_count: number
+}
+
+export interface BuildingProjectCreate {
+  name: string
+  description?: string | null
 }
 
 export interface BuildingUpdate {
