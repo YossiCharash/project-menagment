@@ -1,4 +1,4 @@
-import { KeyRound, ArrowLeftRight, AlertTriangle, Plus, Trash2 } from 'lucide-react'
+import { KeyRound, ArrowLeftRight, AlertTriangle, Plus, Trash2, Pencil } from 'lucide-react'
 import type { ApartmentKey } from '../../types/api'
 import { ACCENT, formatDate } from './constants'
 
@@ -6,6 +6,7 @@ interface KeyStatusListProps {
   keys: ApartmentKey[]
   onTransfer: () => void
   onAddKey: () => void
+  onEditKey: (key: ApartmentKey) => void
   onDeleteKey: (keyId: number) => void
 }
 
@@ -13,7 +14,7 @@ const OUT_RED = '#E5544B'
 const IN_GREEN = '#12B76A'
 
 /** Keys state list + the per-key transfer log, shown in the apartment panel. */
-export default function KeyStatusList({ keys, onTransfer, onAddKey, onDeleteKey }: KeyStatusListProps) {
+export default function KeyStatusList({ keys, onTransfer, onAddKey, onEditKey, onDeleteKey }: KeyStatusListProps) {
   const keyOut = keys.find((key) => key.holder === 'out')
   const transfers = keys
     .flatMap((key) => key.transfers.map((transfer) => ({ ...transfer, keyLabel: key.label })))
@@ -76,6 +77,14 @@ export default function KeyStatusList({ keys, onTransfer, onAddKey, onDeleteKey 
               >
                 {out ? 'בחוץ' : 'בדלפק'}
               </span>
+              <button
+                type="button"
+                onClick={() => onEditKey(key)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                aria-label="שינוי שם מפתח"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => onDeleteKey(key.id)}

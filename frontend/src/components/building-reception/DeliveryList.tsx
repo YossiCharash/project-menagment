@@ -1,4 +1,4 @@
-import { Package, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import { Package, CheckCircle2, Plus, Trash2, Pencil } from 'lucide-react'
 import type { Delivery } from '../../types/api'
 import { ACCENT, PALETTE, formatDate } from './constants'
 
@@ -6,13 +6,20 @@ interface DeliveryListProps {
   deliveries: Delivery[]
   onMarkDelivered: (deliveryId: number) => void
   onAddDelivery: () => void
+  onEditDelivery: (delivery: Delivery) => void
   onDeleteDelivery: (deliveryId: number) => void
 }
 
 const DELIVERED_GREEN = '#12B76A'
 
 /** "תיק משלוחים" — the deliveries tab of the apartment panel. */
-export default function DeliveryList({ deliveries, onMarkDelivered, onAddDelivery, onDeleteDelivery }: DeliveryListProps) {
+export default function DeliveryList({
+  deliveries,
+  onMarkDelivered,
+  onAddDelivery,
+  onEditDelivery,
+  onDeleteDelivery,
+}: DeliveryListProps) {
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between px-0.5">
@@ -65,6 +72,14 @@ export default function DeliveryList({ deliveries, onMarkDelivered, onAddDeliver
                 נמסר
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => onEditDelivery(delivery)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              aria-label="עריכת משלוח"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={() => onDeleteDelivery(delivery.id)}

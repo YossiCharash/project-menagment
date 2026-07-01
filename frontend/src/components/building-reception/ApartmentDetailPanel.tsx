@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus } from 'lucide-react'
-import type { ApartmentDetail } from '../../types/api'
+import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react'
+import type { ApartmentDetail, AuthorizedVehicle, Delivery, ApartmentKey, Tenant } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
@@ -14,16 +14,21 @@ interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
   loading: boolean
   onClose: () => void
+  onEditApartment: (apartment: ApartmentDetail) => void
   onDeleteApartment: (apartmentId: number) => void
   onAddTenant: () => void
+  onEditTenant: (tenant: Tenant) => void
   onDeleteTenant: (tenantId: number) => void
   onTransferKey: () => void
   onAddKey: () => void
+  onEditKey: (key: ApartmentKey) => void
   onDeleteKey: (keyId: number) => void
   onAddVehicle: () => void
+  onEditVehicle: (vehicle: AuthorizedVehicle) => void
   onDeleteVehicle: (vehicleId: number) => void
   onAddDelivery: () => void
   onMarkDelivered: (deliveryId: number) => void
+  onEditDelivery: (delivery: Delivery) => void
   onDeleteDelivery: (deliveryId: number) => void
 }
 
@@ -66,16 +71,21 @@ export default function ApartmentDetailPanel({
   apartment,
   loading,
   onClose,
+  onEditApartment,
   onDeleteApartment,
   onAddTenant,
+  onEditTenant,
   onDeleteTenant,
   onTransferKey,
   onAddKey,
+  onEditKey,
   onDeleteKey,
   onAddVehicle,
+  onEditVehicle,
   onDeleteVehicle,
   onAddDelivery,
   onMarkDelivered,
+  onEditDelivery,
   onDeleteDelivery,
 }: ApartmentDetailPanelProps) {
   const [tab, setTab] = useState<TabId>('details')
@@ -152,6 +162,14 @@ export default function ApartmentDetailPanel({
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        onClick={() => onEditApartment(apartment)}
+                        className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                        aria-label="עריכת דירה"
+                      >
+                        <Pencil className="w-[17px] h-[17px]" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => onDeleteApartment(apartment.id)}
                         className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
                         aria-label="מחיקת דירה"
@@ -226,15 +244,27 @@ export default function ApartmentDetailPanel({
 
                   {tab === 'details' && (
                     <>
-                      <button
-                        type="button"
-                        onClick={onAddTenant}
-                        className="w-full mt-3 rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-1.5 border"
-                        style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
-                      >
-                        <UserPlus className="w-[18px] h-[18px]" />
-                        {tenant ? 'החלפת דייר' : 'הוספת דייר'}
-                      </button>
+                      <div className="flex gap-2 mt-3">
+                        {tenant && (
+                          <button
+                            type="button"
+                            onClick={() => onEditTenant(tenant)}
+                            className="flex-1 rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-1.5 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-200"
+                          >
+                            <Pencil className="w-[16px] h-[16px]" />
+                            עריכת דייר
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={onAddTenant}
+                          className="flex-1 rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-1.5 border"
+                          style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+                        >
+                          <UserPlus className="w-[18px] h-[18px]" />
+                          {tenant ? 'החלפת דייר' : 'הוספת דייר'}
+                        </button>
+                      </div>
 
                       {(apartment.tenants ?? []).some((entry) => !entry.is_current) && (
                         <div className="mt-4">
@@ -253,6 +283,14 @@ export default function ApartmentDetailPanel({
                                   <span className="text-[11px] font-medium text-gray-400">
                                     {formatDate(entry.move_out_date ?? entry.move_in_date ?? null)}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditTenant(entry)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                                    aria-label="עריכת דייר"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => onDeleteTenant(entry.id)}
@@ -274,12 +312,18 @@ export default function ApartmentDetailPanel({
                       keys={apartment.keys}
                       onTransfer={onTransferKey}
                       onAddKey={onAddKey}
+                      onEditKey={onEditKey}
                       onDeleteKey={onDeleteKey}
                     />
                   )}
 
                   {tab === 'vehicles' && (
-                    <VehicleList vehicles={apartment.vehicles} onAdd={onAddVehicle} onDelete={onDeleteVehicle} />
+                    <VehicleList
+                      vehicles={apartment.vehicles}
+                      onAdd={onAddVehicle}
+                      onEdit={onEditVehicle}
+                      onDelete={onDeleteVehicle}
+                    />
                   )}
 
                   {tab === 'deliveries' && (
@@ -287,6 +331,7 @@ export default function ApartmentDetailPanel({
                       deliveries={apartment.deliveries}
                       onMarkDelivered={onMarkDelivered}
                       onAddDelivery={onAddDelivery}
+                      onEditDelivery={onEditDelivery}
                       onDeleteDelivery={onDeleteDelivery}
                     />
                   )}

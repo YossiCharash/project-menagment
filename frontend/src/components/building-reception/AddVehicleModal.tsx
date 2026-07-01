@@ -4,19 +4,29 @@ import type { AuthorizedVehicleCreate } from '../../types/api'
 import ModalShell from './ModalShell'
 import { LabeledField, PrimaryButton, SecondaryButton, TextField } from './FormControls'
 
+interface VehicleInitial {
+  plate: string
+  model: string | null
+  owner_name: string
+  parking_spot: string | null
+}
+
 interface AddVehicleModalProps {
   isOpen: boolean
   onClose: () => void
   apartmentId: number | null
+  /** When set, the modal edits this vehicle instead of creating one. */
+  initial?: VehicleInitial | null
   onSubmit: (payload: AuthorizedVehicleCreate) => void
   submitting?: boolean
 }
 
 /**
- * Modal for authorizing a vehicle to enter for a specific apartment. Owns only
- * its own draft state; the create request is delegated to `onSubmit`.
+ * Modal for authorizing a vehicle for an apartment, or editing an existing one.
+ * Owns only its own draft state; the request is delegated to `onSubmit`.
  */
-export default function AddVehicleModal({ isOpen, onClose, apartmentId, onSubmit, submitting }: AddVehicleModalProps) {
+export default function AddVehicleModal({ isOpen, onClose, apartmentId, initial, onSubmit, submitting }: AddVehicleModalProps) {
+  const isEditing = initial != null
   const [plate, setPlate] = useState('')
   const [owner, setOwner] = useState('')
   const [model, setModel] = useState('')
@@ -24,11 +34,11 @@ export default function AddVehicleModal({ isOpen, onClose, apartmentId, onSubmit
 
   useEffect(() => {
     if (!isOpen) return
-    setPlate('')
-    setOwner('')
-    setModel('')
-    setSpot('')
-  }, [isOpen])
+    setPlate(initial?.plate ?? '')
+    setOwner(initial?.owner_name ?? '')
+    setModel(initial?.model ?? '')
+    setSpot(initial?.parking_spot ?? '')
+  }, [isOpen, initial])
 
   const canSubmit = apartmentId !== null && plate.trim().length > 0 && owner.trim().length > 0 && !submitting
 
@@ -48,13 +58,13 @@ export default function AddVehicleModal({ isOpen, onClose, apartmentId, onSubmit
       isOpen={isOpen}
       onClose={onClose}
       icon={Car}
-      title="הוספת רכב מורשה"
+      title={isEditing ? 'עריכת רכב מורשה' : 'הוספת רכב מורשה'}
       subtitle="רכבים המורשים להיכנס לחניון עבור דירה זו"
       footer={
         <>
           <SecondaryButton onClick={onClose}>ביטול</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={!canSubmit} icon={Plus}>
-            הוסף רכב
+            {isEditing ? 'שמור' : 'הוסף רכב'}
           </PrimaryButton>
         </>
       }

@@ -4,13 +4,18 @@ import type {
   ApartmentCreate,
   ApartmentDetail,
   ApartmentKeyCreate,
+  ApartmentKeyUpdate,
+  ApartmentUpdate,
   AuthorizedVehicleCreate,
+  AuthorizedVehicleUpdate,
   Building,
   BuildingCreate,
   BuildingListItem,
   DeliveryCreate,
+  DeliveryUpdate,
   KeyTransferCreate,
   TenantCreate,
+  TenantUpdate,
 } from '../../types/api'
 
 interface BuildingReceptionState {
@@ -237,6 +242,77 @@ export const deleteDelivery = createAsyncThunk(
   },
 )
 
+export const updateApartment = createAsyncThunk(
+  'buildingReception/updateApartment',
+  async ({ apartmentId, changes }: { apartmentId: number; changes: ApartmentUpdate }, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.updateApartment(apartmentId, changes)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון הדירה נכשל'))
+    }
+  },
+)
+
+export const updateTenant = createAsyncThunk(
+  'buildingReception/updateTenant',
+  async (
+    { tenantId, apartmentId, changes }: { tenantId: number; apartmentId: number; changes: TenantUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateTenant(tenantId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון הדייר נכשל'))
+    }
+  },
+)
+
+export const updateKey = createAsyncThunk(
+  'buildingReception/updateKey',
+  async (
+    { keyId, apartmentId, changes }: { keyId: number; apartmentId: number; changes: ApartmentKeyUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateKey(keyId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון המפתח נכשל'))
+    }
+  },
+)
+
+export const updateVehicle = createAsyncThunk(
+  'buildingReception/updateVehicle',
+  async (
+    { vehicleId, apartmentId, changes }: { vehicleId: number; apartmentId: number; changes: AuthorizedVehicleUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateVehicle(vehicleId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון הרכב נכשל'))
+    }
+  },
+)
+
+export const updateDelivery = createAsyncThunk(
+  'buildingReception/updateDelivery',
+  async (
+    { deliveryId, apartmentId, changes }: { deliveryId: number; apartmentId: number; changes: DeliveryUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateDelivery(deliveryId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון המשלוח נכשל'))
+    }
+  },
+)
+
 // ---- Slice ------------------------------------------------------------------
 
 const slice = createSlice({
@@ -327,6 +403,11 @@ const slice = createSlice({
       .addCase(createDelivery.fulfilled, applyApartment)
       .addCase(markDelivered.fulfilled, applyApartment)
       .addCase(deleteDelivery.fulfilled, applyApartment)
+      .addCase(updateTenant.fulfilled, applyApartment)
+      .addCase(updateKey.fulfilled, applyApartment)
+      .addCase(updateVehicle.fulfilled, applyApartment)
+      .addCase(updateDelivery.fulfilled, applyApartment)
+      .addCase(updateApartment.fulfilled, applyApartment)
 
       .addCase(createApartment.fulfilled, (state, action) => {
         state.activeBuilding = action.payload
