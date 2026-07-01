@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Building2, Check, CheckSquare, Square } from 'lucide-react'
-import type { BuildingCreate } from '../../types/api'
+import type { BuildingCreate, BuildingProjectListItem } from '../../types/api'
 import { ACCENT } from './constants'
 import ModalShell from './ModalShell'
 import { LabeledField, PrimaryButton, SecondaryButton, Stepper, TextField } from './FormControls'
@@ -8,6 +8,8 @@ import { LabeledField, PrimaryButton, SecondaryButton, Stepper, TextField } from
 interface CreateBuildingModalProps {
   isOpen: boolean
   onClose: () => void
+  projects: BuildingProjectListItem[]
+  defaultProjectId?: number | null
   onSubmit: (payload: BuildingCreate) => void
   submitting?: boolean
 }
@@ -20,12 +22,25 @@ const DEFAULT_UNITS_PER_FLOOR = 4
  * form state; the actual create request is delegated to `onSubmit` (Dependency
  * Inversion — the modal depends on a callback abstraction, not on the store).
  */
-export default function CreateBuildingModal({ isOpen, onClose, onSubmit, submitting }: CreateBuildingModalProps) {
+export default function CreateBuildingModal({
+  isOpen,
+  onClose,
+  projects,
+  defaultProjectId,
+  onSubmit,
+  submitting,
+}: CreateBuildingModalProps) {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [projectId, setProjectId] = useState<number | null>(defaultProjectId ?? null)
   const [floors, setFloors] = useState(DEFAULT_FLOORS)
   const [unitsPerFloor, setUnitsPerFloor] = useState(DEFAULT_UNITS_PER_FLOOR)
   const [hasCommonAreas, setHasCommonAreas] = useState(true)
+
+  useEffect(() => {
+    if (!isOpen) return
+    setProjectId(defaultProjectId ?? null)
+  }, [isOpen, defaultProjectId])
 
   const totalUnits = floors * unitsPerFloor
   const canSubmit = name.trim().length > 0 && !submitting
@@ -35,6 +50,7 @@ export default function CreateBuildingModal({ isOpen, onClose, onSubmit, submitt
     onSubmit({
       name: name.trim(),
       address: address.trim() || null,
+      project_id: projectId,
       floors_count: floors,
       units_per_floor: unitsPerFloor,
       has_common_areas: hasCommonAreas,
@@ -64,6 +80,24 @@ export default function CreateBuildingModal({ isOpen, onClose, onSubmit, submitt
       <LabeledField label="כתובת">
         <TextField value={address} onChange={setAddress} placeholder="רחוב ומספר" />
       </LabeledField>
+
+      {projects.length > 0 && (
+        <LabeledField label="פרויקט">
+          <select
+            value={projectId ?? ''}
+            onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : null)}
+            dir="rtl"
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-3 py-2.5 text-sm font-semibold bg-white dark:bg-gray-800 text-gray-900 dark:text-white outline-none"
+          >
+            <option value="">ללא פרויקט</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </LabeledField>
+      )}
 
       <div className="flex gap-3">
         <div className="flex-1">

@@ -12,6 +12,8 @@ import type {
   Building,
   BuildingCreate,
   BuildingListItem,
+  BuildingProjectCreate,
+  BuildingProjectListItem,
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
@@ -20,6 +22,7 @@ import type {
 } from '../../types/api'
 
 interface BuildingReceptionState {
+  projects: BuildingProjectListItem[]
   buildings: BuildingListItem[]
   /** Fully-loaded building currently shown in the overview. */
   activeBuilding: Building | null
@@ -34,6 +37,7 @@ interface BuildingReceptionState {
 }
 
 const initialState: BuildingReceptionState = {
+  projects: [],
   buildings: [],
   activeBuilding: null,
   activeApartment: null,
@@ -54,6 +58,44 @@ const asMessage = (error: unknown, fallback: string): string => {
 }
 
 // ---- Thunks -----------------------------------------------------------------
+
+export const fetchProjects = createAsyncThunk(
+  'buildingReception/fetchProjects',
+  async (_: void, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.listProjects()
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'טעינת הפרויקטים נכשלה'))
+    }
+  },
+)
+
+export const createProject = createAsyncThunk(
+  'buildingReception/createProject',
+  async (payload: BuildingProjectCreate, { dispatch, rejectWithValue }) => {
+    try {
+      const project = await BuildingReceptionAPI.createProject(payload)
+      void dispatch(fetchProjects())
+      return project
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'הקמת הפרויקט נכשלה'))
+    }
+  },
+)
+
+export const deleteProject = createAsyncThunk(
+  'buildingReception/deleteProject',
+  async (projectId: number, { dispatch, rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteProject(projectId)
+      void dispatch(fetchProjects())
+      void dispatch(fetchBuildings())
+      return projectId
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת הפרויקט נכשלה'))
+    }
+  },
+)
 
 export const fetchBuildings = createAsyncThunk(
   'buildingReception/fetchBuildings',
@@ -351,6 +393,10 @@ const slice = createSlice({
     }
 
     builder
+      .addCase(fetchProjects.fulfilled, (state, action) => {
+        state.projects = action.payload
+      })
+
       .addCase(fetchBuildings.pending, (state) => {
         state.loadingBuildings = true
         state.error = null
@@ -384,6 +430,7 @@ const slice = createSlice({
           name: action.payload.name,
           address: action.payload.address,
           compound_name: action.payload.compound_name,
+          project_id: action.payload.project_id,
           floors_count: action.payload.floors_count,
           units_per_floor: action.payload.units_per_floor,
           has_common_areas: action.payload.has_common_areas,
