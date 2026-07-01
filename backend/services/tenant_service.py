@@ -40,6 +40,15 @@ class TenantService:
         )
         return new_tenant
 
+    async def delete_tenant(self, tenant_id: int) -> None:
+        """Remove a tenant record from an apartment's history."""
+        tenant = await self.tenant_repository.get(tenant_id)
+        if not tenant:
+            raise ValueError(
+                BuildingReceptionErrorMessages.tenant_not_found_by_id(tenant_id)
+            )
+        await self.tenant_repository.delete(tenant)
+
     # --- private helpers -----------------------------------------------
 
     async def _move_out_current_tenant(self, apartment_id: int) -> None:

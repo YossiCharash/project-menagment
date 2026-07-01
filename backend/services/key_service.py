@@ -84,6 +84,13 @@ class KeyService:
         await self.db.refresh(key, attribute_names=["transfers"])
         return key
 
+    async def delete_key(self, key_id: int) -> None:
+        """Delete a key (and its transfer journal via cascade) from an apartment."""
+        key = await self.key_repository.get(key_id)
+        if not key:
+            raise ValueError(BuildingReceptionErrorMessages.key_not_found_by_id(key_id))
+        await self.key_repository.delete(key)
+
     # --- private helpers -----------------------------------------------
 
     def _apply_direction(
