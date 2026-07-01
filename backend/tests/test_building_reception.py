@@ -399,6 +399,26 @@ class TestTaskApartmentLink:
         assert response.status_code in (200, 201), response.text
         assert response.json()["apartment_id"] == apartment_id
 
+    async def test_apartment_tasks_are_listed(
+        self, test_client: AsyncClient, admin_token: str, admin_user: User
+    ):
+        """A task created against an apartment shows in its desk task list."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        await test_client.post(
+            "/api/v1/tasks/",
+            headers=_auth(admin_token),
+            json={"title": "לבדוק נזילה", "assigned_to_user_id": admin_user.id, "apartment_id": apartment_id},
+        )
+        response = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}/tasks", headers=_auth(admin_token)
+        )
+        assert response.status_code == 200, response.text
+        tasks = response.json()
+        assert len(tasks) == 1
+        assert tasks[0]["title"] == "לבדוק נזילה"
+        assert tasks[0]["assignee_name"] == admin_user.full_name
+
 
 @pytest.mark.asyncio
 @pytest.mark.api

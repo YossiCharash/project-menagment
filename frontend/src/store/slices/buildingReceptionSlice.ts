@@ -3,6 +3,7 @@ import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
 import type {
   ApartmentCreate,
   ApartmentDetail,
+  ApartmentTask,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
   ApartmentUpdate,
@@ -24,6 +25,8 @@ interface BuildingReceptionState {
   activeBuilding: Building | null
   /** Fully-loaded apartment currently shown in the side panel. */
   activeApartment: ApartmentDetail | null
+  /** Tasks linked to the active apartment (loaded alongside it). */
+  activeApartmentTasks: ApartmentTask[]
   loadingBuildings: boolean
   loadingBuilding: boolean
   loadingApartment: boolean
@@ -34,6 +37,7 @@ const initialState: BuildingReceptionState = {
   buildings: [],
   activeBuilding: null,
   activeApartment: null,
+  activeApartmentTasks: [],
   loadingBuildings: false,
   loadingBuilding: false,
   loadingApartment: false,
@@ -91,6 +95,17 @@ export const fetchApartment = createAsyncThunk(
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'טעינת פרטי הדירה נכשלה'))
+    }
+  },
+)
+
+export const fetchApartmentTasks = createAsyncThunk(
+  'buildingReception/fetchApartmentTasks',
+  async (apartmentId: number, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.listApartmentTasks(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'טעינת משימות הדירה נכשלה'))
     }
   },
 )
@@ -321,6 +336,7 @@ const slice = createSlice({
   reducers: {
     closeApartment(state) {
       state.activeApartment = null
+      state.activeApartmentTasks = []
     },
     clearError(state) {
       state.error = null
@@ -383,6 +399,10 @@ const slice = createSlice({
       .addCase(fetchApartment.pending, (state) => {
         state.loadingApartment = true
         state.error = null
+        state.activeApartmentTasks = []
+      })
+      .addCase(fetchApartmentTasks.fulfilled, (state, action) => {
+        state.activeApartmentTasks = action.payload
       })
       .addCase(fetchApartment.fulfilled, (state, action) => {
         state.loadingApartment = false

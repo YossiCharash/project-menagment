@@ -1,19 +1,22 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react'
-import type { ApartmentDetail, AuthorizedVehicle, Delivery, ApartmentKey, Tenant } from '../../types/api'
+import type { ApartmentDetail, ApartmentTask, AuthorizedVehicle, Delivery, ApartmentKey, Tenant } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
 import VehicleList from './VehicleList'
 import TenantHistory from './TenantHistory'
+import ApartmentTaskList from './ApartmentTaskList'
 
-type TabId = 'details' | 'keys' | 'vehicles' | 'deliveries' | 'history'
+type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'history'
 
 interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
+  tasks: ApartmentTask[]
   loading: boolean
   onClose: () => void
+  onAddTask: () => void
   onEditApartment: (apartment: ApartmentDetail) => void
   onDeleteApartment: (apartmentId: number) => void
   onAddTenant: () => void
@@ -69,8 +72,10 @@ function DetailRow({
  */
 export default function ApartmentDetailPanel({
   apartment,
+  tasks,
   loading,
   onClose,
+  onAddTask,
   onEditApartment,
   onDeleteApartment,
   onAddTenant,
@@ -94,8 +99,11 @@ export default function ApartmentDetailPanel({
   const keyAlert = apartment?.keys.some((key) => key.holder === 'out') ?? false
   const pendingDeliveries = apartment?.deliveries.filter((delivery) => delivery.status === 'pending').length ?? 0
 
+  const openTasksCount = tasks.filter((task) => task.status !== 'completed').length
+
   const tabs: TabDef[] = [
     { id: 'details', label: 'פרטים' },
+    { id: 'tasks', label: 'משימות', count: openTasksCount || undefined },
     { id: 'keys', label: 'מפתחות', count: keyAlert ? '!' : undefined },
     { id: 'vehicles', label: 'רכבים', count: apartment?.vehicles.length || undefined },
     { id: 'deliveries', label: 'משלוחים', count: pendingDeliveries || undefined },
@@ -306,6 +314,8 @@ export default function ApartmentDetailPanel({
                       )}
                     </>
                   )}
+
+                  {tab === 'tasks' && <ApartmentTaskList tasks={tasks} onAddTask={onAddTask} />}
 
                   {tab === 'keys' && (
                     <KeyStatusList
