@@ -1,5 +1,6 @@
 import api from './api'
 import type {
+  ApartmentCreate,
   ApartmentDetail,
   ApartmentKey,
   ApartmentKeyCreate,
@@ -62,6 +63,15 @@ export class BuildingReceptionAPI {
     return data
   }
 
+  static async createApartment(payload: ApartmentCreate): Promise<ApartmentDetail> {
+    const { data } = await api.post<ApartmentDetail>(`${BASE}/apartments`, payload)
+    return data
+  }
+
+  static async deleteApartment(apartmentId: number): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}`)
+  }
+
   static async updateApartment(apartmentId: number, changes: ApartmentUpdate): Promise<ApartmentDetail> {
     const { data } = await api.put<ApartmentDetail>(`${BASE}/apartments/${apartmentId}`, changes)
     return data
@@ -70,6 +80,10 @@ export class BuildingReceptionAPI {
   static async setTenant(apartmentId: number, payload: TenantCreate): Promise<Tenant> {
     const { data } = await api.post<Tenant>(`${BASE}/apartments/${apartmentId}/tenant`, payload)
     return data
+  }
+
+  static async deleteTenant(tenantId: number): Promise<void> {
+    await api.delete(`${BASE}/tenants/${tenantId}`)
   }
 
   // ---- Keys -----------------------------------------------------------------
@@ -87,6 +101,10 @@ export class BuildingReceptionAPI {
   static async transferKey(keyId: number, payload: KeyTransferCreate): Promise<ApartmentKey> {
     const { data } = await api.post<ApartmentKey>(`${BASE}/keys/${keyId}/transfer`, payload)
     return data
+  }
+
+  static async deleteKey(keyId: number): Promise<void> {
+    await api.delete(`${BASE}/keys/${keyId}`)
   }
 
   // ---- Vehicles -------------------------------------------------------------
@@ -120,6 +138,10 @@ export class BuildingReceptionAPI {
   static async markDelivered(deliveryId: number): Promise<Delivery> {
     const { data } = await api.post<Delivery>(`${BASE}/deliveries/${deliveryId}/deliver`)
     return data
+  }
+
+  static async deleteDelivery(deliveryId: number): Promise<void> {
+    await api.delete(`${BASE}/deliveries/${deliveryId}`)
   }
 
   // ---- Tasks (reuses the existing global task endpoint) ---------------------

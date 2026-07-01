@@ -1,19 +1,32 @@
-import { Package, CheckCircle2 } from 'lucide-react'
+import { Package, CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import type { Delivery } from '../../types/api'
-import { PALETTE, formatDate } from './constants'
+import { ACCENT, PALETTE, formatDate } from './constants'
 
 interface DeliveryListProps {
   deliveries: Delivery[]
   onMarkDelivered: (deliveryId: number) => void
+  onAddDelivery: () => void
+  onDeleteDelivery: (deliveryId: number) => void
 }
 
 const DELIVERED_GREEN = '#12B76A'
 
 /** "תיק משלוחים" — the deliveries tab of the apartment panel. */
-export default function DeliveryList({ deliveries, onMarkDelivered }: DeliveryListProps) {
+export default function DeliveryList({ deliveries, onMarkDelivered, onAddDelivery, onDeleteDelivery }: DeliveryListProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 px-0.5">תיק משלוחים</div>
+      <div className="flex items-center justify-between px-0.5">
+        <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400">תיק משלוחים</span>
+        <button
+          type="button"
+          onClick={onAddDelivery}
+          className="text-xs font-bold rounded-lg px-3 py-1.5 flex items-center gap-1.5 border"
+          style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+        >
+          <Plus className="w-4 h-4" />
+          משלוח
+        </button>
+      </div>
       {deliveries.map((delivery) => {
         const pending = delivery.status === 'pending'
         const color = pending ? PALETTE.delivery : DELIVERED_GREEN
@@ -52,6 +65,14 @@ export default function DeliveryList({ deliveries, onMarkDelivered }: DeliveryLi
                 נמסר
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => onDeleteDelivery(delivery.id)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+              aria-label="מחיקת משלוח"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         )
       })}
