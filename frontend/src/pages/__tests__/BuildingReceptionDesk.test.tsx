@@ -97,6 +97,22 @@ describe('BuildingReceptionDesk', () => {
     expect(mockedApi.listBuildings).toHaveBeenCalled()
   })
 
+  it('clears the building grid when an empty project is selected', async () => {
+    mockedApi.listProjects.mockResolvedValue([
+      { id: 5, name: 'בדיקה', description: null, created_at: '2024-01-01T00:00:00', buildings_count: 0 },
+    ])
+    renderPage()
+    // A building (project_id null) is open by default under "כל הבניינים".
+    await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
+    await screen.findByText(/מבט-על מתחם/)
+
+    fireEvent.click(screen.getByText('בדיקה'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/אין בניינים בפרויקט/)).toBeInTheDocument()
+    })
+  })
+
   it('creates a building through the wizard', async () => {
     renderPage()
     await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
