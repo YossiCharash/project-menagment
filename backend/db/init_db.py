@@ -3,12 +3,31 @@ Database initialization - creates all tables, enums, and indexes.
 All database schema is defined in the SQLAlchemy models in backend/models/
 and backend/cems/models/.
 
-This file only creates missing tables on first run; it never modifies existing schema.
-Schema changes must be applied via SQL migration scripts in backend/migrations/.
+This file creates missing tables via create_all (which never alters existing
+tables). A small set of *additive, idempotent* column migrations that create_all
+cannot apply to pre-existing tables are applied explicitly on startup — see
+``_apply_additive_migrations``. Larger schema changes still go through the SQL
+scripts in backend/migrations/.
 """
-from sqlalchemy.ext.asyncio import AsyncEngine
+import logging
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from backend.db.base import Base
+
+logger = logging.getLogger(__name__)
+
+# Additive, idempotent statements that bring an already-provisioned schema up to
+# date for columns create_all cannot add to existing tables. Every statement is
+# guarded with IF NOT EXISTS so it is safe to run on every startup. PostgreSQL
+# only — on SQLite (tests) create_all already includes these columns.
+_ADDITIVE_MIGRATIONS: tuple[str, ...] = (
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS apartment_id INTEGER REFERENCES apartments(id)",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS building_id INTEGER REFERENCES buildings(id)",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_apartment_id ON tasks (apartment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_building_id ON tasks (building_id)",
+)
 
 # ── Main application models ──────────────────────────────────────────────────
 from backend.models import (  # noqa: F401
@@ -58,14 +77,36 @@ from backend.cems.models import (  # noqa: F401
 )
 
 
+async def _apply_additive_migrations(conn: AsyncConnection) -> None:
+    """Apply the idempotent additive column migrations on PostgreSQL.
+
+    create_all never alters an existing ``tasks`` table, so the nullable
+    building-reception columns must be added explicitly on already-provisioned
+    databases. Each statement uses IF NOT EXISTS and is therefore safe to run on
+    every startup. Skipped on non-PostgreSQL backends (SQLite tests build the
+    columns from the model). Failures are logged but never abort startup, so a
+    migration hiccup degrades only the reception-desk feature, not the whole app.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    for statement in _ADDITIVE_MIGRATIONS:
+        try:
+            await conn.execute(text(statement))
+        except Exception:
+            logger.warning("Additive migration failed: %s", statement, exc_info=True)
+
+
 async def init_database(engine: AsyncEngine):
     """
-    Initialize database — create all tables, enums, and indexes from SQLAlchemy models.
-    Only creates tables/columns that do not yet exist; never alters existing schema.
+    Initialize database — create all tables, enums, and indexes from SQLAlchemy models,
+    then apply the idempotent additive column migrations.
 
-    To apply schema changes, run the relevant SQL script from backend/migrations/ manually.
+    create_all only creates tables/columns that do not yet exist and never alters an
+    existing table; ``_apply_additive_migrations`` fills that gap for a small set of
+    additive columns. Larger schema changes still run from backend/migrations/ manually.
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_additive_migrations(conn)
 
     print("Database initialization completed successfully")

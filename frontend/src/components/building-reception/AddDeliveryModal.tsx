@@ -4,26 +4,35 @@ import type { DeliveryCreate } from '../../types/api'
 import ModalShell from './ModalShell'
 import { LabeledField, PrimaryButton, SecondaryButton, TextField } from './FormControls'
 
+interface DeliveryInitial {
+  title: string
+  kind: string | null
+  meta: string | null
+}
+
 interface AddDeliveryModalProps {
   isOpen: boolean
   onClose: () => void
   apartmentId: number | null
+  /** When set, the modal edits this delivery instead of creating one. */
+  initial?: DeliveryInitial | null
   onSubmit: (payload: DeliveryCreate) => void
   submitting?: boolean
 }
 
-/** Modal for registering a package that arrived for an apartment. */
-export default function AddDeliveryModal({ isOpen, onClose, apartmentId, onSubmit, submitting }: AddDeliveryModalProps) {
+/** Modal for registering a package that arrived for an apartment, or editing one. */
+export default function AddDeliveryModal({ isOpen, onClose, apartmentId, initial, onSubmit, submitting }: AddDeliveryModalProps) {
+  const isEditing = initial != null
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState('')
   const [meta, setMeta] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
-    setTitle('')
-    setKind('')
-    setMeta('')
-  }, [isOpen])
+    setTitle(initial?.title ?? '')
+    setKind(initial?.kind ?? '')
+    setMeta(initial?.meta ?? '')
+  }, [isOpen, initial])
 
   const canSubmit = apartmentId !== null && title.trim().length > 0 && !submitting
 
@@ -42,13 +51,13 @@ export default function AddDeliveryModal({ isOpen, onClose, apartmentId, onSubmi
       isOpen={isOpen}
       onClose={onClose}
       icon={PackagePlus}
-      title="הוספת משלוח"
+      title={isEditing ? 'עריכת משלוח' : 'הוספת משלוח'}
       subtitle="רישום חבילה שהתקבלה בדלפק"
       footer={
         <>
           <SecondaryButton onClick={onClose}>ביטול</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={!canSubmit} icon={Check}>
-            הוסף משלוח
+            {isEditing ? 'שמור' : 'הוסף משלוח'}
           </PrimaryButton>
         </>
       }

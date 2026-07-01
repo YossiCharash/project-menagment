@@ -553,6 +553,33 @@ export interface DeliveryCreate {
   meta?: string | null
 }
 
+export interface TenantUpdate {
+  name?: string
+  phone?: string | null
+  email?: string | null
+  move_in_date?: string | null
+  move_out_date?: string | null
+  is_current?: boolean
+}
+
+export interface ApartmentKeyUpdate {
+  label?: string
+}
+
+export interface AuthorizedVehicleUpdate {
+  plate?: string
+  model?: string | null
+  owner_name?: string
+  parking_spot?: string | null
+}
+
+export interface DeliveryUpdate {
+  title?: string
+  kind?: string | null
+  meta?: string | null
+  status?: DeliveryStatus
+}
+
 export interface BuildingReceptionTaskCreate {
   title: string
   assigned_to_user_id: number
