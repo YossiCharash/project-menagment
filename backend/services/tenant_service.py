@@ -7,7 +7,7 @@ from backend.models.apartment_activity import ActivityKind
 from backend.repositories.tenant_repository import TenantRepository
 from backend.repositories.apartment_repository import ApartmentRepository
 from backend.services.apartment_activity_service import ApartmentActivityService
-from backend.schemas.tenant import TenantCreate
+from backend.schemas.tenant import TenantCreate, TenantUpdate
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
 
@@ -40,14 +40,35 @@ class TenantService:
         )
         return new_tenant
 
+    async def update_tenant(self, tenant_id: int, data: TenantUpdate) -> Tenant:
+        """Edit a tenant's contact details / tenancy dates."""
+        tenant = await self._get_tenant(tenant_id)
+        update_data = data.model_dump(exclude_unset=True)
+        if "name" in update_data and update_data["name"]:
+            tenant.name = update_data["name"].strip()
+        if "phone" in update_data:
+            tenant.phone = (update_data["phone"] or "").strip() or None
+        if "email" in update_data:
+            tenant.email = (update_data["email"] or "").strip() or None
+        if "move_in_date" in update_data:
+            tenant.move_in_date = update_data["move_in_date"]
+        if "move_out_date" in update_data:
+            tenant.move_out_date = update_data["move_out_date"]
+        if "is_current" in update_data and update_data["is_current"] is not None:
+            tenant.is_current = update_data["is_current"]
+        return await self.tenant_repository.update(tenant)
+
     async def delete_tenant(self, tenant_id: int) -> None:
         """Remove a tenant record from an apartment's history."""
+        await self.tenant_repository.delete(await self._get_tenant(tenant_id))
+
+    async def _get_tenant(self, tenant_id: int) -> Tenant:
         tenant = await self.tenant_repository.get(tenant_id)
         if not tenant:
             raise ValueError(
                 BuildingReceptionErrorMessages.tenant_not_found_by_id(tenant_id)
             )
-        await self.tenant_repository.delete(tenant)
+        return tenant
 
     # --- private helpers -----------------------------------------------
 
