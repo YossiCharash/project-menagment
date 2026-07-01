@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, Plus, RefreshCw, Bell, ChevronLeft } from 'lucide-react'
+import { Search, Plus, RefreshCw, Bell, ChevronLeft, AlertTriangle, X } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
 import type {
@@ -24,6 +24,7 @@ import {
   createBuilding,
   fetchApartment,
   closeApartment,
+  clearError,
   createApartment,
   updateApartment,
   deleteApartment,
@@ -69,6 +70,7 @@ export default function BuildingReceptionDesk() {
   const activeApartment = useAppSelector((state: RootState) => state.buildingReception.activeApartment)
   const loadingBuilding = useAppSelector((state: RootState) => state.buildingReception.loadingBuilding)
   const loadingApartment = useAppSelector((state: RootState) => state.buildingReception.loadingApartment)
+  const error = useAppSelector((state: RootState) => state.buildingReception.error)
 
   const [createBuildingOpen, setCreateBuildingOpen] = useState(false)
   const [taskOpen, setTaskOpen] = useState(false)
@@ -325,6 +327,24 @@ export default function BuildingReceptionDesk() {
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white dark:border-gray-800" />
         </button>
       </header>
+
+      {error && (
+        <div
+          role="alert"
+          className="mx-1 mb-3 flex items-center gap-2.5 rounded-xl px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+        >
+          <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
+          <span className="flex-1 text-sm font-semibold text-red-800 dark:text-red-300">{error}</span>
+          <button
+            type="button"
+            onClick={() => dispatch(clearError())}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+            aria-label="סגירת ההודעה"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-10">
         <BuildingOverview
