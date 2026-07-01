@@ -77,14 +77,10 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         # calendar. Read/update/delete remain denied so Members cannot edit or
         # delete shared task labels gated by the generic "task" resource.
         ResourceType.TASK.value: {Action.WRITE.value},
-        # Reception-desk operators (non-admin) run day-to-day desk actions:
-        # view the board, hand out/return keys, log deliveries, swap tenants.
-        # Deleting buildings/vehicles stays admin-only (no DELETE).
-        ResourceType.BUILDING_RECEPTION.value: {
-            Action.READ.value,
-            Action.WRITE.value,
-            Action.UPDATE.value,
-        },
+        # The Building Reception Desk is admin-managed by default; Members get
+        # no access unless explicitly granted (keeps the Member baseline to
+        # task-write only). Grant per-user later if non-admin desk operators
+        # are needed.
     },
 }
 
