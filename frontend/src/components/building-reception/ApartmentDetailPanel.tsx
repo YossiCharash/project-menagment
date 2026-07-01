@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Home, Users, Phone, Mail, CalendarDays } from 'lucide-react'
+import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus } from 'lucide-react'
 import type { ApartmentDetail } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
@@ -14,10 +14,17 @@ interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
   loading: boolean
   onClose: () => void
+  onDeleteApartment: (apartmentId: number) => void
+  onAddTenant: () => void
+  onDeleteTenant: (tenantId: number) => void
   onTransferKey: () => void
+  onAddKey: () => void
+  onDeleteKey: (keyId: number) => void
   onAddVehicle: () => void
   onDeleteVehicle: (vehicleId: number) => void
+  onAddDelivery: () => void
   onMarkDelivered: (deliveryId: number) => void
+  onDeleteDelivery: (deliveryId: number) => void
 }
 
 interface TabDef {
@@ -59,10 +66,17 @@ export default function ApartmentDetailPanel({
   apartment,
   loading,
   onClose,
+  onDeleteApartment,
+  onAddTenant,
+  onDeleteTenant,
   onTransferKey,
+  onAddKey,
+  onDeleteKey,
   onAddVehicle,
   onDeleteVehicle,
+  onAddDelivery,
   onMarkDelivered,
+  onDeleteDelivery,
 }: ApartmentDetailPanelProps) {
   const [tab, setTab] = useState<TabId>('details')
   const isOpen = apartment !== null || loading
@@ -135,14 +149,24 @@ export default function ApartmentDetailPanel({
                         </div>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                      aria-label="סגירה"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onDeleteApartment(apartment.id)}
+                        className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        aria-label="מחיקת דירה"
+                      >
+                        <Trash2 className="w-[18px] h-[18px]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                        aria-label="סגירה"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex gap-0.5 mt-4 overflow-x-auto">
@@ -200,14 +224,71 @@ export default function ApartmentDetailPanel({
                     </div>
                   )}
 
-                  {tab === 'keys' && <KeyStatusList keys={apartment.keys} onTransfer={onTransferKey} />}
+                  {tab === 'details' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onAddTenant}
+                        className="w-full mt-3 rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-1.5 border"
+                        style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+                      >
+                        <UserPlus className="w-[18px] h-[18px]" />
+                        {tenant ? 'החלפת דייר' : 'הוספת דייר'}
+                      </button>
+
+                      {(apartment.tenants ?? []).some((entry) => !entry.is_current) && (
+                        <div className="mt-4">
+                          <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 px-0.5 mb-2">
+                            דיירים קודמים
+                          </div>
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 divide-y divide-gray-100 dark:divide-gray-700">
+                            {apartment.tenants
+                              .filter((entry) => !entry.is_current)
+                              .map((entry) => (
+                                <div key={entry.id} className="flex items-center gap-2 py-2.5">
+                                  <UserMinus className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex-1">
+                                    {entry.name}
+                                  </span>
+                                  <span className="text-[11px] font-medium text-gray-400">
+                                    {formatDate(entry.move_out_date ?? entry.move_in_date ?? null)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteTenant(entry.id)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    aria-label="מחיקת דייר"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {tab === 'keys' && (
+                    <KeyStatusList
+                      keys={apartment.keys}
+                      onTransfer={onTransferKey}
+                      onAddKey={onAddKey}
+                      onDeleteKey={onDeleteKey}
+                    />
+                  )}
 
                   {tab === 'vehicles' && (
                     <VehicleList vehicles={apartment.vehicles} onAdd={onAddVehicle} onDelete={onDeleteVehicle} />
                   )}
 
                   {tab === 'deliveries' && (
-                    <DeliveryList deliveries={apartment.deliveries} onMarkDelivered={onMarkDelivered} />
+                    <DeliveryList
+                      deliveries={apartment.deliveries}
+                      onMarkDelivered={onMarkDelivered}
+                      onAddDelivery={onAddDelivery}
+                      onDeleteDelivery={onDeleteDelivery}
+                    />
                   )}
 
                   {tab === 'history' && <TenantHistory activities={apartment.activities} />}

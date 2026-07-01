@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
 import type {
+  ApartmentCreate,
   ApartmentDetail,
   ApartmentKeyCreate,
   AuthorizedVehicleCreate,
@@ -176,6 +177,66 @@ export const markDelivered = createAsyncThunk(
   },
 )
 
+export const createApartment = createAsyncThunk(
+  'buildingReception/createApartment',
+  async (payload: ApartmentCreate, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.createApartment(payload)
+      return await BuildingReceptionAPI.getBuilding(payload.building_id)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'הוספת הדירה נכשלה'))
+    }
+  },
+)
+
+export const deleteApartment = createAsyncThunk(
+  'buildingReception/deleteApartment',
+  async ({ apartmentId, buildingId }: { apartmentId: number; buildingId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteApartment(apartmentId)
+      return await BuildingReceptionAPI.getBuilding(buildingId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת הדירה נכשלה'))
+    }
+  },
+)
+
+export const deleteTenant = createAsyncThunk(
+  'buildingReception/deleteTenant',
+  async ({ tenantId, apartmentId }: { tenantId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteTenant(tenantId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת הדייר נכשלה'))
+    }
+  },
+)
+
+export const deleteKey = createAsyncThunk(
+  'buildingReception/deleteKey',
+  async ({ keyId, apartmentId }: { keyId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteKey(keyId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת המפתח נכשלה'))
+    }
+  },
+)
+
+export const deleteDelivery = createAsyncThunk(
+  'buildingReception/deleteDelivery',
+  async ({ deliveryId, apartmentId }: { deliveryId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteDelivery(deliveryId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת המשלוח נכשלה'))
+    }
+  },
+)
+
 // ---- Slice ------------------------------------------------------------------
 
 const slice = createSlice({
@@ -257,12 +318,25 @@ const slice = createSlice({
       })
 
       .addCase(swapTenant.fulfilled, applyApartment)
+      .addCase(deleteTenant.fulfilled, applyApartment)
       .addCase(createKey.fulfilled, applyApartment)
       .addCase(transferKey.fulfilled, applyApartment)
+      .addCase(deleteKey.fulfilled, applyApartment)
       .addCase(createVehicle.fulfilled, applyApartment)
       .addCase(deleteVehicle.fulfilled, applyApartment)
       .addCase(createDelivery.fulfilled, applyApartment)
       .addCase(markDelivered.fulfilled, applyApartment)
+      .addCase(deleteDelivery.fulfilled, applyApartment)
+
+      .addCase(createApartment.fulfilled, (state, action) => {
+        state.activeBuilding = action.payload
+        state.error = null
+      })
+      .addCase(deleteApartment.fulfilled, (state, action) => {
+        state.activeBuilding = action.payload
+        state.activeApartment = null
+        state.error = null
+      })
   },
 })
 
