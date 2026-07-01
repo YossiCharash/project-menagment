@@ -29,6 +29,7 @@ import {
   fetchApartment,
   fetchApartmentTasks,
   closeApartment,
+  clearActiveBuilding,
   clearError,
   createApartment,
   updateApartment,
@@ -104,11 +105,22 @@ export default function BuildingReceptionDesk() {
     void dispatch(fetchProjects())
   }, [dispatch])
 
+  // Buildings visible for the current project filter (null = all buildings).
+  const visibleBuildings =
+    selectedProjectId === null ? buildings : buildings.filter((building) => building.project_id === selectedProjectId)
+
+  // Keep the open building consistent with the project filter: if the active
+  // building isn't in the visible set, open the first visible one — or clear it
+  // when the selected project has no buildings.
   useEffect(() => {
-    if (!activeBuilding && buildings.length > 0) {
-      void dispatch(fetchBuilding(buildings[0].id))
+    const activeIsVisible = visibleBuildings.some((building) => building.id === activeBuilding?.id)
+    if (activeIsVisible) return
+    if (visibleBuildings.length > 0) {
+      void dispatch(fetchBuilding(visibleBuildings[0].id))
+    } else if (activeBuilding) {
+      dispatch(clearActiveBuilding())
     }
-  }, [dispatch, activeBuilding, buildings])
+  }, [dispatch, activeBuilding, visibleBuildings])
 
   const apartments: Apartment[] = activeBuilding?.apartments ?? []
   const activeApartmentId = activeApartment?.id ?? null

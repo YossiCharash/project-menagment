@@ -43,12 +43,14 @@ export default function BuildingOverview({
   onSelectApartment,
   onAddApartment,
 }: BuildingOverviewProps) {
-  const floors = activeBuilding ? groupByFloor(activeBuilding.apartments) : []
-  const compound = activeBuilding?.compound_name ?? activeBuilding?.address ?? ''
   // When a project is selected, only its buildings are shown in the tab strip.
   const visibleBuildings =
     selectedProjectId === null ? buildings : buildings.filter((building) => building.project_id === selectedProjectId)
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
+  // Guard against a stale active building that belongs to another project.
+  const activeInProject = activeBuilding !== null && visibleBuildings.some((building) => building.id === activeBuilding.id)
+  const floors = activeInProject && activeBuilding ? groupByFloor(activeBuilding.apartments) : []
+  const compound = activeInProject ? activeBuilding?.compound_name ?? activeBuilding?.address ?? '' : ''
 
   return (
     <section dir="rtl" className="flex-1 min-w-0">
@@ -179,7 +181,11 @@ export default function BuildingOverview({
         <div className="text-sm font-semibold text-gray-400 text-center py-16">טוען בניין…</div>
       ) : floors.length === 0 ? (
         <div className="text-sm font-semibold text-gray-400 text-center py-16">
-          {buildings.length === 0 ? 'עדיין אין בניינים. הקם בניין חדש כדי להתחיל.' : 'לבניין זה אין דירות עדיין.'}
+          {visibleBuildings.length === 0
+            ? selectedProject
+              ? `אין בניינים בפרויקט "${selectedProject.name}". הוסף בניין כדי להתחיל.`
+              : 'עדיין אין בניינים. הקם בניין חדש כדי להתחיל.'
+            : 'לבניין זה אין דירות עדיין.'}
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
