@@ -4,10 +4,13 @@ import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
 import type {
   Apartment,
+  ApartmentCreate,
   AuthorizedVehicleCreate,
   BuildingCreate,
   BuildingReceptionTaskCreate,
+  DeliveryCreate,
   KeyTransferCreate,
+  TenantCreate,
 } from '../types/api'
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import {
@@ -16,11 +19,18 @@ import {
   createBuilding,
   fetchApartment,
   closeApartment,
+  createApartment,
+  deleteApartment,
+  swapTenant,
+  deleteTenant,
   createKey,
   transferKey,
+  deleteKey,
   createVehicle,
   deleteVehicle,
+  createDelivery,
   markDelivered,
+  deleteDelivery,
 } from '../store/slices/buildingReceptionSlice'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
 import BuildingOverview from '../components/building-reception/BuildingOverview'
@@ -29,6 +39,9 @@ import CreateBuildingModal from '../components/building-reception/CreateBuilding
 import NewTaskModal from '../components/building-reception/NewTaskModal'
 import KeyTransferModal from '../components/building-reception/KeyTransferModal'
 import AddVehicleModal from '../components/building-reception/AddVehicleModal'
+import AddTenantModal from '../components/building-reception/AddTenantModal'
+import AddDeliveryModal from '../components/building-reception/AddDeliveryModal'
+import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 
 /**
  * Building Reception Desk (דלפק הבניין).
@@ -50,6 +63,9 @@ export default function BuildingReceptionDesk() {
   const [taskOpen, setTaskOpen] = useState(false)
   const [keyTransferOpen, setKeyTransferOpen] = useState(false)
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
+  const [addTenantOpen, setAddTenantOpen] = useState(false)
+  const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
+  const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // Load the building list once; then open the first building automatically.
@@ -121,6 +137,56 @@ export default function BuildingReceptionDesk() {
     void dispatch(markDelivered({ deliveryId, apartmentId: activeApartmentId }))
   }
 
+  const handleAddApartment = (payload: ApartmentCreate) =>
+    runSubmit(
+      () => dispatch(createApartment(payload)).unwrap(),
+      () => setAddApartmentFloor(null),
+    )
+
+  const handleDeleteApartment = (apartmentId: number) => {
+    if (!activeBuilding) return
+    if (!window.confirm('למחוק את הדירה וכל הרשומות המשויכות אליה?')) return
+    void dispatch(deleteApartment({ apartmentId, buildingId: activeBuilding.id }))
+  }
+
+  const handleAddTenant = (payload: TenantCreate) => {
+    if (activeApartmentId === null) return
+    void runSubmit(
+      () => dispatch(swapTenant({ apartmentId: activeApartmentId, payload })).unwrap(),
+      () => setAddTenantOpen(false),
+    )
+  }
+
+  const handleDeleteTenant = (tenantId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את רשומת הדייר מההיסטוריה?')) return
+    void dispatch(deleteTenant({ tenantId, apartmentId: activeApartmentId }))
+  }
+
+  const handleAddKey = () => {
+    if (activeApartmentId === null) return
+    const nextLabel = `מפתח ${(activeApartment?.keys.length ?? 0) + 1}`
+    void dispatch(createKey({ apartment_id: activeApartmentId, label: nextLabel }))
+  }
+
+  const handleDeleteKey = (keyId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את המפתח ואת יומן ההעברות שלו?')) return
+    void dispatch(deleteKey({ keyId, apartmentId: activeApartmentId }))
+  }
+
+  const handleAddDelivery = (payload: DeliveryCreate) =>
+    runSubmit(
+      () => dispatch(createDelivery(payload)).unwrap(),
+      () => setAddDeliveryOpen(false),
+    )
+
+  const handleDeleteDelivery = (deliveryId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את רשומת המשלוח?')) return
+    void dispatch(deleteDelivery({ deliveryId, apartmentId: activeApartmentId }))
+  }
+
   // When an apartment has no keys yet, seed a default one so a hand-out can be
   // recorded immediately from the transfer modal.
   const handleOpenKeyTransfer = async () => {
@@ -178,6 +244,7 @@ export default function BuildingReceptionDesk() {
           onSelectBuilding={handleSelectBuilding}
           onCreateBuilding={() => setCreateBuildingOpen(true)}
           onSelectApartment={handleSelectApartment}
+          onAddApartment={(floor) => setAddApartmentFloor(floor)}
         />
       </div>
 
@@ -185,10 +252,17 @@ export default function BuildingReceptionDesk() {
         apartment={activeApartment}
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
+        onDeleteApartment={handleDeleteApartment}
+        onAddTenant={() => setAddTenantOpen(true)}
+        onDeleteTenant={handleDeleteTenant}
         onTransferKey={() => void handleOpenKeyTransfer()}
+        onAddKey={handleAddKey}
+        onDeleteKey={handleDeleteKey}
         onAddVehicle={() => setAddVehicleOpen(true)}
         onDeleteVehicle={handleDeleteVehicle}
+        onAddDelivery={() => setAddDeliveryOpen(true)}
         onMarkDelivered={handleMarkDelivered}
+        onDeleteDelivery={handleDeleteDelivery}
       />
 
       <CreateBuildingModal
@@ -221,6 +295,31 @@ export default function BuildingReceptionDesk() {
         onClose={() => setAddVehicleOpen(false)}
         apartmentId={activeApartmentId}
         onSubmit={handleAddVehicle}
+        submitting={submitting}
+      />
+
+      <AddTenantModal
+        isOpen={addTenantOpen}
+        onClose={() => setAddTenantOpen(false)}
+        hasCurrentTenant={activeApartment?.current_tenant != null}
+        onSubmit={handleAddTenant}
+        submitting={submitting}
+      />
+
+      <AddDeliveryModal
+        isOpen={addDeliveryOpen}
+        onClose={() => setAddDeliveryOpen(false)}
+        apartmentId={activeApartmentId}
+        onSubmit={handleAddDelivery}
+        submitting={submitting}
+      />
+
+      <AddApartmentModal
+        isOpen={addApartmentFloor !== null}
+        onClose={() => setAddApartmentFloor(null)}
+        buildingId={activeBuilding?.id ?? null}
+        defaultFloor={addApartmentFloor ?? 1}
+        onSubmit={handleAddApartment}
         submitting={submitting}
       />
     </div>

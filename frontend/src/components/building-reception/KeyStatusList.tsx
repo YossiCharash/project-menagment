@@ -1,17 +1,19 @@
-import { KeyRound, ArrowLeftRight, AlertTriangle } from 'lucide-react'
+import { KeyRound, ArrowLeftRight, AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import type { ApartmentKey } from '../../types/api'
 import { ACCENT, formatDate } from './constants'
 
 interface KeyStatusListProps {
   keys: ApartmentKey[]
   onTransfer: () => void
+  onAddKey: () => void
+  onDeleteKey: (keyId: number) => void
 }
 
 const OUT_RED = '#E5544B'
 const IN_GREEN = '#12B76A'
 
 /** Keys state list + the per-key transfer log, shown in the apartment panel. */
-export default function KeyStatusList({ keys, onTransfer }: KeyStatusListProps) {
+export default function KeyStatusList({ keys, onTransfer, onAddKey, onDeleteKey }: KeyStatusListProps) {
   const keyOut = keys.find((key) => key.holder === 'out')
   const transfers = keys
     .flatMap((key) => key.transfers.map((transfer) => ({ ...transfer, keyLabel: key.label })))
@@ -30,15 +32,26 @@ export default function KeyStatusList({ keys, onTransfer }: KeyStatusListProps) 
 
       <div className="flex items-center justify-between px-0.5">
         <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400">מצב מפתחות</span>
-        <button
-          type="button"
-          onClick={onTransfer}
-          className="text-xs font-bold text-white rounded-lg px-3 py-1.5 flex items-center gap-1.5"
-          style={{ background: ACCENT }}
-        >
-          <ArrowLeftRight className="w-4 h-4" />
-          העברת מפתח
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onAddKey}
+            className="text-xs font-bold rounded-lg px-3 py-1.5 flex items-center gap-1.5 border"
+            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+          >
+            <Plus className="w-4 h-4" />
+            מפתח
+          </button>
+          <button
+            type="button"
+            onClick={onTransfer}
+            className="text-xs font-bold text-white rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+            style={{ background: ACCENT }}
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            העברת מפתח
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -63,6 +76,14 @@ export default function KeyStatusList({ keys, onTransfer }: KeyStatusListProps) 
               >
                 {out ? 'בחוץ' : 'בדלפק'}
               </span>
+              <button
+                type="button"
+                onClick={() => onDeleteKey(key.id)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                aria-label="מחיקת מפתח"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           )
         })}

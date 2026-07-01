@@ -10,6 +10,7 @@ interface BuildingOverviewProps {
   onSelectBuilding: (buildingId: number) => void
   onCreateBuilding: () => void
   onSelectApartment: (apartment: Apartment) => void
+  onAddApartment: (floor: number) => void
 }
 
 const LEGEND: Array<{ label: string; color: string }> = [
@@ -30,6 +31,7 @@ export default function BuildingOverview({
   onSelectBuilding,
   onCreateBuilding,
   onSelectApartment,
+  onAddApartment,
 }: BuildingOverviewProps) {
   const floors = activeBuilding ? groupByFloor(activeBuilding.apartments) : []
   const compound = activeBuilding?.compound_name ?? activeBuilding?.address ?? ''
@@ -126,6 +128,16 @@ export default function BuildingOverview({
                 {units.map((apartment) => (
                   <ApartmentCell key={apartment.id} apartment={apartment} onSelect={onSelectApartment} />
                 ))}
+                <button
+                  type="button"
+                  onClick={() => onAddApartment(floor)}
+                  className="w-[62px] h-[62px] rounded-xl border border-dashed flex items-center justify-center flex-shrink-0"
+                  style={{ color: ACCENT, borderColor: `${ACCENT}80`, background: `${ACCENT}0D` }}
+                  aria-label={`הוספת דירה לקומה ${floor}`}
+                  title="הוספת דירה"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
             </div>
           ))}

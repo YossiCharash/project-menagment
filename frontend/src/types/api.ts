@@ -511,6 +511,14 @@ export interface ApartmentUpdate {
   is_common_area?: boolean
 }
 
+export interface ApartmentCreate {
+  building_id: number
+  floor: number
+  unit_number: string
+  label?: string | null
+  is_common_area?: boolean
+}
+
 export interface TenantCreate {
   name: string
   phone?: string | null
