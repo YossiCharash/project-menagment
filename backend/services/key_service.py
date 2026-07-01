@@ -37,7 +37,10 @@ class KeyService:
             label=label.strip(),
             holder=KeyHolder.IN_DESK,
         )
-        return await self.key_repository.create(key)
+        created = await self.key_repository.create(key)
+        # Re-fetch with the transfer journal eager-loaded so serialization of
+        # the (empty) ``transfers`` list does not trigger async lazy IO.
+        return await self.key_repository.get(created.id)
 
     async def transfer(
         self,
