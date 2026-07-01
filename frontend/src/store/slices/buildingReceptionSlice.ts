@@ -380,6 +380,11 @@ const slice = createSlice({
       state.activeApartment = null
       state.activeApartmentTasks = []
     },
+    clearActiveBuilding(state) {
+      state.activeBuilding = null
+      state.activeApartment = null
+      state.activeApartmentTasks = []
+    },
     clearError(state) {
       state.error = null
     },
@@ -495,5 +500,5 @@ const slice = createSlice({
   },
 })
 
-export const { closeApartment, clearError } = slice.actions
+export const { closeApartment, clearActiveBuilding, clearError } = slice.actions
 export default slice.reducer
