@@ -216,9 +216,10 @@ __marimo__/
 .streamlit/secrets.toml
 frontend/node_modules
 *.sql
+# migration SQL files must be tracked in git
+!backend/migrations/*.sql
 *.xml
 *.md
 .cursorrules
 *.ttf
 *.iml
-# backend/migrations  ← removed: migration SQL files must be tracked in git
