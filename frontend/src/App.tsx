@@ -32,6 +32,7 @@ const PriceQuotesSettings = React.lazy(() => import('./pages/PriceQuotesSettings
 const ProjectsSettings = React.lazy(() => import('./pages/ProjectsSettings'))
 const UnforeseenTransactions = React.lazy(() => import('./pages/UnforeseenTransactions'))
 const TaskManagement = React.lazy(() => import('./pages/TaskManagement'))
+const BuildingReceptionDesk = React.lazy(() => import('./pages/BuildingReceptionDesk'))
 const TaskCalendar = React.lazy(() => import('./pages/TaskCalendar'))
 const UserPermissions = React.lazy(() => import('./pages/UserPermissions'))
 const Notifications = React.lazy(() => import('./pages/Notifications'))
@@ -285,6 +286,7 @@ function AppContent() {
               <Route path="/price-quotes/:id" element={<RequireAuth><RequirePermission resource="quote"><QuoteDetail key={location.pathname} /></RequirePermission></RequireAuth>} />
               <Route path="/suppliers" element={<RequireAuth><RequirePermission resource="supplier"><Suppliers /></RequirePermission></RequireAuth>} />
               <Route path="/task-management" element={<RequireAuth><RequirePermission resource="task"><TaskManagement /></RequirePermission></RequireAuth>} />
+              <Route path="/building-reception" element={<RequireAuth><RequirePermission resource="building_reception"><BuildingReceptionDesk /></RequirePermission></RequireAuth>} />
               <Route path="/task-calendar" element={<Navigate to="/task-management" replace />} />
               <Route path="/inventory" element={<RequireAuth><InventoryLayout /></RequireAuth>}>
                 <Route index element={<InventoryDashboard />} />

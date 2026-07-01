@@ -87,6 +87,13 @@ const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
     permission: { resource: 'task' }
   },
   {
+    name: 'דלפק הבניין',
+    href: '/building-reception',
+    icon: Building2,
+    description: 'בניינים, דירות, מפתחות ומשלוחים',
+    permission: { resource: 'building_reception' }
+  },
+  {
     name: 'ניהול מלאי',
     href: '/inventory',
     icon: Package,
