@@ -1,4 +1,4 @@
-import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit'
+import { createAsyncThunk, createSlice, isRejected, type PayloadAction } from '@reduxjs/toolkit'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
 import type {
   ApartmentCreate,
@@ -417,6 +417,13 @@ const slice = createSlice({
         state.activeBuilding = action.payload
         state.activeApartment = null
         state.error = null
+      })
+
+      // Any rejected building-reception thunk (create/update/delete/transfer)
+      // surfaces its Hebrew message so the page's error banner can show it.
+      .addMatcher(isRejected, (state, action) => {
+        if (!action.type.startsWith('buildingReception/')) return
+        state.error = (action.payload as string) || action.error?.message || 'הפעולה נכשלה'
       })
   },
 })
