@@ -5,25 +5,36 @@ import { ACCENT } from './constants'
 import ModalShell from './ModalShell'
 import { LabeledField, PrimaryButton, SecondaryButton, Stepper, TextField } from './FormControls'
 
+interface ApartmentInitial {
+  floor: number
+  unit_number: string
+  label: string | null
+  is_common_area: boolean
+}
+
 interface AddApartmentModalProps {
   isOpen: boolean
   onClose: () => void
   buildingId: number | null
   /** Floor to pre-fill when opened from a specific floor row. */
   defaultFloor?: number
+  /** When set, the modal edits this apartment instead of creating one. */
+  initial?: ApartmentInitial | null
   onSubmit: (payload: ApartmentCreate) => void
   submitting?: boolean
 }
 
-/** Modal for adding a single apartment / common area to an existing building. */
+/** Modal for adding a single apartment / common area to a building, or editing one. */
 export default function AddApartmentModal({
   isOpen,
   onClose,
   buildingId,
   defaultFloor = 1,
+  initial,
   onSubmit,
   submitting,
 }: AddApartmentModalProps) {
+  const isEditing = initial != null
   const [floor, setFloor] = useState(defaultFloor)
   const [unitNumber, setUnitNumber] = useState('')
   const [label, setLabel] = useState('')
@@ -31,11 +42,11 @@ export default function AddApartmentModal({
 
   useEffect(() => {
     if (!isOpen) return
-    setFloor(defaultFloor)
-    setUnitNumber('')
-    setLabel('')
-    setIsCommon(false)
-  }, [isOpen, defaultFloor])
+    setFloor(initial?.floor ?? defaultFloor)
+    setUnitNumber(initial?.unit_number ?? '')
+    setLabel(initial?.label ?? '')
+    setIsCommon(initial?.is_common_area ?? false)
+  }, [isOpen, defaultFloor, initial])
 
   const canSubmit = buildingId !== null && unitNumber.trim().length > 0 && !submitting
 
@@ -55,13 +66,13 @@ export default function AddApartmentModal({
       isOpen={isOpen}
       onClose={onClose}
       icon={DoorOpen}
-      title="הוספת דירה"
-      subtitle="הוספת דירה או שטח משותף לבניין קיים"
+      title={isEditing ? 'עריכת דירה' : 'הוספת דירה'}
+      subtitle={isEditing ? 'עדכון פרטי הדירה' : 'הוספת דירה או שטח משותף לבניין קיים'}
       footer={
         <>
           <SecondaryButton onClick={onClose}>ביטול</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={!canSubmit} icon={Check}>
-            הוסף דירה
+            {isEditing ? 'שמור' : 'הוסף דירה'}
           </PrimaryButton>
         </>
       }

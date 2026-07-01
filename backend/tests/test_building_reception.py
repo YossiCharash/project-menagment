@@ -520,3 +520,91 @@ class TestDeletes:
     async def test_delete_missing_key_404(self, test_client: AsyncClient, admin_token: str):
         response = await test_client.delete(f"{BASE}/keys/999999", headers=_auth(admin_token))
         assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.api
+class TestEdits:
+    async def _apartment(self, test_client: AsyncClient, admin_token: str) -> int:
+        building = await _create_building(test_client, admin_token)
+        return _first_residential_apartment_id(building)
+
+    async def test_update_tenant(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        tenant = (
+            await test_client.post(
+                f"{BASE}/apartments/{apartment_id}/tenant",
+                headers=_auth(admin_token),
+                json={"name": "שם ישן"},
+            )
+        ).json()
+        response = await test_client.put(
+            f"{BASE}/tenants/{tenant['id']}",
+            headers=_auth(admin_token),
+            json={"name": "שם חדש", "phone": "050-1234567"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["name"] == "שם חדש"
+        assert response.json()["phone"] == "050-1234567"
+
+    async def test_rename_key(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        key = (
+            await test_client.post(
+                f"{BASE}/keys",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "label": "ישן"},
+            )
+        ).json()
+        response = await test_client.put(
+            f"{BASE}/keys/{key['id']}",
+            headers=_auth(admin_token),
+            json={"label": "מפתח כניסה ראשי"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["label"] == "מפתח כניסה ראשי"
+
+    async def test_update_delivery_status(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        delivery = (
+            await test_client.post(
+                f"{BASE}/deliveries",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "title": "חבילה"},
+            )
+        ).json()
+        response = await test_client.put(
+            f"{BASE}/deliveries/{delivery['id']}",
+            headers=_auth(admin_token),
+            json={"title": "חבילה גדולה", "status": "delivered"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["title"] == "חבילה גדולה"
+        assert body["status"] == "delivered"
+        assert body["received_at"] is not None
+
+    async def test_update_vehicle(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        vehicle = (
+            await test_client.post(
+                f"{BASE}/vehicles",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "plate": "11-111-11", "owner_name": "דן"},
+            )
+        ).json()
+        response = await test_client.put(
+            f"{BASE}/vehicles/{vehicle['id']}",
+            headers=_auth(admin_token),
+            json={"parking_spot": "A-1", "owner_name": "דנה"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["parking_spot"] == "A-1"
+        assert body["owner_name"] == "דנה"
+
+    async def test_update_missing_tenant_404(self, test_client: AsyncClient, admin_token: str):
+        response = await test_client.put(
+            f"{BASE}/tenants/999999", headers=_auth(admin_token), json={"name": "x"}
+        )
+        assert response.status_code == 404, response.text

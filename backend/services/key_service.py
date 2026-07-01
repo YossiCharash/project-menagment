@@ -84,6 +84,17 @@ class KeyService:
         await self.db.refresh(key, attribute_names=["transfers"])
         return key
 
+    async def update_key(self, key_id: int, label: str) -> ApartmentKey:
+        """Rename a key."""
+        key = await self.key_repository.get(key_id)
+        if not key:
+            raise ValueError(BuildingReceptionErrorMessages.key_not_found_by_id(key_id))
+        if not label or not label.strip():
+            raise ValueError(BuildingReceptionErrorMessages.KEY_LABEL_REQUIRED)
+        key.label = label.strip()
+        await self.key_repository.update(key)
+        return await self.key_repository.get(key_id)
+
     async def delete_key(self, key_id: int) -> None:
         """Delete a key (and its transfer journal via cascade) from an apartment."""
         key = await self.key_repository.get(key_id)

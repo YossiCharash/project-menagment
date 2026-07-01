@@ -1,15 +1,16 @@
-import { Car, Plus, Trash2 } from 'lucide-react'
+import { Car, Plus, Trash2, Pencil } from 'lucide-react'
 import type { AuthorizedVehicle } from '../../types/api'
 import { ACCENT } from './constants'
 
 interface VehicleListProps {
   vehicles: AuthorizedVehicle[]
   onAdd: () => void
+  onEdit: (vehicle: AuthorizedVehicle) => void
   onDelete: (vehicleId: number) => void
 }
 
 /** "רכבים מורשים להיכנס" — the vehicles tab of the apartment panel. */
-export default function VehicleList({ vehicles, onAdd, onDelete }: VehicleListProps) {
+export default function VehicleList({ vehicles, onAdd, onEdit, onDelete }: VehicleListProps) {
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 px-0.5">רכבים מורשים להיכנס</div>
@@ -35,6 +36,14 @@ export default function VehicleList({ vehicles, onAdd, onDelete }: VehicleListPr
               {vehicle.parking_spot}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => onEdit(vehicle)}
+            className="text-gray-400 hover:text-violet-500 transition-colors"
+            aria-label="עריכת רכב"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => onDelete(vehicle.id)}

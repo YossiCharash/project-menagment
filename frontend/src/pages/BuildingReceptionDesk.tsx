@@ -5,11 +5,16 @@ import type { RootState } from '../store'
 import type {
   Apartment,
   ApartmentCreate,
+  ApartmentDetail,
+  ApartmentKey,
+  AuthorizedVehicle,
   AuthorizedVehicleCreate,
   BuildingCreate,
   BuildingReceptionTaskCreate,
+  Delivery,
   DeliveryCreate,
   KeyTransferCreate,
+  Tenant,
   TenantCreate,
 } from '../types/api'
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
@@ -20,16 +25,21 @@ import {
   fetchApartment,
   closeApartment,
   createApartment,
+  updateApartment,
   deleteApartment,
   swapTenant,
+  updateTenant,
   deleteTenant,
   createKey,
   transferKey,
+  updateKey,
   deleteKey,
   createVehicle,
+  updateVehicle,
   deleteVehicle,
   createDelivery,
   markDelivered,
+  updateDelivery,
   deleteDelivery,
 } from '../store/slices/buildingReceptionSlice'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
@@ -42,6 +52,7 @@ import AddVehicleModal from '../components/building-reception/AddVehicleModal'
 import AddTenantModal from '../components/building-reception/AddTenantModal'
 import AddDeliveryModal from '../components/building-reception/AddDeliveryModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
+import AddKeyModal from '../components/building-reception/AddKeyModal'
 
 /**
  * Building Reception Desk (דלפק הבניין).
@@ -66,7 +77,14 @@ export default function BuildingReceptionDesk() {
   const [addTenantOpen, setAddTenantOpen] = useState(false)
   const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
   const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
+  const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Edit targets: non-null means the matching modal is in edit mode.
+  const [editingApartment, setEditingApartment] = useState<ApartmentDetail | null>(null)
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
+  const [editingKey, setEditingKey] = useState<ApartmentKey | null>(null)
+  const [editingVehicle, setEditingVehicle] = useState<AuthorizedVehicle | null>(null)
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null)
 
   // Load the building list once; then open the first building automatically.
   useEffect(() => {
@@ -121,11 +139,21 @@ export default function BuildingReceptionDesk() {
     )
   }
 
-  const handleAddVehicle = (payload: AuthorizedVehicleCreate) =>
-    runSubmit(
-      () => dispatch(createVehicle(payload)).unwrap(),
-      () => setAddVehicleOpen(false),
-    )
+  const closeVehicleModal = () => {
+    setAddVehicleOpen(false)
+    setEditingVehicle(null)
+  }
+
+  const handleSubmitVehicle = (payload: AuthorizedVehicleCreate) => {
+    if (editingVehicle && activeApartmentId !== null) {
+      void runSubmit(
+        () => dispatch(updateVehicle({ vehicleId: editingVehicle.id, apartmentId: activeApartmentId, changes: payload })).unwrap(),
+        closeVehicleModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createVehicle(payload)).unwrap(), closeVehicleModal)
+  }
 
   const handleDeleteVehicle = (vehicleId: number) => {
     if (activeApartmentId === null) return
@@ -137,11 +165,33 @@ export default function BuildingReceptionDesk() {
     void dispatch(markDelivered({ deliveryId, apartmentId: activeApartmentId }))
   }
 
-  const handleAddApartment = (payload: ApartmentCreate) =>
-    runSubmit(
-      () => dispatch(createApartment(payload)).unwrap(),
-      () => setAddApartmentFloor(null),
-    )
+  // --- Apartments ---
+  const closeApartmentModal = () => {
+    setAddApartmentFloor(null)
+    setEditingApartment(null)
+  }
+
+  const handleSubmitApartment = (payload: ApartmentCreate) => {
+    if (editingApartment) {
+      const buildingId = activeBuilding?.id
+      void runSubmit(async () => {
+        await dispatch(
+          updateApartment({
+            apartmentId: editingApartment.id,
+            changes: {
+              floor: payload.floor,
+              unit_number: payload.unit_number,
+              label: payload.label,
+              is_common_area: payload.is_common_area,
+            },
+          }),
+        ).unwrap()
+        if (buildingId) await dispatch(fetchBuilding(buildingId))
+      }, closeApartmentModal)
+      return
+    }
+    void runSubmit(() => dispatch(createApartment(payload)).unwrap(), closeApartmentModal)
+  }
 
   const handleDeleteApartment = (apartmentId: number) => {
     if (!activeBuilding) return
@@ -149,12 +199,22 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteApartment({ apartmentId, buildingId: activeBuilding.id }))
   }
 
-  const handleAddTenant = (payload: TenantCreate) => {
+  // --- Tenants ---
+  const closeTenantModal = () => {
+    setAddTenantOpen(false)
+    setEditingTenant(null)
+  }
+
+  const handleSubmitTenant = (payload: TenantCreate) => {
     if (activeApartmentId === null) return
-    void runSubmit(
-      () => dispatch(swapTenant({ apartmentId: activeApartmentId, payload })).unwrap(),
-      () => setAddTenantOpen(false),
-    )
+    if (editingTenant) {
+      void runSubmit(
+        () => dispatch(updateTenant({ tenantId: editingTenant.id, apartmentId: activeApartmentId, changes: payload })).unwrap(),
+        closeTenantModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(swapTenant({ apartmentId: activeApartmentId, payload })).unwrap(), closeTenantModal)
   }
 
   const handleDeleteTenant = (tenantId: number) => {
@@ -163,10 +223,22 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteTenant({ tenantId, apartmentId: activeApartmentId }))
   }
 
-  const handleAddKey = () => {
+  // --- Keys ---
+  const closeKeyModal = () => {
+    setKeyModalOpen(false)
+    setEditingKey(null)
+  }
+
+  const handleSubmitKey = (label: string) => {
     if (activeApartmentId === null) return
-    const nextLabel = `מפתח ${(activeApartment?.keys.length ?? 0) + 1}`
-    void dispatch(createKey({ apartment_id: activeApartmentId, label: nextLabel }))
+    if (editingKey) {
+      void runSubmit(
+        () => dispatch(updateKey({ keyId: editingKey.id, apartmentId: activeApartmentId, changes: { label } })).unwrap(),
+        closeKeyModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createKey({ apartment_id: activeApartmentId, label })).unwrap(), closeKeyModal)
   }
 
   const handleDeleteKey = (keyId: number) => {
@@ -175,11 +247,29 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteKey({ keyId, apartmentId: activeApartmentId }))
   }
 
-  const handleAddDelivery = (payload: DeliveryCreate) =>
-    runSubmit(
-      () => dispatch(createDelivery(payload)).unwrap(),
-      () => setAddDeliveryOpen(false),
-    )
+  // --- Deliveries ---
+  const closeDeliveryModal = () => {
+    setAddDeliveryOpen(false)
+    setEditingDelivery(null)
+  }
+
+  const handleSubmitDelivery = (payload: DeliveryCreate) => {
+    if (editingDelivery && activeApartmentId !== null) {
+      void runSubmit(
+        () =>
+          dispatch(
+            updateDelivery({
+              deliveryId: editingDelivery.id,
+              apartmentId: activeApartmentId,
+              changes: { title: payload.title, kind: payload.kind, meta: payload.meta },
+            }),
+          ).unwrap(),
+        closeDeliveryModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createDelivery(payload)).unwrap(), closeDeliveryModal)
+  }
 
   const handleDeleteDelivery = (deliveryId: number) => {
     if (activeApartmentId === null) return
@@ -244,7 +334,10 @@ export default function BuildingReceptionDesk() {
           onSelectBuilding={handleSelectBuilding}
           onCreateBuilding={() => setCreateBuildingOpen(true)}
           onSelectApartment={handleSelectApartment}
-          onAddApartment={(floor) => setAddApartmentFloor(floor)}
+          onAddApartment={(floor) => {
+            setEditingApartment(null)
+            setAddApartmentFloor(floor)
+          }}
         />
       </div>
 
@@ -252,16 +345,45 @@ export default function BuildingReceptionDesk() {
         apartment={activeApartment}
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
+        onEditApartment={(apartment) => setEditingApartment(apartment)}
         onDeleteApartment={handleDeleteApartment}
-        onAddTenant={() => setAddTenantOpen(true)}
+        onAddTenant={() => {
+          setEditingTenant(null)
+          setAddTenantOpen(true)
+        }}
+        onEditTenant={(tenant) => {
+          setEditingTenant(tenant)
+          setAddTenantOpen(true)
+        }}
         onDeleteTenant={handleDeleteTenant}
         onTransferKey={() => void handleOpenKeyTransfer()}
-        onAddKey={handleAddKey}
+        onAddKey={() => {
+          setEditingKey(null)
+          setKeyModalOpen(true)
+        }}
+        onEditKey={(key) => {
+          setEditingKey(key)
+          setKeyModalOpen(true)
+        }}
         onDeleteKey={handleDeleteKey}
-        onAddVehicle={() => setAddVehicleOpen(true)}
+        onAddVehicle={() => {
+          setEditingVehicle(null)
+          setAddVehicleOpen(true)
+        }}
+        onEditVehicle={(vehicle) => {
+          setEditingVehicle(vehicle)
+          setAddVehicleOpen(true)
+        }}
         onDeleteVehicle={handleDeleteVehicle}
-        onAddDelivery={() => setAddDeliveryOpen(true)}
+        onAddDelivery={() => {
+          setEditingDelivery(null)
+          setAddDeliveryOpen(true)
+        }}
         onMarkDelivered={handleMarkDelivered}
+        onEditDelivery={(delivery) => {
+          setEditingDelivery(delivery)
+          setAddDeliveryOpen(true)
+        }}
         onDeleteDelivery={handleDeleteDelivery}
       />
 
@@ -292,34 +414,77 @@ export default function BuildingReceptionDesk() {
 
       <AddVehicleModal
         isOpen={addVehicleOpen}
-        onClose={() => setAddVehicleOpen(false)}
+        onClose={closeVehicleModal}
         apartmentId={activeApartmentId}
-        onSubmit={handleAddVehicle}
+        initial={
+          editingVehicle
+            ? {
+                plate: editingVehicle.plate,
+                model: editingVehicle.model,
+                owner_name: editingVehicle.owner_name,
+                parking_spot: editingVehicle.parking_spot,
+              }
+            : null
+        }
+        onSubmit={handleSubmitVehicle}
         submitting={submitting}
       />
 
       <AddTenantModal
         isOpen={addTenantOpen}
-        onClose={() => setAddTenantOpen(false)}
+        onClose={closeTenantModal}
         hasCurrentTenant={activeApartment?.current_tenant != null}
-        onSubmit={handleAddTenant}
+        initial={
+          editingTenant
+            ? {
+                name: editingTenant.name,
+                phone: editingTenant.phone,
+                email: editingTenant.email,
+                move_in_date: editingTenant.move_in_date,
+              }
+            : null
+        }
+        onSubmit={handleSubmitTenant}
         submitting={submitting}
       />
 
       <AddDeliveryModal
         isOpen={addDeliveryOpen}
-        onClose={() => setAddDeliveryOpen(false)}
+        onClose={closeDeliveryModal}
         apartmentId={activeApartmentId}
-        onSubmit={handleAddDelivery}
+        initial={
+          editingDelivery
+            ? { title: editingDelivery.title, kind: editingDelivery.kind, meta: editingDelivery.meta }
+            : null
+        }
+        onSubmit={handleSubmitDelivery}
         submitting={submitting}
       />
 
       <AddApartmentModal
-        isOpen={addApartmentFloor !== null}
-        onClose={() => setAddApartmentFloor(null)}
+        isOpen={addApartmentFloor !== null || editingApartment !== null}
+        onClose={closeApartmentModal}
         buildingId={activeBuilding?.id ?? null}
         defaultFloor={addApartmentFloor ?? 1}
-        onSubmit={handleAddApartment}
+        initial={
+          editingApartment
+            ? {
+                floor: editingApartment.floor,
+                unit_number: editingApartment.unit_number,
+                label: editingApartment.label,
+                is_common_area: editingApartment.is_common_area,
+              }
+            : null
+        }
+        onSubmit={handleSubmitApartment}
+        submitting={submitting}
+      />
+
+      <AddKeyModal
+        isOpen={keyModalOpen}
+        onClose={closeKeyModal}
+        initialLabel={editingKey ? editingKey.label : null}
+        onSubmit={handleSubmitKey}
         submitting={submitting}
       />
     </div>
