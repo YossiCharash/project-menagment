@@ -1,0 +1,136 @@
+import { KeyRound, Package, ClipboardX, Plus, Layers } from 'lucide-react'
+import type { Apartment, Building, BuildingListItem } from '../../types/api'
+import { ACCENT, PALETTE, groupByFloor } from './constants'
+import ApartmentCell from './ApartmentCell'
+
+interface BuildingOverviewProps {
+  buildings: BuildingListItem[]
+  activeBuilding: Building | null
+  loading: boolean
+  onSelectBuilding: (buildingId: number) => void
+  onCreateBuilding: () => void
+  onSelectApartment: (apartment: Apartment) => void
+}
+
+const LEGEND: Array<{ label: string; color: string }> = [
+  { label: 'מאוכלסת', color: PALETTE.occupied },
+  { label: 'פנויה', color: PALETTE.vacant },
+  { label: 'שטח משותף', color: PALETTE.common },
+]
+
+/**
+ * The main "מבט-על מתחם" view: building selector tabs, KPI legend and the
+ * physical floors × apartments grid. Delegates every action upward; holds no
+ * data-fetching logic of its own.
+ */
+export default function BuildingOverview({
+  buildings,
+  activeBuilding,
+  loading,
+  onSelectBuilding,
+  onCreateBuilding,
+  onSelectApartment,
+}: BuildingOverviewProps) {
+  const floors = activeBuilding ? groupByFloor(activeBuilding.apartments) : []
+  const compound = activeBuilding?.compound_name ?? activeBuilding?.address ?? ''
+
+  return (
+    <section dir="rtl" className="flex-1 min-w-0">
+      <div className="flex items-end justify-between gap-4 flex-wrap mb-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
+            מבט-על מתחם{compound ? ` · ${compound}` : ''}
+          </h1>
+          <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 mt-1">
+            תצוגה לפי הסדר הפיזי של הבניין — קומות ודירות כפי שהן בפועל
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-1 gap-1">
+            {buildings.map((building) => {
+              const active = building.id === activeBuilding?.id
+              return (
+                <button
+                  key={building.id}
+                  type="button"
+                  onClick={() => onSelectBuilding(building.id)}
+                  className="text-sm font-bold px-3.5 py-2 rounded-lg leading-tight text-center transition-colors"
+                  style={{
+                    color: active ? '#fff' : '#6B6B7B',
+                    background: active ? ACCENT : 'transparent',
+                  }}
+                >
+                  <span className="block">{building.name}</span>
+                  {building.address && (
+                    <span className="block text-[10.5px] font-medium opacity-80">{building.address}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={onCreateBuilding}
+            className="text-sm font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 border border-dashed"
+            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+          >
+            <Plus className="w-5 h-5" />
+            בניין
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 flex-wrap bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4">
+        <span className="text-xs font-bold text-gray-600 dark:text-gray-300">מקרא:</span>
+        {LEGEND.map((item) => (
+          <span key={item.label} className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+            <span className="w-3 h-3 rounded" style={{ background: item.color }} />
+            {item.label}
+          </span>
+        ))}
+        <span className="w-px h-4 bg-gray-200 dark:bg-gray-600" />
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <KeyRound className="w-4 h-4" style={{ color: PALETTE.key }} />
+          מפתח בחוץ
+        </span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} />
+          משלוח ממתין
+        </span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <ClipboardX className="w-4 h-4" style={{ color: PALETTE.task }} />
+          משימה פתוחה
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="text-sm font-semibold text-gray-400 text-center py-16">טוען בניין…</div>
+      ) : floors.length === 0 ? (
+        <div className="text-sm font-semibold text-gray-400 text-center py-16">
+          {buildings.length === 0 ? 'עדיין אין בניינים. הקם בניין חדש כדי להתחיל.' : 'לבניין זה אין דירות עדיין.'}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {floors.map(({ floor, units }) => (
+            <div
+              key={floor}
+              className="flex gap-3 items-stretch bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-3"
+            >
+              <div className="flex-shrink-0 w-[78px] flex flex-col justify-center items-center text-center border-l border-gray-200 dark:border-gray-700 pl-2">
+                <Layers className="w-5 h-5 text-gray-400 mb-1" />
+                <div className="font-extrabold text-sm text-gray-900 dark:text-white leading-none">קומה {floor}</div>
+                <div className="text-[10.5px] font-medium text-gray-400 mt-0.5">{units.length} דירות</div>
+              </div>
+              <div className="flex-1 flex flex-wrap gap-2.5">
+                {units.map((apartment) => (
+                  <ApartmentCell key={apartment.id} apartment={apartment} onSelect={onSelectApartment} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
