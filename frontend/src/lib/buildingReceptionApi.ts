@@ -1,0 +1,140 @@
+import api from './api'
+import type {
+  ApartmentDetail,
+  ApartmentKey,
+  ApartmentKeyCreate,
+  ApartmentUpdate,
+  AuthorizedVehicle,
+  AuthorizedVehicleCreate,
+  Building,
+  BuildingCreate,
+  BuildingListItem,
+  BuildingReceptionTaskCreate,
+  BuildingUpdate,
+  Delivery,
+  DeliveryCreate,
+  KeyTransferCreate,
+  Tenant,
+  TenantCreate,
+} from '../types/api'
+
+const BASE = '/building-reception'
+
+/**
+ * Thin, strongly-typed transport layer for the Building Reception Desk module.
+ *
+ * Single Responsibility: the ONLY job of this class is to translate typed
+ * domain calls into HTTP requests. It holds no state and contains no business
+ * logic — that lives in the Redux slice / components. Mirrors the static-class
+ * convention already established by `apiClient.ts`.
+ */
+export class BuildingReceptionAPI {
+  // ---- Buildings ------------------------------------------------------------
+
+  static async listBuildings(): Promise<BuildingListItem[]> {
+    const { data } = await api.get<BuildingListItem[]>(`${BASE}/buildings`)
+    return data
+  }
+
+  static async getBuilding(buildingId: number): Promise<Building> {
+    const { data } = await api.get<Building>(`${BASE}/buildings/${buildingId}`)
+    return data
+  }
+
+  static async createBuilding(payload: BuildingCreate): Promise<Building> {
+    const { data } = await api.post<Building>(`${BASE}/buildings`, payload)
+    return data
+  }
+
+  static async updateBuilding(buildingId: number, changes: BuildingUpdate): Promise<Building> {
+    const { data } = await api.put<Building>(`${BASE}/buildings/${buildingId}`, changes)
+    return data
+  }
+
+  static async deleteBuilding(buildingId: number): Promise<void> {
+    await api.delete(`${BASE}/buildings/${buildingId}`)
+  }
+
+  // ---- Apartments -----------------------------------------------------------
+
+  static async getApartment(apartmentId: number): Promise<ApartmentDetail> {
+    const { data } = await api.get<ApartmentDetail>(`${BASE}/apartments/${apartmentId}`)
+    return data
+  }
+
+  static async updateApartment(apartmentId: number, changes: ApartmentUpdate): Promise<ApartmentDetail> {
+    const { data } = await api.put<ApartmentDetail>(`${BASE}/apartments/${apartmentId}`, changes)
+    return data
+  }
+
+  static async setTenant(apartmentId: number, payload: TenantCreate): Promise<Tenant> {
+    const { data } = await api.post<Tenant>(`${BASE}/apartments/${apartmentId}/tenant`, payload)
+    return data
+  }
+
+  // ---- Keys -----------------------------------------------------------------
+
+  static async listKeys(apartmentId: number): Promise<ApartmentKey[]> {
+    const { data } = await api.get<ApartmentKey[]>(`${BASE}/apartments/${apartmentId}/keys`)
+    return data
+  }
+
+  static async createKey(payload: ApartmentKeyCreate): Promise<ApartmentKey> {
+    const { data } = await api.post<ApartmentKey>(`${BASE}/keys`, payload)
+    return data
+  }
+
+  static async transferKey(keyId: number, payload: KeyTransferCreate): Promise<ApartmentKey> {
+    const { data } = await api.post<ApartmentKey>(`${BASE}/keys/${keyId}/transfer`, payload)
+    return data
+  }
+
+  // ---- Vehicles -------------------------------------------------------------
+
+  static async listVehicles(apartmentId: number): Promise<AuthorizedVehicle[]> {
+    const { data } = await api.get<AuthorizedVehicle[]>(`${BASE}/apartments/${apartmentId}/vehicles`)
+    return data
+  }
+
+  static async createVehicle(payload: AuthorizedVehicleCreate): Promise<AuthorizedVehicle> {
+    const { data } = await api.post<AuthorizedVehicle>(`${BASE}/vehicles`, payload)
+    return data
+  }
+
+  static async deleteVehicle(vehicleId: number): Promise<void> {
+    await api.delete(`${BASE}/vehicles/${vehicleId}`)
+  }
+
+  // ---- Deliveries -----------------------------------------------------------
+
+  static async listDeliveries(apartmentId: number): Promise<Delivery[]> {
+    const { data } = await api.get<Delivery[]>(`${BASE}/apartments/${apartmentId}/deliveries`)
+    return data
+  }
+
+  static async createDelivery(payload: DeliveryCreate): Promise<Delivery> {
+    const { data } = await api.post<Delivery>(`${BASE}/deliveries`, payload)
+    return data
+  }
+
+  static async markDelivered(deliveryId: number): Promise<Delivery> {
+    const { data } = await api.post<Delivery>(`${BASE}/deliveries/${deliveryId}/deliver`)
+    return data
+  }
+
+  // ---- Tasks (reuses the existing global task endpoint) ---------------------
+
+  static async createTask(payload: BuildingReceptionTaskCreate): Promise<{ id: number }> {
+    const { data } = await api.post<{ id: number }>('/tasks/', payload)
+    return data
+  }
+
+  // ---- Assignee directory (for the New Task modal) --------------------------
+
+  static async listTaskAssignees(): Promise<Array<{ id: number; full_name: string }>> {
+    const { data } = await api.get<Array<{ id: number; full_name: string }>>('/users/for-tasks')
+    return data
+  }
+}
+
+export default BuildingReceptionAPI
