@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.apartment import Apartment
 from backend.repositories.apartment_repository import ApartmentRepository
-from backend.schemas.apartment import ApartmentUpdate
+from backend.repositories.building_repository import BuildingRepository
+from backend.schemas.apartment import ApartmentCreate, ApartmentUpdate
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
 
@@ -13,6 +14,31 @@ class ApartmentService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.apartment_repository = ApartmentRepository(db)
+        self.building_repository = BuildingRepository(db)
+
+    async def create_apartment(self, data: ApartmentCreate) -> Apartment:
+        """Add a single apartment/area to an existing building (floor add)."""
+        building = await self.building_repository.get(data.building_id)
+        if not building:
+            raise ValueError(
+                BuildingReceptionErrorMessages.building_not_found_by_id(data.building_id)
+            )
+        if not data.unit_number or not data.unit_number.strip():
+            raise ValueError(BuildingReceptionErrorMessages.APARTMENT_UNIT_REQUIRED)
+        apartment = Apartment(
+            building_id=data.building_id,
+            floor=data.floor,
+            unit_number=data.unit_number.strip(),
+            label=(data.label or "").strip() or None,
+            is_common_area=data.is_common_area,
+        )
+        created = await self.apartment_repository.create(apartment)
+        return await self.apartment_repository.get_with_details(created.id)
+
+    async def delete_apartment(self, apartment_id: int) -> None:
+        """Delete a specific apartment (and its keys/tenants/etc. via cascade)."""
+        apartment = await self.get_apartment(apartment_id)
+        await self.apartment_repository.delete(apartment)
 
     async def get_apartment(self, apartment_id: int) -> Apartment:
         apartment = await self.apartment_repository.get(apartment_id)

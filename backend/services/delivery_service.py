@@ -58,6 +58,15 @@ class DeliveryService:
         delivery.received_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return await self.delivery_repository.update(delivery)
 
+    async def delete_delivery(self, delivery_id: int) -> None:
+        """Remove a delivery record from the desk."""
+        delivery = await self.delivery_repository.get(delivery_id)
+        if not delivery:
+            raise ValueError(
+                BuildingReceptionErrorMessages.delivery_not_found_by_id(delivery_id)
+            )
+        await self.delivery_repository.delete(delivery)
+
     # --- private helpers -----------------------------------------------
 
     async def _ensure_apartment_exists(self, apartment_id: int) -> None:

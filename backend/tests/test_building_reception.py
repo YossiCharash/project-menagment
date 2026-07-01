@@ -398,3 +398,125 @@ class TestTaskApartmentLink:
         )
         assert response.status_code in (200, 201), response.text
         assert response.json()["apartment_id"] == apartment_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.api
+class TestApartmentCrud:
+    async def test_add_apartment_to_building(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        building = await _create_building(test_client, admin_token)
+        response = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(admin_token),
+            json={"building_id": building["id"], "floor": 9, "unit_number": "901"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["unit_number"] == "901"
+
+        overview = await test_client.get(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(admin_token)
+        )
+        numbers = [a["unit_number"] for a in overview.json()["apartments"]]
+        assert "901" in numbers
+
+    async def test_add_apartment_unknown_building_400(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        response = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(admin_token),
+            json={"building_id": 999999, "floor": 1, "unit_number": "1"},
+        )
+        assert response.status_code == 400, response.text
+
+    async def test_delete_apartment(self, test_client: AsyncClient, admin_token: str):
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        deleted = await test_client.delete(
+            f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+        follow_up = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
+        )
+        assert follow_up.status_code == 404
+
+    async def test_member_cannot_delete_apartment(
+        self, test_client: AsyncClient, admin_token: str, member_token: str
+    ):
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        response = await test_client.delete(
+            f"{BASE}/apartments/{apartment_id}", headers=_auth(member_token)
+        )
+        assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.api
+class TestDeletes:
+    async def _apartment(self, test_client: AsyncClient, admin_token: str) -> int:
+        building = await _create_building(test_client, admin_token)
+        return _first_residential_apartment_id(building)
+
+    async def test_delete_tenant_from_history(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        apartment_id = await self._apartment(test_client, admin_token)
+        tenant = (
+            await test_client.post(
+                f"{BASE}/apartments/{apartment_id}/tenant",
+                headers=_auth(admin_token),
+                json={"name": "דייר להסרה"},
+            )
+        ).json()
+        deleted = await test_client.delete(
+            f"{BASE}/tenants/{tenant['id']}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+        detail = (
+            await test_client.get(
+                f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
+            )
+        ).json()
+        assert all(t["id"] != tenant["id"] for t in detail["tenants"])
+
+    async def test_delete_key(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        key = (
+            await test_client.post(
+                f"{BASE}/keys",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "label": "מפתח"},
+            )
+        ).json()
+        deleted = await test_client.delete(
+            f"{BASE}/keys/{key['id']}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+        keys = (
+            await test_client.get(
+                f"{BASE}/apartments/{apartment_id}/keys", headers=_auth(admin_token)
+            )
+        ).json()
+        assert keys == []
+
+    async def test_delete_delivery(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        delivery = (
+            await test_client.post(
+                f"{BASE}/deliveries",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "title": "חבילה"},
+            )
+        ).json()
+        deleted = await test_client.delete(
+            f"{BASE}/deliveries/{delivery['id']}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+
+    async def test_delete_missing_key_404(self, test_client: AsyncClient, admin_token: str):
+        response = await test_client.delete(f"{BASE}/keys/999999", headers=_auth(admin_token))
+        assert response.status_code == 404, response.text
