@@ -66,6 +66,9 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         ResourceType.CEMS_RETIREMENT.value: _ALL_ACTIONS,
         ResourceType.CEMS_DOCUMENT.value: _ALL_ACTIONS,
         ResourceType.CEMS_REPORT.value: _ALL_ACTIONS,
+        # Admins fully manage the Building Reception Desk (buildings, apartments,
+        # keys, tenants, vehicles, deliveries).
+        ResourceType.BUILDING_RECEPTION.value: _ALL_ACTIONS,
     },
     GlobalRole.MEMBER.value: {
         # Members get an empty permission set on every resource by default...
@@ -74,6 +77,10 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         # calendar. Read/update/delete remain denied so Members cannot edit or
         # delete shared task labels gated by the generic "task" resource.
         ResourceType.TASK.value: {Action.WRITE.value},
+        # The Building Reception Desk is admin-managed by default; Members get
+        # no access unless explicitly granted (keeps the Member baseline to
+        # task-write only). Grant per-user later if non-admin desk operators
+        # are needed.
     },
 }
 
