@@ -6,6 +6,7 @@ from backend.models.building import Building
 from backend.models.apartment import Apartment
 from backend.repositories.building_repository import BuildingRepository
 from backend.repositories.apartment_repository import ApartmentRepository
+from backend.repositories.building_project_repository import BuildingProjectRepository
 from backend.schemas.building import BuildingCreate, BuildingUpdate
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
@@ -24,6 +25,7 @@ class BuildingService:
         self.db = db
         self.building_repository = BuildingRepository(db)
         self.apartment_repository = ApartmentRepository(db)
+        self.project_repository = BuildingProjectRepository(db)
 
     async def get_building(self, building_id: int) -> Building:
         building = await self.building_repository.get(building_id)
@@ -39,10 +41,12 @@ class BuildingService:
     async def create_building(self, data: BuildingCreate) -> Building:
         """Create a building and auto-generate its apartments and common areas."""
         self._validate_building_input(data)
+        await self._ensure_project_exists(data.project_id)
         building = Building(
             name=data.name.strip(),
             address=(data.address or "").strip() or None,
             compound_name=(data.compound_name or "").strip() or None,
+            project_id=data.project_id,
             floors_count=data.floors_count,
             units_per_floor=data.units_per_floor,
             has_common_areas=data.has_common_areas,
@@ -70,8 +74,20 @@ class BuildingService:
             building.units_per_floor = update_data["units_per_floor"]
         if "has_common_areas" in update_data and update_data["has_common_areas"] is not None:
             building.has_common_areas = update_data["has_common_areas"]
+        if "project_id" in update_data:
+            await self._ensure_project_exists(update_data["project_id"])
+            building.project_id = update_data["project_id"]
         await self.building_repository.update(building)
         return await self.building_repository.get(building_id)
+
+    async def _ensure_project_exists(self, project_id: int | None) -> None:
+        if project_id is None:
+            return
+        project = await self.project_repository.get(project_id)
+        if not project:
+            raise ValueError(
+                BuildingReceptionErrorMessages.project_not_found_by_id(project_id)
+            )
 
     async def delete_building(self, building_id: int) -> None:
         building = await self.get_building(building_id)
