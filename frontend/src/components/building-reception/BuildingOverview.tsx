@@ -1,12 +1,17 @@
-import { KeyRound, Package, ClipboardX, Plus, Layers } from 'lucide-react'
-import type { Apartment, Building, BuildingListItem } from '../../types/api'
+import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Trash2 } from 'lucide-react'
+import type { Apartment, Building, BuildingListItem, BuildingProjectListItem } from '../../types/api'
 import { ACCENT, PALETTE, groupByFloor } from './constants'
 import ApartmentCell from './ApartmentCell'
 
 interface BuildingOverviewProps {
+  projects: BuildingProjectListItem[]
+  selectedProjectId: number | null
   buildings: BuildingListItem[]
   activeBuilding: Building | null
   loading: boolean
+  onSelectProject: (projectId: number | null) => void
+  onCreateProject: () => void
+  onDeleteProject: (projectId: number) => void
   onSelectBuilding: (buildingId: number) => void
   onCreateBuilding: () => void
   onSelectApartment: (apartment: Apartment) => void
@@ -25,9 +30,14 @@ const LEGEND: Array<{ label: string; color: string }> = [
  * data-fetching logic of its own.
  */
 export default function BuildingOverview({
+  projects,
+  selectedProjectId,
   buildings,
   activeBuilding,
   loading,
+  onSelectProject,
+  onCreateProject,
+  onDeleteProject,
   onSelectBuilding,
   onCreateBuilding,
   onSelectApartment,
@@ -35,9 +45,68 @@ export default function BuildingOverview({
 }: BuildingOverviewProps) {
   const floors = activeBuilding ? groupByFloor(activeBuilding.apartments) : []
   const compound = activeBuilding?.compound_name ?? activeBuilding?.address ?? ''
+  // When a project is selected, only its buildings are shown in the tab strip.
+  const visibleBuildings =
+    selectedProjectId === null ? buildings : buildings.filter((building) => building.project_id === selectedProjectId)
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
 
   return (
     <section dir="rtl" className="flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 ml-1">פרויקטים:</span>
+        <button
+          type="button"
+          onClick={() => onSelectProject(null)}
+          className="text-xs font-bold px-3 py-1.5 rounded-full border transition-colors"
+          style={{
+            color: selectedProjectId === null ? '#fff' : '#6B6B7B',
+            background: selectedProjectId === null ? ACCENT : 'transparent',
+            borderColor: selectedProjectId === null ? ACCENT : '#E2E2E8',
+          }}
+        >
+          כל הבניינים
+        </button>
+        {projects.map((project) => {
+          const active = project.id === selectedProjectId
+          return (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => onSelectProject(project.id)}
+              className="text-xs font-bold px-3 py-1.5 rounded-full border transition-colors flex items-center gap-1.5"
+              style={{
+                color: active ? '#fff' : '#6B6B7B',
+                background: active ? ACCENT : 'transparent',
+                borderColor: active ? ACCENT : '#E2E2E8',
+              }}
+            >
+              {project.name}
+              <span className="opacity-70">({project.buildings_count})</span>
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          onClick={onCreateProject}
+          className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 border border-dashed"
+          style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+        >
+          <FolderPlus className="w-4 h-4" />
+          פרויקט
+        </button>
+        {selectedProject && (
+          <button
+            type="button"
+            onClick={() => onDeleteProject(selectedProject.id)}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            aria-label="מחיקת פרויקט"
+            title={`מחיקת הפרויקט "${selectedProject.name}"`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       <div className="flex items-end justify-between gap-4 flex-wrap mb-4">
         <div>
           <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
@@ -50,7 +119,7 @@ export default function BuildingOverview({
 
         <div className="flex items-center gap-2">
           <div className="flex bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-1 gap-1">
-            {buildings.map((building) => {
+            {visibleBuildings.map((building) => {
               const active = building.id === activeBuilding?.id
               return (
                 <button

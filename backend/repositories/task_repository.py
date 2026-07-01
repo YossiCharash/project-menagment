@@ -80,6 +80,17 @@ class TaskRepository:
         result = await self.db.execute(q)
         return list(result.unique().scalars().all())
 
+    async def list_by_apartment(self, apartment_id: int) -> list[Task]:
+        """Non-archived tasks linked to a reception-desk apartment, newest first."""
+        result = await self.db.execute(
+            select(Task)
+            .options(selectinload(Task.assigned_user))
+            .where(Task.apartment_id == apartment_id)
+            .where(Task.is_archived == False)  # noqa: E712
+            .order_by(Task.start_time.is_(None), Task.start_time)
+        )
+        return list(result.unique().scalars().all())
+
     async def get(self, task_id: int) -> Task | None:
         result = await self.db.execute(
             select(Task)

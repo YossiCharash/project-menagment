@@ -28,6 +28,7 @@ from backend.models.outlook_sync import OutlookSync
 from backend.models.quote_building import QuoteBuilding, QuoteApartment
 from backend.models.group_transaction_draft import GroupTransactionDraft, GroupTransactionDraftDocument
 # Building Reception Desk (דלפק הבניין)
+from backend.models.building_project import BuildingProject
 from backend.models.building import Building
 from backend.models.apartment import Apartment
 from backend.models.tenant import Tenant
@@ -75,6 +76,7 @@ __all__ = [
     "OutlookSync",
     "GroupTransactionDraft",
     "GroupTransactionDraftDocument",
+    "BuildingProject",
     "Building",
     "Apartment",
     "Tenant",
