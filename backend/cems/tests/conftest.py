@@ -15,8 +15,8 @@ from backend.db.base import Base
 from backend.cems.models.category import AssetCategory
 from backend.cems.models.consumable import ConsumableItem
 from backend.cems.models.fixed_asset import AssetStatus, FixedAsset
-from backend.cems.models.project import Project
 from backend.cems.models.user import UserRole  # CemsUserRole enum
+from backend.models.project import Project
 from backend.cems.models.warehouse import Warehouse
 from backend.models.user import User
 
@@ -34,7 +34,7 @@ async def async_session():
         cems_table_names = {
             "users",
             "cems_warehouses", "cems_warehouse_projects", "cems_manager_history",
-            "cems_asset_categories", "cems_projects",
+            "cems_asset_categories", "cems_projects", "projects",
             "cems_fixed_assets", "cems_asset_history",
             "cems_consumable_items", "cems_consumption_logs", "cems_stock_alerts",
             "cems_transfers", "cems_warehouse_returns",
@@ -127,7 +127,7 @@ async def seed_category(async_session: AsyncSession) -> AssetCategory:
 
 @pytest_asyncio.fixture
 async def seed_project(async_session: AsyncSession) -> Project:
-    proj = Project(id=uuid.uuid4(), name="Project Alpha", code="PA-001")
+    proj = Project(name="Project Alpha")
     async_session.add(proj)
     await async_session.flush()
     return proj

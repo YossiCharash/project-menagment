@@ -25,7 +25,7 @@ class ConsumptionService:
         item_id: uuid.UUID,
         consumer_id: int,
         quantity: Decimal,
-        project_id: Optional[uuid.UUID] = None,
+        project_id: Optional[int] = None,
         notes: Optional[str] = None,
     ) -> ConsumptionLog:
         if quantity <= 0:

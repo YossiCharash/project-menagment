@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.models.consumable import ConsumableItem, ConsumptionLog, StockAlert
 from backend.cems.models.consumable_movement import ConsumableMovementLog
-from backend.cems.models.project import CemsProject
 from backend.cems.repositories.base_repository import BaseRepository
+from backend.models.project import Project
 from backend.models.user import User
 
 ConsumptionLogRow = Tuple[ConsumptionLog, Optional[str], Optional[str]]
@@ -94,9 +94,9 @@ class ConsumableRepository(BaseRepository[ConsumableItem]):
         without triggering the ``lazy="raise"`` relationships.
         """
         stmt = (
-            select(ConsumptionLog, User.full_name, CemsProject.name)
+            select(ConsumptionLog, User.full_name, Project.name)
             .outerjoin(User, ConsumptionLog.consumed_by_id == User.id)
-            .outerjoin(CemsProject, ConsumptionLog.project_id == CemsProject.id)
+            .outerjoin(Project, ConsumptionLog.project_id == Project.id)
             .where(ConsumptionLog.item_id == item_id)
             .order_by(ConsumptionLog.consumed_at.desc())
             .offset(skip)
