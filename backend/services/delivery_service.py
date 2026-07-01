@@ -8,7 +8,7 @@ from backend.models.apartment_activity import ActivityKind
 from backend.repositories.delivery_repository import DeliveryRepository
 from backend.repositories.apartment_repository import ApartmentRepository
 from backend.services.apartment_activity_service import ApartmentActivityService
-from backend.schemas.delivery import DeliveryCreate
+from backend.schemas.delivery import DeliveryCreate, DeliveryUpdate
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
 
@@ -58,14 +58,33 @@ class DeliveryService:
         delivery.received_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return await self.delivery_repository.update(delivery)
 
+    async def update_delivery(self, delivery_id: int, data: DeliveryUpdate) -> Delivery:
+        """Edit a delivery's title / kind / details / status."""
+        delivery = await self._get_delivery(delivery_id)
+        update_data = data.model_dump(exclude_unset=True)
+        if "title" in update_data and update_data["title"]:
+            delivery.title = update_data["title"].strip()
+        if "kind" in update_data:
+            delivery.kind = (update_data["kind"] or "").strip() or None
+        if "meta" in update_data:
+            delivery.meta = (update_data["meta"] or "").strip() or None
+        if "status" in update_data and update_data["status"]:
+            delivery.status = update_data["status"]
+            if delivery.status == DeliveryStatus.DELIVERED and delivery.received_at is None:
+                delivery.received_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        return await self.delivery_repository.update(delivery)
+
     async def delete_delivery(self, delivery_id: int) -> None:
         """Remove a delivery record from the desk."""
+        await self.delivery_repository.delete(await self._get_delivery(delivery_id))
+
+    async def _get_delivery(self, delivery_id: int) -> Delivery:
         delivery = await self.delivery_repository.get(delivery_id)
         if not delivery:
             raise ValueError(
                 BuildingReceptionErrorMessages.delivery_not_found_by_id(delivery_id)
             )
-        await self.delivery_repository.delete(delivery)
+        return delivery
 
     # --- private helpers -----------------------------------------------
 

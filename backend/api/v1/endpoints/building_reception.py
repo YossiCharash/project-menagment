@@ -13,14 +13,19 @@ from backend.models.apartment import Apartment
 from backend.models.delivery import DeliveryStatus
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
 from backend.schemas.apartment import ApartmentCreate, ApartmentOut, ApartmentDetailOut, ApartmentUpdate
-from backend.schemas.tenant import TenantCreate, TenantOut
+from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
 from backend.schemas.apartment_key import (
     ApartmentKeyCreate,
     ApartmentKeyOut,
+    ApartmentKeyUpdate,
     KeyTransferCreate,
 )
-from backend.schemas.authorized_vehicle import AuthorizedVehicleCreate, AuthorizedVehicleOut
-from backend.schemas.delivery import DeliveryCreate, DeliveryOut
+from backend.schemas.authorized_vehicle import (
+    AuthorizedVehicleCreate,
+    AuthorizedVehicleOut,
+    AuthorizedVehicleUpdate,
+)
+from backend.schemas.delivery import DeliveryCreate, DeliveryOut, DeliveryUpdate
 from backend.services.building_service import BuildingService
 from backend.services.apartment_service import ApartmentService
 from backend.services.tenant_service import TenantService
@@ -232,6 +237,16 @@ async def swap_tenant(apartment_id: int, db: DBSessionDep, data: TenantCreate, u
     return TenantOut.model_validate(tenant)
 
 
+@router.put("/tenants/{tenant_id}", response_model=TenantOut)
+async def update_tenant(tenant_id: int, db: DBSessionDep, data: TenantUpdate, user=Depends(require_update)):
+    service = TenantService(db)
+    try:
+        tenant = await service.update_tenant(tenant_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return TenantOut.model_validate(tenant)
+
+
 @router.delete("/tenants/{tenant_id}", status_code=204)
 async def delete_tenant(tenant_id: int, db: DBSessionDep, user=Depends(require_delete)):
     service = TenantService(db)
@@ -281,6 +296,16 @@ async def transfer_key(key_id: int, db: DBSessionDep, data: KeyTransferCreate, u
     return ApartmentKeyOut.model_validate(key)
 
 
+@router.put("/keys/{key_id}", response_model=ApartmentKeyOut)
+async def update_key(key_id: int, db: DBSessionDep, data: ApartmentKeyUpdate, user=Depends(require_update)):
+    service = KeyService(db)
+    try:
+        key = await service.update_key(key_id, data.label or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ApartmentKeyOut.model_validate(key)
+
+
 @router.delete("/keys/{key_id}", status_code=204)
 async def delete_key(key_id: int, db: DBSessionDep, user=Depends(require_delete)):
     service = KeyService(db)
@@ -311,6 +336,16 @@ async def create_vehicle(db: DBSessionDep, data: AuthorizedVehicleCreate, user=D
         vehicle = await service.create_vehicle(data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return AuthorizedVehicleOut.model_validate(vehicle)
+
+
+@router.put("/vehicles/{vehicle_id}", response_model=AuthorizedVehicleOut)
+async def update_vehicle(vehicle_id: int, db: DBSessionDep, data: AuthorizedVehicleUpdate, user=Depends(require_update)):
+    service = AuthorizedVehicleService(db)
+    try:
+        vehicle = await service.update_vehicle(vehicle_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return AuthorizedVehicleOut.model_validate(vehicle)
 
 
@@ -354,6 +389,16 @@ async def deliver_delivery(delivery_id: int, db: DBSessionDep, user=Depends(requ
         delivery = await service.mark_delivered(delivery_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return DeliveryOut.model_validate(delivery)
+
+
+@router.put("/deliveries/{delivery_id}", response_model=DeliveryOut)
+async def update_delivery(delivery_id: int, db: DBSessionDep, data: DeliveryUpdate, user=Depends(require_update)):
+    service = DeliveryService(db)
+    try:
+        delivery = await service.update_delivery(delivery_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return DeliveryOut.model_validate(delivery)
 
 
