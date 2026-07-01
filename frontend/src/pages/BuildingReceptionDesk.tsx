@@ -5,6 +5,7 @@ import type { RootState } from '../store'
 import type {
   Apartment,
   ApartmentCreate,
+  BuildingProjectCreate,
   ApartmentDetail,
   ApartmentKey,
   AuthorizedVehicle,
@@ -19,10 +20,14 @@ import type {
 } from '../types/api'
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import {
+  fetchProjects,
+  createProject,
+  deleteProject,
   fetchBuildings,
   fetchBuilding,
   createBuilding,
   fetchApartment,
+  fetchApartmentTasks,
   closeApartment,
   clearError,
   createApartment,
@@ -47,6 +52,7 @@ import { ACCENT, apartmentTitle } from '../components/building-reception/constan
 import BuildingOverview from '../components/building-reception/BuildingOverview'
 import ApartmentDetailPanel from '../components/building-reception/ApartmentDetailPanel'
 import CreateBuildingModal from '../components/building-reception/CreateBuildingModal'
+import CreateProjectModal from '../components/building-reception/CreateProjectModal'
 import NewTaskModal from '../components/building-reception/NewTaskModal'
 import KeyTransferModal from '../components/building-reception/KeyTransferModal'
 import AddVehicleModal from '../components/building-reception/AddVehicleModal'
@@ -71,8 +77,12 @@ export default function BuildingReceptionDesk() {
   const loadingBuilding = useAppSelector((state: RootState) => state.buildingReception.loadingBuilding)
   const loadingApartment = useAppSelector((state: RootState) => state.buildingReception.loadingApartment)
   const error = useAppSelector((state: RootState) => state.buildingReception.error)
+  const apartmentTasks = useAppSelector((state: RootState) => state.buildingReception.activeApartmentTasks)
+  const projects = useAppSelector((state: RootState) => state.buildingReception.projects)
 
   const [createBuildingOpen, setCreateBuildingOpen] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [taskOpen, setTaskOpen] = useState(false)
   const [keyTransferOpen, setKeyTransferOpen] = useState(false)
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
@@ -88,9 +98,10 @@ export default function BuildingReceptionDesk() {
   const [editingVehicle, setEditingVehicle] = useState<AuthorizedVehicle | null>(null)
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null)
 
-  // Load the building list once; then open the first building automatically.
+  // Load the building + project lists once; then open the first building.
   useEffect(() => {
     void dispatch(fetchBuildings())
+    void dispatch(fetchProjects())
   }, [dispatch])
 
   useEffect(() => {
@@ -119,18 +130,37 @@ export default function BuildingReceptionDesk() {
 
   const handleSelectApartment = (apartment: Apartment) => {
     void dispatch(fetchApartment(apartment.id))
+    void dispatch(fetchApartmentTasks(apartment.id))
   }
 
   const handleCreateBuilding = (payload: BuildingCreate) =>
     runSubmit(
       () => dispatch(createBuilding(payload)).unwrap(),
-      () => setCreateBuildingOpen(false),
+      () => {
+        setCreateBuildingOpen(false)
+        void dispatch(fetchProjects())
+      },
     )
+
+  const handleCreateProject = (payload: BuildingProjectCreate) =>
+    runSubmit(
+      () => dispatch(createProject(payload)).unwrap(),
+      () => setCreateProjectOpen(false),
+    )
+
+  const handleDeleteProject = (projectId: number) => {
+    if (!window.confirm('למחוק את הפרויקט? הבניינים יישארו אך לא ישויכו לפרויקט.')) return
+    if (selectedProjectId === projectId) setSelectedProjectId(null)
+    void dispatch(deleteProject(projectId))
+  }
 
   const handleCreateTask = (payload: BuildingReceptionTaskCreate) =>
     runSubmit(
       () => BuildingReceptionAPI.createTask(payload),
-      () => setTaskOpen(false),
+      () => {
+        setTaskOpen(false)
+        if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
+      },
     )
 
   const handleTransferKey = (keyId: number, payload: KeyTransferCreate) => {
@@ -348,9 +378,14 @@ export default function BuildingReceptionDesk() {
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-10">
         <BuildingOverview
+          projects={projects}
+          selectedProjectId={selectedProjectId}
           buildings={buildings}
           activeBuilding={activeBuilding}
           loading={loadingBuilding}
+          onSelectProject={setSelectedProjectId}
+          onCreateProject={() => setCreateProjectOpen(true)}
+          onDeleteProject={handleDeleteProject}
           onSelectBuilding={handleSelectBuilding}
           onCreateBuilding={() => setCreateBuildingOpen(true)}
           onSelectApartment={handleSelectApartment}
@@ -363,8 +398,10 @@ export default function BuildingReceptionDesk() {
 
       <ApartmentDetailPanel
         apartment={activeApartment}
+        tasks={apartmentTasks}
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
+        onAddTask={() => setTaskOpen(true)}
         onEditApartment={(apartment) => setEditingApartment(apartment)}
         onDeleteApartment={handleDeleteApartment}
         onAddTenant={() => {
@@ -410,7 +447,16 @@ export default function BuildingReceptionDesk() {
       <CreateBuildingModal
         isOpen={createBuildingOpen}
         onClose={() => setCreateBuildingOpen(false)}
+        projects={projects}
+        defaultProjectId={selectedProjectId}
         onSubmit={handleCreateBuilding}
+        submitting={submitting}
+      />
+
+      <CreateProjectModal
+        isOpen={createProjectOpen}
+        onClose={() => setCreateProjectOpen(false)}
+        onSubmit={handleCreateProject}
         submitting={submitting}
       />
 

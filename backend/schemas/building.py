@@ -8,6 +8,7 @@ class BuildingBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     address: str | None = None
     compound_name: str | None = None
+    project_id: int | None = None
     floors_count: int = Field(default=0, ge=0)
     units_per_floor: int = Field(default=0, ge=0)
     has_common_areas: bool = False
@@ -21,6 +22,7 @@ class BuildingUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     address: str | None = None
     compound_name: str | None = None
+    project_id: int | None = None
     floors_count: int | None = Field(default=None, ge=0)
     units_per_floor: int | None = Field(default=None, ge=0)
     has_common_areas: bool | None = None

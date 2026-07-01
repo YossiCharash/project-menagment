@@ -3,6 +3,7 @@ import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
 import type {
   ApartmentCreate,
   ApartmentDetail,
+  ApartmentTask,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
   ApartmentUpdate,
@@ -11,6 +12,8 @@ import type {
   Building,
   BuildingCreate,
   BuildingListItem,
+  BuildingProjectCreate,
+  BuildingProjectListItem,
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
@@ -19,11 +22,14 @@ import type {
 } from '../../types/api'
 
 interface BuildingReceptionState {
+  projects: BuildingProjectListItem[]
   buildings: BuildingListItem[]
   /** Fully-loaded building currently shown in the overview. */
   activeBuilding: Building | null
   /** Fully-loaded apartment currently shown in the side panel. */
   activeApartment: ApartmentDetail | null
+  /** Tasks linked to the active apartment (loaded alongside it). */
+  activeApartmentTasks: ApartmentTask[]
   loadingBuildings: boolean
   loadingBuilding: boolean
   loadingApartment: boolean
@@ -31,9 +37,11 @@ interface BuildingReceptionState {
 }
 
 const initialState: BuildingReceptionState = {
+  projects: [],
   buildings: [],
   activeBuilding: null,
   activeApartment: null,
+  activeApartmentTasks: [],
   loadingBuildings: false,
   loadingBuilding: false,
   loadingApartment: false,
@@ -50,6 +58,44 @@ const asMessage = (error: unknown, fallback: string): string => {
 }
 
 // ---- Thunks -----------------------------------------------------------------
+
+export const fetchProjects = createAsyncThunk(
+  'buildingReception/fetchProjects',
+  async (_: void, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.listProjects()
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'טעינת הפרויקטים נכשלה'))
+    }
+  },
+)
+
+export const createProject = createAsyncThunk(
+  'buildingReception/createProject',
+  async (payload: BuildingProjectCreate, { dispatch, rejectWithValue }) => {
+    try {
+      const project = await BuildingReceptionAPI.createProject(payload)
+      void dispatch(fetchProjects())
+      return project
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'הקמת הפרויקט נכשלה'))
+    }
+  },
+)
+
+export const deleteProject = createAsyncThunk(
+  'buildingReception/deleteProject',
+  async (projectId: number, { dispatch, rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteProject(projectId)
+      void dispatch(fetchProjects())
+      void dispatch(fetchBuildings())
+      return projectId
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת הפרויקט נכשלה'))
+    }
+  },
+)
 
 export const fetchBuildings = createAsyncThunk(
   'buildingReception/fetchBuildings',
@@ -91,6 +137,17 @@ export const fetchApartment = createAsyncThunk(
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'טעינת פרטי הדירה נכשלה'))
+    }
+  },
+)
+
+export const fetchApartmentTasks = createAsyncThunk(
+  'buildingReception/fetchApartmentTasks',
+  async (apartmentId: number, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.listApartmentTasks(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'טעינת משימות הדירה נכשלה'))
     }
   },
 )
@@ -321,6 +378,7 @@ const slice = createSlice({
   reducers: {
     closeApartment(state) {
       state.activeApartment = null
+      state.activeApartmentTasks = []
     },
     clearError(state) {
       state.error = null
@@ -335,6 +393,10 @@ const slice = createSlice({
     }
 
     builder
+      .addCase(fetchProjects.fulfilled, (state, action) => {
+        state.projects = action.payload
+      })
+
       .addCase(fetchBuildings.pending, (state) => {
         state.loadingBuildings = true
         state.error = null
@@ -368,6 +430,7 @@ const slice = createSlice({
           name: action.payload.name,
           address: action.payload.address,
           compound_name: action.payload.compound_name,
+          project_id: action.payload.project_id,
           floors_count: action.payload.floors_count,
           units_per_floor: action.payload.units_per_floor,
           has_common_areas: action.payload.has_common_areas,
@@ -383,6 +446,10 @@ const slice = createSlice({
       .addCase(fetchApartment.pending, (state) => {
         state.loadingApartment = true
         state.error = null
+        state.activeApartmentTasks = []
+      })
+      .addCase(fetchApartmentTasks.fulfilled, (state, action) => {
+        state.activeApartmentTasks = action.payload
       })
       .addCase(fetchApartment.fulfilled, (state, action) => {
         state.loadingApartment = false

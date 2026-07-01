@@ -14,6 +14,7 @@ const buildingListItem = {
   name: 'בניין A',
   address: 'יערות ישראל, מודיעין',
   compound_name: 'מתחם יערות',
+  project_id: null,
   floors_count: 1,
   units_per_floor: 2,
   has_common_areas: false,
@@ -49,6 +50,7 @@ vi.mock('../../lib/buildingReceptionApi', () => {
     getApartment: vi.fn(),
     listTaskAssignees: vi.fn(),
     createTask: vi.fn(),
+    listProjects: vi.fn(),
   }
   return { default: api, BuildingReceptionAPI: api }
 })
@@ -62,6 +64,7 @@ const mockedApi = BuildingReceptionAPI as unknown as {
   getApartment: ReturnType<typeof vi.fn>
   listTaskAssignees: ReturnType<typeof vi.fn>
   createTask: ReturnType<typeof vi.fn>
+  listProjects: ReturnType<typeof vi.fn>
 }
 
 const renderPage = () => {
@@ -77,6 +80,7 @@ const renderPage = () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockedApi.listProjects.mockResolvedValue([])
   mockedApi.listBuildings.mockResolvedValue([buildingListItem])
   mockedApi.getBuilding.mockResolvedValue(building)
   mockedApi.createBuilding.mockResolvedValue({ ...building, id: 2, name: 'בניין חדש' })

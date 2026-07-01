@@ -2,6 +2,7 @@ import api from './api'
 import type {
   ApartmentCreate,
   ApartmentDetail,
+  ApartmentTask,
   ApartmentKey,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
@@ -12,6 +13,9 @@ import type {
   Building,
   BuildingCreate,
   BuildingListItem,
+  BuildingProject,
+  BuildingProjectCreate,
+  BuildingProjectListItem,
   BuildingReceptionTaskCreate,
   BuildingUpdate,
   Delivery,
@@ -34,6 +38,22 @@ const BASE = '/building-reception'
  * convention already established by `apiClient.ts`.
  */
 export class BuildingReceptionAPI {
+  // ---- Projects -------------------------------------------------------------
+
+  static async listProjects(): Promise<BuildingProjectListItem[]> {
+    const { data } = await api.get<BuildingProjectListItem[]>(`${BASE}/projects`)
+    return data
+  }
+
+  static async createProject(payload: BuildingProjectCreate): Promise<BuildingProject> {
+    const { data } = await api.post<BuildingProject>(`${BASE}/projects`, payload)
+    return data
+  }
+
+  static async deleteProject(projectId: number): Promise<void> {
+    await api.delete(`${BASE}/projects/${projectId}`)
+  }
+
   // ---- Buildings ------------------------------------------------------------
 
   static async listBuildings(): Promise<BuildingListItem[]> {
@@ -64,6 +84,11 @@ export class BuildingReceptionAPI {
 
   static async getApartment(apartmentId: number): Promise<ApartmentDetail> {
     const { data } = await api.get<ApartmentDetail>(`${BASE}/apartments/${apartmentId}`)
+    return data
+  }
+
+  static async listApartmentTasks(apartmentId: number): Promise<ApartmentTask[]> {
+    const { data } = await api.get<ApartmentTask[]>(`${BASE}/apartments/${apartmentId}/tasks`)
     return data
   }
 

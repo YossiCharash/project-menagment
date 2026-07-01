@@ -12,7 +12,20 @@ from backend.iam.enums import Action, ResourceType
 from backend.models.apartment import Apartment
 from backend.models.delivery import DeliveryStatus
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
-from backend.schemas.apartment import ApartmentCreate, ApartmentOut, ApartmentDetailOut, ApartmentUpdate
+from backend.schemas.building_project import (
+    BuildingProjectCreate,
+    BuildingProjectUpdate,
+    BuildingProjectOut,
+    BuildingProjectListItem,
+)
+from backend.schemas.apartment import (
+    ApartmentCreate,
+    ApartmentOut,
+    ApartmentDetailOut,
+    ApartmentUpdate,
+    ApartmentTaskOut,
+)
+from backend.repositories.task_repository import TaskRepository
 from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
 from backend.schemas.apartment_key import (
     ApartmentKeyCreate,
@@ -27,6 +40,7 @@ from backend.schemas.authorized_vehicle import (
 )
 from backend.schemas.delivery import DeliveryCreate, DeliveryOut, DeliveryUpdate
 from backend.services.building_service import BuildingService
+from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
 from backend.services.tenant_service import TenantService
 from backend.services.key_service import KeyService
@@ -113,12 +127,97 @@ def _building_to_out(building) -> BuildingOut:
         name=building.name,
         address=building.address,
         compound_name=building.compound_name,
+        project_id=building.project_id,
         floors_count=building.floors_count,
         units_per_floor=building.units_per_floor,
         has_common_areas=building.has_common_areas,
         created_at=building.created_at,
         apartments=[_apartment_to_out(a) for a in (building.apartments or [])],
     )
+
+
+def _building_to_list_item(building) -> BuildingListItem:
+    return BuildingListItem(
+        id=building.id,
+        name=building.name,
+        address=building.address,
+        compound_name=building.compound_name,
+        project_id=building.project_id,
+        floors_count=building.floors_count,
+        units_per_floor=building.units_per_floor,
+        has_common_areas=building.has_common_areas,
+        created_at=building.created_at,
+        apartments_count=len(building.apartments or []),
+    )
+
+
+def _project_to_out(project) -> BuildingProjectOut:
+    return BuildingProjectOut(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        created_at=project.created_at,
+        buildings=[_building_to_list_item(b) for b in (project.buildings or [])],
+    )
+
+
+# --- Projects -------------------------------------------------------------
+
+
+@router.post("/projects", response_model=BuildingProjectOut)
+async def create_project(db: DBSessionDep, data: BuildingProjectCreate, user=Depends(require_write)):
+    service = BuildingProjectService(db)
+    try:
+        project = await service.create_project(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _project_to_out(project)
+
+
+@router.get("/projects", response_model=list[BuildingProjectListItem])
+async def list_projects(db: DBSessionDep, user=Depends(require_read)):
+    service = BuildingProjectService(db)
+    projects = await service.list_projects()
+    return [
+        BuildingProjectListItem(
+            id=project.id,
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at,
+            buildings_count=len(project.buildings or []),
+        )
+        for project in projects
+    ]
+
+
+@router.get("/projects/{project_id}", response_model=BuildingProjectOut)
+async def get_project(project_id: int, db: DBSessionDep, user=Depends(require_read)):
+    service = BuildingProjectService(db)
+    try:
+        project = await service.get_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return _project_to_out(project)
+
+
+@router.put("/projects/{project_id}", response_model=BuildingProjectOut)
+async def update_project(project_id: int, db: DBSessionDep, data: BuildingProjectUpdate, user=Depends(require_update)):
+    service = BuildingProjectService(db)
+    try:
+        project = await service.update_project(project_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return _project_to_out(project)
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_project(project_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = BuildingProjectService(db)
+    try:
+        await service.delete_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
 
 
 # --- Buildings ------------------------------------------------------------
@@ -135,23 +234,12 @@ async def create_building(db: DBSessionDep, data: BuildingCreate, user=Depends(r
 
 
 @router.get("/buildings", response_model=list[BuildingListItem])
-async def list_buildings(db: DBSessionDep, user=Depends(require_read)):
+async def list_buildings(db: DBSessionDep, project_id: int | None = None, user=Depends(require_read)):
     service = BuildingService(db)
     buildings = await service.list_buildings()
-    return [
-        BuildingListItem(
-            id=building.id,
-            name=building.name,
-            address=building.address,
-            compound_name=building.compound_name,
-            floors_count=building.floors_count,
-            units_per_floor=building.units_per_floor,
-            has_common_areas=building.has_common_areas,
-            created_at=building.created_at,
-            apartments_count=len(building.apartments or []),
-        )
-        for building in buildings
-    ]
+    if project_id is not None:
+        buildings = [building for building in buildings if building.project_id == project_id]
+    return [_building_to_list_item(building) for building in buildings]
 
 
 @router.get("/buildings/{building_id}", response_model=BuildingOut)
@@ -225,6 +313,26 @@ async def update_apartment(apartment_id: int, db: DBSessionDep, data: ApartmentU
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _apartment_to_detail(apartment)
+
+
+@router.get("/apartments/{apartment_id}/tasks", response_model=list[ApartmentTaskOut])
+async def list_apartment_tasks(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
+    try:
+        await ApartmentService(db).get_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    tasks = await TaskRepository(db).list_by_apartment(apartment_id)
+    return [
+        ApartmentTaskOut(
+            id=task.id,
+            title=task.title,
+            start_time=task.start_time,
+            status=task.status,
+            assigned_to_user_id=task.assigned_to_user_id,
+            assignee_name=(task.assigned_user.full_name if task.assigned_user else None),
+        )
+        for task in tasks
+    ]
 
 
 @router.post("/apartments/{apartment_id}/tenant", response_model=TenantOut)

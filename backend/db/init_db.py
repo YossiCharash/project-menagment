@@ -27,6 +27,9 @@ _ADDITIVE_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS building_id INTEGER REFERENCES buildings(id)",
     "CREATE INDEX IF NOT EXISTS ix_tasks_apartment_id ON tasks (apartment_id)",
     "CREATE INDEX IF NOT EXISTS ix_tasks_building_id ON tasks (building_id)",
+    # Reception-desk projects grouping buildings (buildings table pre-exists).
+    "ALTER TABLE buildings ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES building_projects(id)",
+    "CREATE INDEX IF NOT EXISTS ix_buildings_project_id ON buildings (project_id)",
 )
 
 # ── Main application models ──────────────────────────────────────────────────

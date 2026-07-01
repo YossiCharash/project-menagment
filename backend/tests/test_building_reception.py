@@ -142,6 +142,82 @@ class TestBuildingCrud:
 
 @pytest.mark.asyncio
 @pytest.mark.api
+class TestProjects:
+    async def _create_project(self, client: AsyncClient, token: str, name: str = "מתחם יערות") -> dict:
+        response = await client.post(
+            f"{BASE}/projects",
+            headers=_auth(token),
+            json={"name": name, "description": "פרויקט מגורים"},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    async def test_create_and_list_projects(self, test_client: AsyncClient, admin_token: str):
+        project = await self._create_project(test_client, admin_token)
+        assert project["name"] == "מתחם יערות"
+        listed = await test_client.get(f"{BASE}/projects", headers=_auth(admin_token))
+        assert listed.status_code == 200, listed.text
+        assert any(p["id"] == project["id"] for p in listed.json())
+
+    async def test_building_created_under_project(self, test_client: AsyncClient, admin_token: str):
+        project = await self._create_project(test_client, admin_token)
+        response = await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(admin_token),
+            json={
+                "name": "בניין A",
+                "project_id": project["id"],
+                "floors_count": 1,
+                "units_per_floor": 2,
+                "has_common_areas": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["project_id"] == project["id"]
+
+        detail = await test_client.get(f"{BASE}/projects/{project['id']}", headers=_auth(admin_token))
+        building_ids = [b["id"] for b in detail.json()["buildings"]]
+        assert response.json()["id"] in building_ids
+
+    async def test_filter_buildings_by_project(self, test_client: AsyncClient, admin_token: str):
+        project = await self._create_project(test_client, admin_token, name="מתחם ב")
+        await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(admin_token),
+            json={"name": "שייך", "project_id": project["id"], "floors_count": 1, "units_per_floor": 1},
+        )
+        await _create_building(test_client, admin_token, name="לא שייך")
+        filtered = await test_client.get(
+            f"{BASE}/buildings", headers=_auth(admin_token), params={"project_id": project["id"]}
+        )
+        names = [b["name"] for b in filtered.json()]
+        assert names == ["שייך"]
+
+    async def test_create_building_unknown_project_400(self, test_client: AsyncClient, admin_token: str):
+        response = await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(admin_token),
+            json={"name": "x", "project_id": 999999, "floors_count": 1, "units_per_floor": 1},
+        )
+        assert response.status_code == 400, response.text
+
+    async def test_delete_project_detaches_buildings(self, test_client: AsyncClient, admin_token: str):
+        project = await self._create_project(test_client, admin_token, name="למחיקה")
+        building = (
+            await test_client.post(
+                f"{BASE}/buildings",
+                headers=_auth(admin_token),
+                json={"name": "בניין", "project_id": project["id"], "floors_count": 1, "units_per_floor": 1},
+            )
+        ).json()
+        deleted = await test_client.delete(f"{BASE}/projects/{project['id']}", headers=_auth(admin_token))
+        assert deleted.status_code == 204, deleted.text
+        after = await test_client.get(f"{BASE}/buildings/{building['id']}", headers=_auth(admin_token))
+        assert after.json()["project_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.api
 class TestApartmentAndTenant:
     async def test_apartment_detail_starts_empty(
         self, test_client: AsyncClient, admin_token: str
@@ -398,6 +474,26 @@ class TestTaskApartmentLink:
         )
         assert response.status_code in (200, 201), response.text
         assert response.json()["apartment_id"] == apartment_id
+
+    async def test_apartment_tasks_are_listed(
+        self, test_client: AsyncClient, admin_token: str, admin_user: User
+    ):
+        """A task created against an apartment shows in its desk task list."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        await test_client.post(
+            "/api/v1/tasks/",
+            headers=_auth(admin_token),
+            json={"title": "לבדוק נזילה", "assigned_to_user_id": admin_user.id, "apartment_id": apartment_id},
+        )
+        response = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}/tasks", headers=_auth(admin_token)
+        )
+        assert response.status_code == 200, response.text
+        tasks = response.json()
+        assert len(tasks) == 1
+        assert tasks[0]["title"] == "לבדוק נזילה"
+        assert tasks[0]["assignee_name"] == admin_user.full_name
 
 
 @pytest.mark.asyncio
