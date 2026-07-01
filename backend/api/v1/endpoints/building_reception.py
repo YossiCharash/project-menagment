@@ -12,7 +12,7 @@ from backend.iam.enums import Action, ResourceType
 from backend.models.apartment import Apartment
 from backend.models.delivery import DeliveryStatus
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
-from backend.schemas.apartment import ApartmentOut, ApartmentDetailOut, ApartmentUpdate
+from backend.schemas.apartment import ApartmentCreate, ApartmentOut, ApartmentDetailOut, ApartmentUpdate
 from backend.schemas.tenant import TenantCreate, TenantOut
 from backend.schemas.apartment_key import (
     ApartmentKeyCreate,
@@ -182,6 +182,26 @@ async def delete_building(building_id: int, db: DBSessionDep, user=Depends(requi
 # --- Apartments -----------------------------------------------------------
 
 
+@router.post("/apartments", response_model=ApartmentDetailOut)
+async def create_apartment(db: DBSessionDep, data: ApartmentCreate, user=Depends(require_write)):
+    service = ApartmentService(db)
+    try:
+        apartment = await service.create_apartment(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _apartment_to_detail(apartment)
+
+
+@router.delete("/apartments/{apartment_id}", status_code=204)
+async def delete_apartment(apartment_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = ApartmentService(db)
+    try:
+        await service.delete_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
+
+
 @router.get("/apartments/{apartment_id}", response_model=ApartmentDetailOut)
 async def get_apartment(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
     service = ApartmentService(db)
@@ -210,6 +230,16 @@ async def swap_tenant(apartment_id: int, db: DBSessionDep, data: TenantCreate, u
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return TenantOut.model_validate(tenant)
+
+
+@router.delete("/tenants/{tenant_id}", status_code=204)
+async def delete_tenant(tenant_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = TenantService(db)
+    try:
+        await service.delete_tenant(tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
 
 
 # --- Keys -----------------------------------------------------------------
@@ -249,6 +279,16 @@ async def transfer_key(key_id: int, db: DBSessionDep, data: KeyTransferCreate, u
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return ApartmentKeyOut.model_validate(key)
+
+
+@router.delete("/keys/{key_id}", status_code=204)
+async def delete_key(key_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = KeyService(db)
+    try:
+        await service.delete_key(key_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
 
 
 # --- Vehicles -------------------------------------------------------------
@@ -315,3 +355,13 @@ async def deliver_delivery(delivery_id: int, db: DBSessionDep, user=Depends(requ
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return DeliveryOut.model_validate(delivery)
+
+
+@router.delete("/deliveries/{delivery_id}", status_code=204)
+async def delete_delivery(delivery_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = DeliveryService(db)
+    try:
+        await service.delete_delivery(delivery_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None

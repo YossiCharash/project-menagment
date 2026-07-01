@@ -25,6 +25,7 @@ class BuildingReceptionErrorMessages:
     INVALID_FLOORS_COUNT = "מספר הקומות חייב להיות מספר חיובי"
     INVALID_UNITS_PER_FLOOR = "מספר היחידות בקומה חייב להיות מספר חיובי"
     TENANT_NAME_REQUIRED = "שם הדייר הוא שדה חובה"
+    APARTMENT_UNIT_REQUIRED = "מספר הדירה הוא שדה חובה"
     KEY_LABEL_REQUIRED = "תיאור המפתח הוא שדה חובה"
     COUNTERPARTY_NAME_REQUIRED = "שם מקבל/מחזיר המפתח הוא שדה חובה"
     VEHICLE_PLATE_REQUIRED = "מספר רישוי הרכב הוא שדה חובה"
@@ -42,6 +43,11 @@ class BuildingReceptionErrorMessages:
     def apartment_not_found_by_id(apartment_id: int) -> str:
         """Message shown when an apartment id cannot be resolved."""
         return f"הדירה עם המזהה {apartment_id} לא נמצאה במערכת"
+
+    @staticmethod
+    def tenant_not_found_by_id(tenant_id: int) -> str:
+        """Message shown when a tenant id cannot be resolved."""
+        return f"הדייר עם המזהה {tenant_id} לא נמצא במערכת"
 
     @staticmethod
     def key_not_found_by_id(key_id: int) -> str:
