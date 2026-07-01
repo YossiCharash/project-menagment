@@ -79,7 +79,10 @@ class KeyService:
         await self.key_repository.add_transfer(transfer)
 
         await self._record_transfer_activity(key, direction, clean_counterparty)
-        return await self.key_repository.get(key.id)
+        # The key was loaded earlier in this session with an (empty) transfers
+        # collection; refresh it so the freshly journaled transfer is included.
+        await self.db.refresh(key, attribute_names=["transfers"])
+        return key
 
     # --- private helpers -----------------------------------------------
 
