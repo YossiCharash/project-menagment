@@ -22,6 +22,7 @@ class BuildingReceptionErrorMessages:
     NO_CURRENT_TENANT = "לא קיים דייר נוכחי בדירה זו להחלפה"
     DELIVERY_ALREADY_DELIVERED = "המשלוח כבר סומן כנמסר"
     BUILDING_NAME_REQUIRED = "שם הבניין הוא שדה חובה"
+    PROJECT_NAME_REQUIRED = "שם הפרויקט הוא שדה חובה"
     INVALID_FLOORS_COUNT = "מספר הקומות חייב להיות מספר חיובי"
     INVALID_UNITS_PER_FLOOR = "מספר היחידות בקומה חייב להיות מספר חיובי"
     TENANT_NAME_REQUIRED = "שם הדייר הוא שדה חובה"
@@ -43,6 +44,11 @@ class BuildingReceptionErrorMessages:
     def apartment_not_found_by_id(apartment_id: int) -> str:
         """Message shown when an apartment id cannot be resolved."""
         return f"הדירה עם המזהה {apartment_id} לא נמצאה במערכת"
+
+    @staticmethod
+    def project_not_found_by_id(project_id: int) -> str:
+        """Message shown when a project id cannot be resolved."""
+        return f"הפרויקט עם המזהה {project_id} לא נמצא במערכת"
 
     @staticmethod
     def tenant_not_found_by_id(tenant_id: int) -> str:
