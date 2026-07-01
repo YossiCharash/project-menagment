@@ -15,9 +15,17 @@ class BuildingRepository:
         self.db = db
 
     async def get(self, building_id: int) -> Building | None:
+        # Eager-load every apartment collection the building-overview serializer
+        # reads (current tenant + key/vehicle/delivery counts), so no lazy IO is
+        # triggered during async response serialization.
         result = await self.db.execute(
             select(Building)
-            .options(selectinload(Building.apartments).selectinload(Apartment.tenants))
+            .options(
+                selectinload(Building.apartments).selectinload(Apartment.tenants),
+                selectinload(Building.apartments).selectinload(Apartment.keys),
+                selectinload(Building.apartments).selectinload(Apartment.vehicles),
+                selectinload(Building.apartments).selectinload(Apartment.deliveries),
+            )
             .where(Building.id == building_id)
         )
         return result.scalar_one_or_none()
