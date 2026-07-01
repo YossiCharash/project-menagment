@@ -368,3 +368,188 @@ export interface NotificationCreate {
   title: string
   body?: string | null
 }
+
+// --- Building Reception Desk (דלפק הבניין) ---
+
+export interface Tenant {
+  id: number
+  apartment_id: number
+  name: string
+  phone: string | null
+  email: string | null
+  move_in_date: string | null
+  move_out_date: string | null
+  is_current: boolean
+  created_at: string
+}
+
+export type KeyHolder = 'in_desk' | 'out'
+export type KeyTransferDirection = 'out' | 'return'
+
+export interface KeyTransfer {
+  id: number
+  key_id: number
+  direction: KeyTransferDirection
+  counterparty_name: string
+  note: string | null
+  created_by_user_id: number | null
+  created_at: string
+}
+
+export interface ApartmentKey {
+  id: number
+  apartment_id: number
+  label: string
+  holder: KeyHolder
+  holder_name: string | null
+  created_at: string
+  transfers: KeyTransfer[]
+}
+
+export interface AuthorizedVehicle {
+  id: number
+  apartment_id: number
+  plate: string
+  model: string | null
+  owner_name: string
+  parking_spot: string | null
+  created_at: string
+}
+
+export type DeliveryStatus = 'pending' | 'delivered'
+
+export interface Delivery {
+  id: number
+  apartment_id: number
+  title: string
+  kind: string | null
+  meta: string | null
+  status: DeliveryStatus
+  received_at: string | null
+  created_at: string
+}
+
+export interface ApartmentActivity {
+  id: number
+  apartment_id: number
+  kind: string
+  text: string
+  created_at: string
+}
+
+/** Apartment as it appears inside a building overview (summary counts only). */
+export interface Apartment {
+  id: number
+  building_id: number
+  floor: number
+  unit_number: string
+  label: string | null
+  is_common_area: boolean
+  created_at: string
+  current_tenant: Tenant | null
+  keys_count: number
+  vehicles_count: number
+  pending_deliveries_count: number
+}
+
+/** Full apartment payload for the detail side panel. */
+export interface ApartmentDetail extends Apartment {
+  tenants: Tenant[]
+  keys: ApartmentKey[]
+  vehicles: AuthorizedVehicle[]
+  deliveries: Delivery[]
+  activities: ApartmentActivity[]
+}
+
+export interface Building {
+  id: number
+  name: string
+  address: string | null
+  compound_name: string | null
+  floors_count: number
+  units_per_floor: number
+  has_common_areas: boolean
+  created_at: string
+  apartments: Apartment[]
+}
+
+/** Building as it appears in the buildings list (no nested apartments). */
+export interface BuildingListItem {
+  id: number
+  name: string
+  address: string | null
+  compound_name: string | null
+  floors_count: number
+  units_per_floor: number
+  has_common_areas: boolean
+  created_at: string
+  apartments_count: number
+}
+
+export interface BuildingCreate {
+  name: string
+  address?: string | null
+  compound_name?: string | null
+  floors_count: number
+  units_per_floor: number
+  has_common_areas: boolean
+}
+
+export interface BuildingUpdate {
+  name?: string
+  address?: string | null
+  compound_name?: string | null
+  floors_count?: number
+  units_per_floor?: number
+  has_common_areas?: boolean
+}
+
+export interface ApartmentUpdate {
+  floor?: number
+  unit_number?: string
+  label?: string | null
+  is_common_area?: boolean
+}
+
+export interface TenantCreate {
+  name: string
+  phone?: string | null
+  email?: string | null
+  move_in_date?: string | null
+  move_out_date?: string | null
+}
+
+export interface ApartmentKeyCreate {
+  apartment_id: number
+  label: string
+}
+
+export interface KeyTransferCreate {
+  direction: KeyTransferDirection
+  counterparty_name: string
+  note?: string | null
+}
+
+export interface AuthorizedVehicleCreate {
+  apartment_id: number
+  plate: string
+  model?: string | null
+  owner_name: string
+  parking_spot?: string | null
+}
+
+export interface DeliveryCreate {
+  apartment_id: number
+  title: string
+  kind?: string | null
+  meta?: string | null
+}
+
+export interface BuildingReceptionTaskCreate {
+  title: string
+  assigned_to_user_id: number
+  apartment_id?: number | null
+  start_time?: string | null
+  end_time?: string | null
+  description?: string | null
+}

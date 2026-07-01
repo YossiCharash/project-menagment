@@ -4,9 +4,10 @@ import projects from './slices/projectsSlice'
 import suppliers from './slices/suppliersSlice'
 import notifications from './slices/notificationsSlice'
 import permissions from './slices/permissionsSlice'
+import buildingReception from './slices/buildingReceptionSlice'
 
 export const store = configureStore({
-  reducer: { auth, projects, suppliers, notifications, permissions },
+  reducer: { auth, projects, suppliers, notifications, permissions, buildingReception },
 })
 
 export type RootState = ReturnType<typeof store.getState>
