@@ -4,9 +4,11 @@ import type {
   ApartmentDetail,
   ApartmentKey,
   ApartmentKeyCreate,
+  ApartmentKeyUpdate,
   ApartmentUpdate,
   AuthorizedVehicle,
   AuthorizedVehicleCreate,
+  AuthorizedVehicleUpdate,
   Building,
   BuildingCreate,
   BuildingListItem,
@@ -14,9 +16,11 @@ import type {
   BuildingUpdate,
   Delivery,
   DeliveryCreate,
+  DeliveryUpdate,
   KeyTransferCreate,
   Tenant,
   TenantCreate,
+  TenantUpdate,
 } from '../types/api'
 
 const BASE = '/building-reception'
@@ -82,6 +86,11 @@ export class BuildingReceptionAPI {
     return data
   }
 
+  static async updateTenant(tenantId: number, changes: TenantUpdate): Promise<Tenant> {
+    const { data } = await api.put<Tenant>(`${BASE}/tenants/${tenantId}`, changes)
+    return data
+  }
+
   static async deleteTenant(tenantId: number): Promise<void> {
     await api.delete(`${BASE}/tenants/${tenantId}`)
   }
@@ -103,6 +112,11 @@ export class BuildingReceptionAPI {
     return data
   }
 
+  static async updateKey(keyId: number, changes: ApartmentKeyUpdate): Promise<ApartmentKey> {
+    const { data } = await api.put<ApartmentKey>(`${BASE}/keys/${keyId}`, changes)
+    return data
+  }
+
   static async deleteKey(keyId: number): Promise<void> {
     await api.delete(`${BASE}/keys/${keyId}`)
   }
@@ -116,6 +130,11 @@ export class BuildingReceptionAPI {
 
   static async createVehicle(payload: AuthorizedVehicleCreate): Promise<AuthorizedVehicle> {
     const { data } = await api.post<AuthorizedVehicle>(`${BASE}/vehicles`, payload)
+    return data
+  }
+
+  static async updateVehicle(vehicleId: number, changes: AuthorizedVehicleUpdate): Promise<AuthorizedVehicle> {
+    const { data } = await api.put<AuthorizedVehicle>(`${BASE}/vehicles/${vehicleId}`, changes)
     return data
   }
 
@@ -137,6 +156,11 @@ export class BuildingReceptionAPI {
 
   static async markDelivered(deliveryId: number): Promise<Delivery> {
     const { data } = await api.post<Delivery>(`${BASE}/deliveries/${deliveryId}/deliver`)
+    return data
+  }
+
+  static async updateDelivery(deliveryId: number, changes: DeliveryUpdate): Promise<Delivery> {
+    const { data } = await api.put<Delivery>(`${BASE}/deliveries/${deliveryId}`, changes)
     return data
   }
 
