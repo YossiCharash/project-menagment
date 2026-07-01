@@ -309,6 +309,8 @@ def _task_to_out(task: Task) -> dict:
         "status": getattr(task, "status", "pending") or "pending",
         "event_type": getattr(task, "event_type", EventType.TASK) or EventType.TASK,
         "assigned_to_user_id": task.assigned_to_user_id,
+        "apartment_id": getattr(task, "apartment_id", None),
+        "building_id": getattr(task, "building_id", None),
         "unique_tag": task.unique_tag,
         "recurrence_rule": recurrence_rule if recurrence_rule in RECURRENCE_RULE_VALUES else "",
         "recurrence_end_date": recurrence_end_date,
@@ -769,6 +771,8 @@ async def create_task(
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
         is_super_task=getattr(data, "is_super_task", False),
         is_backlog=getattr(data, "is_backlog", False),
+        apartment_id=getattr(data, "apartment_id", None),
+        building_id=getattr(data, "building_id", None),
     )
     if initial_status == TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
