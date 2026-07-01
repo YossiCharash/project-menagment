@@ -110,6 +110,14 @@ class Task(Base):
     requires_closure_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_super_task: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     is_backlog: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # Building Reception Desk linkage: a task can optionally target a specific
+    # apartment (and/or building) handled by the reception desk.
+    apartment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("apartments.id"), nullable=True, index=True
+    )
+    building_id: Mapped[int | None] = mapped_column(
+        ForeignKey("buildings.id"), nullable=True, index=True
+    )
 
     assigned_user: Mapped["User"] = relationship(
         "User", back_populates="tasks", foreign_keys=[assigned_to_user_id], lazy="selectin"
@@ -131,6 +139,9 @@ class Task(Base):
     )
     checklist_items: Mapped[list["TaskChecklistItem"]] = relationship(
         "TaskChecklistItem", back_populates="task", cascade="all, delete-orphan"
+    )
+    apartment: Mapped["Apartment | None"] = relationship(
+        "Apartment", foreign_keys=[apartment_id], lazy="selectin"
     )
 
 
