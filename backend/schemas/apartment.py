@@ -13,6 +13,13 @@ class ApartmentBase(BaseModel):
     unit_number: str = Field(min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool = False
+    owner_name: str | None = None
+    owner_phone: str | None = None
+    management_company_name: str | None = None
+    management_company_phone: str | None = None
+    attorneys: str | None = None
+    equipment: str | None = None
+    notes: str | None = None
 
 
 class ApartmentCreate(ApartmentBase):
@@ -24,6 +31,13 @@ class ApartmentUpdate(BaseModel):
     unit_number: str | None = Field(default=None, min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool | None = None
+    owner_name: str | None = None
+    owner_phone: str | None = None
+    management_company_name: str | None = None
+    management_company_phone: str | None = None
+    attorneys: str | None = None
+    equipment: str | None = None
+    notes: str | None = None
 
 
 class ApartmentOut(ApartmentBase):

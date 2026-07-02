@@ -11,10 +11,29 @@ from backend.messages.building_reception.errors import BuildingReceptionErrorMes
 class ApartmentService:
     """Business logic for apartments (דירות)."""
 
+    # Optional free-text fields on an apartment that share the same
+    # "trim, empty -> None" normalization. Declared once so create/update
+    # never duplicate the per-field strip logic (DRY / single source of truth).
+    OPTIONAL_TEXT_FIELDS = (
+        "label",
+        "owner_name",
+        "owner_phone",
+        "management_company_name",
+        "management_company_phone",
+        "attorneys",
+        "equipment",
+        "notes",
+    )
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.apartment_repository = ApartmentRepository(db)
         self.building_repository = BuildingRepository(db)
+
+    @staticmethod
+    def _normalize_optional_text(raw_value: str | None) -> str | None:
+        """Trim a free-text field, collapsing empty/whitespace-only input to None."""
+        return (raw_value or "").strip() or None
 
     async def create_apartment(self, data: ApartmentCreate) -> Apartment:
         """Add a single apartment/area to an existing building (floor add)."""
@@ -29,8 +48,11 @@ class ApartmentService:
             building_id=data.building_id,
             floor=data.floor,
             unit_number=data.unit_number.strip(),
-            label=(data.label or "").strip() or None,
             is_common_area=data.is_common_area,
+            **{
+                field: self._normalize_optional_text(getattr(data, field))
+                for field in self.OPTIONAL_TEXT_FIELDS
+            },
         )
         created = await self.apartment_repository.create(apartment)
         return await self.apartment_repository.get_with_details(created.id)
@@ -63,9 +85,19 @@ class ApartmentService:
             apartment.floor = update_data["floor"]
         if "unit_number" in update_data and update_data["unit_number"]:
             apartment.unit_number = update_data["unit_number"].strip()
-        if "label" in update_data:
-            apartment.label = (update_data["label"] or "").strip() or None
         if "is_common_area" in update_data and update_data["is_common_area"] is not None:
             apartment.is_common_area = update_data["is_common_area"]
+        self._apply_optional_text_fields(apartment, update_data)
         await self.apartment_repository.update(apartment)
         return await self.apartment_repository.get_with_details(apartment_id)
+
+    def _apply_optional_text_fields(self, apartment: Apartment, update_data: dict) -> None:
+        """Apply any present optional text field, normalizing empty strings to None.
+
+        Only keys explicitly sent by the caller (present in ``update_data``) are
+        touched, so an omitted field keeps its stored value while an empty string
+        clears it back to None.
+        """
+        for field in self.OPTIONAL_TEXT_FIELDS:
+            if field in update_data:
+                setattr(apartment, field, self._normalize_optional_text(update_data[field]))

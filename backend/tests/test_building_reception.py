@@ -517,6 +517,96 @@ class TestApartmentCrud:
         numbers = [a["unit_number"] for a in overview.json()["apartments"]]
         assert "901" in numbers
 
+    async def test_add_apartment_with_card_details(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """The new owner/management/attorneys/equipment/notes fields round-trip."""
+        building = await _create_building(test_client, admin_token)
+        response = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(admin_token),
+            json={
+                "building_id": building["id"],
+                "floor": 5,
+                "unit_number": "505",
+                "owner_name": "יוסי כהן",
+                "owner_phone": "050-1112222",
+                "management_company_name": "ניהול מבנים בע\"מ",
+                "management_company_phone": "03-9998888",
+                "attorneys": "אבי לוי 052-1234567\nרינה גל 053-7654321",
+                "equipment": "מזגן מרכזי\nדוד שמש",
+                "notes": "כניסה מהחניון בלבד",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["owner_name"] == "יוסי כהן"
+        assert body["owner_phone"] == "050-1112222"
+        assert body["management_company_name"] == "ניהול מבנים בע\"מ"
+        assert body["management_company_phone"] == "03-9998888"
+        assert body["attorneys"].splitlines()[0] == "אבי לוי 052-1234567"
+        assert body["equipment"] == "מזגן מרכזי\nדוד שמש"
+        assert body["notes"] == "כניסה מהחניון בלבד"
+
+    async def test_add_apartment_blank_card_details_become_null(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """Whitespace-only card fields are normalized to None on create."""
+        building = await _create_building(test_client, admin_token)
+        response = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(admin_token),
+            json={
+                "building_id": building["id"],
+                "floor": 6,
+                "unit_number": "606",
+                "owner_name": "   ",
+                "notes": "",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["owner_name"] is None
+        assert body["notes"] is None
+
+    async def test_update_apartment_card_details(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """Updating card fields persists, and an empty string clears back to None."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+
+        updated = await test_client.put(
+            f"{BASE}/apartments/{apartment_id}",
+            headers=_auth(admin_token),
+            json={
+                "owner_name": "דנה כהן",
+                "owner_phone": "054-0001111",
+                "management_company_name": "חברת ניהול צפון",
+                "equipment": "ריהוט מלא",
+                "notes": "הערה חשובה",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        body = updated.json()
+        assert body["owner_name"] == "דנה כהן"
+        assert body["owner_phone"] == "054-0001111"
+        assert body["management_company_name"] == "חברת ניהול צפון"
+        assert body["equipment"] == "ריהוט מלא"
+        assert body["notes"] == "הערה חשובה"
+
+        cleared = await test_client.put(
+            f"{BASE}/apartments/{apartment_id}",
+            headers=_auth(admin_token),
+            json={"notes": "", "owner_name": "   "},
+        )
+        assert cleared.status_code == 200, cleared.text
+        cleared_body = cleared.json()
+        assert cleared_body["notes"] is None
+        assert cleared_body["owner_name"] is None
+        # A field not sent in the update keeps its previous value.
+        assert cleared_body["management_company_name"] == "חברת ניהול צפון"
+
     async def test_add_apartment_unknown_building_400(
         self, test_client: AsyncClient, admin_token: str
     ):
