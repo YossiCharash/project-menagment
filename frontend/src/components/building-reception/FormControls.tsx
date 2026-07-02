@@ -41,6 +41,27 @@ export function TextField({ value, onChange, placeholder, type = 'text' }: TextF
   )
 }
 
+interface TextAreaProps {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  rows?: number
+}
+
+/** Controlled multi-line text input sharing TextField's styling. */
+export function TextArea({ value, onChange, placeholder, rows = 3 }: TextAreaProps) {
+  return (
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      rows={rows}
+      className={`${FIELD_CLASS} resize-y leading-relaxed`}
+      style={{ '--br-accent': ACCENT } as React.CSSProperties}
+    />
+  )
+}
+
 interface StepperProps {
   value: number
   min: number
