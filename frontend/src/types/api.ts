@@ -488,6 +488,7 @@ export interface Apartment {
   keys_count: number
   vehicles_count: number
   pending_deliveries_count: number
+  open_tasks_count: number
 }
 
 /** Full apartment payload for the detail side panel. */
@@ -673,4 +674,6 @@ export interface BuildingReceptionTaskCreate {
   start_time?: string | null
   end_time?: string | null
   description?: string | null
+  recurrence_rule?: string
+  recurrence_end_date?: string | null
 }
