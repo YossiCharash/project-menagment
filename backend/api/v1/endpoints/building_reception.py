@@ -39,6 +39,11 @@ from backend.schemas.authorized_vehicle import (
     AuthorizedVehicleUpdate,
 )
 from backend.schemas.delivery import DeliveryCreate, DeliveryOut, DeliveryUpdate
+from backend.schemas.technician_visit import (
+    TechnicianVisitCreate,
+    TechnicianVisitOut,
+    TechnicianVisitUpdate,
+)
 from backend.services.building_service import BuildingService
 from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
@@ -46,6 +51,7 @@ from backend.services.tenant_service import TenantService
 from backend.services.key_service import KeyService
 from backend.services.authorized_vehicle_service import AuthorizedVehicleService
 from backend.services.delivery_service import DeliveryService
+from backend.services.technician_visit_service import TechnicianVisitService
 
 router = APIRouter()
 
@@ -129,6 +135,10 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
         keys=[ApartmentKeyOut.model_validate(k) for k in (apartment.keys or [])],
         vehicles=[AuthorizedVehicleOut.model_validate(v) for v in (apartment.vehicles or [])],
         deliveries=[DeliveryOut.model_validate(d) for d in (apartment.deliveries or [])],
+        technician_visits=[
+            TechnicianVisitOut.model_validate(v)
+            for v in (apartment.technician_visits or [])
+        ],
         activities=[a for a in (apartment.activities or [])],
     )
 
@@ -527,6 +537,66 @@ async def delete_delivery(delivery_id: int, db: DBSessionDep, user=Depends(requi
     service = DeliveryService(db)
     try:
         await service.delete_delivery(delivery_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
+
+
+# --- Technician visits ----------------------------------------------------
+
+
+@router.get(
+    "/apartments/{apartment_id}/technician-visits",
+    response_model=list[TechnicianVisitOut],
+)
+async def list_technician_visits(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
+    service = TechnicianVisitService(db)
+    try:
+        visits = await service.list_for_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return [TechnicianVisitOut.model_validate(v) for v in visits]
+
+
+@router.post("/technician-visits", response_model=TechnicianVisitOut)
+async def create_technician_visit(
+    db: DBSessionDep, data: TechnicianVisitCreate, user=Depends(require_write)
+):
+    service = TechnicianVisitService(db)
+    try:
+        visit = await service.create_visit(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return TechnicianVisitOut.model_validate(visit)
+
+
+@router.post("/technician-visits/{visit_id}/exit", response_model=TechnicianVisitOut)
+async def exit_technician_visit(visit_id: int, db: DBSessionDep, user=Depends(require_update)):
+    service = TechnicianVisitService(db)
+    try:
+        visit = await service.mark_left(visit_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return TechnicianVisitOut.model_validate(visit)
+
+
+@router.put("/technician-visits/{visit_id}", response_model=TechnicianVisitOut)
+async def update_technician_visit(
+    visit_id: int, db: DBSessionDep, data: TechnicianVisitUpdate, user=Depends(require_update)
+):
+    service = TechnicianVisitService(db)
+    try:
+        visit = await service.update_visit(visit_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return TechnicianVisitOut.model_validate(visit)
+
+
+@router.delete("/technician-visits/{visit_id}", status_code=204)
+async def delete_technician_visit(visit_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = TechnicianVisitService(db)
+    try:
+        await service.delete_visit(visit_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return None

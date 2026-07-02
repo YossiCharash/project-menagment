@@ -40,6 +40,9 @@ class Apartment(Base):
     deliveries: Mapped[list["Delivery"]] = relationship(
         "Delivery", back_populates="apartment", cascade="all, delete-orphan"
     )
+    technician_visits: Mapped[list["TechnicianVisit"]] = relationship(
+        "TechnicianVisit", back_populates="apartment", cascade="all, delete-orphan"
+    )
     activities: Mapped[list["ApartmentActivity"]] = relationship(
         "ApartmentActivity", back_populates="apartment", cascade="all, delete-orphan"
     )

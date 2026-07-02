@@ -429,6 +429,37 @@ export interface Delivery {
   created_at: string
 }
 
+export type TechnicianVisitStatus = 'inside' | 'left'
+
+export interface TechnicianVisit {
+  id: number
+  apartment_id: number
+  name: string
+  role: string | null
+  phone: string | null
+  note: string | null
+  status: TechnicianVisitStatus
+  entered_at: string
+  left_at: string | null
+  created_at: string
+}
+
+export interface TechnicianVisitCreate {
+  apartment_id: number
+  name: string
+  role?: string | null
+  phone?: string | null
+  note?: string | null
+}
+
+export interface TechnicianVisitUpdate {
+  name?: string
+  role?: string | null
+  phone?: string | null
+  note?: string | null
+  status?: TechnicianVisitStatus
+}
+
 export interface ApartmentActivity {
   id: number
   apartment_id: number
@@ -465,6 +496,7 @@ export interface ApartmentDetail extends Apartment {
   keys: ApartmentKey[]
   vehicles: AuthorizedVehicle[]
   deliveries: Delivery[]
+  technician_visits: TechnicianVisit[]
   activities: ApartmentActivity[]
 }
 

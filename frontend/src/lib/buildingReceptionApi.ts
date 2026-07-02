@@ -22,6 +22,9 @@ import type {
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
+  TechnicianVisit,
+  TechnicianVisitCreate,
+  TechnicianVisitUpdate,
   Tenant,
   TenantCreate,
   TenantUpdate,
@@ -191,6 +194,32 @@ export class BuildingReceptionAPI {
 
   static async deleteDelivery(deliveryId: number): Promise<void> {
     await api.delete(`${BASE}/deliveries/${deliveryId}`)
+  }
+
+  // ---- Technician visits ----------------------------------------------------
+
+  static async listTechnicianVisits(apartmentId: number): Promise<TechnicianVisit[]> {
+    const { data } = await api.get<TechnicianVisit[]>(`${BASE}/apartments/${apartmentId}/technician-visits`)
+    return data
+  }
+
+  static async createTechnicianVisit(payload: TechnicianVisitCreate): Promise<TechnicianVisit> {
+    const { data } = await api.post<TechnicianVisit>(`${BASE}/technician-visits`, payload)
+    return data
+  }
+
+  static async markTechnicianLeft(visitId: number): Promise<TechnicianVisit> {
+    const { data } = await api.post<TechnicianVisit>(`${BASE}/technician-visits/${visitId}/exit`)
+    return data
+  }
+
+  static async updateTechnicianVisit(visitId: number, changes: TechnicianVisitUpdate): Promise<TechnicianVisit> {
+    const { data } = await api.put<TechnicianVisit>(`${BASE}/technician-visits/${visitId}`, changes)
+    return data
+  }
+
+  static async deleteTechnicianVisit(visitId: number): Promise<void> {
+    await api.delete(`${BASE}/technician-visits/${visitId}`)
   }
 
   // ---- Tasks (reuses the existing global task endpoint) ---------------------
