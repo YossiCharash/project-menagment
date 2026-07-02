@@ -1,7 +1,14 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react'
-import type { ApartmentDetail, ApartmentTask, AuthorizedVehicle, Delivery, ApartmentKey, Tenant } from '../../types/api'
+import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil, UserCheck, Building2, Wrench, KeyRound, StickyNote } from 'lucide-react'
+import type {
+  ApartmentDetail,
+  ApartmentTask,
+  AuthorizedVehicle,
+  Delivery,
+  ApartmentKey,
+  Tenant,
+} from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
@@ -66,6 +73,29 @@ function DetailRow({
   )
 }
 
+/** A block-style section for multi-line free text (label above, wrapped value). */
+function DetailSection({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+}) {
+  return (
+    <div className="mt-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3">
+      <div className="text-sm font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-2 mb-2">
+        <Icon className="w-[18px] h-[18px] text-gray-400" />
+        {label}
+      </div>
+      <div className="text-sm font-bold text-gray-900 dark:text-white whitespace-pre-line leading-relaxed">
+        {value}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The apartment side panel. It owns only the active-tab UI state; every data
  * mutation is delegated to callbacks from the page (Single Responsibility).
@@ -97,6 +127,7 @@ export default function ApartmentDetailPanel({
   const isOpen = apartment !== null || loading
 
   const keyAlert = apartment?.keys.some((key) => key.holder === 'out') ?? false
+  const deskHeldKeysCount = apartment?.keys.filter((key) => key.holder === 'in_desk').length ?? 0
   const pendingDeliveries = apartment?.deliveries.filter((delivery) => delivery.status === 'pending').length ?? 0
 
   const openTasksCount = tasks.filter((task) => task.status !== 'completed').length
@@ -244,10 +275,43 @@ export default function ApartmentDetailPanel({
                           icon={CalendarDays}
                           label="סיום חוזה"
                           value={formatDate(tenant?.move_out_date ?? null)}
+                        />
+                        <DetailRow icon={UserCheck} label="בעלי הדירה" value={apartment.owner_name ?? '—'} />
+                        <DetailRow icon={Phone} label="טלפון בעלים" value={apartment.owner_phone ?? '—'} />
+                        {apartment.management_company_name && (
+                          <DetailRow
+                            icon={Building2}
+                            label="חברת ניהול"
+                            value={apartment.management_company_name}
+                          />
+                        )}
+                        {apartment.management_company_phone && (
+                          <DetailRow
+                            icon={Phone}
+                            label="טלפון חברת ניהול"
+                            value={apartment.management_company_phone}
+                          />
+                        )}
+                        <DetailRow
+                          icon={KeyRound}
+                          label="מפתחות אצלנו"
+                          value={deskHeldKeysCount > 0 ? `כן (${deskHeldKeysCount})` : 'לא'}
                           last
                         />
                       </div>
                     </div>
+                  )}
+
+                  {tab === 'details' && apartment.attorneys && (
+                    <DetailSection icon={Users} label="מיופי כח" value={apartment.attorneys} />
+                  )}
+
+                  {tab === 'details' && apartment.equipment && (
+                    <DetailSection icon={Wrench} label="ציוד בדירה" value={apartment.equipment} />
+                  )}
+
+                  {tab === 'details' && apartment.notes && (
+                    <DetailSection icon={StickyNote} label="הערות" value={apartment.notes} />
                   )}
 
                   {tab === 'details' && (

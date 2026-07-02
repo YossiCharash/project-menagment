@@ -445,6 +445,13 @@ export interface Apartment {
   unit_number: string
   label: string | null
   is_common_area: boolean
+  owner_name: string | null
+  owner_phone: string | null
+  management_company_name: string | null
+  management_company_phone: string | null
+  attorneys: string | null
+  equipment: string | null
+  notes: string | null
   created_at: string
   current_tenant: Tenant | null
   keys_count: number
@@ -533,6 +540,13 @@ export interface ApartmentUpdate {
   unit_number?: string
   label?: string | null
   is_common_area?: boolean
+  owner_name?: string | null
+  owner_phone?: string | null
+  management_company_name?: string | null
+  management_company_phone?: string | null
+  attorneys?: string | null
+  equipment?: string | null
+  notes?: string | null
 }
 
 export interface ApartmentCreate {
@@ -541,6 +555,13 @@ export interface ApartmentCreate {
   unit_number: string
   label?: string | null
   is_common_area?: boolean
+  owner_name?: string | null
+  owner_phone?: string | null
+  management_company_name?: string | null
+  management_company_phone?: string | null
+  attorneys?: string | null
+  equipment?: string | null
+  notes?: string | null
 }
 
 export interface ApartmentTask {

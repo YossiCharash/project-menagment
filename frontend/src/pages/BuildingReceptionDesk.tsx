@@ -227,6 +227,13 @@ export default function BuildingReceptionDesk() {
               unit_number: payload.unit_number,
               label: payload.label,
               is_common_area: payload.is_common_area,
+              owner_name: payload.owner_name,
+              owner_phone: payload.owner_phone,
+              management_company_name: payload.management_company_name,
+              management_company_phone: payload.management_company_phone,
+              attorneys: payload.attorneys,
+              equipment: payload.equipment,
+              notes: payload.notes,
             },
           }),
         ).unwrap()
@@ -551,6 +558,13 @@ export default function BuildingReceptionDesk() {
                 unit_number: editingApartment.unit_number,
                 label: editingApartment.label,
                 is_common_area: editingApartment.is_common_area,
+                owner_name: editingApartment.owner_name,
+                owner_phone: editingApartment.owner_phone,
+                management_company_name: editingApartment.management_company_name,
+                management_company_phone: editingApartment.management_company_phone,
+                attorneys: editingApartment.attorneys,
+                equipment: editingApartment.equipment,
+                notes: editingApartment.notes,
               }
             : null
         }
