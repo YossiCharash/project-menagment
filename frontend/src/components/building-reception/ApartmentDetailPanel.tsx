@@ -8,6 +8,7 @@ import type {
   Delivery,
   ApartmentKey,
   Tenant,
+  TechnicianVisit,
 } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
@@ -15,8 +16,9 @@ import DeliveryList from './DeliveryList'
 import VehicleList from './VehicleList'
 import TenantHistory from './TenantHistory'
 import ApartmentTaskList from './ApartmentTaskList'
+import TechnicianVisitList from './TechnicianVisitList'
 
-type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'history'
+type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technicians' | 'history'
 
 interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
@@ -40,6 +42,10 @@ interface ApartmentDetailPanelProps {
   onMarkDelivered: (deliveryId: number) => void
   onEditDelivery: (delivery: Delivery) => void
   onDeleteDelivery: (deliveryId: number) => void
+  onAddTechnicianVisit: () => void
+  onMarkTechnicianLeft: (visitId: number) => void
+  onEditTechnicianVisit: (visit: TechnicianVisit) => void
+  onDeleteTechnicianVisit: (visitId: number) => void
 }
 
 interface TabDef {
@@ -122,6 +128,10 @@ export default function ApartmentDetailPanel({
   onMarkDelivered,
   onEditDelivery,
   onDeleteDelivery,
+  onAddTechnicianVisit,
+  onMarkTechnicianLeft,
+  onEditTechnicianVisit,
+  onDeleteTechnicianVisit,
 }: ApartmentDetailPanelProps) {
   const [tab, setTab] = useState<TabId>('details')
   const isOpen = apartment !== null || loading
@@ -129,6 +139,7 @@ export default function ApartmentDetailPanel({
   const keyAlert = apartment?.keys.some((key) => key.holder === 'out') ?? false
   const deskHeldKeysCount = apartment?.keys.filter((key) => key.holder === 'in_desk').length ?? 0
   const pendingDeliveries = apartment?.deliveries.filter((delivery) => delivery.status === 'pending').length ?? 0
+  const insideTechniciansCount = apartment?.technician_visits.filter((visit) => visit.status === 'inside').length ?? 0
 
   const openTasksCount = tasks.filter((task) => task.status !== 'completed').length
 
@@ -138,6 +149,7 @@ export default function ApartmentDetailPanel({
     { id: 'keys', label: 'מפתחות', count: keyAlert ? '!' : undefined },
     { id: 'vehicles', label: 'רכבים', count: apartment?.vehicles.length || undefined },
     { id: 'deliveries', label: 'משלוחים', count: pendingDeliveries || undefined },
+    { id: 'technicians', label: 'טכנאים', count: insideTechniciansCount || undefined },
     { id: 'history', label: 'היסטוריה' },
   ]
 
@@ -338,6 +350,20 @@ export default function ApartmentDetailPanel({
                         </button>
                       </div>
 
+                      <button
+                        type="button"
+                        onClick={onAddTechnicianVisit}
+                        className="w-full mt-2 rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-1.5 border"
+                        style={{
+                          color: PALETTE.technician,
+                          borderColor: `${PALETTE.technician}73`,
+                          background: `${PALETTE.technician}12`,
+                        }}
+                      >
+                        <Wrench className="w-[18px] h-[18px]" />
+                        כניסת טכנאי
+                      </button>
+
                       {(apartment.tenants ?? []).some((entry) => !entry.is_current) && (
                         <div className="mt-4">
                           <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 px-0.5 mb-2">
@@ -407,6 +433,16 @@ export default function ApartmentDetailPanel({
                       onAddDelivery={onAddDelivery}
                       onEditDelivery={onEditDelivery}
                       onDeleteDelivery={onDeleteDelivery}
+                    />
+                  )}
+
+                  {tab === 'technicians' && (
+                    <TechnicianVisitList
+                      visits={apartment.technician_visits}
+                      onMarkLeft={onMarkTechnicianLeft}
+                      onAddVisit={onAddTechnicianVisit}
+                      onEditVisit={onEditTechnicianVisit}
+                      onDeleteVisit={onDeleteTechnicianVisit}
                     />
                   )}
 
