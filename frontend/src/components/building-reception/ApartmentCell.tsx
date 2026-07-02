@@ -1,4 +1,4 @@
-import { KeyRound, Package } from 'lucide-react'
+import { KeyRound, Package, ClipboardX } from 'lucide-react'
 import type { Apartment } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, deriveIndicators } from './constants'
 
@@ -13,7 +13,7 @@ interface ApartmentCellProps {
  * click upward. No data fetching or business logic lives here.
  */
 export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProps) {
-  const { hasKeys, hasPendingDelivery, isVacant } = deriveIndicators(apartment)
+  const { hasKeys, hasPendingDelivery, hasOpenTask, isVacant } = deriveIndicators(apartment)
 
   const accentBorder = apartment.is_common_area ? ACCENT : isVacant ? PALETTE.vacant : PALETTE.occupied
   const tenantLabel = apartment.is_common_area
@@ -39,6 +39,9 @@ export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProp
           {hasKeys && <KeyRound className="w-4 h-4" style={{ color: PALETTE.key }} aria-label="מפתח" />}
           {hasPendingDelivery && (
             <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} aria-label="משלוח ממתין" />
+          )}
+          {hasOpenTask && (
+            <ClipboardX className="w-4 h-4" style={{ color: PALETTE.task }} aria-label="משימה פתוחה" />
           )}
         </span>
       </div>
