@@ -794,3 +794,142 @@ class TestEdits:
             f"{BASE}/tenants/999999", headers=_auth(admin_token), json={"name": "x"}
         )
         assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.api
+class TestTechnicianVisits:
+    """Technician entry/exit tracking (כניסת טכנאי) at the reception desk."""
+
+    async def _apartment(self, test_client: AsyncClient, admin_token: str) -> int:
+        building = await _create_building(test_client, admin_token)
+        return _first_residential_apartment_id(building)
+
+    async def test_create_visit_records_activity_and_appears_in_detail(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        apartment_id = await self._apartment(test_client, admin_token)
+
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={
+                    "apartment_id": apartment_id,
+                    "name": "ישראל ישראלי",
+                    "role": "חשמלאי",
+                    "phone": "050-1234567",
+                    "note": "תיקון לוח חשמל",
+                },
+            )
+        ).json()
+        assert visit["name"] == "ישראל ישראלי"
+        assert visit["role"] == "חשמלאי"
+        assert visit["status"] == "inside"
+        assert visit["left_at"] is None
+
+        detail = (
+            await test_client.get(
+                f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
+            )
+        ).json()
+        assert any(v["id"] == visit["id"] for v in detail["technician_visits"])
+        assert any(a["kind"] == "technician" for a in detail["activities"])
+
+    async def test_create_visit_blank_name_400(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        apartment_id = await self._apartment(test_client, admin_token)
+        response = await test_client.post(
+            f"{BASE}/technician-visits",
+            headers=_auth(admin_token),
+            json={"apartment_id": apartment_id, "name": "   "},
+        )
+        assert response.status_code == 400, response.text
+        assert "טכנאי" in response.json()["detail"]
+
+    async def test_mark_exit_sets_status_and_left_at(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        apartment_id = await self._apartment(test_client, admin_token)
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "name": "טכנאי מיזוג"},
+            )
+        ).json()
+
+        left = (
+            await test_client.post(
+                f"{BASE}/technician-visits/{visit['id']}/exit", headers=_auth(admin_token)
+            )
+        ).json()
+        assert left["status"] == "left"
+        assert left["left_at"] is not None
+
+    async def test_double_exit_400(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "name": "אינסטלטור"},
+            )
+        ).json()
+        await test_client.post(
+            f"{BASE}/technician-visits/{visit['id']}/exit", headers=_auth(admin_token)
+        )
+        again = await test_client.post(
+            f"{BASE}/technician-visits/{visit['id']}/exit", headers=_auth(admin_token)
+        )
+        assert again.status_code == 400, again.text
+
+    async def test_update_visit(self, test_client: AsyncClient, admin_token: str):
+        apartment_id = await self._apartment(test_client, admin_token)
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "name": "טכנאי"},
+            )
+        ).json()
+        response = await test_client.put(
+            f"{BASE}/technician-visits/{visit['id']}",
+            headers=_auth(admin_token),
+            json={"name": "טכנאי בכיר", "role": "מיזוג", "phone": "052-7654321"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["name"] == "טכנאי בכיר"
+        assert body["role"] == "מיזוג"
+        assert body["phone"] == "052-7654321"
+
+    async def test_list_and_delete_visit(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        apartment_id = await self._apartment(test_client, admin_token)
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "name": "טכנאי למחיקה"},
+            )
+        ).json()
+
+        listed = (
+            await test_client.get(
+                f"{BASE}/apartments/{apartment_id}/technician-visits",
+                headers=_auth(admin_token),
+            )
+        ).json()
+        assert len(listed) == 1
+
+        deleted = await test_client.delete(
+            f"{BASE}/technician-visits/{visit['id']}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+        repeat = await test_client.delete(
+            f"{BASE}/technician-visits/{visit['id']}", headers=_auth(admin_token)
+        )
+        assert repeat.status_code == 404, repeat.text

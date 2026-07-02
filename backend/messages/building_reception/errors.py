@@ -32,6 +32,9 @@ class BuildingReceptionErrorMessages:
     VEHICLE_PLATE_REQUIRED = "מספר רישוי הרכב הוא שדה חובה"
     VEHICLE_OWNER_REQUIRED = "שם בעל הרכב הוא שדה חובה"
     DELIVERY_TITLE_REQUIRED = "כותרת המשלוח היא שדה חובה"
+    TECHNICIAN_VISIT_NOT_FOUND = "ביקור הטכנאי לא נמצא במערכת"
+    TECHNICIAN_NAME_REQUIRED = "שם הטכנאי הוא שדה חובה"
+    TECHNICIAN_ALREADY_LEFT = "יציאת הטכנאי כבר נרשמה"
 
     # --- formatted messages --------------------------------------------
 
@@ -69,6 +72,11 @@ class BuildingReceptionErrorMessages:
     def delivery_not_found_by_id(delivery_id: int) -> str:
         """Message shown when a delivery id cannot be resolved."""
         return f"המשלוח עם המזהה {delivery_id} לא נמצא במערכת"
+
+    @staticmethod
+    def technician_visit_not_found_by_id(visit_id: int) -> str:
+        """Message shown when a technician-visit id cannot be resolved."""
+        return f"ביקור הטכנאי עם המזהה {visit_id} לא נמצא במערכת"
 
     @staticmethod
     def invalid_key_direction(direction: str) -> str:

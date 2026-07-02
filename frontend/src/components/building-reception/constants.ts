@@ -14,6 +14,7 @@ export const ACCENT = '#7B5BF5'
 export const PALETTE = {
   key: ACCENT,
   delivery: '#3B82F6',
+  technician: '#F79009',
   task: '#E5544B',
   vacant: '#9CA3AF',
   occupied: '#12B76A',
@@ -23,6 +24,7 @@ export const PALETTE = {
 export interface ApartmentIndicators {
   hasKeys: boolean
   hasPendingDelivery: boolean
+  hasOpenTask: boolean
   isVacant: boolean
 }
 
@@ -36,6 +38,7 @@ export function deriveIndicators(apartment: Apartment): ApartmentIndicators {
   return {
     hasKeys: apartment.keys_count > 0,
     hasPendingDelivery: apartment.pending_deliveries_count > 0,
+    hasOpenTask: apartment.open_tasks_count > 0,
     isVacant: apartment.current_tenant === null && !apartment.is_common_area,
   }
 }
