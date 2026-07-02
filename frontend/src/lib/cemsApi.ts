@@ -79,7 +79,7 @@ export interface CategoryItemRead {
 export interface CemsProject {
   id: string
   name: string
-  code: string
+  code?: string
   is_active: boolean
 }
 
@@ -142,7 +142,7 @@ export interface ConsumptionLog {
   item_id: string
   consumed_by_id: number
   consumed_by_name: string | null
-  project_id: string | null
+  project_id: number | null
   project_name: string | null
   quantity_consumed: string
   consumed_at: string
@@ -337,7 +337,7 @@ interface CompleteTransferPayload {
 
 interface ConsumeStockPayload {
   quantity: number
-  project_id?: string
+  project_id?: number
   notes?: string
 }
 
