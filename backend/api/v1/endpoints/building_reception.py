@@ -81,6 +81,30 @@ def _current_tenant_out(apartment: Apartment) -> TenantOut | None:
     return None
 
 
+def _apartment_base_fields(apartment: Apartment) -> dict:
+    """Scalar fields shared by every apartment DTO (ApartmentBase + identity).
+
+    Centralised so the summary and detail builders never drift apart when a new
+    stored column is added to the apartment card (DRY / single source of truth).
+    """
+    return {
+        "id": apartment.id,
+        "building_id": apartment.building_id,
+        "floor": apartment.floor,
+        "unit_number": apartment.unit_number,
+        "label": apartment.label,
+        "is_common_area": apartment.is_common_area,
+        "owner_name": apartment.owner_name,
+        "owner_phone": apartment.owner_phone,
+        "management_company_name": apartment.management_company_name,
+        "management_company_phone": apartment.management_company_phone,
+        "attorneys": apartment.attorneys,
+        "equipment": apartment.equipment,
+        "notes": apartment.notes,
+        "created_at": apartment.created_at,
+    }
+
+
 def _apartment_to_out(apartment: Apartment) -> ApartmentOut:
     """Summary view: current tenant + aggregate counts."""
     pending_deliveries = sum(
@@ -88,13 +112,7 @@ def _apartment_to_out(apartment: Apartment) -> ApartmentOut:
         if delivery.status == DeliveryStatus.PENDING
     )
     return ApartmentOut(
-        id=apartment.id,
-        building_id=apartment.building_id,
-        floor=apartment.floor,
-        unit_number=apartment.unit_number,
-        label=apartment.label,
-        is_common_area=apartment.is_common_area,
-        created_at=apartment.created_at,
+        **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
         keys_count=len(apartment.keys or []),
         vehicles_count=len(apartment.vehicles or []),
@@ -105,13 +123,7 @@ def _apartment_to_out(apartment: Apartment) -> ApartmentOut:
 def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
     """Full detail view: tenant, keys, vehicles, deliveries, activity feed."""
     return ApartmentDetailOut(
-        id=apartment.id,
-        building_id=apartment.building_id,
-        floor=apartment.floor,
-        unit_number=apartment.unit_number,
-        label=apartment.label,
-        is_common_area=apartment.is_common_area,
-        created_at=apartment.created_at,
+        **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
         tenants=[TenantOut.model_validate(t) for t in (apartment.tenants or [])],
         keys=[ApartmentKeyOut.model_validate(k) for k in (apartment.keys or [])],
