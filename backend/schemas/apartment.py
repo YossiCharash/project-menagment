@@ -5,6 +5,7 @@ from backend.schemas.tenant import TenantOut
 from backend.schemas.apartment_key import ApartmentKeyOut
 from backend.schemas.authorized_vehicle import AuthorizedVehicleOut
 from backend.schemas.delivery import DeliveryOut
+from backend.schemas.technician_visit import TechnicianVisitOut
 from backend.schemas.apartment_activity import ApartmentActivityOut
 
 
@@ -75,6 +76,7 @@ class ApartmentDetailOut(ApartmentBase):
     keys: list[ApartmentKeyOut] = Field(default_factory=list)
     vehicles: list[AuthorizedVehicleOut] = Field(default_factory=list)
     deliveries: list[DeliveryOut] = Field(default_factory=list)
+    technician_visits: list[TechnicianVisitOut] = Field(default_factory=list)
     activities: list[ApartmentActivityOut] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

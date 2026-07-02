@@ -17,6 +17,8 @@ import type {
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
+  TechnicianVisitCreate,
+  TechnicianVisitUpdate,
   TenantCreate,
   TenantUpdate,
 } from '../../types/api'
@@ -239,6 +241,30 @@ export const markDelivered = createAsyncThunk(
   },
 )
 
+export const createTechnicianVisit = createAsyncThunk(
+  'buildingReception/createTechnicianVisit',
+  async (payload: TechnicianVisitCreate, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.createTechnicianVisit(payload)
+      return await BuildingReceptionAPI.getApartment(payload.apartment_id)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רישום כניסת הטכנאי נכשל'))
+    }
+  },
+)
+
+export const markTechnicianLeft = createAsyncThunk(
+  'buildingReception/markTechnicianLeft',
+  async ({ visitId, apartmentId }: { visitId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.markTechnicianLeft(visitId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רישום יציאת הטכנאי נכשל'))
+    }
+  },
+)
+
 export const createApartment = createAsyncThunk(
   'buildingReception/createApartment',
   async (payload: ApartmentCreate, { rejectWithValue }) => {
@@ -295,6 +321,18 @@ export const deleteDelivery = createAsyncThunk(
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'מחיקת המשלוח נכשלה'))
+    }
+  },
+)
+
+export const deleteTechnicianVisit = createAsyncThunk(
+  'buildingReception/deleteTechnicianVisit',
+  async ({ visitId, apartmentId }: { visitId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteTechnicianVisit(visitId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת ביקור הטכנאי נכשלה'))
     }
   },
 )
@@ -366,6 +404,21 @@ export const updateDelivery = createAsyncThunk(
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'עדכון המשלוח נכשל'))
+    }
+  },
+)
+
+export const updateTechnicianVisit = createAsyncThunk(
+  'buildingReception/updateTechnicianVisit',
+  async (
+    { visitId, apartmentId, changes }: { visitId: number; apartmentId: number; changes: TechnicianVisitUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateTechnicianVisit(visitId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון ביקור הטכנאי נכשל'))
     }
   },
 )
@@ -479,6 +532,10 @@ const slice = createSlice({
       .addCase(updateKey.fulfilled, applyApartment)
       .addCase(updateVehicle.fulfilled, applyApartment)
       .addCase(updateDelivery.fulfilled, applyApartment)
+      .addCase(createTechnicianVisit.fulfilled, applyApartment)
+      .addCase(markTechnicianLeft.fulfilled, applyApartment)
+      .addCase(updateTechnicianVisit.fulfilled, applyApartment)
+      .addCase(deleteTechnicianVisit.fulfilled, applyApartment)
       .addCase(updateApartment.fulfilled, applyApartment)
 
       .addCase(createApartment.fulfilled, (state, action) => {

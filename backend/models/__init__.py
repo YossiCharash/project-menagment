@@ -35,6 +35,7 @@ from backend.models.tenant import Tenant
 from backend.models.apartment_key import ApartmentKey, KeyTransfer, KeyHolder, KeyDirection
 from backend.models.authorized_vehicle import AuthorizedVehicle
 from backend.models.delivery import Delivery, DeliveryStatus
+from backend.models.technician_visit import TechnicianVisit, TechnicianVisitStatus
 from backend.models.apartment_activity import ApartmentActivity, ActivityKind
 from backend.iam.models import ProjectRoleAssignment, ResourcePolicy, PermissionAuditLog
 
@@ -87,6 +88,8 @@ __all__ = [
     "AuthorizedVehicle",
     "Delivery",
     "DeliveryStatus",
+    "TechnicianVisit",
+    "TechnicianVisitStatus",
     "ApartmentActivity",
     "ActivityKind",
     "ProjectRoleAssignment",

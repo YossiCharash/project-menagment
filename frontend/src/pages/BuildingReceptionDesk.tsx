@@ -15,6 +15,8 @@ import type {
   Delivery,
   DeliveryCreate,
   KeyTransferCreate,
+  TechnicianVisit,
+  TechnicianVisitCreate,
   Tenant,
   TenantCreate,
 } from '../types/api'
@@ -48,6 +50,10 @@ import {
   markDelivered,
   updateDelivery,
   deleteDelivery,
+  createTechnicianVisit,
+  markTechnicianLeft,
+  updateTechnicianVisit,
+  deleteTechnicianVisit,
 } from '../store/slices/buildingReceptionSlice'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
 import BuildingOverview from '../components/building-reception/BuildingOverview'
@@ -59,6 +65,7 @@ import KeyTransferModal from '../components/building-reception/KeyTransferModal'
 import AddVehicleModal from '../components/building-reception/AddVehicleModal'
 import AddTenantModal from '../components/building-reception/AddTenantModal'
 import AddDeliveryModal from '../components/building-reception/AddDeliveryModal'
+import AddTechnicianVisitModal from '../components/building-reception/AddTechnicianVisitModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 import AddKeyModal from '../components/building-reception/AddKeyModal'
 
@@ -89,6 +96,7 @@ export default function BuildingReceptionDesk() {
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
   const [addTenantOpen, setAddTenantOpen] = useState(false)
   const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
+  const [addTechnicianOpen, setAddTechnicianOpen] = useState(false)
   const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
   const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -98,6 +106,7 @@ export default function BuildingReceptionDesk() {
   const [editingKey, setEditingKey] = useState<ApartmentKey | null>(null)
   const [editingVehicle, setEditingVehicle] = useState<AuthorizedVehicle | null>(null)
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null)
+  const [editingTechnicianVisit, setEditingTechnicianVisit] = useState<TechnicianVisit | null>(null)
 
   // Load the building + project lists once; then open the first building.
   useEffect(() => {
@@ -172,6 +181,8 @@ export default function BuildingReceptionDesk() {
       () => {
         setTaskOpen(false)
         if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
+        // Refresh the building so the apartment tile's open-task indicator updates.
+        if (activeBuilding) void dispatch(fetchBuilding(activeBuilding.id))
       },
     )
 
@@ -328,6 +339,41 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteDelivery({ deliveryId, apartmentId: activeApartmentId }))
   }
 
+  // --- Technician visits ---
+  const closeTechnicianModal = () => {
+    setAddTechnicianOpen(false)
+    setEditingTechnicianVisit(null)
+  }
+
+  const handleSubmitTechnicianVisit = (payload: TechnicianVisitCreate) => {
+    if (editingTechnicianVisit && activeApartmentId !== null) {
+      void runSubmit(
+        () =>
+          dispatch(
+            updateTechnicianVisit({
+              visitId: editingTechnicianVisit.id,
+              apartmentId: activeApartmentId,
+              changes: { name: payload.name, role: payload.role, phone: payload.phone, note: payload.note },
+            }),
+          ).unwrap(),
+        closeTechnicianModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createTechnicianVisit(payload)).unwrap(), closeTechnicianModal)
+  }
+
+  const handleMarkTechnicianLeft = (visitId: number) => {
+    if (activeApartmentId === null) return
+    void dispatch(markTechnicianLeft({ visitId, apartmentId: activeApartmentId }))
+  }
+
+  const handleDeleteTechnicianVisit = (visitId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את רשומת ביקור הטכנאי?')) return
+    void dispatch(deleteTechnicianVisit({ visitId, apartmentId: activeApartmentId }))
+  }
+
   // When an apartment has no keys yet, seed a default one so a hand-out can be
   // recorded immediately from the transfer modal.
   const handleOpenKeyTransfer = async () => {
@@ -461,6 +507,16 @@ export default function BuildingReceptionDesk() {
           setAddDeliveryOpen(true)
         }}
         onDeleteDelivery={handleDeleteDelivery}
+        onAddTechnicianVisit={() => {
+          setEditingTechnicianVisit(null)
+          setAddTechnicianOpen(true)
+        }}
+        onMarkTechnicianLeft={handleMarkTechnicianLeft}
+        onEditTechnicianVisit={(visit) => {
+          setEditingTechnicianVisit(visit)
+          setAddTechnicianOpen(true)
+        }}
+        onDeleteTechnicianVisit={handleDeleteTechnicianVisit}
       />
 
       <CreateBuildingModal
@@ -543,6 +599,24 @@ export default function BuildingReceptionDesk() {
             : null
         }
         onSubmit={handleSubmitDelivery}
+        submitting={submitting}
+      />
+
+      <AddTechnicianVisitModal
+        isOpen={addTechnicianOpen}
+        onClose={closeTechnicianModal}
+        apartmentId={activeApartmentId}
+        initial={
+          editingTechnicianVisit
+            ? {
+                name: editingTechnicianVisit.name,
+                role: editingTechnicianVisit.role,
+                phone: editingTechnicianVisit.phone,
+                note: editingTechnicianVisit.note,
+              }
+            : null
+        }
+        onSubmit={handleSubmitTechnicianVisit}
         submitting={submitting}
       />
 
