@@ -19,6 +19,14 @@ interface NewTaskModalProps {
 
 const CATEGORIES = ['תחזוקה', 'ניקיון', 'משלוח', 'מפתחות', 'ביקורת'] as const
 
+/** Recurrence rules offered here, mapped to their Hebrew labels. */
+const RECURRENCE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '', label: 'ללא חזרות' },
+  { value: 'daily', label: 'כל יום' },
+  { value: 'weekly', label: 'כל שבוע' },
+  { value: 'monthly', label: 'כל חודש' },
+]
+
 /** Combines a yyyy-mm-dd date and hh:mm time into a local ISO string, or null. */
 function toIso(date: string, time: string): string | null {
   if (!date) return null
@@ -45,10 +53,14 @@ export default function NewTaskModal({
   const [time, setTime] = useState('12:00')
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
   const [assignees, setAssignees] = useState<Array<{ id: number; full_name: string }>>([])
+  const [recurrenceRule, setRecurrenceRule] = useState('')
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
     setApartmentId(defaultApartmentId ?? null)
+    setRecurrenceRule('')
+    setRecurrenceEndDate('')
     let active = true
     BuildingReceptionAPI.listTaskAssignees()
       .then((list) => {
@@ -69,7 +81,11 @@ export default function NewTaskModal({
     [assignees, assigneeId],
   )
 
-  const canSubmit = title.trim().length > 0 && assigneeId !== null && !submitting
+  // A recurring task needs an anchor date to project its occurrences from.
+  const isRecurring = recurrenceRule !== ''
+  const missingRecurrenceDate = isRecurring && !date
+  const canSubmit =
+    title.trim().length > 0 && assigneeId !== null && !missingRecurrenceDate && !submitting
 
   const handleSubmit = () => {
     if (!canSubmit || assigneeId === null) return
@@ -81,6 +97,12 @@ export default function NewTaskModal({
       start_time: start,
       end_time: start,
       description: category,
+      ...(isRecurring
+        ? {
+            recurrence_rule: recurrenceRule,
+            recurrence_end_date: recurrenceEndDate || null,
+          }
+        : {}),
     })
   }
 
@@ -155,6 +177,34 @@ export default function NewTaskModal({
           </LabeledField>
         </div>
       </div>
+
+      <LabeledField label="משימה מחזורית">
+        <select
+          value={recurrenceRule}
+          onChange={(event) => setRecurrenceRule(event.target.value)}
+          dir="rtl"
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-3 py-2.5 text-sm font-semibold bg-white dark:bg-gray-800 text-gray-900 dark:text-white outline-none"
+        >
+          {RECURRENCE_OPTIONS.map((option) => (
+            <option key={option.value || 'none'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </LabeledField>
+
+      {isRecurring && (
+        <>
+          <LabeledField label="עד תאריך (אופציונלי)">
+            <TextField value={recurrenceEndDate} onChange={setRecurrenceEndDate} type="date" />
+          </LabeledField>
+          {missingRecurrenceDate && (
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 leading-relaxed">
+              יש לבחור תאריך התחלה כדי לקבוע משימה מחזורית.
+            </div>
+          )}
+        </>
+      )}
 
       <LabeledField label="משויך ל — יופיע ביומן האישי שלו">
         <select

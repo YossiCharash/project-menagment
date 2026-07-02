@@ -50,6 +50,7 @@ class ApartmentOut(ApartmentBase):
     keys_count: int = 0
     vehicles_count: int = 0
     pending_deliveries_count: int = 0
+    open_tasks_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
