@@ -848,7 +848,7 @@ function ConsumeModal({ item, projects, onClose, onConsumed }: ConsumeModalProps
     try {
       await cemsApi.consumeStock(item.id, {
         quantity,
-        project_id: projectId || undefined,
+        project_id: projectId ? Number(projectId) : undefined,
         notes: notes.trim() || undefined,
       })
       onConsumed()
@@ -899,7 +899,7 @@ function ConsumeModal({ item, projects, onClose, onConsumed }: ConsumeModalProps
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר פרויקט</option>
               {projects.filter((p) => p.is_active).map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+                <option key={p.id} value={p.id}>{p.code ? `${p.name} (${p.code})` : p.name}</option>
               ))}
             </select>
           </div>

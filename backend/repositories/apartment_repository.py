@@ -28,6 +28,7 @@ class ApartmentRepository:
                 selectinload(Apartment.keys).selectinload(ApartmentKey.transfers),
                 selectinload(Apartment.vehicles),
                 selectinload(Apartment.deliveries),
+                selectinload(Apartment.technician_visits),
                 selectinload(Apartment.activities),
             )
             .where(Apartment.id == apartment_id)
