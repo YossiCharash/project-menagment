@@ -37,6 +37,7 @@ const building = {
       keys_count: 0,
       vehicles_count: 0,
       pending_deliveries_count: 0,
+      open_tasks_count: 0,
     },
   ],
 }

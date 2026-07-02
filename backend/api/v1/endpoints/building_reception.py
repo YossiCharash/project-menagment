@@ -111,7 +111,7 @@ def _apartment_base_fields(apartment: Apartment) -> dict:
     }
 
 
-def _apartment_to_out(apartment: Apartment) -> ApartmentOut:
+def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> ApartmentOut:
     """Summary view: current tenant + aggregate counts."""
     pending_deliveries = sum(
         1 for delivery in (apartment.deliveries or [])
@@ -123,6 +123,7 @@ def _apartment_to_out(apartment: Apartment) -> ApartmentOut:
         keys_count=len(apartment.keys or []),
         vehicles_count=len(apartment.vehicles or []),
         pending_deliveries_count=pending_deliveries,
+        open_tasks_count=open_tasks_count,
     )
 
 
@@ -143,7 +144,8 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
     )
 
 
-def _building_to_out(building) -> BuildingOut:
+def _building_to_out(building, open_tasks_counts: dict[int, int] | None = None) -> BuildingOut:
+    counts = open_tasks_counts or {}
     return BuildingOut(
         id=building.id,
         name=building.name,
@@ -154,8 +156,17 @@ def _building_to_out(building) -> BuildingOut:
         units_per_floor=building.units_per_floor,
         has_common_areas=building.has_common_areas,
         created_at=building.created_at,
-        apartments=[_apartment_to_out(a) for a in (building.apartments or [])],
+        apartments=[
+            _apartment_to_out(a, counts.get(a.id, 0)) for a in (building.apartments or [])
+        ],
     )
+
+
+async def _building_out_with_open_tasks(building, db: DBSessionDep) -> BuildingOut:
+    """Build a ``BuildingOut`` enriched with per-apartment open-task counts."""
+    apartment_ids = [apartment.id for apartment in (building.apartments or [])]
+    open_tasks_counts = await TaskRepository(db).count_open_by_apartment_ids(apartment_ids)
+    return _building_to_out(building, open_tasks_counts)
 
 
 def _building_to_list_item(building) -> BuildingListItem:
@@ -252,7 +263,7 @@ async def create_building(db: DBSessionDep, data: BuildingCreate, user=Depends(r
         building = await service.create_building(data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return _building_to_out(building)
+    return await _building_out_with_open_tasks(building, db)
 
 
 @router.get("/buildings", response_model=list[BuildingListItem])
@@ -271,7 +282,7 @@ async def get_building(building_id: int, db: DBSessionDep, user=Depends(require_
         building = await service.get_building(building_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    return _building_to_out(building)
+    return await _building_out_with_open_tasks(building, db)
 
 
 @router.put("/buildings/{building_id}", response_model=BuildingOut)
@@ -281,7 +292,7 @@ async def update_building(building_id: int, db: DBSessionDep, data: BuildingUpda
         building = await service.update_building(building_id, data)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    return _building_to_out(building)
+    return await _building_out_with_open_tasks(building, db)
 
 
 @router.delete("/buildings/{building_id}", status_code=204)

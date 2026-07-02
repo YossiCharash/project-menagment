@@ -1,7 +1,7 @@
 """Task repository for Task Management Calendar."""
 from __future__ import annotations
 from datetime import datetime, date, timezone
-from sqlalchemy import select, or_, and_, exists, update
+from sqlalchemy import select, or_, and_, exists, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -90,6 +90,23 @@ class TaskRepository:
             .order_by(Task.start_time.is_(None), Task.start_time)
         )
         return list(result.unique().scalars().all())
+
+    async def count_open_by_apartment_ids(self, apartment_ids: list[int]) -> dict[int, int]:
+        """Count non-archived, non-completed ("open") tasks per apartment.
+
+        Returns a ``{apartment_id: open_task_count}`` mapping in a single grouped
+        query. Apartments with no open tasks are simply absent from the mapping.
+        """
+        if not apartment_ids:
+            return {}
+        result = await self.db.execute(
+            select(Task.apartment_id, func.count(Task.id))
+            .where(Task.apartment_id.in_(apartment_ids))
+            .where(Task.is_archived == False)  # noqa: E712
+            .where(Task.status != TaskStatus.COMPLETED)
+            .group_by(Task.apartment_id)
+        )
+        return {apartment_id: count for apartment_id, count in result.all()}
 
     async def get(self, task_id: int) -> Task | None:
         result = await self.db.execute(
