@@ -489,15 +489,23 @@ async def list_backlog_tasks(
 async def archive_task(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(get_current_user),
 ):
-    """Archive a single task (removes it from the active calendar; can be restored)."""
+    """Archive a single task (removes it from the active calendar; can be restored).
+
+    Allowed for Admin, the assignee, or the task creator (via ``_can_manage_task``).
+    We intentionally do NOT gate this on the ``update`` task permission: the Member
+    global role is write-only on tasks by design, so a Member who created a task for
+    someone else would otherwise be unable to archive it.
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.is_archived:
         raise HTTPException(status_code=400, detail="המשימה כבר נמצאת בארכיון")
+    if not _can_manage_task(task, user):
+        raise HTTPException(status_code=403, detail="אין לך הרשאה לארכב משימה זו")
     task.is_archived = True
     task.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await repo.update(task)

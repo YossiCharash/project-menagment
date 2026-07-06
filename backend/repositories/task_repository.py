@@ -12,6 +12,14 @@ class TaskRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def _visible_to_user_clause(user_id: int):
+        """Tasks in a user's calendar: owned by them OR they are an invited participant."""
+        return or_(
+            Task.assigned_to_user_id == user_id,
+            exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == user_id),
+        )
+
     async def create(self, task: Task) -> Task:
         self.db.add(task)
         await self.db.flush()
@@ -40,14 +48,11 @@ class TaskRepository:
             q = q.where(Task.is_archived == False)
         if for_user_id is not None:
             # Show tasks where user is owner OR invited participant (like Outlook)
-            q = q.where(
-                or_(
-                    Task.assigned_to_user_id == for_user_id,
-                    exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == for_user_id),
-                )
-            )
+            q = q.where(self._visible_to_user_clause(for_user_id))
         elif assigned_to_user_id is not None:
-            q = q.where(Task.assigned_to_user_id == assigned_to_user_id)
+            # Admin filtering by a user: owner OR invited participant, so a task the
+            # user merely attends (assigned to someone else) still shows in their calendar.
+            q = q.where(self._visible_to_user_clause(assigned_to_user_id))
         if start is not None and end is not None:
             q = q.where(
                 or_(
@@ -149,14 +154,9 @@ class TaskRepository:
             .order_by(Task.archived_at.desc())
         )
         if for_user_id is not None:
-            q = q.where(
-                or_(
-                    Task.assigned_to_user_id == for_user_id,
-                    exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == for_user_id),
-                )
-            )
+            q = q.where(self._visible_to_user_clause(for_user_id))
         elif assigned_to_user_id is not None:
-            q = q.where(Task.assigned_to_user_id == assigned_to_user_id)
+            q = q.where(self._visible_to_user_clause(assigned_to_user_id))
         if date_from is not None:
             q = q.where(Task.archived_at >= date_from)
         if date_to is not None:
@@ -202,14 +202,9 @@ class TaskRepository:
             .order_by(Task.created_at.asc())
         )
         if for_user_id is not None:
-            q = q.where(
-                or_(
-                    Task.assigned_to_user_id == for_user_id,
-                    exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == for_user_id),
-                )
-            )
+            q = q.where(self._visible_to_user_clause(for_user_id))
         elif assigned_to_user_id is not None:
-            q = q.where(Task.assigned_to_user_id == assigned_to_user_id)
+            q = q.where(self._visible_to_user_clause(assigned_to_user_id))
         result = await self.db.execute(q)
         return list(result.unique().scalars().all())
 
