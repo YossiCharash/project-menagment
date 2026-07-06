@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Search, Plus, RefreshCw, Bell, ChevronLeft, AlertTriangle, X } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { Search, Plus, ChevronLeft, AlertTriangle, X } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
 import type {
@@ -11,7 +11,6 @@ import type {
   AuthorizedVehicle,
   AuthorizedVehicleCreate,
   BuildingCreate,
-  BuildingReceptionTaskCreate,
   Delivery,
   DeliveryCreate,
   KeyTransferCreate,
@@ -20,7 +19,11 @@ import type {
   Tenant,
   TenantCreate,
 } from '../types/api'
-import BuildingReceptionAPI from '../lib/buildingReceptionApi'
+import api from '../lib/api'
+import type { Task, TaskLabelType, UserForTask } from './TaskCalendar'
+import CreateTaskModal from '../components/task-management/CreateTaskModal'
+import TaskDetailModal from '../components/task-management/TaskDetailModal'
+import TaskEditModal from '../components/task-management/TaskEditModal'
 import {
   fetchProjects,
   createProject,
@@ -60,7 +63,6 @@ import BuildingOverview from '../components/building-reception/BuildingOverview'
 import ApartmentDetailPanel from '../components/building-reception/ApartmentDetailPanel'
 import CreateBuildingModal from '../components/building-reception/CreateBuildingModal'
 import CreateProjectModal from '../components/building-reception/CreateProjectModal'
-import NewTaskModal from '../components/building-reception/NewTaskModal'
 import KeyTransferModal from '../components/building-reception/KeyTransferModal'
 import AddVehicleModal from '../components/building-reception/AddVehicleModal'
 import AddTenantModal from '../components/building-reception/AddTenantModal'
@@ -92,6 +94,13 @@ export default function BuildingReceptionDesk() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [taskOpen, setTaskOpen] = useState(false)
+  // Assignee directory + labels needed by the shared CreateTaskModal.
+  const [taskUsers, setTaskUsers] = useState<UserForTask[]>([])
+  const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
+  // The task whose full-detail modal is open (fetched via GET /tasks/{id}).
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  // The task being edited via the shared TaskEditModal (opened from the detail modal).
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [keyTransferOpen, setKeyTransferOpen] = useState(false)
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
   const [addTenantOpen, setAddTenantOpen] = useState(false)
@@ -113,6 +122,24 @@ export default function BuildingReceptionDesk() {
     void dispatch(fetchBuildings())
     void dispatch(fetchProjects())
   }, [dispatch])
+
+  // The shared CreateTaskModal needs the assignee directory and label set.
+  const fetchTaskDirectory = useCallback(async () => {
+    try {
+      const [usersRes, labelsRes] = await Promise.all([
+        api.get<UserForTask[]>('/users/for-tasks'),
+        api.get<TaskLabelType[]>('/tasks/labels'),
+      ])
+      setTaskUsers(usersRes.data)
+      setTaskLabels(labelsRes.data)
+    } catch {
+      /* the create modal simply stays empty until the directory loads */
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchTaskDirectory()
+  }, [fetchTaskDirectory])
 
   // Buildings visible for the current project filter (null = all buildings).
   const visibleBuildings =
@@ -175,16 +202,27 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteProject(projectId))
   }
 
-  const handleCreateTask = (payload: BuildingReceptionTaskCreate) =>
-    runSubmit(
-      () => BuildingReceptionAPI.createTask(payload),
-      () => {
-        setTaskOpen(false)
-        if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
-        // Refresh the building so the apartment tile's open-task indicator updates.
-        if (activeBuilding) void dispatch(fetchBuilding(activeBuilding.id))
-      },
-    )
+  // Refresh the apartment's task list and the building tile indicators after any
+  // task create/update/delete performed through the shared task modals.
+  const refreshTasksAndBuilding = useCallback(() => {
+    if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
+    if (activeBuilding) void dispatch(fetchBuilding(activeBuilding.id))
+  }, [dispatch, activeApartmentId, activeBuilding])
+
+  const handleTaskCreated = () => {
+    refreshTasksAndBuilding()
+  }
+
+  // Open the full task-detail modal for a reception task card. The reception
+  // list DTO is minimal, so fetch the complete task first.
+  const handleSelectTask = async (taskId: number) => {
+    try {
+      const { data } = await api.get<Task>(`/tasks/${taskId}`)
+      setSelectedTask(data)
+    } catch {
+      /* if the task can't be loaded, leave the modal closed */
+    }
+  }
 
   const handleTransferKey = (keyId: number, payload: KeyTransferCreate) => {
     if (activeApartmentId === null) return
@@ -406,21 +444,6 @@ export default function BuildingReceptionDesk() {
           <Plus className="w-[18px] h-[18px]" />
           משימה חדשה
         </button>
-        <button
-          type="button"
-          className="text-sm font-bold text-gray-600 dark:text-gray-200 px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-        >
-          <RefreshCw className="w-[18px] h-[18px] text-teal-500" />
-          סנכרון Outlook
-        </button>
-        <button
-          type="button"
-          className="relative w-10 h-10 rounded-xl flex items-center justify-center text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-          aria-label="התראות"
-        >
-          <Bell className="w-[19px] h-[19px]" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white dark:border-gray-800" />
-        </button>
       </header>
 
       {error && (
@@ -467,6 +490,7 @@ export default function BuildingReceptionDesk() {
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
         onAddTask={() => setTaskOpen(true)}
+        onSelectTask={(taskId) => void handleSelectTask(taskId)}
         onEditApartment={(apartment) => setEditingApartment(apartment)}
         onDeleteApartment={handleDeleteApartment}
         onAddTenant={() => {
@@ -535,13 +559,36 @@ export default function BuildingReceptionDesk() {
         submitting={submitting}
       />
 
-      <NewTaskModal
+      <CreateTaskModal
         isOpen={taskOpen}
         onClose={() => setTaskOpen(false)}
+        users={taskUsers}
+        taskLabels={taskLabels}
         apartments={apartments}
         defaultApartmentId={activeApartmentId}
-        onSubmit={handleCreateTask}
-        submitting={submitting}
+        onCreated={handleTaskCreated}
+        onLabelsChanged={() => void fetchTaskDirectory()}
+      />
+
+      {selectedTask && (
+        <TaskDetailModal
+          taskId={selectedTask.id}
+          initialTask={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onTaskUpdated={() => refreshTasksAndBuilding()}
+          onTaskDeleted={() => { refreshTasksAndBuilding(); setSelectedTask(null) }}
+          onEdit={(task) => { setSelectedTask(null); setEditingTask(task) }}
+        />
+      )}
+
+      <TaskEditModal
+        task={editingTask}
+        isOpen={!!editingTask}
+        onClose={() => setEditingTask(null)}
+        users={taskUsers}
+        taskLabels={taskLabels}
+        onSaved={() => { refreshTasksAndBuilding(); setEditingTask(null) }}
+        onLabelsChanged={() => void fetchTaskDirectory()}
       />
 
       <KeyTransferModal

@@ -26,6 +26,7 @@ interface ApartmentDetailPanelProps {
   loading: boolean
   onClose: () => void
   onAddTask: () => void
+  onSelectTask: (taskId: number) => void
   onEditApartment: (apartment: ApartmentDetail) => void
   onDeleteApartment: (apartmentId: number) => void
   onAddTenant: () => void
@@ -112,6 +113,7 @@ export default function ApartmentDetailPanel({
   loading,
   onClose,
   onAddTask,
+  onSelectTask,
   onEditApartment,
   onDeleteApartment,
   onAddTenant,
@@ -405,7 +407,7 @@ export default function ApartmentDetailPanel({
                     </>
                   )}
 
-                  {tab === 'tasks' && <ApartmentTaskList tasks={tasks} onAddTask={onAddTask} />}
+                  {tab === 'tasks' && <ApartmentTaskList tasks={tasks} onAddTask={onAddTask} onSelectTask={onSelectTask} />}
 
                   {tab === 'keys' && (
                     <KeyStatusList

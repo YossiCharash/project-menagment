@@ -5,6 +5,8 @@ import { ACCENT, formatDate } from './constants'
 interface ApartmentTaskListProps {
   tasks: ApartmentTask[]
   onAddTask: () => void
+  /** Open the full task-detail modal for the clicked task. */
+  onSelectTask: (taskId: number) => void
 }
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -15,7 +17,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 }
 
 /** "משימות" — the tasks linked to this apartment, shown in the apartment panel. */
-export default function ApartmentTaskList({ tasks, onAddTask }: ApartmentTaskListProps) {
+export default function ApartmentTaskList({ tasks, onAddTask, onSelectTask }: ApartmentTaskListProps) {
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between px-0.5">
@@ -34,9 +36,12 @@ export default function ApartmentTaskList({ tasks, onAddTask }: ApartmentTaskLis
       {tasks.map((task) => {
         const status = STATUS_META[task.status] ?? { label: task.status, color: '#9CA3AF' }
         return (
-          <div
+          <button
             key={task.id}
-            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-3 flex items-center gap-3"
+            type="button"
+            onClick={() => onSelectTask(task.id)}
+            className="w-full text-right bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-3 flex items-center gap-3 transition-colors hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+            style={{ ['--tw-ring-color' as string]: ACCENT }}
           >
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -67,7 +72,7 @@ export default function ApartmentTaskList({ tasks, onAddTask }: ApartmentTaskLis
             >
               {status.label}
             </span>
-          </div>
+          </button>
         )
       })}
 
