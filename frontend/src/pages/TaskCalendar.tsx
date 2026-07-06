@@ -10,12 +10,11 @@ import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '
 import type { EventDragStartArg } from '@fullcalendar/interaction'
 import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
 import { getToken } from '../lib/authCache'
-import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Tag, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive } from 'lucide-react'
+import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive, Search } from 'lucide-react'
 import AttachmentView from '../components/task-management/AttachmentView'
 import RecordButton from '../components/task-management/RecordButton'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
-import { useDeleteTaskLabel } from '../components/task-management/useDeleteTaskLabel'
 import TaskChecklist from '../components/task-management/TaskChecklist'
 import { cn } from '../lib/utils'
 import { updateUser } from '../store/slices/authSlice'
@@ -24,6 +23,8 @@ import './TaskCalendar.css'
 import { PermissionGuard } from '../components/ui/PermissionGuard'
 import OutlookMobileCalendar, { type MobileCalendarView } from '../components/task-management/OutlookMobileCalendar'
 import BacklogPanel from '../components/task-management/BacklogPanel'
+import CreateTaskModal, { type CreateTaskDefaults } from '../components/task-management/CreateTaskModal'
+import TaskEditModal from '../components/task-management/TaskEditModal'
 
 export interface UserForTask {
   id: number
@@ -88,6 +89,10 @@ export interface Task {
   requires_closure_approval?: boolean
   is_super_task?: boolean
   is_backlog?: boolean
+  /** דירה משויכת (מודול דלפק הבניין) */
+  apartment_id?: number | null
+  /** בניין משויך (מודול דלפק הבניין) */
+  building_id?: number | null
 }
 
 export interface TaskAttachmentType {
@@ -240,7 +245,7 @@ export function isAllDayTask(task: Pick<Task, 'start_time' | 'end_time'>): boole
 }
 
 /** Recurrence fields shared by the create and edit forms. */
-interface RecurrenceFormFields {
+export interface RecurrenceFormFields {
   recurrence_rule: RecurrenceRule
   recurrence_interval: number
   recurrence_weekdays: number[]
@@ -447,7 +452,7 @@ export function getTaskOccurrences(
   return occurrences
 }
 
-const RECURRENCE_INTERVAL_UNITS: Record<Exclude<RecurrenceRule, ''>, string> = {
+export const RECURRENCE_INTERVAL_UNITS: Record<Exclude<RecurrenceRule, ''>, string> = {
   daily: 'ימים',
   weekly: 'שבועות',
   monthly: 'חודשים',
@@ -458,7 +463,7 @@ const RECURRENCE_INTERVAL_UNITS: Record<Exclude<RecurrenceRule, ''>, string> = {
  * Outlook-style recurrence editor shared by the create and edit task forms.
  * Operates on the recurrence subset of a form via an onChange patch callback.
  */
-function RecurrenceEditor({
+export function RecurrenceEditor({
   value,
   onChange,
   startDate,
@@ -641,6 +646,7 @@ export default function TaskCalendar({
   const me = useSelector((state: RootState) => state.auth.me)
   const isAdmin = me?.role === 'Admin'
   const [tasks, setTasks] = useState<Task[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
   const [users, setUsers] = useState<UserForTask[]>([])
   const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
   const [loading, setLoading] = useState(true)
@@ -699,29 +705,9 @@ export default function TaskCalendar({
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createAsBacklog, setCreateAsBacklog] = useState(false)
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
-  const [createForm, setCreateForm] = useState({
-    title: '',
-    date: '',
-    start_time: '',
-    end_time: '',
-    description: '',
-    status: 'pending' as TaskStatus,
-    assigned_to_user_id: '',
-    label_ids: [] as number[],
-    participant_ids: [] as number[],
-    recurrence_rule: '' as RecurrenceRule,
-    recurrence_interval: 1,
-    recurrence_weekdays: [] as number[],
-    recurrence_monthly_mode: 'day_of_month' as MonthlyMode,
-    recurrence_end_mode: 'never' as RecurrenceEndMode,
-    recurrence_end_date: '',
-    recurrence_count: '',
-    requires_closure_approval: false,
-  })
-  const [createSaving, setCreateSaving] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([])
-  const createFileInputRef = useRef<HTMLInputElement>(null)
+  // Pre-fill configuration handed to the shared CreateTaskModal when it opens
+  // (e.g. a calendar drag-select supplies the chosen start/end time).
+  const [createDefaults, setCreateDefaults] = useState<CreateTaskDefaults | undefined>(undefined)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [taskMessages, setTaskMessages] = useState<TaskMessageType[]>([])
   const [taskMessagesLoading, setTaskMessagesLoading] = useState(false)
@@ -731,33 +717,9 @@ export default function TaskCalendar({
   const [taskChatPendingFiles, setTaskChatPendingFiles] = useState<File[]>([])
   const taskChatFileInputRef = useRef<HTMLInputElement>(null)
   const taskChatScrollRef = useRef<HTMLDivElement>(null)
+  // The task being edited; the shared TaskEditModal owns its own form state and
+  // seeds itself from this task. Null closes the modal.
   const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [editForm, setEditForm] = useState<{
-    title: string
-    date: string
-    start_time: string
-    end_time: string
-    description: string
-    status: TaskStatus
-    assigned_to_user_id: string
-    recurrence_rule: RecurrenceRule
-    recurrence_interval: number
-    recurrence_weekdays: number[]
-    recurrence_monthly_mode: MonthlyMode
-    recurrence_end_mode: RecurrenceEndMode
-    recurrence_end_date: string
-    recurrence_count: string
-    label_ids: number[]
-    participant_ids: number[]
-    requires_closure_approval: boolean
-  } | null>(null)
-  const [editSaving, setEditSaving] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
-  const [editUploadingAttachment, setEditUploadingAttachment] = useState(false)
-  const [editDeletingAttachmentId, setEditDeletingAttachmentId] = useState<number | null>(null)
-  const editFileInputRef = useRef<HTMLInputElement>(null)
-  const [taskType, setTaskType] = useState<'meeting' | 'all_day' | 'no_date'>('meeting')
-  const [editTaskType, setEditTaskType] = useState<'with_time' | 'date_only' | 'no_date'>('date_only')
   const [outlookStatus, setOutlookStatus] = useState<{
     configured: boolean
     connected: boolean
@@ -784,37 +746,17 @@ export default function TaskCalendar({
   const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const { toast, showToast, hideToast } = useToast()
 
-  const setTaskTypeWithDefaults = useCallback((type: 'meeting' | 'all_day' | 'no_date') => {
-    setTaskType(type)
-    if (type === 'meeting') {
-      const now = new Date()
-      const start = new Date(now)
-      start.setHours(9, 0, 0, 0)
-      const end = new Date(now)
-      end.setHours(10, 0, 0, 0)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      setCreateForm(f => ({
-        ...f,
-        start_time: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`,
-        end_time: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`,
-      }))
-    } else if (type === 'all_day') {
-      const now = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-      setCreateForm(f => ({ ...f, date: dateStr, start_time: '', end_time: '' }))
-    }
+  // Opens the shared create-task modal with the given pre-fill configuration.
+  const openCreateModal = useCallback((defaults: CreateTaskDefaults, asBacklog = false) => {
+    setCreateAsBacklog(asBacklog)
+    setCreateDefaults(defaults)
+    setShowCreateModal(true)
   }, [])
 
   // Opens the standard create-task modal pre-configured for a no-date backlog task.
   const openBacklogCreate = useCallback(() => {
-    setTaskType('no_date')
-    setCreateAsBacklog(true)
-    const updates: Partial<typeof createForm> = { date: '', start_time: '', end_time: '' }
-    if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
-    setCreateForm(f => ({ ...f, ...updates }))
-    setShowCreateModal(true)
-  }, [me, users])
+    openCreateModal({ taskType: 'no_date' }, true)
+  }, [openCreateModal])
 
   // When the parent (e.g. the BacklogPanel in TaskManagement) requests a backlog
   // create, open the no-date create modal exactly once and acknowledge consumption.
@@ -827,19 +769,6 @@ export default function TaskCalendar({
   }, [pendingBacklogCreate, openBacklogCreate, onBacklogCreateConsumed])
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
-  const [newLabelName, setNewLabelName] = useState('')
-  const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
-  const [addingLabel, setAddingLabel] = useState(false)
-
-  const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
-    onDeleted: (labelId) => {
-      setTaskLabels(prev => prev.filter(x => x.id !== labelId))
-      setCreateForm(f => ({ ...f, label_ids: f.label_ids.filter(id => id !== labelId) }))
-      setEditForm(f => (f ? { ...f, label_ids: f.label_ids.filter(id => id !== labelId) } : f))
-    },
-    onError: (message) => showToast(message, 'error'),
-  })
-
   const [localCalendarDateDisplay, setLocalCalendarDateDisplay] = useState<CalendarDateDisplay>(() => {
     try {
       const saved = sessionStorage.getItem('taskCalendarDateDisplay')
@@ -1297,15 +1226,6 @@ export default function TaskCalendar({
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
-  const DEFAULT_TASK_DURATION_MINUTES = 30
-  const addMinutesToLocalDateTime = (localDateTime: string, minutes: number): string => {
-    if (!localDateTime) return ''
-    const parsed = new Date(localDateTime)
-    if (Number.isNaN(parsed.getTime())) return ''
-    parsed.setMinutes(parsed.getMinutes() + minutes)
-    return toDateTimeLocal(parsed)
-  }
-
   /** Local ISO string with seconds — matches the format used by the create flow.
    *  IMPORTANT: Do NOT use Date.toISOString() for task times — that produces UTC
    *  (with Z suffix) which the backend strips, causing a timezone shift. */
@@ -1484,249 +1404,17 @@ export default function TaskCalendar({
     const pad = (n: number) => String(n).padStart(2, '0')
     const start = arg.start
     const end = arg.end
-    setTaskTypeWithDefaults('meeting')
-    setCreateForm(f => ({
-      ...f,
-      start_time: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`,
-      end_time: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`,
-    }))
-    setShowCreateModal(true)
+    const toLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    openCreateModal({ taskType: 'meeting', startTime: toLocal(start), endTime: toLocal(end) })
     arg.view.calendar.unselect()
   }
 
-  const handleCreateTaskLabel = useCallback(async () => {
-    const name = newLabelName.trim()
-    if (!name) return
-    setAddingLabel(true)
-    try {
-      const color = newLabelColor.startsWith('#') ? newLabelColor : `#${newLabelColor}`
-      const { data } = await api.post<TaskLabelType>('/tasks/labels', { name, color: color || '#3B82F6' })
-      setTaskLabels((prev) => [...prev, data])
-      setNewLabelName('')
-      setNewLabelColor('#3B82F6')
-      if (editForm) {
-        setEditForm((f) => (f ? { ...f, label_ids: [...f.label_ids, data.id] } : f))
-      } else {
-        setCreateForm((f) => ({ ...f, label_ids: [...f.label_ids, data.id] }))
-      }
-    } catch (err) {
-      console.error('Failed to create label:', err)
-    } finally {
-      setAddingLabel(false)
-    }
-  }, [newLabelName, newLabelColor, editForm])
-
+  // Opens the shared TaskEditModal for a task (closing the detail popup first).
+  // The modal seeds its own form from the task, so no seeding is needed here.
   const openEditModal = useCallback((task: Task) => {
     setSelectedTask(null)
     setEditingTask(task)
-    const hasDates = !!task.start_time && !!task.end_time
-    const start = task.start_time ? new Date(task.start_time) : new Date()
-    const end = task.end_time ? new Date(task.end_time) : new Date()
-    const isWithTime = hasDates && !(start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() === 59)
-    setEditTaskType(hasDates ? (isWithTime ? 'with_time' : 'date_only') : 'no_date')
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const validRules: RecurrenceRule[] = ['daily', 'weekly', 'monthly', 'yearly']
-    const recRule = validRules.includes((task.recurrence_rule || '') as RecurrenceRule)
-      ? (task.recurrence_rule as RecurrenceRule)
-      : ''
-    const recEnd = task.recurrence_end_date ? task.recurrence_end_date.slice(0, 10) : ''
-    const recCount = task.recurrence_count && task.recurrence_count > 0 ? task.recurrence_count : null
-    const recEndMode: RecurrenceEndMode = recCount ? 'count' : recEnd ? 'date' : 'never'
-    setEditForm({
-      title: task.title,
-      date: hasDates ? `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}` : '',
-      start_time: hasDates ? `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}` : '',
-      end_time: hasDates ? `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}` : '',
-      description: task.description || '',
-      status: (task.status || 'pending') as TaskStatus,
-      assigned_to_user_id: String(task.assigned_to_user_id),
-      recurrence_rule: recRule,
-      recurrence_interval: task.recurrence_interval && task.recurrence_interval > 1 ? task.recurrence_interval : 1,
-      recurrence_weekdays: parseWeekdays(task.recurrence_weekdays),
-      recurrence_monthly_mode: task.recurrence_monthly_mode === 'day_of_week' ? 'day_of_week' : 'day_of_month',
-      recurrence_end_mode: recEndMode,
-      recurrence_end_date: recEnd,
-      recurrence_count: recCount ? String(recCount) : '',
-      label_ids: task.labels?.map(l => l.id) ?? [],
-      participant_ids: task.participants?.map(p => p.user_id) ?? [],
-      requires_closure_approval: task.requires_closure_approval ?? false,
-    })
-    setEditError(null)
   }, [])
-
-  const uploadEditAttachments = useCallback(async (files: File[]) => {
-    if (!editingTask || files.length === 0) return
-    setEditUploadingAttachment(true)
-    try {
-      for (const file of files) {
-        const fd = new FormData()
-        fd.append('file', file)
-        await api.post(`/tasks/${editingTask.id}/attachments`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-      }
-      const { data } = await api.get<Task>(`/tasks/${editingTask.id}`)
-      setEditingTask(data)
-      if (editFileInputRef.current) editFileInputRef.current.value = ''
-    } catch (err) {
-      console.error('Failed to upload attachment:', err)
-    } finally {
-      setEditUploadingAttachment(false)
-    }
-  }, [editingTask])
-
-  const handleEditAddAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return
-    await uploadEditAttachments(Array.from(e.target.files))
-  }
-
-  const handleEditDeleteAttachment = async (attachmentId: number) => {
-    if (!editingTask) return
-    setEditDeletingAttachmentId(attachmentId)
-    try {
-      await api.delete(`/tasks/${editingTask.id}/attachments/${attachmentId}`)
-      setEditingTask((t) =>
-        t ? { ...t, attachments: t.attachments?.filter((a) => a.id !== attachmentId) ?? [] } : null
-      )
-    } catch (err) {
-      console.error('Failed to delete attachment:', err)
-    } finally {
-      setEditDeletingAttachmentId(null)
-    }
-  }
-
-  const handleEditSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editingTask || !editForm) return
-    setEditError(null)
-    if (!editForm.title.trim() || !editForm.assigned_to_user_id) {
-      setEditError('נא למלא את כל השדות החובה')
-      return
-    }
-    let start_time: string | null | undefined = undefined
-    let end_time: string | null | undefined = undefined
-    if (editTaskType === 'with_time' && editForm.start_time?.trim() && editForm.end_time?.trim()) {
-      let startStr = editForm.start_time.trim()
-      let endStr = editForm.end_time.trim()
-      if (startStr.length === 16) startStr += ':00'
-      if (endStr.length === 16) endStr += ':00'
-      if (new Date(startStr) >= new Date(endStr)) {
-        setEditError('שעת הסיום חייבת להיות אחרי שעת ההתחלה')
-        return
-      }
-      start_time = startStr
-      end_time = endStr
-    } else if (editTaskType === 'date_only' && editForm.date) {
-      start_time = `${editForm.date}T00:00:00`
-      end_time = `${editForm.date}T23:59:59`
-    } else {
-      start_time = null
-      end_time = null
-    }
-    // No-date tasks can't recur; otherwise use the chosen recurrence settings.
-    const recurrence = editTaskType === 'no_date'
-      ? buildRecurrencePayload({ ...editForm, recurrence_rule: '' })
-      : buildRecurrencePayload(editForm)
-    setEditSaving(true)
-    try {
-      await api.put(`/tasks/${editingTask.id}`, {
-        title: editForm.title.trim(),
-        start_time: start_time,
-        end_time: end_time,
-        description: editForm.description || undefined,
-        status: editForm.status,
-        event_type: 'task',
-        assigned_to_user_id: Number(editForm.assigned_to_user_id),
-        label_ids: editForm.label_ids,
-        participant_ids: editForm.participant_ids,
-        ...recurrence,
-        requires_closure_approval: editForm.requires_closure_approval,
-      })
-      setEditingTask(null)
-      setEditForm(null)
-      await fetchTasks()
-      setSelectedTask(null)
-    } catch (err: any) {
-      setEditError(err.response?.data?.detail ?? 'שגיאה בעדכון משימה')
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setCreateError(null)
-    if (!createForm.title.trim() || !createForm.assigned_to_user_id) {
-      setCreateError('נא למלא את כל השדות החובה')
-      return
-    }
-    let start_time: string | undefined
-    let end_time: string | undefined
-    if (taskType === 'no_date') {
-      start_time = undefined
-      end_time = undefined
-    } else if (taskType === 'all_day' && createForm.date) {
-      start_time = `${createForm.date}T00:00:00`
-      end_time = `${createForm.date}T23:59:59`
-    } else if (taskType === 'meeting') {
-      if (!createForm.start_time?.trim() || !createForm.end_time?.trim()) {
-        setCreateError('לפגישה יש למלא תאריך ומשעה עד שעה')
-        return
-      }
-      let startStr = createForm.start_time.trim()
-      let endStr = createForm.end_time.trim()
-      if (startStr.length === 16) startStr += ':00'
-      if (endStr.length === 16) endStr += ':00'
-      start_time = startStr
-      end_time = endStr
-      if (new Date(start_time) >= new Date(end_time)) {
-        setCreateError('שעת הסיום (עד שעה) חייבת להיות אחרי שעת ההתחלה (משעה)')
-        return
-      }
-    } else {
-      setCreateError('נא למלא תאריך או שעות לפי סוג')
-      return
-    }
-    setCreateSaving(true)
-    try {
-      // No-date tasks can't recur; otherwise use the chosen recurrence settings.
-      const recurrence = taskType === 'no_date'
-        ? buildRecurrencePayload({ ...createForm, recurrence_rule: '' })
-        : buildRecurrencePayload(createForm)
-      const { data: created } = await api.post<Task>('/tasks/', {
-        title: createForm.title.trim(),
-        start_time: start_time ?? null,
-        end_time: end_time ?? null,
-        description: createForm.description.trim() || undefined,
-        status: createForm.status,
-        event_type: 'task',
-        assigned_to_user_id: Number(createForm.assigned_to_user_id),
-        label_ids: createForm.label_ids,
-        participant_ids: createForm.participant_ids,
-        ...recurrence,
-        requires_closure_approval: createForm.requires_closure_approval,
-        is_backlog: createAsBacklog && taskType === 'no_date',
-      })
-      for (const file of createPendingFiles) {
-        const fd = new FormData()
-        fd.append('file', file)
-        await api.post(`/tasks/${created.id}/attachments`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-      }
-      setShowCreateModal(false)
-      setCreateForm({ title: '', date: '', start_time: '', end_time: '', description: '', status: 'pending', assigned_to_user_id: '', label_ids: [], participant_ids: [], recurrence_rule: '', recurrence_interval: 1, recurrence_weekdays: [], recurrence_monthly_mode: 'day_of_month', recurrence_end_mode: 'never', recurrence_end_date: '', recurrence_count: '', requires_closure_approval: false })
-      setCreatePendingFiles([])
-      if (createFileInputRef.current) createFileInputRef.current.value = ''
-      setCreateAsBacklog(false)
-      setBacklogRefreshKey(k => k + 1)
-      await fetchTasks()
-    } catch (err: any) {
-      setCreateError(err.response?.data?.detail ?? 'שגיאה ביצירת משימה')
-    } finally {
-      setCreateSaving(false)
-    }
-  }
 
   const handleCalendarDateDisplayChange = async (value: CalendarDateDisplay) => {
     setLocalCalendarDateDisplay(value)
@@ -1885,10 +1573,24 @@ export default function TaskCalendar({
       : []
   const holidayEvents = [...jewishHolidayList, ...islamicHolidayList]
 
+  // Quick client-side text filter of the already-loaded tasks. Matches on the
+  // task title, assignee/participant names, and label names (NOT description),
+  // case-insensitive substring. An empty/whitespace query returns tasks as-is.
+  const filteredTasks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return tasks
+    return tasks.filter(t => {
+      const haystack: string[] = [t.title, t.assigned_user_name ?? '']
+      for (const participant of t.participants ?? []) haystack.push(participant.full_name)
+      for (const label of t.labels ?? []) haystack.push(label.name)
+      return haystack.some(value => value.toLowerCase().includes(query))
+    })
+  }, [tasks, searchQuery])
+
   const events = [
     ...holidayEvents,
     ...(dateRange
-      ? tasks
+      ? filteredTasks
           .filter(t => t.start_time && t.end_time)
           .flatMap(t => {
             const rangeStart = dateRange.start
@@ -1954,20 +1656,7 @@ export default function TaskCalendar({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setCreateAsBacklog(false)
-                    setTaskTypeWithDefaults('meeting')
-                    const updates: Partial<typeof createForm> = {}
-                    if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
-                    const now = new Date()
-                    const start = new Date(now); start.setHours(9, 0, 0, 0)
-                    const end = new Date(now); end.setHours(10, 0, 0, 0)
-                    const pad = (n: number) => String(n).padStart(2, '0')
-                    updates.start_time = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`
-                    updates.end_time = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`
-                    if (Object.keys(updates).length) setCreateForm(f => ({ ...f, ...updates }))
-                    setShowCreateModal(true)
-                  }}
+                  onClick={() => openCreateModal({ taskType: 'meeting' })}
                   className="inline-flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
                 >
                   <Calendar className="w-4 h-4" />
@@ -1976,19 +1665,7 @@ export default function TaskCalendar({
                 <PermissionGuard action="write" resource="task">
                   <button
                     type="button"
-                    onClick={() => {
-                      setCreateAsBacklog(false)
-                      setTaskType('all_day')
-                      const updates: Partial<typeof createForm> = {}
-                      if (me && users.length === 1 && users[0].id === me.id) updates.assigned_to_user_id = String(me.id)
-                      const now = new Date()
-                      const pad = (n: number) => String(n).padStart(2, '0')
-                      updates.date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-                      updates.start_time = ''
-                      updates.end_time = ''
-                      if (Object.keys(updates).length) setCreateForm(f => ({ ...f, ...updates }))
-                      setShowCreateModal(true)
-                    }}
+                    onClick={() => openCreateModal({ taskType: 'all_day' })}
                     className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
                   >
                     <Plus className="w-4 h-4" />
@@ -2038,7 +1715,7 @@ export default function TaskCalendar({
                 <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400 font-medium">טוען...</div>
               ) : isMobile ? (
                 <OutlookMobileCalendar
-                  tasks={tasks}
+                  tasks={filteredTasks}
                   jewishHolidays={jewishHolidayList}
                   islamicHolidays={islamicHolidayList}
                   selectedDate={mobileSelectedDate}
@@ -2099,6 +1776,28 @@ export default function TaskCalendar({
                     ☪️ חגים אסלאמיים
                   </button>
                   <div className="h-5 w-px bg-gray-200 dark:bg-gray-600" />
+                  <div className="relative" dir="rtl">
+                    <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none" />
+                    <input
+                      id="task-search"
+                      name="task-search"
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="חיפוש משימות..."
+                      className="task-calendar-select w-48 pr-8 pl-7 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-shadow"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        aria-label="נקה חיפוש"
+                        className="absolute left-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                   {isAdmin && (
                     <>
                       <select
@@ -2837,607 +2536,27 @@ export default function TaskCalendar({
         )
       })()}
 
-      {editingTask && editForm && (
-        <Modal
-          isOpen={!!editingTask}
-          onClose={() => { setEditingTask(null); setEditForm(null); setEditError(null); }}
-          title="עריכת משימה"
-        >
-          <form onSubmit={handleEditSave} className="space-y-4">
-            {editError && (
-              <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>
-            )}
-            <div>
-              <label htmlFor="edit-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">כותרת</label>
-              <input
-                id="edit-title"
-                name="edit-title"
-                type="text"
-                value={editForm.title}
-                onChange={(e) => setEditForm(f => f ? { ...f, title: e.target.value } : f)}
-                className={cn(
-                  "w-full px-3 py-2 border rounded-lg",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תזמון</label>
-              <div className="flex gap-4 flex-wrap">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="editTaskType" checked={editTaskType === 'with_time'} onChange={() => setEditTaskType('with_time')} />
-                  <span>עם שעה</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="editTaskType" checked={editTaskType === 'date_only'} onChange={() => setEditTaskType('date_only')} />
-                  <span>בלי שעה</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="editTaskType" checked={editTaskType === 'no_date'} onChange={() => setEditTaskType('no_date')} />
-                  <span>בלי תאריך</span>
-                </label>
-              </div>
-            </div>
-            <div>
-              <label htmlFor="edit-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מצב משימה</label>
-              <select
-                id="edit-status"
-                name="edit-status"
-                value={editForm.status}
-                onChange={(e) => setEditForm(f => f ? { ...f, status: e.target.value as TaskStatus } : f)}
-                className={cn(
-                  "w-full px-3 py-2 border rounded-lg",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-              >
-                {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[]).map((s) => (
-                  <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="edit-assigned" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מוקצה למשתמש</label>
-              <select
-                id="edit-assigned"
-                name="edit-assigned"
-                value={editForm.assigned_to_user_id}
-                onChange={(e) => setEditForm(f => f ? { ...f, assigned_to_user_id: e.target.value } : f)}
-                className={cn(
-                  "w-full px-3 py-2 border rounded-lg",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-                required
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
-                <Tag className="w-4 h-4" />
-                לייבלים
-              </label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {taskLabels.map((l) => (
-                  <span key={l.id} className="inline-flex items-center gap-0.5">
-                    <label
-                      className={cn(
-                        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border cursor-pointer transition-colors',
-                        editForm.label_ids.includes(l.id)
-                          ? 'border-transparent text-white'
-                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                      )}
-                      style={editForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={editForm.label_ids.includes(l.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setEditForm((f) => (f ? { ...f, label_ids: [...f.label_ids, l.id] } : f))
-                          } else {
-                            setEditForm((f) => (f ? { ...f, label_ids: f.label_ids.filter((id) => id !== l.id) } : f))
-                          }
-                        }}
-                        className="sr-only"
-                      />
-                      <span className="w-2 h-2 rounded-full bg-white/80 flex-shrink-0" style={editForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                      {l.name}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
-                      disabled={deletingLabelId === l.id}
-                      title="מחק לייבל"
-                      className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  id="edit-new-label-name"
-                  name="edit-new-label-name"
-                  type="text"
-                  placeholder="שם לייבל חדש"
-                  value={newLabelName}
-                  onChange={(e) => setNewLabelName(e.target.value)}
-                  aria-label="שם לייבל חדש"
-                  className={cn(
-                    'px-3 py-1.5 border rounded-lg text-sm w-32',
-                    'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                  )}
-                />
-                <input
-                  id="edit-new-label-color"
-                  name="edit-new-label-color"
-                  type="color"
-                  value={newLabelColor}
-                  onChange={(e) => setNewLabelColor(e.target.value)}
-                  aria-label="צבע לייבל חדש"
-                  className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent"
-                />
-                <button
-                  type="button"
-                  onClick={handleCreateTaskLabel}
-                  disabled={addingLabel || !newLabelName.trim()}
-                  className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-                >
-                  {addingLabel ? '...' : 'הוסף לייבל'}
-                </button>
-              </div>
-            </div>
-            {editTaskType === 'with_time' && (
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="edit-start-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">משעה *</label>
-                    <input
-                      id="edit-start-time"
-                      name="edit-start-time"
-                      type="datetime-local"
-                      value={editForm.start_time}
-                      onChange={(e) => {
-                        const newStart = e.target.value
-                        setEditForm(f => f ? { ...f, start_time: newStart, end_time: newStart ? addMinutesToLocalDateTime(newStart, DEFAULT_TASK_DURATION_MINUTES) : f.end_time } : f)
-                      }}
-                      className={cn(
-                        "w-full px-3 py-2 border rounded-lg",
-                        "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                      )}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="edit-end-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">עד שעה *</label>
-                    <input
-                      id="edit-end-time"
-                      name="edit-end-time"
-                      type="datetime-local"
-                      value={editForm.end_time}
-                      onChange={(e) => setEditForm(f => f ? { ...f, end_time: e.target.value } : f)}
-                      className={cn(
-                        "w-full px-3 py-2 border rounded-lg",
-                        "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                      )}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-            {editTaskType === 'date_only' && (
-              <div>
-                <label htmlFor="edit-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך (משימה)</label>
-                <input
-                  id="edit-date"
-                  name="edit-date"
-                  type="date"
-                  value={editForm.date}
-                  onChange={(e) => setEditForm(f => f ? { ...f, date: e.target.value } : f)}
-                  className={cn(
-                    "w-full px-3 py-2 border rounded-lg",
-                    "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  )}
-                />
-              </div>
-            )}
-            {editTaskType !== 'no_date' && (editForm.start_time || editForm.date) && (
-              <RecurrenceEditor
-                idPrefix="edit"
-                value={editForm}
-                onChange={(patch) => setEditForm(f => f ? { ...f, ...patch } : f)}
-                startDate={
-                  editForm.start_time
-                    ? new Date(editForm.start_time)
-                    : editForm.date
-                      ? new Date(`${editForm.date}T00:00:00`)
-                      : null
-                }
-              />
-            )}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
-                <Paperclip className="w-3.5 h-3.5" /> קבצים / תמונות
-              </label>
-              <input
-                id="edit-files"
-                name="edit-files"
-                ref={editFileInputRef}
-                type="file"
-                multiple
-                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-                onChange={handleEditAddAttachment}
-                className="hidden"
-              />
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => editFileInputRef.current?.click()}
-                  disabled={editUploadingAttachment}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-                >
-                  <Paperclip className="w-3.5 h-3.5" /> {editUploadingAttachment ? 'מעלה...' : 'הוסף קובץ'}
-                </button>
-                <RecordButton
-                  onRecorded={(file) => { void uploadEditAttachments([file]) }}
-                  disabled={editUploadingAttachment}
-                />
-                {(editingTask?.attachments ?? []).map((att) => (
-                  <span key={att.id} className="inline-flex items-center gap-1">
-                    <AttachmentView
-                      fileName={att.file_name}
-                      fileUrl={fileAttachmentUrl(att.file_url)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleEditDeleteAttachment(att.id)}
-                      disabled={editDeletingAttachmentId === att.id}
-                      className="p-0.5 rounded hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50"
-                      aria-label="מחק קובץ"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label htmlFor="edit-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
-              <textarea
-                id="edit-description"
-                name="edit-description"
-                value={editForm.description}
-                onChange={(e) => setEditForm(f => f ? { ...f, description: e.target.value } : f)}
-                rows={2}
-                className={cn(
-                  "w-full px-3 py-2 border rounded-lg text-sm",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="edit-requires-closure"
-                checked={editForm.requires_closure_approval}
-                onChange={(e) => setEditForm(f => f ? { ...f, requires_closure_approval: e.target.checked } : f)}
-                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
-              />
-              <label htmlFor="edit-requires-closure" className="text-sm text-gray-700 dark:text-gray-300">
-                דורש אישור מנהל לסגירה
-              </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => { setEditingTask(null); setEditForm(null); }}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-              >
-                ביטול
-              </button>
-              <button
-                type="submit"
-                disabled={editSaving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
-              >
-                {editSaving ? 'שומר...' : 'שמור שינויים'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      <TaskEditModal
+        task={editingTask}
+        isOpen={!!editingTask}
+        onClose={() => setEditingTask(null)}
+        users={users}
+        taskLabels={taskLabels}
+        onSaved={() => { void fetchTasks(); setSelectedTask(null) }}
+        onLabelsChanged={() => { void fetchTaskLabels() }}
+      />
 
-      {showCreateModal && (
-        <Modal
-          isOpen={showCreateModal}
-          onClose={() => { setShowCreateModal(false); setCreatePendingFiles([]); setCreateAsBacklog(false); }}
-          title={createAsBacklog ? 'משימה חדשה ל-Backlog' : 'משימה חדשה'}
-        >
-          <form onSubmit={handleCreate} className="space-y-2">
-            {createError && (
-              <p className="text-sm text-red-600 dark:text-red-400">{createError}</p>
-            )}
-            <div>
-              <label htmlFor="create-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-0.5">כותרת</label>
-              <input
-                id="create-title"
-                name="create-title"
-                type="text"
-                value={createForm.title}
-                onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
-                className={cn(
-                  "w-full px-3 py-1.5 border rounded-lg text-sm",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-                required
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-0.5">סוג</label>
-                <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                    <input type="radio" name="taskType" checked={taskType === 'meeting'} onChange={() => setTaskTypeWithDefaults('meeting')} />
-                    <span>עם שעה</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                    <input type="radio" name="taskType" checked={taskType === 'all_day'} onChange={() => setTaskTypeWithDefaults('all_day')} />
-                    <span>משימה (בלי שעה)</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                    <input type="radio" name="taskType" checked={taskType === 'no_date'} onChange={() => setTaskType('no_date')} />
-                    <span>משימה (בלי תאריך)</span>
-                  </label>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label htmlFor="create-status" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מצב</label>
-                  <select
-                    id="create-status"
-                    name="create-status"
-                    value={createForm.status}
-                    onChange={(e) => setCreateForm(f => ({ ...f, status: e.target.value as TaskStatus }))}
-                    className={cn(
-                      "w-full px-2 py-1.5 border rounded-lg text-sm",
-                      "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    )}
-                  >
-                    {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[]).map((s) => (
-                      <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="create-assigned" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">מוקצה ל</label>
-                  <select
-                    id="create-assigned"
-                    name="create-assigned"
-                    value={createForm.assigned_to_user_id}
-                    onChange={(e) => setCreateForm(f => ({ ...f, assigned_to_user_id: e.target.value }))}
-                    className={cn(
-                      "w-full px-2 py-1.5 border rounded-lg text-sm",
-                      "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    )}
-                    required
-                  >
-                    <option value="">בחר</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.full_name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
-                <Tag className="w-3.5 h-3.5" /> לייבלים
-              </label>
-              <div className="flex flex-wrap gap-1.5 mb-1">
-                {taskLabels.map((l) => (
-                  <span key={l.id} className="inline-flex items-center gap-0.5">
-                    <label
-                      className={cn(
-                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer',
-                        createForm.label_ids.includes(l.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
-                      )}
-                      style={createForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={createForm.label_ids.includes(l.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) setCreateForm((f) => ({ ...f, label_ids: [...f.label_ids, l.id] }))
-                          else setCreateForm((f) => ({ ...f, label_ids: f.label_ids.filter((id) => id !== l.id) }))
-                        }}
-                        className="sr-only"
-                      />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                      {l.name}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
-                      disabled={deletingLabelId === l.id}
-                      title="מחק לייבל"
-                      className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <input
-                  id="create-new-label-name"
-                  name="create-new-label-name"
-                  type="text"
-                  placeholder="לייבל חדש"
-                  value={newLabelName}
-                  onChange={(e) => setNewLabelName(e.target.value)}
-                  aria-label="שם לייבל חדש"
-                  className={cn(
-                    'px-2 py-1 border rounded text-xs w-24',
-                    'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                  )}
-                />
-                <input id="create-new-label-color" name="create-new-label-color" type="color" value={newLabelColor} onChange={(e) => setNewLabelColor(e.target.value)} className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent" title="צבע" aria-label="צבע לייבל חדש" />
-                <button type="button" onClick={handleCreateTaskLabel} disabled={addingLabel || !newLabelName.trim()} className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50">הוסף</button>
-              </div>
-            </div>
-            {taskType === 'all_day' && (
-              <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                <label htmlFor="create-date" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תאריך *</label>
-                <input
-                  id="create-date"
-                  name="create-date"
-                  type="date"
-                  value={createForm.date}
-                  onChange={(e) => setCreateForm(f => ({ ...f, date: e.target.value }))}
-                  className={cn(
-                    "w-full px-2 py-1.5 border rounded-lg text-sm",
-                    "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  )}
-                />
-              </div>
-            )}
-            {taskType === 'meeting' && (
-              <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label htmlFor="create-start-time" className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">משעה *</label>
-                    <input
-                      id="create-start-time"
-                      name="create-start-time"
-                      type="datetime-local"
-                      value={createForm.start_time}
-                      onChange={(e) => {
-                        const newStart = e.target.value
-                        setCreateForm(f => ({ ...f, start_time: newStart, end_time: newStart ? addMinutesToLocalDateTime(newStart, DEFAULT_TASK_DURATION_MINUTES) : f.end_time }))
-                      }}
-                      required={taskType === 'meeting'}
-                      className={cn(
-                        "w-full px-2 py-1.5 border rounded-lg text-sm",
-                        "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                      )}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="create-end-time" className="block text-xs text-gray-700 dark:text-gray-300 mb-0.5">עד שעה *</label>
-                    <input
-                      id="create-end-time"
-                      name="create-end-time"
-                      type="datetime-local"
-                      value={createForm.end_time}
-                      onChange={(e) => setCreateForm(f => ({ ...f, end_time: e.target.value }))}
-                      required={taskType === 'meeting'}
-                      className={cn(
-                        "w-full px-2 py-1.5 border rounded-lg text-sm",
-                        "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                      )}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-            {(taskType === 'meeting' || taskType === 'all_day') && (
-              <RecurrenceEditor
-                idPrefix="create"
-                value={createForm}
-                onChange={(patch) => setCreateForm(f => ({ ...f, ...patch }))}
-                startDate={
-                  taskType === 'meeting' && createForm.start_time
-                    ? new Date(createForm.start_time)
-                    : taskType === 'all_day' && createForm.date
-                      ? new Date(`${createForm.date}T00:00:00`)
-                      : null
-                }
-              />
-            )}
-            {taskType === 'all_day' && (
-              <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי שעה – תופיע תחת משימות ביומן (ובלוח החודש בתא הנבחר).</p>
-            )}
-            {taskType === 'no_date' && (
-              <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי תאריך – תופיע תחת משימות (רשימת משימות בלי תאריך).</p>
-            )}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
-              <input
-                id="create-files"
-                name="create-files"
-                ref={createFileInputRef}
-                type="file"
-                multiple
-                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-                onChange={(e) => {
-                  const files = e.target.files ? Array.from(e.target.files) : []
-                  setCreatePendingFiles((prev) => [...prev, ...files])
-                }}
-                className="hidden"
-              />
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => createFileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
-                >
-                  <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים
-                </button>
-                <RecordButton onRecorded={(file) => setCreatePendingFiles((prev) => [...prev, file])} />
-                {createPendingFiles.map((file, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
-                    {file.name}
-                    <button type="button" onClick={() => setCreatePendingFiles((p) => p.filter((_, j) => j !== i))} className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-500" aria-label="הסר"><X className="w-3 h-3" /></button>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label htmlFor="create-description" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תיאור</label>
-              <textarea
-                id="create-description"
-                name="create-description"
-                value={createForm.description}
-                onChange={(e) => setCreateForm(f => ({ ...f, description: e.target.value }))}
-                rows={2}
-                className={cn(
-                  "w-full px-3 py-1.5 border rounded-lg text-sm",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                )}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="create-requires-closure"
-                checked={createForm.requires_closure_approval}
-                onChange={(e) => setCreateForm(f => ({ ...f, requires_closure_approval: e.target.checked }))}
-                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
-              />
-              <label htmlFor="create-requires-closure" className="text-sm text-gray-700 dark:text-gray-300">
-                דורש אישור מנהל לסגירה
-              </label>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => { setShowCreateModal(false); setCreatePendingFiles([]); }}
-                className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-              >
-                ביטול
-              </button>
-              <button
-                type="submit"
-                disabled={createSaving}
-                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
-              >
-                {createSaving ? 'שומר...' : 'צור משימה'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      <CreateTaskModal
+        isOpen={showCreateModal}
+        onClose={() => { setShowCreateModal(false); setCreateAsBacklog(false); setCreateDefaults(undefined) }}
+        users={users}
+        taskLabels={taskLabels}
+        defaults={createDefaults}
+        defaultAssigneeId={me && users.length === 1 && users[0].id === me.id ? me.id : null}
+        defaultBacklog={createAsBacklog}
+        onCreated={() => { setBacklogRefreshKey(k => k + 1); void fetchTasks() }}
+        onLabelsChanged={() => { void fetchTaskLabels() }}
+      />
       {mobileFiltersOpen && (
         <Modal isOpen={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)} title="סינון יומן">
           <div className="space-y-4">
@@ -3487,6 +2606,30 @@ export default function TaskCalendar({
               <span>☪️ חגים אסלאמיים</span>
               <span>{showIslamicHolidays ? 'מוצג' : 'מוסתר'}</span>
             </button>
+            <div>
+              <label htmlFor="mobile-task-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">חיפוש משימות</label>
+              <div className="relative" dir="rtl">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none" />
+                <input
+                  id="mobile-task-search"
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="חיפוש משימות..."
+                  className="w-full pr-8 pl-7 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="נקה חיפוש"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
             {isAdmin && (
               <div>
                 <label htmlFor="mobile-filter-user" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סינון לפי משתמש</label>
