@@ -29,17 +29,20 @@ async def create_task_assignment_notifications(
         body = (body or "") + f"\nתאריך: {task.start_time.strftime('%d/%m/%Y %H:%M')}" if body else f"תאריך: {task.start_time.strftime('%d/%m/%Y %H:%M')}"
 
     notified = set()
-    if for_new_assignee and task.assigned_to_user_id and task.assigned_to_user_id != from_user_id:
-        notified.add(task.assigned_to_user_id)
-        n = UserNotification(
-            user_id=task.assigned_to_user_id,
-            from_user_id=from_user_id,
-            task_id=task.id,
-            type=NotificationType.TASK_ASSIGNMENT,
-            title=title,
-            body=body,
-        )
-        await repo.create(n)
+    if for_new_assignee:
+        for assignee_id in _task_assignee_ids(task):
+            if not assignee_id or assignee_id == from_user_id or assignee_id in notified:
+                continue
+            notified.add(assignee_id)
+            n = UserNotification(
+                user_id=assignee_id,
+                from_user_id=from_user_id,
+                task_id=task.id,
+                type=NotificationType.TASK_ASSIGNMENT,
+                title=title,
+                body=body,
+            )
+            await repo.create(n)
     if for_new_participants:
         participants = getattr(task, "participants", None) or []
         for p in participants:
@@ -58,11 +61,26 @@ async def create_task_assignment_notifications(
     await db.flush()
 
 
-def _collect_task_recipient_ids(task: Task, exclude_user_id: int) -> set[int]:
-    """User ids tied to a task (assignee + participants), excluding one user."""
-    recipient_ids: set[int] = set()
+def _task_assignee_ids(task: Task) -> list[int]:
+    """Ordered assignee ids for a task: the full co-owner set, primary first.
+
+    Falls back to the single ``assigned_to_user_id`` for legacy rows whose
+    ``assignees`` set has not been backfilled yet, so a task always has at least
+    its primary assignee.
+    """
+    ordered: list[int] = []
     if task.assigned_to_user_id:
-        recipient_ids.add(task.assigned_to_user_id)
+        ordered.append(task.assigned_to_user_id)
+    for assignee in getattr(task, "assignees", None) or []:
+        assignee_id = getattr(assignee, "id", None)
+        if assignee_id and assignee_id not in ordered:
+            ordered.append(assignee_id)
+    return ordered
+
+
+def _collect_task_recipient_ids(task: Task, exclude_user_id: int) -> set[int]:
+    """User ids tied to a task (all assignees + participants), excluding one user."""
+    recipient_ids: set[int] = set(_task_assignee_ids(task))
     for participant in getattr(task, "participants", None) or []:
         participant_user_id = getattr(participant, "user_id", None)
         if participant_user_id:

@@ -25,6 +25,7 @@ from backend.schemas.task import (
     RECURRENCE_RULE_VALUES,
     TASK_STATUS_VALUES,
     TaskParticipantOut,
+    TaskAssigneeOut,
     TaskAttachmentOut,
     TaskMessageOut,
     TaskMessageAttachmentOut,
@@ -35,6 +36,7 @@ from backend.schemas.task import (
     TaskChecklistSummary,
 )
 from backend.schemas.task_label import TaskLabelOut, TaskLabelCreate, TaskLabelUpdate
+from backend.models.user import User
 from backend.models.task import (
     Task,
     TaskLabel,
@@ -67,6 +69,23 @@ EMPLOYEE_COLORS = [
     "#3B82F6", "#10B981", "#F59E0B", "#EF4444",
     "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16",
 ]
+
+
+def _user_color(user) -> str | None:
+    """Resolve a display color for a user.
+
+    Prefers the user's own ``calendar_color`` when set, otherwise picks a
+    stable color from the ``EMPLOYEE_COLORS`` palette by user id. Returns
+    ``None`` for a missing user. Single source of truth for the per-user color
+    used by both task and checklist-item serialization (DRY).
+    """
+    if not user:
+        return None
+    explicit_color = getattr(user, "calendar_color", None)
+    if explicit_color:
+        return explicit_color
+    idx = ((getattr(user, "id", None) or 1) - 1) % len(EMPLOYEE_COLORS)
+    return EMPLOYEE_COLORS[idx]
 
 
 def _get_uploads_dir() -> str:
@@ -103,13 +122,14 @@ async def _delete_stored_file(stored_path: str | None) -> None:
             pass
 
 
-# Allowed extensions for task attachments (images + audio recordings + common docs).
-# Shared by task attachments and task-message (chat) attachments so both enforce
-# the same policy. Audio types support voice recordings; MediaRecorder typically
-# outputs `.webm`.
+# Allowed extensions for task attachments (images + video + audio recordings +
+# common docs). Shared by task attachments and task-message (chat) attachments so
+# both enforce the same policy. Audio types support voice recordings;
+# MediaRecorder typically outputs `.webm` (or `.m4a` on Safari/iOS).
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
-    ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".wav", ".aac", ".mp4",
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".ogv", ".3gp",
+    ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".wav", ".aac",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv", ".zip",
 }
 MAX_ATTACHMENT_SIZE_MB = 25
@@ -259,6 +279,35 @@ def _normalize_recurrence(
     }
 
 
+def _ordered_unique_assignee_ids(primary_id: int | None, extra_ids: list[int] | None) -> list[int]:
+    """Ordered-unique union of the primary id and any extra ids (primary first).
+
+    Preserves first-seen order and drops duplicates so the primary assignee is
+    always index 0 of the effective assignee set.
+    """
+    ordered: list[int] = []
+    for candidate_id in [primary_id, *(extra_ids or [])]:
+        if candidate_id and candidate_id not in ordered:
+            ordered.append(candidate_id)
+    return ordered
+
+
+async def _load_active_assignees(user_repo: UserRepository, assignee_ids: list[int]) -> list[User]:
+    """Load User rows for every id, requiring each to exist and be active.
+
+    Raises HTTPException(404) with a Hebrew detail if any id is missing or
+    inactive. Returns the users in the same order as ``assignee_ids`` so the
+    primary (first) stays first.
+    """
+    loaded: list[User] = []
+    for assignee_id in assignee_ids:
+        candidate = await user_repo.get_by_id(assignee_id)
+        if not candidate or not candidate.is_active:
+            raise HTTPException(status_code=404, detail="User not found")
+        loaded.append(candidate)
+    return loaded
+
+
 def _to_naive_utc(dt: datetime | None) -> datetime | None:
     """Convert timezone-aware datetime to naive UTC for DB comparison."""
     if dt is None:
@@ -268,13 +317,39 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
     return dt
 
 
+def _task_assignees_out(task: Task) -> list[TaskAssigneeOut]:
+    """Build the full assignee set for a task.
+
+    Falls back to the primary ``assigned_user`` for legacy rows created before
+    the assignee backfill (empty ``task.assignees``) so the response is never
+    empty for a task that has a primary assignee.
+    """
+    assignee_users = list(getattr(task, "assignees", None) or [])
+    if not assignee_users and task.assigned_user:
+        assignee_users = [task.assigned_user]
+    # The `task_assignees` join has no inherent order, so pin the primary
+    # (`assigned_to_user_id`) first — the frontend and the update endpoint both
+    # treat `assigned_to_user_ids[0]` as the primary. sort() is stable, so the
+    # remaining co-assignees keep their existing relative order.
+    primary_id = task.assigned_to_user_id
+    assignee_users.sort(key=lambda member: 0 if getattr(member, "id", None) == primary_id else 1)
+    return [
+        TaskAssigneeOut(
+            user_id=assignee.id,
+            full_name=assignee.full_name or "",
+            avatar_url=getattr(assignee, "avatar_url", None),
+            color=_user_color(assignee),
+        )
+        for assignee in assignee_users
+    ]
+
+
 def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
-    idx = ((task.assigned_to_user_id or 1) - 1) % len(EMPLOYEE_COLORS)
-    color = (
-        getattr(task.assigned_user, "calendar_color", None)
-        if task.assigned_user and getattr(task.assigned_user, "calendar_color", None)
-        else EMPLOYEE_COLORS[idx]
-    )
+    color = _user_color(task.assigned_user)
+    if color is None:
+        idx = ((task.assigned_to_user_id or 1) - 1) % len(EMPLOYEE_COLORS)
+        color = EMPLOYEE_COLORS[idx]
+    assignees_out = _task_assignees_out(task)
     labels = getattr(task, "labels", None) or []
     participants_data = []
     for p in getattr(task, "participants", None) or []:
@@ -333,6 +408,8 @@ def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
         "assigned_user_name": task.assigned_user.full_name if task.assigned_user else None,
         "assigned_user_color": color,
         "assigned_user_avatar": getattr(task.assigned_user, "avatar_url", None) if task.assigned_user else None,
+        "assigned_to_user_ids": [a.user_id for a in assignees_out],
+        "assignees": assignees_out,
         "labels": [TaskLabelOut.model_validate(l) for l in labels],
         "participants": participants_data,
         "attachments": attachments_data,
@@ -550,11 +627,18 @@ async def restore_task(
     return _task_to_out(updated)
 
 
+def _is_task_assignee(task: Task, user_id: int) -> bool:
+    """True if the user is the primary assignee OR a member of the full set."""
+    if task.assigned_to_user_id == user_id:
+        return True
+    return any(getattr(a, "id", None) == user_id for a in (getattr(task, "assignees", None) or []))
+
+
 def _can_access_task(task: Task, user) -> bool:
-    """True if user can view/edit this task (Admin, assignee, or participant)."""
+    """True if user can view/edit this task (Admin, any assignee, or participant)."""
     if user.role == "Admin":
         return True
-    if task.assigned_to_user_id == user.id:
+    if _is_task_assignee(task, user.id):
         return True
     participants = getattr(task, "participants", None) or []
     return any(getattr(p, "user_id", None) == user.id for p in participants)
@@ -566,10 +650,10 @@ def _can_delete_message(message, user) -> bool:
 
 
 def _can_manage_task(task: Task, user) -> bool:
-    """True if user may add/manage attachments on this task: Admin, the assignee, or the creator."""
+    """True if user may add/manage this task: Admin, any assignee, or the creator."""
     if user.role == "Admin":
         return True
-    if task.assigned_to_user_id == user.id:
+    if _is_task_assignee(task, user.id):
         return True
     return getattr(task, "created_by_user_id", None) == user.id
 
@@ -762,9 +846,13 @@ async def create_task(
     elif not data.start_time or not data.end_time:
         raise HTTPException(status_code=400, detail="Both start_time and end_time required for dated tasks")
     user_repo = UserRepository(db)
-    usr = await user_repo.get_by_id(data.assigned_to_user_id)
-    if not usr or not usr.is_active:
-        raise HTTPException(status_code=404, detail="User not found")
+    assignee_ids = _ordered_unique_assignee_ids(
+        data.assigned_to_user_id, getattr(data, "assigned_to_user_ids", None)
+    )
+    if not assignee_ids:
+        raise HTTPException(status_code=400, detail="At least one assignee is required")
+    assignee_users = await _load_active_assignees(user_repo, assignee_ids)
+    primary_assignee_id = assignee_ids[0]
     start_val = _to_naive_utc(data.start_time) if data.start_time else data.start_time
     end_val = _to_naive_utc(data.end_time) if data.end_time else data.end_time
     event_type = (data.event_type if data.event_type in (EventType.MEETING, EventType.TASK) else EventType.TASK)
@@ -785,7 +873,7 @@ async def create_task(
         description=data.description,
         status=initial_status,
         event_type=event_type,
-        assigned_to_user_id=data.assigned_to_user_id,
+        assigned_to_user_id=primary_assignee_id,
         created_by_user_id=user.id,
         recurrence_rule=recurrence["recurrence_rule"],
         recurrence_end_date=recurrence_end_date,
@@ -802,15 +890,19 @@ async def create_task(
     if initial_status == TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     task.unique_tag = generate_unique_tag()
+    task.assignees = assignee_users
     label_ids = getattr(data, "label_ids", None) or []
     if label_ids:
         label_repo = TaskLabelRepository(db)
         task.labels = await label_repo.get_by_ids(label_ids)
     repo = TaskRepository(db)
     created = await repo.create(task)
+    # Participants are Outlook-style invitees, distinct from true assignees:
+    # never invite anyone who is already an assignee (primary or additional).
+    assignee_id_set = set(assignee_ids)
     participant_ids = getattr(data, "participant_ids", None) or []
     for uid in participant_ids:
-        if uid != created.assigned_to_user_id:
+        if uid not in assignee_id_set:
             db.add(TaskParticipant(task_id=created.id, user_id=uid, response_status=ParticipantResponse.PENDING))
     await db.flush()
     try:
@@ -820,6 +912,10 @@ async def create_task(
             await repo.update(created)
     except Exception:
         logger.warning(f"Failed to create Outlook event for task {created.id}", exc_info=True)
+    # Assigning `task.assignees` on the new object leaves its `participants`
+    # collection in a stale "loaded-empty" state; expire it so the re-fetch's
+    # selectinload reflects the participants just written.
+    db.expire(created, ["participants"])
     created = await repo.get(created.id)
     try:
         await create_task_assignment_notifications(db, created, user.id)
@@ -885,14 +981,33 @@ async def update_task(
         # count and end-date are mutually exclusive; a chosen count clears the date.
         if recurrence["recurrence_count"]:
             update_data["recurrence_end_date"] = None
-    if "assigned_to_user_id" in update_data and update_data["assigned_to_user_id"]:
+    # Reassignment (scalar and/or full set) is admin-only. When
+    # `assigned_to_user_ids` is sent it REPLACES the whole assignee set (its
+    # first element becomes the primary; the old primary is dropped unless it is
+    # listed). A scalar `assigned_to_user_id` sent alone replaces the set with
+    # that single user (legacy single-assignee semantics). When both are sent,
+    # the scalar is pinned first as the primary.
+    new_assignee_users: list[User] | None = None
+    scalar_reassign = "assigned_to_user_id" in update_data and update_data["assigned_to_user_id"]
+    set_reassign = "assigned_to_user_ids" in update_data and update_data["assigned_to_user_ids"] is not None
+    if scalar_reassign or set_reassign:
         if user.role != "Admin":
             update_data.pop("assigned_to_user_id", None)  # Only Admin can reassign
+            update_data.pop("assigned_to_user_ids", None)
         else:
             user_repo = UserRepository(db)
-            usr = await user_repo.get_by_id(update_data["assigned_to_user_id"])
-            if not usr or not usr.is_active:
-                raise HTTPException(status_code=404, detail="User not found")
+            # An explicit scalar pins the primary; otherwise the sent set is
+            # authoritative and its first element becomes the primary.
+            primary_candidate = update_data["assigned_to_user_id"] if scalar_reassign else None
+            new_assignee_ids = _ordered_unique_assignee_ids(
+                primary_candidate, update_data.get("assigned_to_user_ids"),
+            )
+            if not new_assignee_ids:
+                raise HTTPException(status_code=400, detail="At least one assignee is required")
+            new_assignee_users = await _load_active_assignees(user_repo, new_assignee_ids)
+            update_data["assigned_to_user_id"] = new_assignee_ids[0]
+    # `assigned_to_user_ids` is not a Task column; never setattr it directly.
+    update_data.pop("assigned_to_user_ids", None)
     if "status" in update_data and update_data["status"] == TaskStatus.COMPLETED and task.completed_at is None:
         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     label_ids = update_data.pop("label_ids", None)
@@ -901,11 +1016,17 @@ async def update_task(
         if k in ("start_time", "end_time") and v is not None:
             v = _to_naive_utc(v) or v
         setattr(task, k, v)
+    if new_assignee_users is not None:
+        task.assignees = new_assignee_users
     if label_ids is not None:
         label_repo = TaskLabelRepository(db)
         task.labels = await label_repo.get_by_ids(label_ids)
     if participant_ids is not None:
-        new_set = set(participant_ids) - {task.assigned_to_user_id}
+        # Never keep anyone who is now a true assignee (primary or additional).
+        assignee_id_set = {task.assigned_to_user_id} | {
+            getattr(a, "id", None) for a in (getattr(task, "assignees", None) or [])
+        }
+        new_set = set(participant_ids) - assignee_id_set
         existing_by_user = {p.user_id: p for p in (getattr(task, "participants", None) or [])}
         for p in list(task.participants):
             if p.user_id not in new_set:
@@ -1061,16 +1182,9 @@ def _checklist_item_to_out(item: TaskChecklistItem) -> TaskChecklistItemOut:
     assigned_user = getattr(item, "assigned_user", None)
     handled_by_user = getattr(item, "handled_by_user", None)
 
-    # Compute a color for the assigned user (same palette logic as _task_to_out)
-    assigned_user_color = None
-    if assigned_user:
-        idx = ((assigned_user.id or 1) - 1) % len(EMPLOYEE_COLORS)
-        assigned_user_color = getattr(assigned_user, "calendar_color", None) or EMPLOYEE_COLORS[idx]
-
-    handled_by_user_color = None
-    if handled_by_user:
-        idx = ((handled_by_user.id or 1) - 1) % len(EMPLOYEE_COLORS)
-        handled_by_user_color = getattr(handled_by_user, "calendar_color", None) or EMPLOYEE_COLORS[idx]
+    # Per-user color via the shared helper (same palette logic as _task_to_out).
+    assigned_user_color = _user_color(assigned_user)
+    handled_by_user_color = _user_color(handled_by_user)
 
     return TaskChecklistItemOut(
         id=item.id,

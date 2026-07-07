@@ -15,6 +15,17 @@ task_task_labels = Table(
     Column("task_label_id", Integer, ForeignKey("task_labels.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Many-to-many: tasks <-> users (full co-owner assignee set). The scalar
+# `Task.assigned_to_user_id` remains the *primary* assignee (always the first of
+# the set); this join layers the complete assignee set on top so several users
+# can co-own a single task.
+task_assignees = Table(
+    "task_assignees",
+    Base.metadata,
+    Column("task_id", Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 def generate_unique_tag() -> str:
     """Generate a unique tag: timestamp (YYYYMMDDHHMMSS) + short UUID (8 chars)."""
@@ -121,6 +132,11 @@ class Task(Base):
 
     assigned_user: Mapped["User"] = relationship(
         "User", back_populates="tasks", foreign_keys=[assigned_to_user_id], lazy="selectin"
+    )
+    # Full co-owner assignee set (primary + additional). The primary assignee is
+    # also present here; `assigned_to_user_id` stays authoritative for the first.
+    assignees: Mapped[list["User"]] = relationship(
+        "User", secondary=task_assignees, back_populates="assigned_tasks", lazy="selectin"
     )
     created_by_user: Mapped["User | None"] = relationship(
         "User", foreign_keys=[created_by_user_id], lazy="selectin"

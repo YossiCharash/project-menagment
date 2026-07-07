@@ -54,6 +54,11 @@ class User(Base):
         "Task", back_populates="assigned_user",
         foreign_keys="Task.assigned_to_user_id", lazy="selectin"
     )
+    # Reverse of Task.assignees (full co-owner assignee set). `secondary` is the
+    # string table name to avoid an import cycle with the task module.
+    assigned_tasks: Mapped[list["Task"]] = relationship(
+        "Task", secondary="task_assignees", back_populates="assignees", lazy="selectin"
+    )
     task_participations: Mapped[list["TaskParticipant"]] = relationship(
         "TaskParticipant", back_populates="user", lazy="selectin"
     )

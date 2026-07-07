@@ -21,6 +21,7 @@ import { useDeleteTaskLabel } from './useDeleteTaskLabel'
 import AttachmentView from './AttachmentView'
 import RecordButton from './RecordButton'
 import ParticipantPicker from './ParticipantPicker'
+import AssigneePicker from './AssigneePicker'
 
 /**
  * The three mutually-exclusive scheduling shapes a task can take while editing,
@@ -39,7 +40,8 @@ interface EditTaskForm {
   end_time: string
   description: string
   status: TaskStatus
-  assigned_to_user_id: string
+  /** Ordered assignee ids — the first is the primary assignee. */
+  assigned_to_user_ids: number[]
   recurrence_rule: RecurrenceRule
   recurrence_interval: number
   recurrence_weekdays: number[]
@@ -111,7 +113,10 @@ function seedFormFromTask(task: Task): { form: EditTaskForm; taskType: EditTaskT
     end_time: hasDates ? formatLocalDateTime(end) : '',
     description: task.description || '',
     status: (task.status || 'pending') as TaskStatus,
-    assigned_to_user_id: String(task.assigned_to_user_id),
+    // Prefer the full assignee set; fall back to the single primary for legacy rows.
+    assigned_to_user_ids: task.assigned_to_user_ids?.length
+      ? task.assigned_to_user_ids
+      : [task.assigned_to_user_id],
     recurrence_rule: recRule,
     recurrence_interval: task.recurrence_interval && task.recurrence_interval > 1 ? task.recurrence_interval : 1,
     recurrence_weekdays: parseWeekdays(task.recurrence_weekdays),
@@ -256,7 +261,7 @@ export default function TaskEditModal({
     event.preventDefault()
     if (!editingTask || !editForm) return
     setEditError(null)
-    if (!editForm.title.trim() || !editForm.assigned_to_user_id) {
+    if (!editForm.title.trim() || editForm.assigned_to_user_ids.length === 0) {
       setEditError('נא למלא את כל השדות החובה')
       return
     }
@@ -293,7 +298,8 @@ export default function TaskEditModal({
         description: editForm.description || undefined,
         status: editForm.status,
         event_type: 'task',
-        assigned_to_user_id: Number(editForm.assigned_to_user_id),
+        assigned_to_user_id: editForm.assigned_to_user_ids[0],
+        assigned_to_user_ids: editForm.assigned_to_user_ids,
         label_ids: editForm.label_ids,
         participant_ids: editForm.participant_ids,
         ...recurrence,
@@ -363,44 +369,26 @@ export default function TaskEditModal({
             ))}
           </select>
         </div>
-        <div>
-          <label htmlFor="edit-assigned" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מוקצה למשתמש</label>
-          <select
-            id="edit-assigned"
-            name="edit-assigned"
-            value={editForm.assigned_to_user_id}
-            onChange={(e) => {
-              const nextAssignee = e.target.value
-              const nextAssigneeId = nextAssignee ? Number(nextAssignee) : null
-              setEditForm((f) =>
-                f
-                  ? {
-                      ...f,
-                      assigned_to_user_id: nextAssignee,
-                      // An assignee is never also a participant.
-                      participant_ids:
-                        nextAssigneeId != null
-                          ? f.participant_ids.filter((id) => id !== nextAssigneeId)
-                          : f.participant_ids,
-                    }
-                  : f
-              )
-            }}
-            className={cn(
-              'w-full px-3 py-2 border rounded-lg',
-              'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-            )}
-            required
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.full_name}</option>
-            ))}
-          </select>
-        </div>
+        <AssigneePicker
+          users={users}
+          selectedIds={editForm.assigned_to_user_ids}
+          onChange={(ids) =>
+            setEditForm((f) =>
+              f
+                ? {
+                    ...f,
+                    assigned_to_user_ids: ids,
+                    // A user is never both an assignee and a participant.
+                    participant_ids: f.participant_ids.filter((id) => !ids.includes(id)),
+                  }
+                : f
+            )
+          }
+        />
         <ParticipantPicker
           users={users}
           selectedIds={editForm.participant_ids}
-          assigneeId={editForm.assigned_to_user_id ? Number(editForm.assigned_to_user_id) : null}
+          assigneeIds={editForm.assigned_to_user_ids}
           onChange={(ids) => setEditForm((f) => (f ? { ...f, participant_ids: ids } : f))}
         />
         <div>
@@ -557,7 +545,7 @@ export default function TaskEditModal({
             ref={editFileInputRef}
             type="file"
             multiple
-            accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
             onChange={handleEditAddAttachment}
             className="hidden"
           />
