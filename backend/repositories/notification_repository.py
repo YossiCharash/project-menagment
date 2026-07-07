@@ -1,10 +1,10 @@
 """Repository for user notifications."""
 from datetime import datetime
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.models.user_notification import UserNotification
+from backend.models.user_notification import UserNotification, NotificationType
 
 
 class NotificationRepository:
@@ -81,6 +81,46 @@ class NotificationRepository:
             )
         )
         return result.scalar() or 0
+
+    async def get_task_ids_with_unread_message(
+        self, user_id: int, task_ids: list[int]
+    ) -> set[int]:
+        """Return the subset of ``task_ids`` that have an unread TASK_MESSAGE notification for the user.
+
+        Runs a single ``SELECT DISTINCT task_id`` filtered to the given user, the
+        ``TASK_MESSAGE`` type, unread (``read_at IS NULL``) rows, and the provided
+        task ids. Returns an empty set when ``task_ids`` is empty (no query issued).
+        """
+        if not task_ids:
+            return set()
+        result = await self.db.execute(
+            select(UserNotification.task_id.distinct()).where(
+                UserNotification.user_id == user_id,
+                UserNotification.type == NotificationType.TASK_MESSAGE,
+                UserNotification.read_at.is_(None),
+                UserNotification.task_id.in_(task_ids),
+            )
+        )
+        return {task_id for task_id in result.scalars().all() if task_id is not None}
+
+    async def mark_task_messages_read(self, user_id: int, task_id: int) -> None:
+        """Mark all of the user's unread TASK_MESSAGE notifications for a task as read.
+
+        Bulk-updates ``read_at`` to the current naive-UTC timestamp (matching the
+        convention used by ``mark_read``) for every unread ``TASK_MESSAGE``
+        notification belonging to ``(user_id, task_id)``, then flushes.
+        """
+        await self.db.execute(
+            update(UserNotification)
+            .where(
+                UserNotification.user_id == user_id,
+                UserNotification.task_id == task_id,
+                UserNotification.type == NotificationType.TASK_MESSAGE,
+                UserNotification.read_at.is_(None),
+            )
+            .values(read_at=datetime.utcnow())
+        )
+        await self.db.flush()
 
     async def mark_read(self, notification: UserNotification) -> UserNotification:
         notification.read_at = datetime.utcnow()
