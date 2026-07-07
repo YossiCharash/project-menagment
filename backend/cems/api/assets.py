@@ -42,7 +42,14 @@ def _raise_http_from_retirement_error(error: RetirementError) -> None:
 
 
 class MoveAssetRequest(PydanticBaseModel):
-    to_warehouse_id: uuid.UUID
+    """Move an asset either to a warehouse or to a free-text location.
+
+    Exactly one destination is expected; the endpoint requires at least one
+    of ``to_warehouse_id`` / ``to_location`` to be supplied.
+    """
+
+    to_warehouse_id: Optional[uuid.UUID] = None
+    to_location: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -255,6 +262,57 @@ async def asset_history(
     return [AssetHistoryRead.model_validate(e) for e in entries]
 
 
+async def _move_asset_to_warehouse(
+    asset,
+    to_warehouse_id: uuid.UUID,
+    notes: Optional[str],
+    repo: AssetRepository,
+    actor_id: int,
+) -> None:
+    """Relocate an asset into a warehouse, clearing any free-text location."""
+    from_warehouse_id = asset.current_warehouse_id
+    from_custodian_id = asset.current_custodian_id
+    asset.current_warehouse_id = to_warehouse_id
+    asset.current_location = None
+    asset.current_custodian_id = None
+    asset.status = AssetStatus.IN_WAREHOUSE
+    await repo.log_history(
+        asset_id=asset.id,
+        action="WAREHOUSE_MOVE",
+        actor_id=actor_id,
+        from_custodian_id=from_custodian_id,
+        from_warehouse_id=from_warehouse_id,
+        to_warehouse_id=to_warehouse_id,
+        notes=notes,
+    )
+
+
+async def _move_asset_to_location(
+    asset,
+    to_location: str,
+    notes: Optional[str],
+    repo: AssetRepository,
+    actor_id: int,
+) -> None:
+    """Relocate an asset to a free-text place that is not a warehouse."""
+    from_warehouse_id = asset.current_warehouse_id
+    from_custodian_id = asset.current_custodian_id
+    asset.current_warehouse_id = None
+    asset.current_location = to_location
+    asset.current_custodian_id = None
+    asset.status = AssetStatus.IN_WAREHOUSE
+    location_note = f"מיקום: {to_location}"
+    combined_notes = f"{location_note}. {notes}" if notes else location_note
+    await repo.log_history(
+        asset_id=asset.id,
+        action="LOCATION_MOVE",
+        actor_id=actor_id,
+        from_custodian_id=from_custodian_id,
+        from_warehouse_id=from_warehouse_id,
+        notes=combined_notes,
+    )
+
+
 @router.post("/{asset_id}/move", response_model=FixedAssetRead)
 async def move_asset(
     asset_id: uuid.UUID,
@@ -262,26 +320,30 @@ async def move_asset(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> FixedAssetRead:
+    if payload.to_warehouse_id is None and payload.to_location is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="יש לספק יעד להעברה: מחסן (to_warehouse_id) או מיקום חופשי (to_location).",
+        )
+
     repo = AssetRepository(db)
     asset = await repo.get_by_id(asset_id)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+
+    # Only guard against the source warehouse's manager when the asset is
+    # currently in a warehouse.
     if asset.current_warehouse_id is not None:
         await check_warehouse_manager_access(asset.current_warehouse_id, current_user, db)
-    from_warehouse_id = asset.current_warehouse_id
-    from_custodian_id = asset.current_custodian_id
-    asset.current_warehouse_id = payload.to_warehouse_id
-    asset.current_custodian_id = None
-    asset.status = AssetStatus.IN_WAREHOUSE
-    await repo.log_history(
-        asset_id=asset.id,
-        action="WAREHOUSE_MOVE",
-        actor_id=current_user.id,
-        from_custodian_id=from_custodian_id,
-        from_warehouse_id=from_warehouse_id,
-        to_warehouse_id=payload.to_warehouse_id,
-        notes=payload.notes,
-    )
+
+    if payload.to_warehouse_id is not None:
+        await _move_asset_to_warehouse(
+            asset, payload.to_warehouse_id, payload.notes, repo, current_user.id,
+        )
+    else:
+        await _move_asset_to_location(
+            asset, payload.to_location, payload.notes, repo, current_user.id,
+        )
     return FixedAssetRead.model_validate(asset)
 
 
@@ -369,6 +431,7 @@ async def retire_asset(
             reason=payload.reason,
             disposal_method=payload.disposal_method,
             what_happened=payload.what_happened,
+            supplier_name=payload.supplier_name,
         )
     except RetirementError as error:
         _raise_http_from_retirement_error(error)

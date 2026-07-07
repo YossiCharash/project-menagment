@@ -35,11 +35,35 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Self-referential hierarchy: a sub-warehouse points at its parent so
+    # sub-warehouses under a project are distinguishable from top-level ones.
+    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("cems_warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     current_manager: Mapped[Optional["User"]] = relationship(
         "User",
         foreign_keys=[current_manager_id],
         primaryjoin="Warehouse.current_manager_id == User.id",
+    )
+    # `remote_side` marks the "one" side of the self-referential FK so
+    # SQLAlchemy knows `parent` resolves to the row whose id == parent_id.
+    # `lazy="raise"` prevents accidental async lazy-loads (MissingGreenlet);
+    # callers eager-load via selectinload(Warehouse.parent).
+    parent: Mapped[Optional["Warehouse"]] = relationship(
+        "Warehouse",
+        remote_side="Warehouse.id",
+        foreign_keys=[parent_id],
+        back_populates="children",
+        lazy="raise",
+    )
+    children: Mapped[List["Warehouse"]] = relationship(
+        "Warehouse",
+        back_populates="parent",
+        foreign_keys=[parent_id],
+        lazy="raise",
     )
     projects: Mapped[List["CemsProject"]] = relationship(
         "CemsProject",

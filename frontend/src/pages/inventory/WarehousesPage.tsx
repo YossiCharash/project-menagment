@@ -36,6 +36,7 @@ import {
   type ConsumableItem,
   type ManagerHistoryEntry,
 } from '../../lib/cemsApi'
+import { warehouseLabel } from '../../lib/warehouse'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -317,6 +318,13 @@ export default function WarehousesPage() {
                           <div className="flex items-center gap-1 mt-1 text-sm text-gray-500 dark:text-gray-400">
                             <MapPin className="w-3.5 h-3.5" />
                             {warehouse.location}
+                          </div>
+                        )}
+                        {warehouse.parent_name && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+                              תת-מחסן של: {warehouse.parent_name}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -623,6 +631,7 @@ export default function WarehousesPage() {
       {/* Modals */}
       {showAddWarehouseModal && (
         <AddWarehouseModal
+          warehouses={warehouses}
           onClose={() => setShowAddWarehouseModal(false)}
           onCreated={loadData}
         />
@@ -660,6 +669,7 @@ export default function WarehousesPage() {
         return (
           <WarehouseSettingsModal
             warehouse={target}
+            warehouses={warehouses}
             users={users}
             onClose={() => setSettingsWarehouseId(null)}
             onUpdated={loadData}
@@ -927,7 +937,7 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
     try {
       await Promise.all(
         [...selectedAssetIds].map((assetId) =>
-          cemsApi.moveAsset(assetId, aTargetWarehouseId)
+          cemsApi.moveAsset(assetId, { toWarehouseId: aTargetWarehouseId })
         )
       )
       setATransferMode(false)
@@ -1130,7 +1140,7 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
                       <option value="">בחר מחסן יעד...</option>
                       {otherWarehouses.map((w) => (
                         <option key={w.id} value={w.id}>
-                          {w.name}{w.location ? ` — ${w.location}` : ''}
+                          {warehouseLabel(w)}
                         </option>
                       ))}
                     </select>
@@ -1276,7 +1286,7 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
                       <option value="">בחר מחסן יעד...</option>
                       {otherWarehouses.map((w) => (
                         <option key={w.id} value={w.id}>
-                          {w.name}{w.location ? ` — ${w.location}` : ''}
+                          {warehouseLabel(w)}
                         </option>
                       ))}
                     </select>
@@ -1341,13 +1351,15 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
 // ─── Add Warehouse Modal ─────────────────────────────────────────────────────
 
 interface AddWarehouseModalProps {
+  warehouses: Warehouse[]
   onClose: () => void
   onCreated: () => void
 }
 
-function AddWarehouseModal({ onClose, onCreated }: AddWarehouseModalProps) {
+function AddWarehouseModal({ warehouses, onClose, onCreated }: AddWarehouseModalProps) {
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
+  const [parentId, setParentId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -1364,6 +1376,7 @@ function AddWarehouseModal({ onClose, onCreated }: AddWarehouseModalProps) {
       await cemsApi.createWarehouse({
         name: name.trim(),
         location: location.trim() || undefined,
+        parent_id: parentId || undefined,
       })
       onCreated()
       onClose()
@@ -1396,6 +1409,15 @@ function AddWarehouseModal({ onClose, onCreated }: AddWarehouseModalProps) {
           <div>
             <label className={LABEL_CLASS}>מיקום</label>
             <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} className={INPUT_CLASS} placeholder="כתובת או תיאור מיקום" />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>מחסן אב (אופציונלי)</label>
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={INPUT_CLASS}>
+              <option value="">ללא (מחסן ראשי)</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>
+              ))}
+            </select>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>

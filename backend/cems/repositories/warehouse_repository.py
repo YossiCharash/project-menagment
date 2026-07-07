@@ -16,7 +16,10 @@ class WarehouseRepository(BaseRepository[Warehouse]):
     async def get_with_projects(self, warehouse_id: uuid.UUID) -> Optional[Warehouse]:
         stmt = (
             select(Warehouse)
-            .options(selectinload(Warehouse.projects))
+            .options(
+                selectinload(Warehouse.projects),
+                selectinload(Warehouse.parent),
+            )
             .where(Warehouse.id == warehouse_id)
         )
         result = await self._session.execute(stmt)
@@ -27,7 +30,10 @@ class WarehouseRepository(BaseRepository[Warehouse]):
     ) -> List[Warehouse]:
         stmt = (
             select(Warehouse)
-            .options(selectinload(Warehouse.projects))
+            .options(
+                selectinload(Warehouse.projects),
+                selectinload(Warehouse.parent),
+            )
             .offset(skip)
             .limit(limit)
         )
