@@ -7,8 +7,48 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // MediaRecorder API so every UI that needs voice recording reuses the same
 // lifecycle (permission, timer, track cleanup) instead of duplicating it.
 
-const RECORDED_MIME_TYPE = 'audio/webm'
+const FALLBACK_MIME_TYPE = 'audio/webm'
 const TIMER_INTERVAL_MS = 1000
+
+// Preference order for the recording container. The first type the browser's
+// MediaRecorder actually supports is used; Safari/iOS only offers 'audio/mp4'.
+const PREFERRED_MIME_TYPES: readonly string[] = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg',
+]
+
+// Map a recording mime type to an AUDIO-ONLY file extension. 'audio/mp4' maps to
+// 'm4a' (NOT 'mp4') so the recording stays classified as audio, not video, by
+// attachmentKind.
+const MIME_TYPE_TO_EXTENSION: Readonly<Record<string, string>> = {
+  'audio/webm': 'webm',
+  'audio/mp4': 'm4a',
+  'audio/ogg': 'ogg',
+}
+
+/** Base mime type without any ";codecs=..." suffix. */
+function baseMimeType(mimeType: string): string {
+  return mimeType.split(';')[0].trim()
+}
+
+/**
+ * First recording mime type this browser's MediaRecorder supports, in our
+ * preference order. Returns '' when MediaRecorder is unavailable or none match.
+ */
+function pickSupportedMimeType(): string {
+  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return ''
+  for (const mimeType of PREFERRED_MIME_TYPES) {
+    if (window.MediaRecorder.isTypeSupported(mimeType)) return mimeType
+  }
+  return ''
+}
+
+/** File extension for a recorded mime type, defaulting to 'webm'. */
+function extensionForMimeType(mimeType: string): string {
+  return MIME_TYPE_TO_EXTENSION[baseMimeType(mimeType)] ?? 'webm'
+}
 
 export interface AudioRecorder {
   /** Whether this browser supports MediaRecorder + getUserMedia. */
@@ -47,6 +87,8 @@ export function useAudioRecorder(): AudioRecorder {
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // The mime type the recording was actually produced with (browser-dependent).
+  const recordedMimeTypeRef = useRef<string>(FALLBACK_MIME_TYPE)
 
   const stopTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -67,7 +109,12 @@ export function useAudioRecorder(): AudioRecorder {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       recordedChunksRef.current = []
-      const recorder = new MediaRecorder(stream)
+      const chosenMimeType = pickSupportedMimeType()
+      const recorder = chosenMimeType
+        ? new MediaRecorder(stream, { mimeType: chosenMimeType })
+        : new MediaRecorder(stream)
+      // Trust the recorder's own reported mime; fall back to our choice, then webm.
+      recordedMimeTypeRef.current = recorder.mimeType || chosenMimeType || FALLBACK_MIME_TYPE
       recorder.ondataavailable = (event: BlobEvent) => {
         if (event.data && event.data.size > 0) {
           recordedChunksRef.current.push(event.data)
@@ -104,9 +151,10 @@ export function useAudioRecorder(): AudioRecorder {
           resolve(null)
           return
         }
-        const blob = new Blob(chunks, { type: RECORDED_MIME_TYPE })
-        const fileName = `recording-${Date.now()}.webm`
-        resolve(new File([blob], fileName, { type: RECORDED_MIME_TYPE }))
+        const mimeType = recordedMimeTypeRef.current
+        const blob = new Blob(chunks, { type: mimeType })
+        const fileName = `recording-${Date.now()}.${extensionForMimeType(mimeType)}`
+        resolve(new File([blob], fileName, { type: mimeType }))
       }
       recorder.stop()
     })
