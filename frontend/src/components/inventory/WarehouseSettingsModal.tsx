@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MapPin, Settings, X } from 'lucide-react'
 import { cemsApi, type CemsUser, type Warehouse } from '../../lib/cemsApi'
+import { warehouseLabel } from '../../lib/warehouse'
 import MapLocationPicker from './MapLocationPicker'
 
 // ─── Style constants (shared with WarehousesPage) ────────────────────────────
@@ -26,6 +27,7 @@ interface FormState {
   managerId: number | ''
   latitude: number | null
   longitude: number | null
+  parentId: string
 }
 
 /** Pure function: builds the initial form state from a warehouse record. */
@@ -36,6 +38,7 @@ function buildInitialFormState(warehouse: Warehouse): FormState {
     managerId: warehouse.current_manager_id ?? '',
     latitude: warehouse.latitude,
     longitude: warehouse.longitude,
+    parentId: warehouse.parent_id ?? '',
   }
 }
 
@@ -52,6 +55,8 @@ function isManagerChanged(form: FormState, original: Warehouse): boolean {
 
 export interface WarehouseSettingsModalProps {
   warehouse: Warehouse
+  /** All warehouses — used to populate the parent-warehouse selector. */
+  warehouses: Warehouse[]
   users: CemsUser[]
   onClose: () => void
   onUpdated: () => void
@@ -65,11 +70,15 @@ export interface WarehouseSettingsModalProps {
  */
 export default function WarehouseSettingsModal({
   warehouse,
+  warehouses,
   users,
   onClose,
   onUpdated,
 }: WarehouseSettingsModalProps) {
   const [form, setForm] = useState<FormState>(() => buildInitialFormState(warehouse))
+
+  // Exclude the warehouse itself so it cannot be its own parent.
+  const parentOptions = warehouses.filter((candidate) => candidate.id !== warehouse.id)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,6 +97,7 @@ export default function WarehouseSettingsModal({
       location: form.location.trim() || null,
       latitude: form.latitude,
       longitude: form.longitude,
+      parent_id: form.parentId || null,
     })
   }
 
@@ -197,6 +207,23 @@ export default function WarehouseSettingsModal({
               className={INPUT_CLASS}
               placeholder="כתובת או תיאור מיקום"
             />
+          </div>
+
+          {/* Parent warehouse */}
+          <div>
+            <label className={LABEL_CLASS}>מחסן אב (אופציונלי)</label>
+            <select
+              value={form.parentId}
+              onChange={(e) => updateField('parentId', e.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">ללא (מחסן ראשי)</option>
+              {parentOptions.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {warehouseLabel(candidate)}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Map picker */}

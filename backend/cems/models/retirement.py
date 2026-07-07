@@ -37,6 +37,12 @@ class AssetRetirement(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     disposal_method: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Free-text description of what physically happened to the asset
+    # (broken, lost, stolen, ...) — distinct from `reason` (why it is being
+    # moved to the archive).
+    what_happened: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Supplier name captured when `disposal_method` is "return to supplier".
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[RetirementStatus] = mapped_column(
         Enum(RetirementStatus, name="cems_retirement_status"),
         default=RetirementStatus.PENDING,

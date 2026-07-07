@@ -10,6 +10,8 @@ import {
   type Warehouse,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
+import { formatQuantity } from '../../lib/quantity'
+import { DocumentsSection } from './DocumentsSection'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -237,11 +239,11 @@ export function ConsumableViewModal({
             <div>
               <span className="block text-sm font-medium text-gray-500 dark:text-gray-400">כמות נוכחית</span>
               <span className={`block text-sm mt-1 font-semibold ${isLow ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                {item.quantity} {item.unit}
+                {formatQuantity(item.quantity)} {item.unit}
               </span>
             </div>
-            <DetailField label="סף התראה" value={`${item.low_stock_threshold} ${item.unit}`} />
-            <DetailField label="כמות להזמנה מחדש" value={`${item.reorder_quantity} ${item.unit}`} />
+            <DetailField label="סף התראה" value={`${formatQuantity(item.low_stock_threshold)} ${item.unit}`} />
+            <DetailField label="כמות להזמנה מחדש" value={`${formatQuantity(item.reorder_quantity)} ${item.unit}`} />
           </div>
 
           {/* Warehouse movements */}
@@ -272,7 +274,7 @@ export function ConsumableViewModal({
                       {warehouseNameById(m.from_warehouse_id)}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {m.quantity} {item.unit}
+                      {formatQuantity(m.quantity)} {item.unit}
                     </div>
                   </li>
                 ))}
@@ -306,7 +308,7 @@ export function ConsumableViewModal({
                       </span>
                     </div>
                     <div className="text-xs text-gray-600 dark:text-gray-300">
-                      נמשך: {log.quantity_consumed} {item.unit}
+                      נמשך: {formatQuantity(log.quantity_consumed)} {item.unit}
                       {log.project_name && (
                         <span className="mr-2">· פרויקט: {log.project_name}</span>
                       )}
@@ -318,6 +320,18 @@ export function ConsumableViewModal({
                 ))}
               </ul>
             )}
+          </div>
+
+          {/* Documents */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              מסמכים
+            </h4>
+            <DocumentsSection
+              entityType="consumable"
+              entityId={item.id}
+              isManager={isManager}
+            />
           </div>
         </div>
 

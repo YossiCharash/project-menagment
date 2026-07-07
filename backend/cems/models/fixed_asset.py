@@ -42,6 +42,10 @@ class FixedAsset(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
         nullable=True,
         index=True,
     )
+    # Free-text location for an asset moved to a place that is not a
+    # project/warehouse (e.g. a client site or a repair shop). Mutually
+    # exclusive with `current_warehouse_id` in practice.
+    current_location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     project_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,

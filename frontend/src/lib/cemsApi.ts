@@ -31,6 +31,8 @@ export interface Warehouse {
   current_manager_id: number | null
   project_ids: string[]
   project_names: string[]
+  parent_id: string | null
+  parent_name: string | null
 }
 
 export interface WarehouseUpdatePayload {
@@ -38,6 +40,7 @@ export interface WarehouseUpdatePayload {
   location?: string | null
   latitude?: number | null
   longitude?: number | null
+  parent_id?: string | null
 }
 
 export interface AssetCategory {
@@ -98,6 +101,7 @@ export interface FixedAsset {
   warranty_expiry: string | null
   notes: string | null
   photo_url: string | null
+  current_location: string | null
 }
 
 export interface AssetHistory {
@@ -169,6 +173,7 @@ export interface AssetRetirement {
   approved_by_id: number | null
   reason: string
   what_happened?: string | null
+  supplier_name?: string | null
   disposal_method: string
   status: RetirementStatus
   requested_at: string
@@ -349,6 +354,7 @@ interface TransferConsumablePayload {
 interface CreateWarehousePayload {
   name: string
   location?: string
+  parent_id?: string | null
 }
 
 // ─── API Client ──────────────────────────────────────────────────────────────
@@ -372,8 +378,15 @@ export const cemsApi = {
   getAssetHistory: (id: string) =>
     api.get<AssetHistory[]>(`${CEMS_BASE}/assets/${id}/history`),
 
-  moveAsset: (assetId: string, toWarehouseId: string, notes?: string) =>
-    api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/move`, { to_warehouse_id: toWarehouseId, notes }),
+  moveAsset: (
+    assetId: string,
+    opts: { toWarehouseId?: string; toLocation?: string; notes?: string },
+  ) =>
+    api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/move`, {
+      to_warehouse_id: opts.toWarehouseId,
+      to_location: opts.toLocation,
+      notes: opts.notes,
+    }),
 
   assignAsset: (assetId: string, toUserId: number, notes?: string) =>
     api.post<FixedAsset>(`${CEMS_BASE}/assets/${assetId}/assign`, { to_user_id: toUserId, notes }),
@@ -387,11 +400,13 @@ export const cemsApi = {
     reason: string,
     disposalMethod: string,
     whatHappened: string,
+    supplierName?: string,
   ) =>
     api.post<AssetRetirement>(`${CEMS_BASE}/assets/${assetId}/retire`, {
       reason,
       what_happened: whatHappened,
       disposal_method: disposalMethod,
+      supplier_name: supplierName,
     }),
 
   deleteAssetPermanently: (assetId: string) =>

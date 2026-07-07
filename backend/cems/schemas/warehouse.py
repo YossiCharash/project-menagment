@@ -16,6 +16,7 @@ class WarehouseBase(BaseModel):
 
 class WarehouseCreate(WarehouseBase):
     current_manager_id: Optional[uuid.UUID] = None
+    parent_id: Optional[uuid.UUID] = None
 
 
 class WarehouseUpdate(BaseModel):
@@ -23,6 +24,7 @@ class WarehouseUpdate(BaseModel):
     location: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    parent_id: Optional[uuid.UUID] = None
 
 
 class WarehouseRead(WarehouseBase):
@@ -30,6 +32,8 @@ class WarehouseRead(WarehouseBase):
 
     id: uuid.UUID
     current_manager_id: Optional[int] = None
+    parent_id: Optional[uuid.UUID] = None
+    parent_name: Optional[str] = None
     project_ids: List[uuid.UUID] = []
     project_names: List[str] = []
     created_at: datetime

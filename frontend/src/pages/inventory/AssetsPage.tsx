@@ -32,6 +32,7 @@ import {
 } from '../../lib/cemsApi'
 import { StatusBadge } from './InventoryDashboard'
 import { AssetViewModal } from './AssetViewModal'
+import { warehouseLabel } from '../../lib/warehouse'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -399,7 +400,7 @@ export default function AssetsPage() {
           >
             <option value="">כל המחסנים</option>
             {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
+              <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>
             ))}
           </select>
           <select
@@ -982,7 +983,7 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
             <label className={LABEL_CLASS}>מחסן</label>
             <select value={warehouseId} onChange={(e) => handleWarehouseChange(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר מחסן</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -1151,7 +1152,7 @@ function TransferModal({ asset, users, warehouses, onClose, onTransferred }: Tra
             <label className={LABEL_CLASS}>בחר מחסן יעד</label>
             <select value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} className={INPUT_CLASS}>
               <option value="">בחר מחסן (אופציונלי)</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>)}
             </select>
           </div>
           <div>
@@ -1201,12 +1202,17 @@ interface RetirementModalProps {
   onRetired: () => void
 }
 
+const RETURN_TO_SUPPLIER = 'החזרה לספק'
+
 function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
   const [whatHappened, setWhatHappened] = useState('')
   const [reason, setReason] = useState('')
   const [disposalMethod, setDisposalMethod] = useState('')
+  const [supplierName, setSupplierName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const isReturnToSupplier = disposalMethod === RETURN_TO_SUPPLIER
 
   async function handleSubmit(formEvent: React.FormEvent) {
     formEvent.preventDefault()
@@ -1227,6 +1233,7 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
         reason.trim(),
         disposalMethod || 'אחר',
         whatHappened.trim(),
+        isReturnToSupplier ? (supplierName.trim() || undefined) : undefined,
       )
       onRetired()
       onClose()
@@ -1287,9 +1294,22 @@ function RetirementModal({ asset, onClose, onRetired }: RetirementModalProps) {
               <option value="תרומה">תרומה</option>
               <option value="מיחזור">מיחזור</option>
               <option value="השמדה">השמדה</option>
+              <option value={RETURN_TO_SUPPLIER}>{RETURN_TO_SUPPLIER}</option>
               <option value="אחר">אחר</option>
             </select>
           </div>
+          {isReturnToSupplier && (
+            <div>
+              <label className={LABEL_CLASS}>שם ספק</label>
+              <input
+                type="text"
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                className={INPUT_CLASS}
+                placeholder="שם הספק (אופציונלי)"
+              />
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting} className={BTN_DANGER}>
@@ -1402,9 +1422,13 @@ interface MoveAssetModalProps {
   onMoved: () => void
 }
 
+type MoveDestination = 'warehouse' | 'location'
+
 function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [destination, setDestination] = useState<MoveDestination>('warehouse')
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
+  const [toLocation, setToLocation] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1417,30 +1441,41 @@ function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedWarehouseId) {
+    if (destination === 'warehouse' && !selectedWarehouseId) {
       setError('יש לבחור מחסן יעד')
+      return
+    }
+    if (destination === 'location' && !toLocation.trim()) {
+      setError('יש להזין מיקום חופשי')
       return
     }
 
     setSubmitting(true)
     setError(null)
     try {
-      await cemsApi.moveAsset(asset.id, selectedWarehouseId, notes.trim() || undefined)
+      await cemsApi.moveAsset(asset.id, {
+        toWarehouseId: destination === 'warehouse' ? selectedWarehouseId : undefined,
+        toLocation: destination === 'location' ? toLocation.trim() : undefined,
+        notes: notes.trim() || undefined,
+      })
       onMoved()
       onClose()
     } catch {
-      setError('שגיאה בהעברת הציוד למחסן')
+      setError('שגיאה בהעברת הציוד')
     } finally {
       setSubmitting(false)
     }
   }
+
+  const canSubmit =
+    destination === 'warehouse' ? Boolean(selectedWarehouseId) : Boolean(toLocation.trim())
 
   return (
     <div className={MODAL_OVERLAY} onClick={onClose}>
       <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            העברת ציוד למחסן: {asset.name}
+            העברת ציוד: {asset.name}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <X className="w-5 h-5 text-gray-500" />
@@ -1453,20 +1488,60 @@ function MoveAssetModal({ asset, onClose, onMoved }: MoveAssetModalProps) {
             </div>
           )}
           <div>
-            <label className={LABEL_CLASS}>בחר מחסן יעד *</label>
-            <select value={selectedWarehouseId} onChange={(e) => setSelectedWarehouseId(e.target.value)} className={INPUT_CLASS} required>
-              <option value="">בחר מחסן</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            <label className={LABEL_CLASS}>יעד *</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="radio"
+                  name="move-destination"
+                  value="warehouse"
+                  checked={destination === 'warehouse'}
+                  onChange={() => setDestination('warehouse')}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                />
+                מחסן
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="radio"
+                  name="move-destination"
+                  value="location"
+                  checked={destination === 'location'}
+                  onChange={() => setDestination('location')}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                />
+                מיקום חופשי
+              </label>
+            </div>
           </div>
+          {destination === 'warehouse' ? (
+            <div>
+              <label className={LABEL_CLASS}>בחר מחסן יעד *</label>
+              <select value={selectedWarehouseId} onChange={(e) => setSelectedWarehouseId(e.target.value)} className={INPUT_CLASS}>
+                <option value="">בחר מחסן</option>
+                {warehouses.map((w) => <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className={LABEL_CLASS}>מיקום חופשי *</label>
+              <input
+                type="text"
+                value={toLocation}
+                onChange={(e) => setToLocation(e.target.value)}
+                className={INPUT_CLASS}
+                placeholder="לדוגמה: אתר בנייה, כתובת..."
+              />
+            </div>
+          )}
           <div>
             <label className={LABEL_CLASS}>הערות</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={INPUT_CLASS} rows={2} placeholder="הערות להעברה (אופציונלי)" />
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
-            <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
-              {submitting ? 'מעביר...' : 'העבר למחסן'}
+            <button type="submit" disabled={submitting || !canSubmit} className={BTN_PRIMARY}>
+              {submitting ? 'מעביר...' : 'העבר'}
             </button>
           </div>
         </form>
