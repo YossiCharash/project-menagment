@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import {
@@ -13,8 +12,6 @@ import {
   Check,
   XCircle,
   UserCheck,
-  Eye,
-  Pencil,
   Image as ImageIcon,
   FileText,
   Upload,
@@ -52,51 +49,12 @@ const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-
 const BTN_DANGER = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 
-const DOC_TYPE_LABELS: Record<DocumentType, string> = {
-  WARRANTY: 'תעודת אחריות',
-  INVOICE: 'חשבונית',
-  OTHER: 'אחר',
-  PHOTO: 'תמונה',
-}
-
 const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
   { value: 'INVOICE', label: 'חשבונית' },
   { value: 'WARRANTY', label: 'תעודת אחריות' },
   { value: 'OTHER', label: 'אחר' },
   { value: 'PHOTO', label: 'תמונה' },
 ]
-
-const HISTORY_ACTION_LABELS: Record<string, string> = {
-  ASSET_CREATED: 'ציוד נוצר',
-  ASSET_UPDATED: 'ציוד עודכן',
-  PHOTO_UPDATED: 'תמונה עודכנה',
-  ASSIGNED_TO_EMPLOYEE: 'הוקצה לעובד',
-  WAREHOUSE_MOVE: 'הועבר למחסן',
-  TRANSFER_INITIATED: 'העברה יזומה',
-  TRANSFER_COMPLETED: 'העברה הושלמה',
-  TRANSFER_CANCELLED: 'העברה בוטלה',
-  ASSET_RETIRED: 'ציוד הוצא מכלל שימוש',
-  RETIREMENT_REQUESTED: 'בקשת גריטה הוגשה',
-  RETIREMENT_APPROVED: 'גריטה אושרה',
-  RETIREMENT_REJECTED: 'גריטה נדחתה',
-}
-
-const SUPPRESS_NOTE_ACTIONS = new Set([
-  'TRANSFER_COMPLETED', 'TRANSFER_INITIATED', 'TRANSFER_CANCELLED',
-  'ASSET_CREATED',
-])
-
-function buildHistoryNote(entry: AssetHistory, getUserName: (id: number | null) => string): string {
-  const parts: string[] = []
-  if (entry.from_custodian_id != null) parts.push(`ממי: ${getUserName(entry.from_custodian_id)}`)
-  if (entry.to_custodian_id != null) parts.push(`למי: ${getUserName(entry.to_custodian_id)}`)
-  if (parts.length > 0) return parts.join(' \u2192 ')
-  // For transfer/creation actions, never show raw auto-generated notes
-  if (SUPPRESS_NOTE_ACTIONS.has(entry.action)) return ''
-  if (!entry.notes) return ''
-  if (/transfer.*completed.*signature|created with serial|Asset '.*' created/i.test(entry.notes)) return ''
-  return entry.notes
-}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
@@ -254,90 +212,6 @@ export default function AssetsPage() {
     setWarehouseFilter('')
     setProjectFilter('')
     setCategoryFilter('')
-  }
-
-  async function openAssetDetail(asset: FixedAsset) {
-    setDetailAsset(asset)
-    setDetailActiveTab('details')
-    setDetailHistory([])
-    setDetailHistoryLoading(true)
-    setDetailDocs([])
-    setEditName(asset.name)
-    setEditNotes(asset.notes || '')
-    setEditCategoryId(asset.category_id || '')
-    setEditPurchaseDate(asset.purchase_date || '')
-    setEditWarrantyExpiry(asset.warranty_expiry || '')
-    loadDetailDocs(asset.id)
-    try {
-      const res = await cemsApi.getAssetHistory(asset.id)
-      setDetailHistory(res.data)
-    } catch { /* silent */ }
-    finally { setDetailHistoryLoading(false) }
-  }
-
-  async function loadDetailDocs(assetId: string) {
-    setDetailDocsLoading(true)
-    try {
-      const res = await cemsApi.getDocuments('fixed_asset', assetId)
-      setDetailDocs(res.data)
-    } catch { setDetailDocs([]) }
-    finally { setDetailDocsLoading(false) }
-  }
-
-  async function handleDetailDocUpload() {
-    if (!detailUploadFile || !detailAsset) return
-    setDetailUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', detailUploadFile)
-      formData.append('entity_type', 'fixed_asset')
-      formData.append('entity_id', detailAsset.id)
-      formData.append('document_type', detailUploadDocType)
-      if (detailUploadExpiry) formData.append('expiry_date', detailUploadExpiry)
-      await cemsApi.uploadDocument(formData)
-      setDetailUploadFile(null)
-      setDetailUploadExpiry('')
-      setDetailUploadDocType('INVOICE')
-      await loadDetailDocs(detailAsset.id)
-    } catch { /* silent */ }
-    finally { setDetailUploading(false) }
-  }
-
-  async function handleDetailDocDelete(docId: string) {
-    if (!detailAsset) return
-    try {
-      await cemsApi.deleteDocument(docId)
-      await loadDetailDocs(detailAsset.id)
-    } catch { /* silent */ }
-  }
-
-  async function handleDetailPhotoUpload(file: File) {
-    if (!detailAsset) return
-    setDetailUploadingPhoto(true)
-    try {
-      const res = await cemsApi.uploadAssetPhoto(detailAsset.id, file)
-      setDetailAsset(res.data)
-      setAssets((prev) => prev.map((a) => a.id === detailAsset.id ? res.data : a))
-    } catch { /* silent */ }
-    finally { setDetailUploadingPhoto(false) }
-  }
-
-  async function handleDetailSaveEdit() {
-    if (!detailAsset) return
-    setEditSaving(true)
-    try {
-      const res = await cemsApi.updateAsset(detailAsset.id, {
-        name: editName.trim() || undefined,
-        notes: editNotes.trim() || undefined,
-        category_id: (editCategoryId as any) || undefined,
-        purchase_date: (editPurchaseDate as any) || undefined,
-        warranty_expiry: (editWarrantyExpiry as any) || undefined,
-      })
-      setDetailAsset(res.data)
-      setAssets((prev) => prev.map((a) => a.id === detailAsset.id ? res.data : a))
-      setDetailActiveTab('details')
-    } catch { /* silent */ }
-    finally { setEditSaving(false) }
   }
 
   if (loading) {
