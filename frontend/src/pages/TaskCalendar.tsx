@@ -94,6 +94,8 @@ export interface Task {
   apartment_id?: number | null
   /** בניין משויך (מודול דלפק הבניין) */
   building_id?: number | null
+  /** יש תגובות/הודעות צ'אט חדשות שלא נקראו על ידי המשתמש הנוכחי (נקודה אדומה בסגנון וואטסאפ) */
+  has_unread_messages?: boolean
 }
 
 export interface TaskAttachmentType {
@@ -1096,6 +1098,11 @@ export default function TaskCalendar({
       return
     }
     lastEventClickRef.current = { id: info.event.id, time: now }
+    // Opening the task reads its chat → clear the red unread dot immediately
+    // (the server also marks it read via GET /tasks/{id}).
+    if (task.has_unread_messages) {
+      setTasks(prev => prev.map(t => (t.id === task.id ? { ...t, has_unread_messages: false } : t)))
+    }
     setSelectedTask(task)
   }
 
@@ -1626,7 +1633,7 @@ export default function TaskCalendar({
                 borderColor: isAllDayTask ? color : 'transparent',
                 textColor: 'inherit',
                 classNames: [eventType === 'meeting' ? 'fc-event-meeting' : 'fc-event-task', isAllDayTask ? 'fc-event-task-no-time' : '', 'fc-event-outlook'],
-                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask, status, isRecurring, color },
+                extendedProps: { eventType, labels, taskId: t.id, isAllDayTask, status, isRecurring, color, hasUnread: t.has_unread_messages ?? false },
               }
             })
           })
@@ -1940,6 +1947,7 @@ export default function TaskCalendar({
                   color?: string
                   isAllDayTask?: boolean
                   taskId?: number
+                  hasUnread?: boolean
                 }
                 const labels = ext.labels || []
                 const eventType = ext.eventType || 'task'
@@ -1982,7 +1990,7 @@ export default function TaskCalendar({
                     <div class="fc-outlook-bar" style="background:${color}"></div>
                     <div class="fc-outlook-body">
                       ${timeStr ? `<div class="fc-outlook-time">${typeIcon} ${esc(timeStr)}${recurIcon}</div>` : `<div class="fc-outlook-time">${typeIcon}${recurIcon}</div>`}
-                      <div class="fc-outlook-title">${taskCode ? `<span class="fc-outlook-code" style="opacity:0.6;font-size:0.85em;margin-inline-end:4px">${esc(taskCode)}</span>` : ''}${esc(title)}</div>
+                      <div class="fc-outlook-title">${ext.hasUnread ? `<span class="fc-outlook-unread" title="תגובות חדשות שלא נקראו" style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:#ef4444;margin-inline-end:4px;flex-shrink:0"></span>` : ''}${taskCode ? `<span class="fc-outlook-code" style="opacity:0.6;font-size:0.85em;margin-inline-end:4px">${esc(taskCode)}</span>` : ''}${esc(title)}</div>
                       ${labels.length > 0 ? `<div class="fc-outlook-labels">${pills}</div>` : ''}
                     </div>
                     <div class="fc-outlook-status" title="${esc(TASK_STATUS_LABELS[status as TaskStatus] || '')}">${statusIcon}</div>

@@ -17,6 +17,7 @@ from backend.repositories.task_repository import TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
 from backend.repositories.task_checklist_repository import TaskChecklistRepository
 from backend.repositories.user_repository import UserRepository
+from backend.repositories.notification_repository import NotificationRepository
 from backend.schemas.task import (
     TaskCreate,
     TaskOut,
@@ -267,7 +268,7 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
     return dt
 
 
-def _task_to_out(task: Task) -> dict:
+def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
     idx = ((task.assigned_to_user_id or 1) - 1) % len(EMPLOYEE_COLORS)
     color = (
         getattr(task.assigned_user, "calendar_color", None)
@@ -311,6 +312,7 @@ def _task_to_out(task: Task) -> dict:
         "assigned_to_user_id": task.assigned_to_user_id,
         "apartment_id": getattr(task, "apartment_id", None),
         "building_id": getattr(task, "building_id", None),
+        "has_unread_messages": has_unread_messages,
         "unique_tag": task.unique_tag,
         "recurrence_rule": recurrence_rule if recurrence_rule in RECURRENCE_RULE_VALUES else "",
         "recurrence_end_date": recurrence_end_date,
@@ -337,6 +339,19 @@ def _task_to_out(task: Task) -> dict:
     }
 
 
+async def _tasks_to_out_with_unread(db, user_id: int, tasks: list[Task]) -> list[dict]:
+    """Serialize task cards, flagging those with unread chat replies for ``user_id``.
+
+    Resolves the "has unread replies for me" signal in a single query via
+    ``NotificationRepository.get_task_ids_with_unread_message`` and applies it per
+    task. Shared by every list endpoint that renders cards (DRY).
+    """
+    unread_ids = await NotificationRepository(db).get_task_ids_with_unread_message(
+        user_id, [task.id for task in tasks]
+    )
+    return [_task_to_out(task, task.id in unread_ids) for task in tasks]
+
+
 @router.get("/", response_model=list[TaskOut])
 async def list_tasks(
         db: DBSessionDep,
@@ -354,7 +369,7 @@ async def list_tasks(
         tasks = await repo.list(for_user_id=user.id, start=start_naive, end=end_naive, include_archived=include_archived)
     else:
         tasks = await repo.list(assigned_to_user_id=assigned_to_user_id, start=start_naive, end=end_naive, include_archived=include_archived)
-    return [_task_to_out(t) for t in tasks]
+    return await _tasks_to_out_with_unread(db, user.id, tasks)
 
 
 @router.get("/labels", response_model=list[TaskLabelOut])
@@ -459,7 +474,7 @@ async def list_archived_tasks(
         tasks = await repo.list_archived(
             date_from=date_from_naive, date_to=date_to_naive, assigned_to_user_id=assigned_to_user_id
         )
-    return [_task_to_out(t) for t in tasks]
+    return await _tasks_to_out_with_unread(db, user.id, tasks)
 
 
 @router.get("/super", response_model=list[TaskOut])
@@ -467,7 +482,7 @@ async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
     """Return all active super tasks (not completed, not archived). All authenticated users can see."""
     repo = TaskRepository(db)
     tasks = await repo.list_super_tasks()
-    return [_task_to_out(t) for t in tasks]
+    return await _tasks_to_out_with_unread(db, user.id, tasks)
 
 
 @router.get("/backlog", response_model=list[TaskOut])
@@ -482,7 +497,7 @@ async def list_backlog_tasks(
         tasks = await repo.list_backlog(for_user_id=user.id)
     else:
         tasks = await repo.list_backlog(assigned_to_user_id=assigned_to_user_id)
-    return [_task_to_out(t) for t in tasks]
+    return await _tasks_to_out_with_unread(db, user.id, tasks)
 
 
 @router.post("/{task_id}/archive", response_model=TaskOut)
@@ -725,6 +740,8 @@ async def get_task(
     if task.assigned_to_user_id == user.id and task.assignee_viewed_at is None:
         task.assignee_viewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.flush()
+    # Opening the task reads its chat: clear this user's unread reply notifications.
+    await NotificationRepository(db).mark_task_messages_read(user.id, task_id)
     out = _task_to_out(task)
     checklist_repo = TaskChecklistRepository(db)
     summary = await checklist_repo.get_summary(task_id)

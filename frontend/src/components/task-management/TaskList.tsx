@@ -9,6 +9,7 @@ import { formatTaskCode } from '../../lib/taskCode'
 import type { Task, TaskStatus } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
 import CreateEventModal from './CreateEventModal'
+import UnreadMessagesDot from './UnreadMessagesDot'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'מחכה לטיפול',
@@ -106,6 +107,16 @@ export default function TaskList() {
     if (!matchesSearch(t)) return false
     return true
   })
+
+  // Opening a task reads its chat → clear the red unread dot immediately (the
+  // server also marks it read via GET /tasks/{id}).
+  const openTask = (task: Task) => {
+    if (task.has_unread_messages) {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, has_unread_messages: false } : t)))
+    }
+    setSelectedTask(task)
+    setSelectedTaskId(task.id)
+  }
 
   if (loading) {
     return (
@@ -221,8 +232,8 @@ export default function TaskList() {
                       key={task.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => { setSelectedTask(task); setSelectedTaskId(task.id) }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(task); setSelectedTaskId(task.id) } }}
+                      onClick={() => openTask(task)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(task) } }}
                       className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
                     >
                       <td className="py-3 px-4">
@@ -231,8 +242,11 @@ export default function TaskList() {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {task.title}
+                        <span className="inline-flex items-center gap-1.5">
+                          <UnreadMessagesDot show={task.has_unread_messages} />
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {task.title}
+                          </span>
                         </span>
                         {task.description && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">

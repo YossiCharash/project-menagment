@@ -202,6 +202,8 @@ class TaskOut(BaseModel):
     is_backlog: bool = False
     apartment_id: int | None = None
     building_id: int | None = None
+    # True when the current user has unread chat replies on this task (WhatsApp-style dot).
+    has_unread_messages: bool = False
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
