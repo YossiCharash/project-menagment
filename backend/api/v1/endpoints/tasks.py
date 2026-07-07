@@ -103,13 +103,14 @@ async def _delete_stored_file(stored_path: str | None) -> None:
             pass
 
 
-# Allowed extensions for task attachments (images + audio recordings + common docs).
-# Shared by task attachments and task-message (chat) attachments so both enforce
-# the same policy. Audio types support voice recordings; MediaRecorder typically
-# outputs `.webm`.
+# Allowed extensions for task attachments (images + video + audio recordings +
+# common docs). Shared by task attachments and task-message (chat) attachments so
+# both enforce the same policy. Audio types support voice recordings;
+# MediaRecorder typically outputs `.webm` (or `.m4a` on Safari/iOS).
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
-    ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".wav", ".aac", ".mp4",
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".ogv", ".3gp",
+    ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".wav", ".aac",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv", ".zip",
 }
 MAX_ATTACHMENT_SIZE_MB = 25
