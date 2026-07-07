@@ -5,7 +5,7 @@ from sqlalchemy import select, or_, and_, exists, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.models.task import Task, TaskParticipant, TaskStatus
+from backend.models.task import Task, TaskParticipant, TaskStatus, task_assignees
 
 
 class TaskRepository:
@@ -14,9 +14,13 @@ class TaskRepository:
 
     @staticmethod
     def _visible_to_user_clause(user_id: int):
-        """Tasks in a user's calendar: owned by them OR they are an invited participant."""
+        """Tasks in a user's calendar: they are an assignee (primary OR co-owner)
+        OR they are an invited participant."""
         return or_(
             Task.assigned_to_user_id == user_id,
+            exists()
+            .where(task_assignees.c.task_id == Task.id)
+            .where(task_assignees.c.user_id == user_id),
             exists().where(TaskParticipant.task_id == Task.id).where(TaskParticipant.user_id == user_id),
         )
 
@@ -38,6 +42,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.assignees),
                 selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
@@ -118,6 +123,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.assignees),
                 selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
@@ -146,6 +152,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.assignees),
                 selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
@@ -170,6 +177,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.assignees),
                 selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
@@ -192,6 +200,7 @@ class TaskRepository:
             select(Task)
             .options(
                 selectinload(Task.assigned_user),
+                selectinload(Task.assignees),
                 selectinload(Task.attachments),
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),

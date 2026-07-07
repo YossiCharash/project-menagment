@@ -56,6 +56,14 @@ class TaskParticipantOut(BaseModel):
     avatar_url: str | None = None
 
 
+class TaskAssigneeOut(BaseModel):
+    """A single co-owner assignee of a task (part of the full assignee set)."""
+    user_id: int
+    full_name: str
+    avatar_url: str | None = None
+    color: str | None = None
+
+
 class TaskMessageAttachmentOut(BaseModel):
     id: int
     file_name: str
@@ -151,6 +159,10 @@ class TaskBase(BaseModel):
 class TaskCreate(TaskBase):
     label_ids: list[int] = []
     participant_ids: list[int] = []  # users to invite (like Outlook)
+    # Additional co-owner assignees beyond the primary `assigned_to_user_id`.
+    # The effective assignee set is the ordered-unique union of
+    # [assigned_to_user_id] + assigned_to_user_ids (primary first).
+    assigned_to_user_ids: list[int] = []
 
 
 class TaskUpdate(BaseModel):
@@ -161,6 +173,9 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     event_type: str | None = None
     assigned_to_user_id: int | None = None
+    # Full co-owner assignee set to replace (admin-gated, same as the scalar).
+    # When provided, the primary becomes its first element.
+    assigned_to_user_ids: list[int] | None = None
     label_ids: list[int] | None = None
     recurrence_rule: str | None = None
     recurrence_end_date: date | None = None
@@ -205,6 +220,10 @@ class TaskOut(BaseModel):
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
+    # Full co-owner assignee set (primary + additional). `assigned_to_user_ids`
+    # is the ordered id list; `assignees` carries display info per member.
+    assigned_to_user_ids: list[int] = []
+    assignees: list[TaskAssigneeOut] = []
     labels: list[TaskLabelOut] = []
     participants: list[TaskParticipantOut] = []
     attachments: list[TaskAttachmentOut] = []

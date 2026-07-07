@@ -314,6 +314,14 @@ export default function TaskBoard() {
             <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {task.assigned_user_name || 'לא הוגדר'}
             </span>
+            {(task.assignees?.length ?? 0) > 1 && (
+              <span
+                className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 flex-shrink-0"
+                title={task.assignees!.map((a) => a.full_name).join(', ')}
+              >
+                +{task.assignees!.length - 1}
+              </span>
+            )}
           </div>
           {(task.start_time || task.end_time) && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">

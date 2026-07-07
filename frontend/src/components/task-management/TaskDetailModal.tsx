@@ -360,17 +360,30 @@ export default function TaskDetailModal({
                   </span>
                 </div>
               </PermissionGuard>
-          <p className="text-sm flex items-center gap-2">
-            <span className="text-gray-600 dark:text-gray-400">מוקצה למשתמש: </span>
-            {avatarUrl(effectiveTask.assigned_user_avatar) ? (
-              <span className="flex items-center gap-2">
-                <img src={avatarUrl(effectiveTask.assigned_user_avatar)!} alt="" className="w-6 h-6 rounded-full object-cover" />
-                <span className="font-medium">{effectiveTask.assigned_user_name}</span>
+          <div className="text-sm flex items-start gap-2 flex-wrap">
+            <span className="text-gray-600 dark:text-gray-400">
+              {(effectiveTask.assignees?.length ?? 0) > 1 ? 'מוקצה למשתמשים: ' : 'מוקצה למשתמש: '}
+            </span>
+            {(effectiveTask.assignees && effectiveTask.assignees.length > 0
+              ? effectiveTask.assignees
+              : [{
+                  user_id: effectiveTask.assigned_to_user_id,
+                  full_name: effectiveTask.assigned_user_name ?? '',
+                  avatar_url: effectiveTask.assigned_user_avatar,
+                }]
+            ).map((assignee) => (
+              <span key={assignee.user_id} className="inline-flex items-center gap-1">
+                {avatarUrl(assignee.avatar_url) ? (
+                  <img src={avatarUrl(assignee.avatar_url)!} alt="" className="w-6 h-6 rounded-full object-cover" />
+                ) : (
+                  <span className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-xs">
+                    {(assignee.full_name || '?').charAt(0)}
+                  </span>
+                )}
+                <span className="font-medium">{assignee.full_name}</span>
               </span>
-            ) : (
-              <span className="font-medium">{effectiveTask.assigned_user_name}</span>
-            )}
-          </p>
+            ))}
+          </div>
           {effectiveTask.assignee_viewed_at && (
             <p className="text-sm flex items-center gap-2 text-blue-600 dark:text-blue-400">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
