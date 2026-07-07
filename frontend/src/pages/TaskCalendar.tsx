@@ -78,6 +78,10 @@ export interface Task {
   assigned_user_color?: string | null
   /** תמונת פרופיל של המשתמש המוקצה */
   assigned_user_avatar?: string | null
+  /** קבוצת המוקצים המלאה (המוקצה הראשי + נוספים), המזהה הראשי ראשון */
+  assigned_to_user_ids?: number[]
+  /** פרטי כל המוקצים לתצוגה (שם, אווטאר, צבע) */
+  assignees?: TaskAssigneeType[]
   labels?: TaskLabelType[]
   participants?: TaskParticipantType[]
   attachments?: TaskAttachmentType[]
@@ -102,6 +106,14 @@ export interface TaskAttachmentType {
   id: number
   file_name: string
   file_url: string
+}
+
+/** A single co-owner assignee of a task (part of the full assignee set). */
+export interface TaskAssigneeType {
+  user_id: number
+  full_name: string
+  avatar_url?: string | null
+  color?: string | null
 }
 
 export type ParticipantResponseStatus = 'pending' | 'accepted' | 'declined'
@@ -2219,17 +2231,30 @@ export default function TaskCalendar({
                 </span>
               )}
             </div>
-            <p className="text-sm flex items-center gap-2">
-              <span className="text-gray-600 dark:text-gray-400">מוקצה למשתמש: </span>
-              {avatarUrl(selectedTask.assigned_user_avatar) ? (
-                <span className="flex items-center gap-2">
-                  <img src={avatarUrl(selectedTask.assigned_user_avatar)!} alt="" className="w-6 h-6 rounded-full object-cover" />
-                  <span className="font-medium">{selectedTask.assigned_user_name}</span>
+            <div className="text-sm flex items-start gap-2 flex-wrap">
+              <span className="text-gray-600 dark:text-gray-400">
+                {(selectedTask.assignees?.length ?? 0) > 1 ? 'מוקצה למשתמשים: ' : 'מוקצה למשתמש: '}
+              </span>
+              {(selectedTask.assignees && selectedTask.assignees.length > 0
+                ? selectedTask.assignees
+                : [{
+                    user_id: selectedTask.assigned_to_user_id,
+                    full_name: selectedTask.assigned_user_name ?? '',
+                    avatar_url: selectedTask.assigned_user_avatar,
+                  }]
+              ).map((assignee) => (
+                <span key={assignee.user_id} className="inline-flex items-center gap-1">
+                  {avatarUrl(assignee.avatar_url) ? (
+                    <img src={avatarUrl(assignee.avatar_url)!} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  ) : (
+                    <span className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-xs">
+                      {(assignee.full_name || '?').charAt(0)}
+                    </span>
+                  )}
+                  <span className="font-medium">{assignee.full_name}</span>
                 </span>
-              ) : (
-                <span className="font-medium">{selectedTask.assigned_user_name}</span>
-              )}
-            </p>
+              ))}
+            </div>
             {selectedTask.assignee_acknowledged_at ? (
               <p className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4 flex-shrink-0" />
