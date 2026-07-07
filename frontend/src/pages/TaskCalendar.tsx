@@ -17,6 +17,7 @@ import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
 import TaskChecklist from '../components/task-management/TaskChecklist'
 import { cn } from '../lib/utils'
+import { formatTaskCode } from '../lib/taskCode'
 import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
@@ -1938,6 +1939,7 @@ export default function TaskCalendar({
                   isRecurring?: boolean
                   color?: string
                   isAllDayTask?: boolean
+                  taskId?: number
                 }
                 const labels = ext.labels || []
                 const eventType = ext.eventType || 'task'
@@ -1945,6 +1947,7 @@ export default function TaskCalendar({
                 const isRecurring = ext.isRecurring || false
                 const color = ext.color || '#6B7280'
                 const title = arg.event.title
+                const taskCode = ext.taskId != null ? formatTaskCode(ext.taskId) : ''
 
                 // Format time (all-day tasks have no time → renders title-only Outlook chip)
                 const startDate = arg.event.start
@@ -1979,7 +1982,7 @@ export default function TaskCalendar({
                     <div class="fc-outlook-bar" style="background:${color}"></div>
                     <div class="fc-outlook-body">
                       ${timeStr ? `<div class="fc-outlook-time">${typeIcon} ${esc(timeStr)}${recurIcon}</div>` : `<div class="fc-outlook-time">${typeIcon}${recurIcon}</div>`}
-                      <div class="fc-outlook-title">${esc(title)}</div>
+                      <div class="fc-outlook-title">${taskCode ? `<span class="fc-outlook-code" style="opacity:0.6;font-size:0.85em;margin-inline-end:4px">${esc(taskCode)}</span>` : ''}${esc(title)}</div>
                       ${labels.length > 0 ? `<div class="fc-outlook-labels">${pills}</div>` : ''}
                     </div>
                     <div class="fc-outlook-status" title="${esc(TASK_STATUS_LABELS[status as TaskStatus] || '')}">${statusIcon}</div>
