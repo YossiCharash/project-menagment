@@ -582,7 +582,7 @@ export default function TaskDetailModal({
                 ref={taskChatFileInputRef}
                 type="file"
                 multiple
-                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
                 onChange={(e) => {
                   const files = e.target.files ? Array.from(e.target.files) : []
                   if (files.length) setTaskChatPendingFiles(prev => [...prev, ...files])

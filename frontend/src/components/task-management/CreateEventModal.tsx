@@ -430,7 +430,7 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
         {/* attachments */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
-          <input ref={fileInputRef} type="file" multiple accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip" onChange={(e) => { const files = e.target.files ? Array.from(e.target.files) : []; setCreatePendingFiles(prev => [...prev, ...files]) }} className="hidden" />
+          <input ref={fileInputRef} type="file" multiple accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip" onChange={(e) => { const files = e.target.files ? Array.from(e.target.files) : []; setCreatePendingFiles(prev => [...prev, ...files]) }} className="hidden" />
           <div className="flex flex-wrap items-center gap-1.5">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600">
               <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים

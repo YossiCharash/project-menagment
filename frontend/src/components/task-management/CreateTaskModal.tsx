@@ -363,6 +363,46 @@ export default function CreateTaskModal({
           />
         </div>
 
+        <div>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות / סרטון / הקלטה</label>
+          <input
+            id="create-files"
+            name="create-files"
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+            onChange={(e) => {
+              const files = e.target.files ? Array.from(e.target.files) : []
+              setCreatePendingFiles((prev) => [...prev, ...files])
+            }}
+            className="hidden"
+          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
+            >
+              <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים
+            </button>
+            <RecordButton onRecorded={(file) => setCreatePendingFiles((prev) => [...prev, file])} />
+            {createPendingFiles.map((file, index) => (
+              <span key={index} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
+                {file.name}
+                <button
+                  type="button"
+                  onClick={() => setCreatePendingFiles((prev) => prev.filter((_, position) => position !== index))}
+                  className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-500"
+                  aria-label="הסר"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-0.5">סוג</label>
@@ -610,46 +650,6 @@ export default function CreateTaskModal({
         {taskType === 'no_date' && (
           <p className="text-xs text-gray-600 dark:text-gray-400">משימה בלי תאריך – תופיע תחת משימות (רשימת משימות בלי תאריך).</p>
         )}
-
-        <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">קבצים / תמונות</label>
-          <input
-            id="create-files"
-            name="create-files"
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-            onChange={(e) => {
-              const files = e.target.files ? Array.from(e.target.files) : []
-              setCreatePendingFiles((prev) => [...prev, ...files])
-            }}
-            className="hidden"
-          />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
-            >
-              <Paperclip className="w-3.5 h-3.5" /> הוסף קבצים
-            </button>
-            <RecordButton onRecorded={(file) => setCreatePendingFiles((prev) => [...prev, file])} />
-            {createPendingFiles.map((file, index) => (
-              <span key={index} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
-                {file.name}
-                <button
-                  type="button"
-                  onClick={() => setCreatePendingFiles((prev) => prev.filter((_, position) => position !== index))}
-                  className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-500"
-                  aria-label="הסר"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
 
         <div>
           <label htmlFor="create-description" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">תיאור</label>
