@@ -8,6 +8,7 @@ import { cn } from '../../lib/utils'
 import type { Task, TaskStatus, TaskLabelType } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
 import CreateEventModal from './CreateEventModal'
+import UnreadMessagesDot from './UnreadMessagesDot'
 import ToastNotification, { useToast } from '../ToastNotification'
 import { usePermissionDenied } from '../../lib/usePermissionDenied'
 
@@ -262,6 +263,11 @@ export default function TaskBoard() {
         onDragOver={(e) => e.preventDefault()}
         onClick={() => {
           if (justDraggedRef.current) { justDraggedRef.current = false; return }
+          // Opening the task reads its chat → clear the red unread dot immediately
+          // (the server also marks it read via GET /tasks/{id}).
+          if (task.has_unread_messages) {
+            setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, has_unread_messages: false } : t)))
+          }
           setSelectedTask(task)
           setSelectedTaskId(task.id)
         }}
@@ -278,6 +284,7 @@ export default function TaskBoard() {
         <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
+            <UnreadMessagesDot show={task.has_unread_messages} />
             <p className="font-medium text-gray-900 dark:text-white truncate">{task.title}</p>
             {task.is_archived && (
               <span className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-200 dark:bg-amber-800/50 text-amber-800 dark:text-amber-300">
