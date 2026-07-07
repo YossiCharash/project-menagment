@@ -4,6 +4,7 @@ import type { RootState } from '../../store'
 import api, { avatarUrl, fileAttachmentUrl } from '../../lib/api'
 import Modal from '../Modal'
 import { cn } from '../../lib/utils'
+import { formatTaskCode } from '../../lib/taskCode'
 import {
   Bell,
   CheckCircle,
@@ -266,7 +267,12 @@ export default function TaskDetailModal({
         <p className="text-sm text-gray-500 dark:text-gray-400 py-4">המשימה לא נמצאה.</p>
       ) : (
         <div className="space-y-3">
-          <p className="font-medium text-gray-900 dark:text-gray-100">{effectiveTask.title}</p>
+          <div>
+            <span className="inline-block font-mono text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+              {formatTaskCode(effectiveTask.id)}
+            </span>
+            <p className="font-medium text-gray-900 dark:text-gray-100">{effectiveTask.title}</p>
+          </div>
           {(() => {
             const overdueInfo = getOverdueInfo(effectiveTask)
             const isAdmin = me?.role === 'Admin'

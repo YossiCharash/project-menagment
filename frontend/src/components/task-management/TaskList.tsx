@@ -3,8 +3,9 @@ import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import api from '../../lib/api'
 import { avatarUrl } from '../../lib/api'
-import { RefreshCw, User, Plus } from 'lucide-react'
+import { RefreshCw, User, Plus, Search } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { formatTaskCode } from '../../lib/taskCode'
 import type { Task, TaskStatus } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
 import CreateEventModal from './CreateEventModal'
@@ -45,6 +46,7 @@ export default function TaskList() {
   const [loading, setLoading] = useState(true)
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('')
+  const [searchQuery, setSearchQuery] = useState<string>('')
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
@@ -84,9 +86,24 @@ export default function TaskList() {
     if (isAdmin) fetchUsers()
   }, [isAdmin, fetchUsers])
 
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+
+  const matchesSearch = (task: Task): boolean => {
+    if (!normalizedQuery) return true
+    const searchableFields = [
+      task.title,
+      task.description,
+      task.assigned_user_name,
+    ]
+    return searchableFields.some((field) =>
+      (field ?? '').toLowerCase().includes(normalizedQuery)
+    )
+  }
+
   const filteredTasks = tasks.filter((t) => {
     const status = (t.status || 'pending') as TaskStatus
     if (statusFilter && status !== statusFilter) return false
+    if (!matchesSearch(t)) return false
     return true
   })
 
@@ -101,6 +118,16 @@ export default function TaskList() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="חיפוש משימה..."
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white pr-9 pl-3 py-2 text-sm"
+          />
+        </div>
         {isAdmin && users.length > 0 && (
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -159,6 +186,9 @@ export default function TaskList() {
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                 <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  מזהה
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
                   משימה
                 </th>
                 <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -176,7 +206,7 @@ export default function TaskList() {
               {filteredTasks.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="py-12 text-center text-gray-500 dark:text-gray-400"
                   >
                     אין משימות להצגה
@@ -195,6 +225,11 @@ export default function TaskList() {
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(task); setSelectedTaskId(task.id) } }}
                       className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
                     >
+                      <td className="py-3 px-4">
+                        <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
+                          {formatTaskCode(task.id)}
+                        </span>
+                      </td>
                       <td className="py-3 px-4">
                         <span className="font-medium text-gray-900 dark:text-white">
                           {task.title}
