@@ -2,7 +2,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cems.api.deps import get_current_user, get_db, get_employee_warehouse_filter, require_admin, require_admin_or_manager, require_any_cems_role, RequireWarehouseManager
@@ -29,11 +29,30 @@ from backend.models.user import User as UserModel
 router = APIRouter(prefix="/warehouses", tags=["CEMS Warehouses"])
 
 
+def _is_relationship_loaded(orm_obj, attribute_name: str) -> bool:
+    """Return True iff the SQLAlchemy relationship is already eager-loaded.
+
+    Accessing an unloaded ``lazy="raise"`` relationship inside an async
+    session raises, so this guard lets the mapper skip the access when the
+    parent was not eager-loaded.
+    """
+    try:
+        state = sa_inspect(orm_obj)
+    except Exception:
+        return False
+    return attribute_name not in state.unloaded
+
+
 def _warehouse_to_read(warehouse) -> WarehouseRead:
-    """Convert a Warehouse ORM instance to WarehouseRead, populating project fields."""
+    """Convert a Warehouse ORM instance to WarehouseRead, populating project
+    and parent fields."""
     data = WarehouseRead.model_validate(warehouse)
     data.project_ids = [p.id for p in warehouse.projects]
     data.project_names = [p.name for p in warehouse.projects]
+    # parent_id comes from the column (always available); parent_name is only
+    # resolvable when the `parent` relationship was eager-loaded.
+    if _is_relationship_loaded(warehouse, "parent") and warehouse.parent is not None:
+        data.parent_name = warehouse.parent.name
     return data
 
 
@@ -118,6 +137,11 @@ async def update_warehouse(
 ) -> WarehouseRead:
     repo = WarehouseRepository(db)
     data = payload.model_dump(exclude_unset=True)
+    if data.get("parent_id") == warehouse_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="מחסן אינו יכול להיות אב של עצמו.",
+        )
     warehouse = await repo.update(warehouse_id, data)
     if warehouse is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found.")

@@ -20,6 +20,7 @@ class FixedAssetBase(BaseModel):
 class FixedAssetCreate(FixedAssetBase):
     current_custodian_id: Optional[int] = None
     current_warehouse_id: Optional[uuid.UUID] = None
+    current_location: Optional[str] = None
     status: AssetStatus = AssetStatus.ACTIVE
 
 
@@ -31,6 +32,7 @@ class FixedAssetUpdate(BaseModel):
     warranty_expiry: Optional[date] = None
     notes: Optional[str] = None
     photo_url: Optional[str] = None
+    current_location: Optional[str] = None
 
 
 class FixedAssetRead(FixedAssetBase):
@@ -40,6 +42,7 @@ class FixedAssetRead(FixedAssetBase):
     status: AssetStatus
     current_custodian_id: Optional[int]
     current_warehouse_id: Optional[uuid.UUID]
+    current_location: Optional[str] = None
     photo_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -63,3 +66,5 @@ class AssetHistoryRead(BaseModel):
 class RetireAssetRequest(BaseModel):
     reason: str
     disposal_method: str
+    what_happened: Optional[str] = None
+    supplier_name: Optional[str] = None

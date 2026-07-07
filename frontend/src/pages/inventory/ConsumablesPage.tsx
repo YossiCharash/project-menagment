@@ -29,6 +29,8 @@ import {
   type ReorderStatus,
 } from '../../lib/cemsApi'
 import { fileAttachmentUrl } from '../../lib/api'
+import { formatQuantity } from '../../lib/quantity'
+import { warehouseLabel } from '../../lib/warehouse'
 import { ConsumableViewModal } from './ConsumableViewModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -282,7 +284,7 @@ export default function ConsumablesPage() {
           >
             <option value="">כל המחסנים</option>
             {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
+              <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>
             ))}
           </select>
           <select
@@ -375,10 +377,10 @@ export default function ConsumablesPage() {
                             {reorder.item_name}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                            {reorder.quantity_requested}
+                            {formatQuantity(reorder.quantity_requested)}
                             {reorder.quantity_received && (
                               <span className="text-green-600 dark:text-green-400 mr-1">
-                                {' '}(התקבל: {reorder.quantity_received})
+                                {' '}(התקבל: {formatQuantity(reorder.quantity_received)})
                               </span>
                             )}
                           </td>
@@ -556,10 +558,10 @@ export default function ConsumablesPage() {
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getCategoryName(item.category_id)}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{getWarehouseName(item.warehouse_id)}</td>
                     <td className={`px-4 py-3 text-sm ${stockStatusClasses(item)}`}>
-                      {item.quantity}
+                      {formatQuantity(item.quantity)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{item.unit}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{item.low_stock_threshold}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{formatQuantity(item.low_stock_threshold)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${stockBadgeClasses(item)}`}>
                         {stockStatusLabel(item)}
@@ -781,7 +783,7 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
             <label className={LABEL_CLASS}>מחסן *</label>
             <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={INPUT_CLASS} required>
               <option value="">בחר מחסן</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -879,7 +881,7 @@ function ConsumeModal({ item, projects, onClose, onConsumed }: ConsumeModalProps
           )}
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              מלאי זמין: <span className="font-bold">{item.quantity} {item.unit}</span>
+              מלאי זמין: <span className="font-bold">{formatQuantity(item.quantity)} {item.unit}</span>
             </p>
           </div>
           <div>
@@ -930,8 +932,11 @@ interface MoveConsumableModalProps {
 function MoveConsumableModal({ item, onClose, onMoved }: MoveConsumableModalProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
+  const [quantity, setQuantity] = useState(item.quantity)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const availableQuantity = Number(item.quantity)
 
   useEffect(() => {
     cemsApi.getWarehouses()
@@ -945,15 +950,27 @@ function MoveConsumableModal({ item, onClose, onMoved }: MoveConsumableModalProp
       setError('יש לבחור מחסן יעד')
       return
     }
+    const qty = Number(quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setError('כמות להעברה חייבת להיות גדולה מ-0')
+      return
+    }
+    if (qty > availableQuantity) {
+      setError(`הכמות להעברה (${formatQuantity(quantity)}) גדולה מהמלאי הזמין (${formatQuantity(item.quantity)})`)
+      return
+    }
 
     setSubmitting(true)
     setError(null)
     try {
-      await cemsApi.moveConsumable(item.id, selectedWarehouseId)
+      await cemsApi.transferConsumable(item.id, {
+        to_warehouse_id: selectedWarehouseId,
+        quantity: String(qty),
+      })
       onMoved()
       onClose()
     } catch {
-      setError('שגיאה בהעברת הפריט למחסן')
+      setError('שגיאה בהעברת הכמות למחסן')
     } finally {
       setSubmitting(false)
     }
@@ -964,7 +981,7 @@ function MoveConsumableModal({ item, onClose, onMoved }: MoveConsumableModalProp
       <div className={MODAL_PANEL} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            העברת פריט למחסן: {item.name}
+            העברת כמות למחסן: {item.name}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <X className="w-5 h-5 text-gray-500" />
@@ -976,17 +993,35 @@ function MoveConsumableModal({ item, onClose, onMoved }: MoveConsumableModalProp
               {error}
             </div>
           )}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-300">
+              מלאי זמין: <span className="font-bold">{formatQuantity(item.quantity)} {item.unit}</span>
+            </p>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>כמות להעברה *</label>
+            <input
+              type="number"
+              min={0}
+              max={availableQuantity}
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className={INPUT_CLASS}
+              required
+            />
+          </div>
           <div>
             <label className={LABEL_CLASS}>בחר מחסן יעד *</label>
             <select value={selectedWarehouseId} onChange={(e) => setSelectedWarehouseId(e.target.value)} className={INPUT_CLASS} required>
               <option value="">בחר מחסן</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{warehouseLabel(w)}</option>)}
             </select>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
             <button type="submit" disabled={submitting || !selectedWarehouseId} className={BTN_PRIMARY}>
-              {submitting ? 'מעביר...' : 'העבר למחסן'}
+              {submitting ? 'מעביר...' : 'העבר כמות'}
             </button>
           </div>
         </form>
@@ -1055,9 +1090,9 @@ function ReorderModal({ item, onClose, onCreated }: ReorderModalProps) {
           )}
           <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3">
             <p className="text-sm text-purple-800 dark:text-purple-300">
-              מלאי נוכחי: <span className="font-bold">{item.quantity} {item.unit}</span>
+              מלאי נוכחי: <span className="font-bold">{formatQuantity(item.quantity)} {item.unit}</span>
               {Number(item.low_stock_threshold) > 0 && (
-                <span className="mr-2">(סף התראה: {item.low_stock_threshold})</span>
+                <span className="mr-2">(סף התראה: {formatQuantity(item.low_stock_threshold)})</span>
               )}
             </p>
           </div>
