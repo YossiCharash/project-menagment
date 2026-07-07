@@ -145,6 +145,8 @@ class RetirementRead(BaseModel):
     approved_by_id: Optional[int]
     reason: str
     disposal_method: str
+    what_happened: Optional[str] = None
+    supplier_name: Optional[str] = None
     status: str
     requested_at: datetime
     approved_at: Optional[datetime]
