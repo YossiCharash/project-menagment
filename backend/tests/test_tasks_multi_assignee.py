@@ -302,3 +302,48 @@ class TestMultiAssigneeNotifications:
         notified_ids = {row.user_id for row in rows}
         assert assignee_a.id in notified_ids
         assert assignee_b.id in notified_ids
+
+
+@pytest.mark.api
+@pytest.mark.asyncio
+class TestMultiAssigneeOrderingAndValidation:
+    """Regression coverage for primary-first ordering and empty-set rejection."""
+
+    async def test_primary_is_first_even_when_it_has_a_higher_id(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+    ):
+        """`assigned_to_user_ids[0]` must be the primary regardless of join order.
+
+        The `task_assignees` join has no inherent order, so a naive read can come
+        back id-sorted. Make the HIGHER-id user the primary to prove the API pins
+        it first (the frontend treats index 0 as the primary).
+        """
+        primary, extra = (
+            (assignee_b, assignee_a) if assignee_b.id > assignee_a.id else (assignee_a, assignee_b)
+        )
+        data = await _create_multi_assignee_task(test_client, admin_token, primary, [extra])
+        assert data["assigned_to_user_id"] == primary.id
+        assert data["assigned_to_user_ids"][0] == primary.id
+        assert [entry["user_id"] for entry in data["assignees"]][0] == primary.id
+
+    async def test_update_with_empty_assignee_set_is_rejected(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+    ):
+        """An admin PUT with an empty `assigned_to_user_ids` returns 400, not 500."""
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.put(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"assigned_to_user_ids": []},
+        )
+        assert response.status_code == 400, response.text

@@ -327,6 +327,12 @@ def _task_assignees_out(task: Task) -> list[TaskAssigneeOut]:
     assignee_users = list(getattr(task, "assignees", None) or [])
     if not assignee_users and task.assigned_user:
         assignee_users = [task.assigned_user]
+    # The `task_assignees` join has no inherent order, so pin the primary
+    # (`assigned_to_user_id`) first — the frontend and the update endpoint both
+    # treat `assigned_to_user_ids[0]` as the primary. sort() is stable, so the
+    # remaining co-assignees keep their existing relative order.
+    primary_id = task.assigned_to_user_id
+    assignee_users.sort(key=lambda member: 0 if getattr(member, "id", None) == primary_id else 1)
     return [
         TaskAssigneeOut(
             user_id=assignee.id,
@@ -843,6 +849,8 @@ async def create_task(
     assignee_ids = _ordered_unique_assignee_ids(
         data.assigned_to_user_id, getattr(data, "assigned_to_user_ids", None)
     )
+    if not assignee_ids:
+        raise HTTPException(status_code=400, detail="At least one assignee is required")
     assignee_users = await _load_active_assignees(user_repo, assignee_ids)
     primary_assignee_id = assignee_ids[0]
     start_val = _to_naive_utc(data.start_time) if data.start_time else data.start_time
@@ -994,6 +1002,8 @@ async def update_task(
             new_assignee_ids = _ordered_unique_assignee_ids(
                 primary_candidate, update_data.get("assigned_to_user_ids"),
             )
+            if not new_assignee_ids:
+                raise HTTPException(status_code=400, detail="At least one assignee is required")
             new_assignee_users = await _load_active_assignees(user_repo, new_assignee_ids)
             update_data["assigned_to_user_id"] = new_assignee_ids[0]
     # `assigned_to_user_ids` is not a Task column; never setattr it directly.
