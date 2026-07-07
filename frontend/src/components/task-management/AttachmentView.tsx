@@ -6,7 +6,8 @@ import { attachmentKindOf } from './attachmentKind'
 // AttachmentView
 // ---------------------------------------------------------------------------
 // Single responsibility: render ONE attachment in the right form for its kind —
-// an inline image thumbnail, an audio player, or a download link. Callers pass
+// an inline image thumbnail, a video player, an audio player, or a download
+// link. Callers pass
 // the already-resolved absolute URL so this component stays decoupled from any
 // particular URL-resolution helper (DRY: URL logic lives once per call site).
 
@@ -36,6 +37,19 @@ export default function AttachmentView({ fileName, fileUrl, className }: Attachm
           className="max-h-32 max-w-[160px] rounded border border-gray-200 dark:border-gray-600 object-cover"
         />
       </a>
+    )
+  }
+
+  if (kind === 'video' && fileUrl) {
+    return (
+      <video
+        controls
+        src={fileUrl}
+        className={cn('max-h-48 max-w-[280px] rounded border border-gray-200 dark:border-gray-600', className)}
+        title={fileName}
+      >
+        <a href={href} target="_blank" rel="noopener noreferrer">{fileName}</a>
+      </video>
     )
   }
 
