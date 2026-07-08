@@ -215,6 +215,11 @@ export default function SuperTasksPanel() {
             setSelectedTaskId(null)
             setSelectedTask(null)
           }}
+          onTaskArchived={() => {
+            setSuperTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
+            setSelectedTaskId(null)
+            setSelectedTask(null)
+          }}
         />
       )}
     </>

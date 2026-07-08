@@ -144,6 +144,11 @@ export default function BacklogPanel({ onRequestCreate, refreshSignal }: Backlog
             setSelectedTaskId(null)
             setSelectedTask(null)
           }}
+          onTaskArchived={() => {
+            setBacklogTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
+            setSelectedTaskId(null)
+            setSelectedTask(null)
+          }}
         />
       )}
     </>

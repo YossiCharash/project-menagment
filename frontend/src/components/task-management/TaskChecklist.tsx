@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { CheckSquare, CheckCircle, Trash2, Loader2, Plus, UserPlus, X, ChevronDown } from 'lucide-react'
+import { CheckSquare, CheckCircle, Trash2, Loader2, Plus, UserPlus, X, ChevronDown, Pencil, Check } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { TaskChecklistAPI, type TaskChecklistItem } from '../../lib/apiClient'
 import { avatarUrl } from '../../lib/api'
@@ -116,6 +116,9 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
   const [deletingItemId, setDeletingItemId] = useState<number | null>(null)
   const [assignDropdownItemId, setAssignDropdownItemId] = useState<number | null>(null)
   const [assigningItemId, setAssigningItemId] = useState<number | null>(null)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [savingEditId, setSavingEditId] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -209,6 +212,35 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
     }
   }, [taskId])
 
+  const startEdit = useCallback((item: TaskChecklistItem) => {
+    setAssignDropdownItemId(null)
+    setEditingItemId(item.id)
+    setEditText(item.text)
+  }, [])
+
+  const cancelEdit = useCallback(() => {
+    setEditingItemId(null)
+    setEditText('')
+  }, [])
+
+  const handleSaveEdit = useCallback(async (item: TaskChecklistItem) => {
+    if (savingEditId !== null) return // guard against re-entry (disabling the focused input fires onBlur mid-save)
+    const text = editText.trim()
+    if (!text) return
+    if (text === item.text) {
+      cancelEdit()
+      return
+    }
+    setSavingEditId(item.id)
+    try {
+      const updated = await TaskChecklistAPI.update(taskId, item.id, { text })
+      setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)))
+      cancelEdit()
+    } finally {
+      setSavingEditId(null)
+    }
+  }, [taskId, editText, cancelEdit, savingEditId])
+
   return (
     <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">
       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
@@ -268,16 +300,55 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
                     className="w-4 h-4 mt-0.5 accent-emerald-600 flex-shrink-0 cursor-pointer disabled:cursor-wait"
                   />
                   <div className="flex-1 min-w-0">
-                    <span
-                      className={cn(
-                        'text-sm block',
-                        item.is_completed
-                          ? 'line-through text-gray-400 dark:text-gray-500'
-                          : 'text-gray-800 dark:text-gray-200'
-                      )}
-                    >
-                      {item.text}
-                    </span>
+                    {editingItemId === item.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editText}
+                          autoFocus
+                          onChange={(e) => setEditText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleSaveEdit(item)
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault()
+                              cancelEdit()
+                            }
+                          }}
+                          onBlur={() => handleSaveEdit(item)}
+                          disabled={savingEditId === item.id}
+                          className={cn(
+                            'flex-1 min-w-0 px-2 py-1 border rounded-lg text-sm',
+                            'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700',
+                            'text-gray-900 dark:text-gray-100 disabled:opacity-50'
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleSaveEdit(item)}
+                          disabled={savingEditId === item.id || !editText.trim()}
+                          className="p-1 rounded text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                          title="שמור"
+                        >
+                          {savingEditId === item.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Check className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className={cn(
+                          'text-sm block',
+                          item.is_completed
+                            ? 'line-through text-gray-400 dark:text-gray-500'
+                            : 'text-gray-800 dark:text-gray-200'
+                        )}
+                      >
+                        {item.text}
+                      </span>
+                    )}
 
                     {/* Handled-by indicator */}
                     {item.is_completed && item.handled_by_user_name && (
@@ -366,6 +437,20 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
                         )}
                       </div>
                     ) : null}
+
+                    {canEdit && editingItemId !== item.id && (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(item)}
+                        className={cn(
+                          'p-1 rounded text-gray-400 hover:text-blue-500 dark:hover:text-blue-400',
+                          'opacity-0 group-hover:opacity-100 transition-opacity'
+                        )}
+                        title="ערוך טקסט"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
 
                     {canEdit && (
                       <button

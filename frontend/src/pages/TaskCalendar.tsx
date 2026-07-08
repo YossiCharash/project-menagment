@@ -1743,11 +1743,21 @@ export default function TaskCalendar({
                   onRangeChange={handleMobileRangeChange}
                   mobileView={mobileView}
                   onMobileViewChange={setMobileView}
-                  onEventClick={(t) => setSelectedTask(t)}
+                  onEventClick={(t) => {
+                    // פתיחת המשימה קוראת את השיח → נקה מיד את הנקודה האדומה (כמו בדסקטופ)
+                    if (t.has_unread_messages) {
+                      setTasks(prev => prev.map(x => (x.id === t.id ? { ...x, has_unread_messages: false } : x)))
+                    }
+                    setSelectedTask(t)
+                  }}
                   onCreateClick={() => setShowCreateModal(true)}
                   onOpenFilters={() => setMobileFiltersOpen(true)}
                   canCreate={isAdmin || users.some(u => u.id === me?.id)}
                   calendarDateDisplay={calendarDateDisplay}
+                  users={users}
+                  filterUserId={filterUserId}
+                  onFilterUserChange={setFilterUserId}
+                  showUserFilter={isAdmin}
                 />
               ) : (
                 <>
