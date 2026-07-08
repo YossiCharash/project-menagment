@@ -233,6 +233,8 @@ export default function TaskDetailModal({
       await api.post(`/tasks/${t.id}/archive`)
       onTaskArchived?.()
       onClose()
+    } catch (err: any) {
+      window.alert(err?.response?.data?.detail ?? 'שגיאה בארכוב המשימה')
     } finally {
       setArchivingTaskId(null)
     }

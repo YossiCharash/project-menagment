@@ -224,6 +224,7 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
   }, [])
 
   const handleSaveEdit = useCallback(async (item: TaskChecklistItem) => {
+    if (savingEditId !== null) return // guard against re-entry (disabling the focused input fires onBlur mid-save)
     const text = editText.trim()
     if (!text) return
     if (text === item.text) {
@@ -238,7 +239,7 @@ export default function TaskChecklist({ taskId, canEdit, participants = [], curr
     } finally {
       setSavingEditId(null)
     }
-  }, [taskId, editText, cancelEdit])
+  }, [taskId, editText, cancelEdit, savingEditId])
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">
