@@ -54,17 +54,19 @@ export default function TaskList() {
   // -- Create modal --
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const fetchTasks = useCallback(async () => {
-    setLoading(true)
+  // silent=true refreshes in the background (no spinner, keeps current rows on
+  // error) so polling can surface new unread-reply dots without flicker.
+  const fetchTasks = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const params: Record<string, string | number> = {}
       if (isAdmin && filterUserId) params.assigned_to_user_id = filterUserId
       const { data } = await api.get<Task[]>('/tasks/', { params })
       setTasks(data)
     } catch {
-      setTasks([])
+      if (!silent) setTasks([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [isAdmin, filterUserId])
 
@@ -81,6 +83,20 @@ export default function TaskList() {
 
   useEffect(() => {
     fetchTasks()
+  }, [fetchTasks])
+
+  // Poll in the background so a new reply's unread dot appears without a manual
+  // reload; also refresh the moment the tab regains focus.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchTasks(true)
+    }, 60_000)
+    const onVisible = () => { if (!document.hidden) fetchTasks(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [fetchTasks])
 
   useEffect(() => {

@@ -72,8 +72,10 @@ export default function TaskBoard() {
 
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const fetchTasks = useCallback(async () => {
-    setLoading(true)
+  // silent=true refreshes in the background (no spinner, keeps current rows on
+  // error) so polling can surface new unread-reply dots without flicker.
+  const fetchTasks = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const params: Record<string, string | number | boolean> = {}
       if (isAdmin && filterUserId) params.assigned_to_user_id = filterUserId
@@ -81,9 +83,9 @@ export default function TaskBoard() {
       const { data } = await api.get<Task[]>('/tasks/', { params })
       setTasks(data)
     } catch {
-      setTasks([])
+      if (!silent) setTasks([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [isAdmin, filterUserId, includeArchived])
 
@@ -108,6 +110,25 @@ export default function TaskBoard() {
   useEffect(() => { fetchTasks() }, [fetchTasks])
   useEffect(() => { fetchLabels() }, [fetchLabels])
   useEffect(() => { if (isAdmin) fetchUsers() }, [isAdmin, fetchUsers])
+
+  // True while a drag or status/label update is mid-flight — the background
+  // poll must skip these moments so it can't clobber optimistic board state.
+  const boardBusyRef = useRef(false)
+  boardBusyRef.current = draggedTask !== null || draggedOverKey !== null || updatingId !== null
+
+  // Poll in the background so a new reply's unread dot appears without a manual
+  // reload; also refresh when the tab regains focus. Skipped while dragging.
+  useEffect(() => {
+    const maybeRefresh = () => {
+      if (!document.hidden && !boardBusyRef.current) fetchTasks(true)
+    }
+    const interval = setInterval(maybeRefresh, 60_000)
+    document.addEventListener('visibilitychange', maybeRefresh)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', maybeRefresh)
+    }
+  }, [fetchTasks])
 
   // ── Status drag-drop ───────────────────────────────────────────────────────
 
