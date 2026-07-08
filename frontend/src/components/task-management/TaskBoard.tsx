@@ -516,6 +516,11 @@ export default function TaskBoard() {
           setSelectedTaskId(null)
           setSelectedTask(null)
         }}
+        onTaskArchived={() => {
+          if (selectedTaskId) setTasks((prev) => prev.filter((t) => t.id !== selectedTaskId))
+          setSelectedTaskId(null)
+          setSelectedTask(null)
+        }}
       />
 
       <CreateEventModal

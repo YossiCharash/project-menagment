@@ -6,6 +6,7 @@ import Modal from '../Modal'
 import { cn } from '../../lib/utils'
 import { formatTaskCode } from '../../lib/taskCode'
 import {
+  Archive,
   Bell,
   CheckCircle,
   MessageCircle,
@@ -22,7 +23,9 @@ import type {
   TaskLabelType,
   RecurrenceRule,
   TaskMessageType,
+  EventType,
 } from '../../pages/TaskCalendar'
+import { EVENT_TYPE_LABELS } from '../../pages/TaskCalendar'
 import { PermissionGuard } from '../ui/PermissionGuard'
 import TaskChecklist from './TaskChecklist'
 import AttachmentView from './AttachmentView'
@@ -37,8 +40,10 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 
 const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
   '': 'ללא חזרות',
+  daily: 'כל יום',
   weekly: 'כל שבוע',
   monthly: 'כל חודש',
+  yearly: 'כל שנה',
 }
 
 function getOverdueInfo(task: Task): { delayText: string } | null {
@@ -71,6 +76,7 @@ export interface TaskDetailModalProps {
   onClose: () => void
   onTaskUpdated?: (task: Task) => void
   onTaskDeleted?: () => void
+  onTaskArchived?: () => void
   onEdit?: (task: Task) => void
 }
 
@@ -80,6 +86,7 @@ export default function TaskDetailModal({
   onClose,
   onTaskUpdated,
   onTaskDeleted,
+  onTaskArchived,
   onEdit,
 }: TaskDetailModalProps) {
   const me = useSelector((state: RootState) => state.auth.me)
@@ -96,6 +103,7 @@ export default function TaskDetailModal({
   const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
+  const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const [togglingSuper, setTogglingSuper] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
 
@@ -218,6 +226,18 @@ export default function TaskDetailModal({
     }
   }, [onClose, onTaskDeleted])
 
+  const handleArchiveTask = useCallback(async (t: Task) => {
+    if (!window.confirm(`לארכב את "${t.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
+    setArchivingTaskId(t.id)
+    try {
+      await api.post(`/tasks/${t.id}/archive`)
+      onTaskArchived?.()
+      onClose()
+    } finally {
+      setArchivingTaskId(null)
+    }
+  }, [onClose, onTaskArchived])
+
   const handleToggleSuperTask = useCallback(async (t: Task) => {
     setTogglingSuper(true)
     try {
@@ -273,6 +293,10 @@ export default function TaskDetailModal({
             </span>
             <p className="font-medium text-gray-900 dark:text-gray-100">{effectiveTask.title}</p>
           </div>
+          <p className="text-sm">
+            <span className="text-gray-600 dark:text-gray-400">סוג: </span>
+            <span className="font-medium">{EVENT_TYPE_LABELS[(effectiveTask.event_type || 'task') as EventType]}</span>
+          </p>
           {(() => {
             const overdueInfo = getOverdueInfo(effectiveTask)
             const isAdmin = me?.role === 'Admin'
@@ -415,7 +439,7 @@ export default function TaskDetailModal({
           {!effectiveTask.start_time && !effectiveTask.end_time && (
             <p className="text-sm text-gray-600 dark:text-gray-400">משימה בלי תאריך</p>
           )}
-          {(effectiveTask.recurrence_rule === 'weekly' || effectiveTask.recurrence_rule === 'monthly') && (
+          {effectiveTask.recurrence_rule && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">משימה מחזורית: </span>
               <span className="font-medium">{RECURRENCE_LABELS[effectiveTask.recurrence_rule as RecurrenceRule]}</span>
@@ -667,6 +691,20 @@ export default function TaskDetailModal({
                 >
                   <Pencil className="w-4 h-4" />
                   עריכה
+                </button>
+              </PermissionGuard>
+            )}
+            {effectiveTask.status === 'completed' && !effectiveTask.is_archived && (
+              <PermissionGuard action="update" resource="task">
+                <button
+                  type="button"
+                  onClick={() => handleArchiveTask(effectiveTask)}
+                  disabled={archivingTaskId === effectiveTask.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                  title="ארכב את המשימה שטופלה"
+                >
+                  <Archive className="w-4 h-4" />
+                  {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב'}
                 </button>
               </PermissionGuard>
             )}
