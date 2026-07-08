@@ -7,6 +7,7 @@ import {
   EVENT_TYPE_LABELS,
   USER_CALENDAR_COLORS,
   getTaskOccurrences,
+  type UserForTask,
 } from '../../pages/TaskCalendar'
 import {
   formatCalendarDay,
@@ -14,6 +15,8 @@ import {
   type HolidayEvent,
 } from '../../lib/calendarUtils'
 import { cn } from '../../lib/utils'
+import { formatTaskCode } from '../../lib/taskCode'
+import UnreadMessagesDot from './UnreadMessagesDot'
 
 export type MobileCalendarView = 'day' | 'week' | 'workweek' | 'month'
 
@@ -31,6 +34,14 @@ interface OutlookMobileCalendarProps {
   calendarDateDisplay: CalendarDateDisplay
   mobileView: MobileCalendarView
   onMobileViewChange: (v: MobileCalendarView) => void
+  /** רשימת המשתמשים לבורר הסינון (מוצג רק כאשר showUserFilter) */
+  users?: UserForTask[]
+  /** המשתמש שלפיו מסננים כרגע (null = כל המשתמשים) */
+  filterUserId?: number | null
+  /** שינוי סינון המשתמש מתוך היומן במובייל */
+  onFilterUserChange?: (userId: number | null) => void
+  /** האם להציג את בורר "כל המשתמשים" (מנהלים בלבד) */
+  showUserFilter?: boolean
 }
 
 const HEBREW_WEEKDAY_INITIALS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']
@@ -197,7 +208,11 @@ function AgendaCard({ entry, onClick }: AgendaCardProps) {
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-gray-900 dark:text-white truncate">{task.title}</div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-semibold text-gray-900 dark:text-white truncate">{task.title}</span>
+          <UnreadMessagesDot show={task.has_unread_messages} />
+        </div>
+        <div className="font-mono text-[11px] text-gray-400 dark:text-gray-500">{formatTaskCode(task.id)}</div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 truncate">
           {task.assigned_user_name && <span className="truncate">{task.assigned_user_name}</span>}
           <span
@@ -282,6 +297,10 @@ export default function OutlookMobileCalendar({
   calendarDateDisplay,
   mobileView,
   onMobileViewChange,
+  users = [],
+  filterUserId = null,
+  onFilterUserChange,
+  showUserFilter = false,
 }: OutlookMobileCalendarProps) {
   const today = useMemo(() => startOfDay(new Date()), [])
   const viewSpec = useMemo(() => computeViewSpec(mobileView, selectedDate), [mobileView, selectedDate])
@@ -472,6 +491,22 @@ export default function OutlookMobileCalendar({
             )
           })}
         </div>
+
+        {showUserFilter && (
+          <div className="px-2 pb-2">
+            <select
+              aria-label="סינון לפי משתמש"
+              value={filterUserId ?? ''}
+              onChange={(e) => onFilterUserChange?.(e.target.value ? Number(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 text-sm font-medium"
+            >
+              <option value="">כל המשתמשים</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>{user.full_name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {mobileView === 'day' && (
           <div

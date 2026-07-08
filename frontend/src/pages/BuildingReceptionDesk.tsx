@@ -577,6 +577,7 @@ export default function BuildingReceptionDesk() {
           onClose={() => setSelectedTask(null)}
           onTaskUpdated={() => refreshTasksAndBuilding()}
           onTaskDeleted={() => { refreshTasksAndBuilding(); setSelectedTask(null) }}
+          onTaskArchived={() => { refreshTasksAndBuilding(); setSelectedTask(null) }}
           onEdit={(task) => { setSelectedTask(null); setEditingTask(task) }}
         />
       )}
