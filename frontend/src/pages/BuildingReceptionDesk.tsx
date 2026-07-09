@@ -31,6 +31,7 @@ import {
   fetchBuildings,
   fetchBuilding,
   createBuilding,
+  assignBuildingToProject,
   fetchApartment,
   fetchApartmentTasks,
   closeApartment,
@@ -58,8 +59,10 @@ import {
   updateTechnicianVisit,
   deleteTechnicianVisit,
 } from '../store/slices/buildingReceptionSlice'
+import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
 import BuildingOverview from '../components/building-reception/BuildingOverview'
+import UnassignedBuildingsPanel from '../components/building-reception/UnassignedBuildingsPanel'
 import ApartmentDetailPanel from '../components/building-reception/ApartmentDetailPanel'
 import CreateBuildingModal from '../components/building-reception/CreateBuildingModal'
 import CreateProjectModal from '../components/building-reception/CreateProjectModal'
@@ -141,9 +144,18 @@ export default function BuildingReceptionDesk() {
     void fetchTaskDirectory()
   }, [fetchTaskDirectory])
 
-  // Buildings visible for the current project filter (null = all buildings).
+  // Buildings are always scoped to a project: only those belonging to the
+  // selected project are shown (null = no project selected yet → nothing).
   const visibleBuildings =
-    selectedProjectId === null ? buildings : buildings.filter((building) => building.project_id === selectedProjectId)
+    selectedProjectId === null ? [] : buildings.filter((building) => building.project_id === selectedProjectId)
+
+  // Default the filter to the first project (and recover if the selected one was
+  // deleted). Buildings only exist inside a project, so there is no "all" view.
+  useEffect(() => {
+    if (projects.length === 0) return
+    const stillExists = selectedProjectId !== null && projects.some((project) => project.id === selectedProjectId)
+    if (!stillExists) setSelectedProjectId(projects[0].id)
+  }, [projects, selectedProjectId])
 
   // Keep the open building consistent with the project filter: if the active
   // building isn't in the visible set, open the first visible one — or clear it
@@ -158,8 +170,13 @@ export default function BuildingReceptionDesk() {
     }
   }, [dispatch, activeBuilding, visibleBuildings])
 
-  const apartments: Apartment[] = activeBuilding?.apartments ?? []
   const activeApartmentId = activeApartment?.id ?? null
+
+  // The task modal's building → apartment cascade loads apartments on demand.
+  const loadBuildingApartments = useCallback(
+    async (buildingId: number) => (await BuildingReceptionAPI.getBuilding(buildingId)).apartments,
+    [],
+  )
 
   const runSubmit = async (action: () => Promise<unknown>, onDone: () => void) => {
     setSubmitting(true)
@@ -195,6 +212,15 @@ export default function BuildingReceptionDesk() {
       () => dispatch(createProject(payload)).unwrap(),
       () => setCreateProjectOpen(false),
     )
+
+  // Attach a legacy project-less building to a project, then jump the filter to
+  // that project so the newly-assigned building is visible immediately.
+  const handleAssignBuildingToProject = (buildingId: number, projectId: number) => {
+    void dispatch(assignBuildingToProject({ buildingId, projectId }))
+      .unwrap()
+      .then(() => setSelectedProjectId(projectId))
+      .catch(() => undefined)
+  }
 
   const handleDeleteProject = (projectId: number) => {
     if (!window.confirm('למחוק את הפרויקט? הבניינים יישארו אך לא ישויכו לפרויקט.')) return
@@ -465,6 +491,11 @@ export default function BuildingReceptionDesk() {
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-10">
+        <UnassignedBuildingsPanel
+          buildings={buildings.filter((building) => building.project_id === null)}
+          projects={projects}
+          onAssign={handleAssignBuildingToProject}
+        />
         <BuildingOverview
           projects={projects}
           selectedProjectId={selectedProjectId}
@@ -564,7 +595,11 @@ export default function BuildingReceptionDesk() {
         onClose={() => setTaskOpen(false)}
         users={taskUsers}
         taskLabels={taskLabels}
-        apartments={apartments}
+        projects={projects}
+        buildings={buildings}
+        loadApartments={loadBuildingApartments}
+        defaultProjectId={activeBuilding?.project_id ?? selectedProjectId}
+        defaultBuildingId={activeBuilding?.id ?? null}
         defaultApartmentId={activeApartmentId}
         onCreated={handleTaskCreated}
         onLabelsChanged={() => void fetchTaskDirectory()}

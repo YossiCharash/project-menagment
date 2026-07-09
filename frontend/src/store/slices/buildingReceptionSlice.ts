@@ -132,6 +132,24 @@ export const createBuilding = createAsyncThunk(
   },
 )
 
+/**
+ * Assign an existing building to a project (or detach it with `null`). Refreshes
+ * both the buildings list and the project tabs so counts stay in sync.
+ */
+export const assignBuildingToProject = createAsyncThunk(
+  'buildingReception/assignBuildingToProject',
+  async ({ buildingId, projectId }: { buildingId: number; projectId: number | null }, { dispatch, rejectWithValue }) => {
+    try {
+      const building = await BuildingReceptionAPI.updateBuilding(buildingId, { project_id: projectId })
+      void dispatch(fetchBuildings())
+      void dispatch(fetchProjects())
+      return building
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'שיוך הבניין לפרויקט נכשל'))
+    }
+  },
+)
+
 export const fetchApartment = createAsyncThunk(
   'buildingReception/fetchApartment',
   async (apartmentId: number, { rejectWithValue }) => {
