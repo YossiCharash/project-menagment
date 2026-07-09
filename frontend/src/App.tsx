@@ -58,6 +58,7 @@ import { Menu, LogOut, User } from 'lucide-react'
 import { cn } from './lib/utils'
 import { avatarUrl } from './lib/api'
 import { AccessDenied, NoPermissions } from './components/ui/AccessDenied'
+import AssistantChat from './components/AssistantChat'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const dispatch = useDispatch()
@@ -258,6 +259,7 @@ function AppContent() {
               >
                 <LogOut className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
+              <AssistantChat />
             </div>
           </div>
         </header>
