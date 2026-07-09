@@ -36,11 +36,14 @@ class UnforeseenTransaction(Base):
     # Transaction date
     transaction_date: Mapped[date] = mapped_column(Date, index=True, default=date.today)
 
-    # Unified lines (replaces separate expenses / incomes relationships)
+    # Unified lines (replaces separate expenses / incomes relationships).
+    # order_by is required: the frontend matches uploaded documents to created
+    # lines by array index, so creation order must be stable.
     lines: Mapped[list["UnforeseenTransactionLine"]] = relationship(
         back_populates="unforeseen_transaction",
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="selectin",
+        order_by="UnforeseenTransactionLine.id",
     )
 
     # User who created this

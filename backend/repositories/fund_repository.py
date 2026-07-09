@@ -7,10 +7,12 @@ class FundRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_project_id(self, project_id: int) -> Fund | None:
-        res = await self.db.execute(
-            select(Fund).where(Fund.project_id == project_id)
-        )
+    async def get_by_project_id(self, project_id: int, for_update: bool = False) -> Fund | None:
+        stmt = select(Fund).where(Fund.project_id == project_id)
+        if for_update:
+            # Row lock so concurrent balance updates serialize instead of losing writes
+            stmt = stmt.with_for_update()
+        res = await self.db.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create(self, fund: Fund) -> Fund:
