@@ -60,7 +60,7 @@ from backend.models import (  # noqa: F401
 )
 
 # ── CEMS models (same Base, so the same create_all covers them) ───────────────
-from backend.cems.models import (  # noqa: F401
+from backend.models.cems_models import (  # noqa: F401
     Warehouse,
     ManagerHistory,
     AssetCategory,

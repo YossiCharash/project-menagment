@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import FrozenSet
 
-from backend.cems.models.user import UserRole
+from backend.models.cems_user import UserRole
 
 
 class RetirementAuthorityPolicy:
