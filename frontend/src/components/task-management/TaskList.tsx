@@ -90,7 +90,7 @@ export default function TaskList() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) fetchTasks(true)
-    }, 60_000)
+    }, 30_000)
     const onVisible = () => { if (!document.hidden) fetchTasks(true) }
     document.addEventListener('visibilitychange', onVisible)
     return () => {

@@ -122,7 +122,7 @@ export default function TaskBoard() {
     const maybeRefresh = () => {
       if (!document.hidden && !boardBusyRef.current) fetchTasks(true)
     }
-    const interval = setInterval(maybeRefresh, 60_000)
+    const interval = setInterval(maybeRefresh, 30_000)
     document.addEventListener('visibilitychange', maybeRefresh)
     return () => {
       clearInterval(interval)
