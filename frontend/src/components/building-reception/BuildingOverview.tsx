@@ -43,9 +43,10 @@ export default function BuildingOverview({
   onSelectApartment,
   onAddApartment,
 }: BuildingOverviewProps) {
-  // When a project is selected, only its buildings are shown in the tab strip.
+  // Buildings are always scoped to a project — only the selected project's
+  // buildings are shown in the tab strip.
   const visibleBuildings =
-    selectedProjectId === null ? buildings : buildings.filter((building) => building.project_id === selectedProjectId)
+    selectedProjectId === null ? [] : buildings.filter((building) => building.project_id === selectedProjectId)
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
   // Guard against a stale active building that belongs to another project.
   const activeInProject = activeBuilding !== null && visibleBuildings.some((building) => building.id === activeBuilding.id)
@@ -56,18 +57,6 @@ export default function BuildingOverview({
     <section dir="rtl" className="flex-1 min-w-0">
       <div className="flex items-center gap-2 flex-wrap mb-4">
         <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 ml-1">פרויקטים:</span>
-        <button
-          type="button"
-          onClick={() => onSelectProject(null)}
-          className="text-xs font-bold px-3 py-1.5 rounded-full border transition-colors"
-          style={{
-            color: selectedProjectId === null ? '#fff' : '#6B6B7B',
-            background: selectedProjectId === null ? ACCENT : 'transparent',
-            borderColor: selectedProjectId === null ? ACCENT : '#E2E2E8',
-          }}
-        >
-          כל הבניינים
-        </button>
         {projects.map((project) => {
           const active = project.id === selectedProjectId
           return (
@@ -182,9 +171,11 @@ export default function BuildingOverview({
       ) : floors.length === 0 ? (
         <div className="text-sm font-semibold text-gray-400 text-center py-16">
           {visibleBuildings.length === 0
-            ? selectedProject
-              ? `אין בניינים בפרויקט "${selectedProject.name}". הוסף בניין כדי להתחיל.`
-              : 'עדיין אין בניינים. הקם בניין חדש כדי להתחיל.'
+            ? projects.length === 0
+              ? 'צור פרויקט כדי להתחיל, ואז הוסף אליו בניינים.'
+              : selectedProject
+                ? `אין בניינים בפרויקט "${selectedProject.name}". הוסף בניין כדי להתחיל.`
+                : 'בחר פרויקט כדי להציג את הבניינים שלו.'
             : 'לבניין זה אין דירות עדיין.'}
         </div>
       ) : (
