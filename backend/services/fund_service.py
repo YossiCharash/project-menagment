@@ -85,30 +85,40 @@ class FundService:
         fund.last_monthly_addition = today
         return await self.funds.update(fund)
 
-    async def deduct_from_fund(self, project_id: int, amount: float) -> Fund | None:
-        """Deduct amount from fund"""
-        fund = await self.funds.get_by_project_id(project_id)
+    async def deduct_from_fund(self, project_id: int, amount: float, commit: bool = True) -> Fund | None:
+        """Deduct amount from fund.
+
+        With commit=False the change is only flushed, so it commits (or rolls back)
+        together with the rest of the request - e.g. atomically with transaction creation.
+        """
+        fund = await self.funds.get_by_project_id(project_id, for_update=True)
         if not fund:
             return None
-        
+
         fund.current_balance = float(fund.current_balance) - float(amount)
         # Allow negative balance (removed the check that prevented it)
-        
-        return await self.funds.update(fund)
 
-    async def add_to_fund(self, project_id: int, amount: float) -> Fund | None:
-        """Add amount to fund"""
-        fund = await self.funds.get_by_project_id(project_id)
+        if commit:
+            return await self.funds.update(fund)
+        await self.db.flush()
+        return fund
+
+    async def add_to_fund(self, project_id: int, amount: float, commit: bool = True) -> Fund | None:
+        """Add amount to fund. See deduct_from_fund for commit=False semantics."""
+        fund = await self.funds.get_by_project_id(project_id, for_update=True)
         if not fund:
             return None
-        
-        fund.current_balance = float(fund.current_balance) + float(amount)
-        
-        return await self.funds.update(fund)
 
-    async def refund_to_fund(self, project_id: int, amount: float) -> Fund | None:
+        fund.current_balance = float(fund.current_balance) + float(amount)
+
+        if commit:
+            return await self.funds.update(fund)
+        await self.db.flush()
+        return fund
+
+    async def refund_to_fund(self, project_id: int, amount: float, commit: bool = True) -> Fund | None:
         """Refund amount back to fund (e.g., when deleting a transaction)"""
-        return await self.add_to_fund(project_id, amount)
+        return await self.add_to_fund(project_id, amount, commit=commit)
 
     async def ensure_monthly_addition(self, project_id: int) -> Fund | None:
         """Ensure all monthly amounts are added from project start date to today"""
