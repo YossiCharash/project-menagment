@@ -1,0 +1,196 @@
+import uuid
+from typing import Optional
+
+from fastapi import HTTPException, status
+
+from backend.models.cems_fixed_asset import AssetStatus
+from backend.models.cems_signature import SignatureType
+from backend.models.cems_transfer import Transfer, TransferStatus
+from backend.repositories.cems_asset_repository import AssetRepository
+from backend.repositories.cems_transfer_repository import TransferRepository
+from backend.services.cems__signature_factory import create_signature_hash
+
+
+class TransferService:
+    """Orchestrates the full lifecycle of an asset transfer.
+
+    Depends on repository abstractions (constructor-injected) so
+    the service is testable in isolation with mocks / in-memory repos.
+    """
+
+    def __init__(
+        self,
+        asset_repo: AssetRepository,
+        transfer_repo: TransferRepository,
+    ) -> None:
+        self._asset_repo = asset_repo
+        self._transfer_repo = transfer_repo
+
+    async def transfer_asset(
+        self,
+        asset_id: uuid.UUID,
+        to_user_id: int,
+        to_warehouse_id: Optional[uuid.UUID],
+        initiated_by_id: int,
+        notes: Optional[str] = None,
+    ) -> Transfer:
+        asset = await self._asset_repo.get_by_id(asset_id)
+        if asset is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Asset not found.",
+            )
+
+        # A handover may start either from an employee already holding the asset
+        # (status ACTIVE) or directly from a warehouse (status IN_WAREHOUSE).
+        # Both flows produce the same pending transfer awaiting recipient approval.
+        transferable_statuses = (AssetStatus.ACTIVE, AssetStatus.IN_WAREHOUSE)
+        if asset.status not in transferable_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"לא ניתן למסור את הנכס במצב הנוכחי (סטטוס: {asset.status.value}).",
+            )
+
+        # May be None when the asset is being handed out straight from a warehouse.
+        from_user_id = asset.current_custodian_id
+
+        active_transfers = await self._transfer_repo.get_active_transfers_for_asset(asset_id)
+        if active_transfers:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Asset already has an active transfer in progress.",
+            )
+
+        await self._asset_repo.update(asset_id, {"status": AssetStatus.IN_TRANSFER})
+
+        transfer = await self._transfer_repo.create(
+            {
+                "asset_id": asset_id,
+                "from_user_id": from_user_id,
+                "to_user_id": to_user_id,
+                "from_warehouse_id": asset.current_warehouse_id,
+                "to_warehouse_id": to_warehouse_id,
+                "initiated_by_id": initiated_by_id,
+                "status": TransferStatus.PENDING,
+                "notes": notes,
+            }
+        )
+
+        await self._asset_repo.log_history(
+            asset_id=asset_id,
+            action="TRANSFER_INITIATED",
+            actor_id=initiated_by_id,
+            from_custodian_id=from_user_id,
+            to_custodian_id=to_user_id,
+            from_warehouse_id=asset.current_warehouse_id,
+            to_warehouse_id=to_warehouse_id,
+            notes=notes,
+        )
+
+        return transfer
+
+    async def complete_transfer(
+        self,
+        transfer_id: uuid.UUID,
+        recipient_id: int,
+        signature_hash: str,
+        ip_address: Optional[str] = None,
+    ) -> Transfer:
+        transfer = await self._transfer_repo.get_by_id(transfer_id)
+        if transfer is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transfer not found.",
+            )
+
+        if transfer.status != TransferStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Transfer is not pending (current status: {transfer.status.value}).",
+            )
+
+        if transfer.to_user_id != recipient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the designated recipient can complete this transfer.",
+            )
+
+        signature = await self._transfer_repo.create_signature(
+            {
+                "signer_id": recipient_id,
+                "signature_hash": signature_hash,
+                "signature_type": SignatureType.TRANSFER_RECEIPT,
+                "reference_id": transfer_id,
+                "ip_address": ip_address,
+            }
+        )
+
+        await self._transfer_repo.update(
+            transfer_id,
+            {
+                "status": TransferStatus.COMPLETED,
+                "recipient_signature_id": signature.id,
+            },
+        )
+
+        await self._asset_repo.update(
+            transfer.asset_id,
+            {
+                "current_custodian_id": transfer.to_user_id,
+                "current_warehouse_id": transfer.to_warehouse_id,
+                "status": AssetStatus.ACTIVE,
+            },
+        )
+
+        await self._asset_repo.log_history(
+            asset_id=transfer.asset_id,
+            action="TRANSFER_COMPLETED",
+            actor_id=recipient_id,
+            from_custodian_id=transfer.from_user_id,
+            to_custodian_id=transfer.to_user_id,
+            from_warehouse_id=transfer.from_warehouse_id,
+            to_warehouse_id=transfer.to_warehouse_id,
+            notes=f"העברה הושלמה עם חתימה.",
+        )
+
+        # Re-fetch to get updated state
+        return await self._transfer_repo.get_by_id(transfer_id)  # type: ignore[return-value]
+
+    async def reject_transfer(
+        self,
+        transfer_id: uuid.UUID,
+        rejected_by_id: int,
+        reason: str,
+    ) -> Transfer:
+        transfer = await self._transfer_repo.get_by_id(transfer_id)
+        if transfer is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transfer not found.",
+            )
+
+        if transfer.status != TransferStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Transfer is not pending (current status: {transfer.status.value}).",
+            )
+
+        await self._transfer_repo.update(
+            transfer_id,
+            {"status": TransferStatus.REJECTED, "notes": reason},
+        )
+
+        # Restore asset to ACTIVE
+        await self._asset_repo.update(
+            transfer.asset_id,
+            {"status": AssetStatus.ACTIVE},
+        )
+
+        await self._asset_repo.log_history(
+            asset_id=transfer.asset_id,
+            action="TRANSFER_REJECTED",
+            actor_id=rejected_by_id,
+            notes=f"העברה נדחתה. סיבה: {reason}",
+        )
+
+        return await self._transfer_repo.get_by_id(transfer_id)  # type: ignore[return-value]
