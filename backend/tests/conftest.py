@@ -21,7 +21,7 @@ from backend.core.security import hash_password
 # the shared metadata before create_all(). User.cems_warehouse_id has a FK to
 # cems_warehouses.id; without this import the table is missing and metadata
 # resolution raises NoReferencedTableError.
-import backend.cems.models  # noqa: F401,E402
+import backend.models.cems_models  # noqa: F401,E402
 
 # ── SQLite compatibility ────────────────────────────────────────────────────────
 # PostgreSQL-specific JSONB has no native SQLite equivalent.
