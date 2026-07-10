@@ -62,6 +62,8 @@ class TransactionService:
 
     async def create_batch(self, rows: list[dict]) -> list[Transaction]:
         """Validate all rows and add_all + flush atomically."""
+        from sqlalchemy import select
+
         built: list[Transaction] = []
 
         for idx, row in enumerate(rows, start=1):
@@ -73,8 +75,13 @@ class TransactionService:
 
         self.db.add_all(built)
         await self.db.flush()
-        for tx in built:
-            await self.db.refresh(tx)
+        # One bulk SELECT instead of a refresh() per row: the selectin relationships
+        # (category/supplier/user/documents) load in a handful of queries for the whole
+        # batch, where per-row refresh cost ~5 round-trips per transaction and pushed
+        # large batches toward client timeouts.
+        ids = [tx.id for tx in built]
+        result = await self.db.execute(select(Transaction).where(Transaction.id.in_(ids)))
+        result.scalars().all()  # populates relationships on the identity-mapped instances
         return built
 
     async def list_by_project(
