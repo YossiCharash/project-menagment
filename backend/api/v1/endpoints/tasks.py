@@ -5,7 +5,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 import os
 import uuid
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile, Form
 
@@ -678,20 +679,35 @@ async def _mark_task_chat_read(db, task_id: int, user_id: int) -> None:
 
     Records that ``user_id`` has read the task chat up to this moment, which is
     what other members' messages check against to flip to the read (✓✓) state.
+
+    Update-first, then insert: the insert is guarded by a SAVEPOINT so that a
+    concurrent first read of the same (task, user) — two tabs/devices racing
+    before any row exists — hits the unique constraint on the loser, rolls back
+    only the savepoint (not the whole request), and falls back to an update
+    instead of surfacing an IntegrityError as a 500.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    result = await db.execute(
-        select(TaskMessageRead).where(
-            TaskMessageRead.task_id == task_id,
-            TaskMessageRead.user_id == user_id,
+
+    async def _touch() -> int:
+        result = await db.execute(
+            update(TaskMessageRead)
+            .where(
+                TaskMessageRead.task_id == task_id,
+                TaskMessageRead.user_id == user_id,
+            )
+            .values(last_read_at=now)
         )
-    )
-    existing = result.scalar_one_or_none()
-    if existing is None:
-        db.add(TaskMessageRead(task_id=task_id, user_id=user_id, last_read_at=now))
-    else:
-        existing.last_read_at = now
-    await db.flush()
+        return result.rowcount or 0
+
+    if await _touch() > 0:
+        return
+    try:
+        async with db.begin_nested():
+            db.add(TaskMessageRead(task_id=task_id, user_id=user_id, last_read_at=now))
+            await db.flush()
+    except IntegrityError:
+        # A concurrent request inserted the row first; just update it.
+        await _touch()
 
 
 async def _recipient_last_read_map(db, task_id: int) -> dict[int, datetime]:
