@@ -305,7 +305,7 @@ export default function TaskBoard() {
         <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
-            <UnreadMessagesDot show={task.has_unread_messages} />
+            <UnreadMessagesDot show={task.has_unread_messages} count={task.unread_messages_count} />
             <p className="font-medium text-gray-900 dark:text-white truncate">{task.title}</p>
             {task.is_archived && (
               <span className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-200 dark:bg-amber-800/50 text-amber-800 dark:text-amber-300">
