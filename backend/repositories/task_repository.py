@@ -195,7 +195,13 @@ class TaskRepository:
         assigned_to_user_id: int | None = None,
         for_user_id: int | None = None,
     ) -> list[Task]:
-        """Return non-archived, non-completed backlog tasks. Member sees own/invited; Admin can filter by user."""
+        """Return backlog tasks: no-date pending tasks OR explicitly-flagged tasks.
+
+        A task belongs in the backlog when it has no date (``start_time IS NULL``)
+        and its status is ``pending`` (not yet started), OR it was explicitly
+        flagged ``is_backlog == True``. Archived and completed tasks are always
+        excluded. Member sees own/invited; Admin can filter by user.
+        """
         q = (
             select(Task)
             .options(
@@ -205,7 +211,15 @@ class TaskRepository:
                 selectinload(Task.labels),
                 selectinload(Task.participants).selectinload(TaskParticipant.user),
             )
-            .where(Task.is_backlog == True)   # noqa: E712
+            .where(
+                or_(
+                    Task.is_backlog == True,  # noqa: E712
+                    and_(
+                        Task.start_time.is_(None),
+                        Task.status == TaskStatus.PENDING,
+                    ),
+                )
+            )
             .where(Task.is_archived == False)  # noqa: E712
             .where(Task.status != TaskStatus.COMPLETED)
             .order_by(Task.created_at.asc())
