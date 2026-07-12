@@ -133,6 +133,8 @@ export interface TaskMessageType {
   avatar_url?: string | null
   message: string
   created_at: string
+  edited_at?: string | null
+  read_by_all?: boolean
   attachments?: TaskAttachmentType[]
 }
 
