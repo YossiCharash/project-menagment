@@ -48,7 +48,7 @@ vi.mock('../../lib/buildingReceptionApi', () => {
     listBuildings: vi.fn(),
     getBuilding: vi.fn(),
     createBuilding: vi.fn(),
-    updateBuilding: vi.fn(),
+    deleteBuilding: vi.fn(),
     getApartment: vi.fn(),
     listTaskAssignees: vi.fn(),
     createTask: vi.fn(),
@@ -63,7 +63,7 @@ const mockedApi = BuildingReceptionAPI as unknown as {
   listBuildings: ReturnType<typeof vi.fn>
   getBuilding: ReturnType<typeof vi.fn>
   createBuilding: ReturnType<typeof vi.fn>
-  updateBuilding: ReturnType<typeof vi.fn>
+  deleteBuilding: ReturnType<typeof vi.fn>
   getApartment: ReturnType<typeof vi.fn>
   listTaskAssignees: ReturnType<typeof vi.fn>
   createTask: ReturnType<typeof vi.fn>
@@ -119,18 +119,19 @@ describe('BuildingReceptionDesk', () => {
     })
   })
 
-  it('assigns a project-less building to a project instead of hiding it forever', async () => {
-    const orphan = { ...buildingListItem, id: 9, name: 'בניין יתום', project_id: null }
-    mockedApi.listBuildings.mockResolvedValue([buildingListItem, orphan])
-    mockedApi.updateBuilding.mockResolvedValue({ ...orphan, project_id: 5, apartments: [] })
+  it('deletes the active building after an explicit confirmation', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockedApi.deleteBuilding.mockResolvedValue(undefined)
     renderPage()
 
-    // The orphan is surfaced in the recovery panel with an "שייך" action.
-    const assignButton = await screen.findByRole('button', { name: 'שייך' })
-    fireEvent.click(assignButton)
+    // The first project is selected by default and its building opens.
+    await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
+    const deleteButton = await screen.findByRole('button', { name: /מחיקת הבניין/ })
+    fireEvent.click(deleteButton)
 
+    expect(confirmSpy).toHaveBeenCalled()
     await waitFor(() => {
-      expect(mockedApi.updateBuilding).toHaveBeenCalledWith(9, { project_id: 5 })
+      expect(mockedApi.deleteBuilding).toHaveBeenCalledWith(1)
     })
   })
 

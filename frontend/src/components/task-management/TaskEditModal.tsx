@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api, { fileAttachmentUrl } from '../../lib/api'
 import Modal from '../Modal'
-import { Tag, Paperclip, X } from 'lucide-react'
+import { Paperclip, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type {
   Task,
@@ -17,11 +17,11 @@ import {
   RecurrenceEditor,
   TASK_STATUS_LABELS,
 } from '../../pages/TaskCalendar'
-import { useDeleteTaskLabel } from './useDeleteTaskLabel'
 import AttachmentView from './AttachmentView'
 import RecordButton from './RecordButton'
 import ParticipantPicker from './ParticipantPicker'
 import AssigneePicker from './AssigneePicker'
+import LabelPicker from './LabelPicker'
 
 /**
  * The three mutually-exclusive scheduling shapes a task can take while editing,
@@ -173,17 +173,6 @@ export default function TaskEditModal({
   const [editDeletingAttachmentId, setEditDeletingAttachmentId] = useState<number | null>(null)
   const editFileInputRef = useRef<HTMLInputElement>(null)
 
-  const [newLabelName, setNewLabelName] = useState('')
-  const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
-  const [addingLabel, setAddingLabel] = useState(false)
-
-  const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
-    onDeleted: (labelId) => {
-      setEditForm((form) => (form ? { ...form, label_ids: form.label_ids.filter((id) => id !== labelId) } : form))
-      onLabelsChanged?.()
-    },
-  })
-
   // Seed the form each time the modal opens for a (new) task, mirroring the
   // Task Calendar's `openEditModal` seeding logic.
   useEffect(() => {
@@ -193,28 +182,8 @@ export default function TaskEditModal({
     setEditForm(form)
     setEditTaskType(taskType)
     setEditError(null)
-    setNewLabelName('')
-    setNewLabelColor('#3B82F6')
     if (editFileInputRef.current) editFileInputRef.current.value = ''
   }, [isOpen, task])
-
-  const handleCreateLabel = useCallback(async () => {
-    const name = newLabelName.trim()
-    if (!name) return
-    setAddingLabel(true)
-    try {
-      const color = newLabelColor.startsWith('#') ? newLabelColor : `#${newLabelColor}`
-      const { data } = await api.post<TaskLabelType>('/tasks/labels', { name, color: color || '#3B82F6' })
-      setEditForm((form) => (form ? { ...form, label_ids: [...form.label_ids, data.id] } : form))
-      setNewLabelName('')
-      setNewLabelColor('#3B82F6')
-      onLabelsChanged?.()
-    } catch (err) {
-      console.error('Failed to create label:', err)
-    } finally {
-      setAddingLabel(false)
-    }
-  }, [newLabelName, newLabelColor, onLabelsChanged])
 
   const uploadEditAttachments = useCallback(async (files: File[]) => {
     if (!editingTask || files.length === 0) return
@@ -391,83 +360,12 @@ export default function TaskEditModal({
           assigneeIds={editForm.assigned_to_user_ids}
           onChange={(ids) => setEditForm((f) => (f ? { ...f, participant_ids: ids } : f))}
         />
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
-            <Tag className="w-4 h-4" />
-            לייבלים
-          </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {taskLabels.map((l) => (
-              <span key={l.id} className="inline-flex items-center gap-0.5">
-                <label
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border cursor-pointer transition-colors',
-                    editForm.label_ids.includes(l.id)
-                      ? 'border-transparent text-white'
-                      : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                  )}
-                  style={editForm.label_ids.includes(l.id) ? { backgroundColor: l.color } : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    checked={editForm.label_ids.includes(l.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setEditForm((f) => (f ? { ...f, label_ids: [...f.label_ids, l.id] } : f))
-                      } else {
-                        setEditForm((f) => (f ? { ...f, label_ids: f.label_ids.filter((id) => id !== l.id) } : f))
-                      }
-                    }}
-                    className="sr-only"
-                  />
-                  <span className="w-2 h-2 rounded-full bg-white/80 flex-shrink-0" style={editForm.label_ids.includes(l.id) ? {} : { backgroundColor: l.color }} />
-                  {l.name}
-                </label>
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(l) }}
-                  disabled={deletingLabelId === l.id}
-                  title="מחק לייבל"
-                  className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              id="edit-new-label-name"
-              name="edit-new-label-name"
-              type="text"
-              placeholder="שם לייבל חדש"
-              value={newLabelName}
-              onChange={(e) => setNewLabelName(e.target.value)}
-              aria-label="שם לייבל חדש"
-              className={cn(
-                'px-3 py-1.5 border rounded-lg text-sm w-32',
-                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-              )}
-            />
-            <input
-              id="edit-new-label-color"
-              name="edit-new-label-color"
-              type="color"
-              value={newLabelColor}
-              onChange={(e) => setNewLabelColor(e.target.value)}
-              aria-label="צבע לייבל חדש"
-              className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent"
-            />
-            <button
-              type="button"
-              onClick={handleCreateLabel}
-              disabled={addingLabel || !newLabelName.trim()}
-              className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-            >
-              {addingLabel ? '...' : 'הוסף לייבל'}
-            </button>
-          </div>
-        </div>
+        <LabelPicker
+          labels={taskLabels}
+          selectedIds={editForm.label_ids}
+          onChange={(ids) => setEditForm((f) => (f ? { ...f, label_ids: ids } : f))}
+          onLabelsChanged={onLabelsChanged}
+        />
         {editTaskType === 'with_time' && (
           <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <div className="grid grid-cols-2 gap-4">
