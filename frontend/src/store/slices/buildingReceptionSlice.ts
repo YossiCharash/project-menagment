@@ -133,19 +133,19 @@ export const createBuilding = createAsyncThunk(
 )
 
 /**
- * Assign an existing building to a project (or detach it with `null`). Refreshes
- * both the buildings list and the project tabs so counts stay in sync.
+ * Permanently delete a building and everything under it. Refreshes both the
+ * buildings list and the project tabs so the counts stay in sync.
  */
-export const assignBuildingToProject = createAsyncThunk(
-  'buildingReception/assignBuildingToProject',
-  async ({ buildingId, projectId }: { buildingId: number; projectId: number | null }, { dispatch, rejectWithValue }) => {
+export const deleteBuilding = createAsyncThunk(
+  'buildingReception/deleteBuilding',
+  async (buildingId: number, { dispatch, rejectWithValue }) => {
     try {
-      const building = await BuildingReceptionAPI.updateBuilding(buildingId, { project_id: projectId })
+      await BuildingReceptionAPI.deleteBuilding(buildingId)
       void dispatch(fetchBuildings())
       void dispatch(fetchProjects())
-      return building
+      return buildingId
     } catch (error) {
-      return rejectWithValue(asMessage(error, 'שיוך הבניין לפרויקט נכשל'))
+      return rejectWithValue(asMessage(error, 'מחיקת הבניין נכשלה'))
     }
   },
 )
@@ -517,6 +517,17 @@ const slice = createSlice({
       })
       .addCase(createBuilding.rejected, (state, action) => {
         state.error = action.payload as string
+      })
+
+      .addCase(deleteBuilding.fulfilled, (state, action) => {
+        state.buildings = state.buildings.filter((building) => building.id !== action.payload)
+        // Drop the open building/apartment if they belonged to the deleted one.
+        if (state.activeBuilding?.id === action.payload) {
+          state.activeBuilding = null
+          state.activeApartment = null
+          state.activeApartmentTasks = []
+        }
+        state.error = null
       })
 
       .addCase(fetchApartment.pending, (state) => {
