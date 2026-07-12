@@ -110,6 +110,24 @@ const normalizeDateForInput = (d: unknown): string => {
   return ''
 }
 
+/** מספר בקשות מקביליות מקסימלי בשליחת עסקה קבוצתית — מונע קריסת שרת/DB בהרבה שורות. */
+const MAX_PARALLEL_SUBMITS = 3
+
+/** מריץ משימות אסינכרוניות עם תקרת מקביליות. שומר על סדר התוצאות לפי סדר המשימות. */
+const runWithConcurrency = async <T,>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> => {
+  const results: T[] = new Array(tasks.length)
+  let nextIndex = 0
+  const worker = async () => {
+    while (true) {
+      const idx = nextIndex++
+      if (idx >= tasks.length) return
+      results[idx] = await tasks[idx]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+  return results
+}
+
 const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
   isOpen,
   onClose,
@@ -637,6 +655,15 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
     setLoading(true)
     setError(null)
 
+    if (rows.length === 0) {
+      setError('אין עסקאות לשליחה — הוסף לפחות עסקה אחת באמצעות הכפתורים למעלה')
+      setLoading(false)
+      return
+    }
+
+    // קטגוריית "אחר" משמשת לעסקאות חלוקת יתרה וקיזוז (הבאקאנד דורש קטגוריה לכל עסקה רגילה)
+    const otherCategory = availableCategories.find(c => c.name === 'אחר')
+
     // Validate all rows
     const errors: string[] = []
     rows.forEach((row, index) => {
@@ -657,10 +684,17 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         if (!hasIncomes && !hasExpenses) {
           errors.push(`שורה ${index + 1}: יש להזין לפחות הכנסה אחת או הוצאה אחת`)
         }
+        const hasValidSplits = (row.balanceSplits ?? []).some(s => s.projectId && s.amount && Number(s.amount) > 0)
+        if (hasValidSplits && !otherCategory) {
+          errors.push(`שורה ${index + 1}: חלוקת יתרה דורשת קטגוריית "אחר" במערכת — פנה למנהל להוספתה`)
+        }
       } else {
         // Validate regular transaction fields
         if (!row.amount || Number(row.amount) <= 0) {
           errors.push(`שורה ${index + 1}: יש להזין סכום תקין`)
+        }
+        if (!row.fromFund && !row.categoryId) {
+          errors.push(`שורה ${index + 1}: יש לבחור קטגוריה`)
         }
         if (row.type === 'Expense' && !row.fromFund && !row.supplierId) {
           // Check if category is "אחר" (Other) - if so, supplier is not required
@@ -760,7 +794,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
           }
 
           const unforeseenTx = await UnforeseenTransactionAPI.createUnforeseenTransaction(unforeseenData)
-          await new Promise(r => setTimeout(r, 300))
 
           let unforeseenDocError = false
           if (unforeseenTx.incomes && row.incomes) {
@@ -850,6 +883,8 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     type: splitTxType,
                     amount: Number(split.amount),
                     description: row.description || 'חלוקת יתרה מעסקה לא צפויה',
+                    // הבאקאנד דורש קטגוריה לכל עסקה שאינה מקופה; "אחר" גם פוטר מחובת ספק
+                    category_id: otherCategory?.id,
                     notes: row.notes || undefined,
                     is_exceptional: false,
                     from_fund: false,
@@ -891,6 +926,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                     type: offsetTxType,
                     amount: totalSplitCreated,
                     description: offsetDescription,
+                    category_id: otherCategory?.id,
                     notes: row.notes || undefined,
                     is_exceptional: false,
                     from_fund: false,
@@ -946,8 +982,6 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
         if (row.files.length > 0) {
           console.log(`[GROUP TX] Starting upload of ${row.files.length} files for transaction ${transactionId}`)
-
-          await new Promise(resolve => setTimeout(resolve, 300))
 
           let fileSuccessCount = 0
           let fileErrorCount = 0
@@ -1079,18 +1113,14 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
     const incrementProgress = () => setSubmitProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null)
 
-    const unforeseenPromises = unforeseenIndexed.map(({ row, i }) =>
-      processUnforeseenRow(row, i).then(result => {
-        incrementProgress()
-        return { index: i, ...result }
-      })
-    )
+    type RowResult = { index: number; succeeded: boolean; rowErrors: string[] }
 
-    // Backend enforces single-project atomicity per batch, so we shard regular rows by project
-    // and run one batch per project in parallel — preserving per-project all-or-nothing semantics.
-    const regularGroups = new Map<number | string, Array<{ row: typeof regularIndexed[number]['row']; i: number }>>()
+    // Backend enforces single-project atomicity per batch, so we shard regular rows by the
+    // EFFECTIVE target project (subproject when selected - that's what the payload sends).
+    // Grouping by parent project would mix different project_ids and the backend would reject the batch.
+    const regularGroups = new Map<number, Array<{ row: typeof regularIndexed[number]['row']; i: number }>>()
     for (const entry of regularIndexed) {
-      const key = entry.row.projectId
+      const key = (entry.row.subprojectId || entry.row.projectId) as number
       const bucket = regularGroups.get(key)
       if (bucket) bucket.push(entry)
       else regularGroups.set(key, [entry])
@@ -1098,7 +1128,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
 
     const runProjectBatch = async (
       group: Array<{ row: typeof regularIndexed[number]['row']; i: number }>
-    ): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
+    ): Promise<RowResult[]> => {
       const groupPayloads: TransactionCreate[] = group.map(({ row }) => buildRegularPayload(row))
 
       let createdTransactions: Transaction[]
@@ -1106,84 +1136,72 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
         createdTransactions = await TransactionAPI.createBatch(groupPayloads)
       } catch (batchErr: any) {
         console.warn('[GROUP TX] Atomic batch failed, falling back to per-row creation:', batchErr)
-        return Promise.all(
-          group.map(async ({ row, i }, k) => {
-            try {
-              const createdTx = await TransactionAPI.createTransaction(groupPayloads[k])
-              const result = await processRegularRowFiles(row, i, createdTx)
-              incrementProgress()
-              return { index: i, ...result }
-            } catch (err: any) {
-              const errDetail = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
-              const errFields: string[] | undefined = err.response?.data?.errors
-              const errMsg = errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail
-              incrementProgress()
-              return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${errMsg}`] }
-            }
-          })
-        )
-      }
-
-      return Promise.all(
-        group.map(({ row, i }, k) =>
-          processRegularRowFiles(row, i, createdTransactions[k]).then(result => {
-            incrementProgress()
-            return { index: i, ...result }
-          })
-        )
-      )
-    }
-
-    const regularWorkstream = (async (): Promise<Array<{ index: number; succeeded: boolean; rowErrors: string[] }>> => {
-      if (regularIndexed.length === 0) return []
-      const groups = Array.from(regularGroups.values())
-      const groupResults = await Promise.allSettled(groups.map(runProjectBatch))
-      const flat: Array<{ index: number; succeeded: boolean; rowErrors: string[] }> = []
-      groupResults.forEach((outcome, gIdx) => {
-        if (outcome.status === 'fulfilled') {
-          flat.push(...outcome.value)
-        } else {
-          const reason = outcome.reason?.message || 'שגיאה לא צפויה'
-          for (const { i } of groups[gIdx]) {
-            flat.push({ index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${reason}`] })
-            incrementProgress()
+        // Sequential fallback - keeps the number of in-flight requests bounded
+        const fallbackResults: RowResult[] = []
+        for (let k = 0; k < group.length; k++) {
+          const { row, i } = group[k]
+          try {
+            const createdTx = await TransactionAPI.createTransaction(groupPayloads[k])
+            const result = await processRegularRowFiles(row, i, createdTx)
+            fallbackResults.push({ index: i, ...result })
+          } catch (err: any) {
+            const errDetail = err.response?.data?.detail || err.message || 'שגיאה ביצירת העסקה'
+            const errFields: string[] | undefined = err.response?.data?.errors
+            const errMsg = errFields?.length ? `${errDetail}: ${errFields.join(', ')}` : errDetail
+            fallbackResults.push({ index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${errMsg}`] })
           }
+          incrementProgress()
         }
-      })
-      return flat
-    })()
-
-    const outerSettled = await Promise.allSettled<Array<{ index: number; succeeded: boolean; rowErrors: string[] }> | { index: number; succeeded: boolean; rowErrors: string[] }>([
-      ...unforeseenPromises,
-      regularWorkstream
-    ])
-    const settled: Array<PromiseSettledResult<{ index: number; succeeded: boolean; rowErrors: string[] }>> = []
-    for (const outcome of outerSettled) {
-      if (outcome.status === 'fulfilled') {
-        if (Array.isArray(outcome.value)) {
-          for (const item of outcome.value) settled.push({ status: 'fulfilled', value: item })
-        } else {
-          settled.push({ status: 'fulfilled', value: outcome.value })
-        }
-      } else {
-        settled.push(outcome)
+        return fallbackResults
       }
+
+      // Batch created atomically - upload files sequentially per group (bounded concurrency)
+      const fileResults: RowResult[] = []
+      for (let k = 0; k < group.length; k++) {
+        const { row, i } = group[k]
+        const result = await processRegularRowFiles(row, i, createdTransactions[k])
+        fileResults.push({ index: i, ...result })
+        incrementProgress()
+      }
+      return fileResults
     }
 
-    for (const outcome of settled) {
-      if (outcome.status === 'fulfilled') {
-        const { index, succeeded, rowErrors } = outcome.value
-        results.errors.push(...rowErrors)
-        if (succeeded) {
-          results.success++
-          succeededRowIndices.add(index)
-        } else {
-          results.failed++
+    // All work units (unforeseen rows + per-project batches) run through one concurrency
+    // limiter so a large submission cannot flood the server with parallel requests.
+    const tasks: Array<() => Promise<RowResult[]>> = [
+      ...unforeseenIndexed.map(({ row, i }) => async (): Promise<RowResult[]> => {
+        try {
+          const result = await processUnforeseenRow(row, i)
+          return [{ index: i, ...result }]
+        } catch (err: any) {
+          const reason = err?.response?.data?.detail || err?.message || 'שגיאה לא צפויה'
+          return [{ index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${reason}`] }]
+        } finally {
+          incrementProgress()
         }
+      }),
+      ...Array.from(regularGroups.values()).map(group => async (): Promise<RowResult[]> => {
+        try {
+          return await runProjectBatch(group)
+        } catch (err: any) {
+          const reason = err?.response?.data?.detail || err?.message || 'שגיאה לא צפויה'
+          return group.map(({ i }) => {
+            incrementProgress()
+            return { index: i, succeeded: false, rowErrors: [`שורה ${i + 1}: ${reason}`] }
+          })
+        }
+      }),
+    ]
+
+    const taskResults = await runWithConcurrency(tasks, MAX_PARALLEL_SUBMITS)
+
+    for (const { index, succeeded, rowErrors } of taskResults.flat()) {
+      results.errors.push(...rowErrors)
+      if (succeeded) {
+        results.success++
+        succeededRowIndices.add(index)
       } else {
-        // Promise rejection (unexpected) - count as failure
         results.failed++
-        results.errors.push(`שגיאה לא צפויה: ${outcome.reason?.message || 'Unknown error'}`)
       }
     }
     setSubmitProgress(null)
@@ -2002,7 +2020,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה *</label>
                     <select value={panelRegular.categoryId ?? ''} onChange={e => setPanelRegular(prev => ({ ...prev, categoryId: e.target.value ? Number(e.target.value) : '', supplierId: '' }))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="">בחר קטגוריה</option>
                       {availableCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -2061,7 +2079,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
               </div>
               <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
                 <button type="button" onClick={() => setActivePanelType(null)} className="px-5 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-all font-medium">ביטול</button>
-                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelRegular} disabled={!panelRegular.projectId || !panelRegular.txDate || !panelRegular.amount || Number(panelRegular.amount) <= 0} className="px-8 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
+                <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSavePanelRegular} disabled={!panelRegular.projectId || !panelRegular.txDate || !panelRegular.amount || Number(panelRegular.amount) <= 0 || (!panelRegular.fromFund && !panelRegular.categoryId)} className="px-8 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">שמור</motion.button>
               </div>
             </motion.div>
           </div>
@@ -2392,7 +2410,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                 {/* Category + Supplier */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה</label>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">קטגוריה *</label>
                     <select value={panelSplit.categoryId} onChange={e => setPanelSplit(prev => ({ ...prev, categoryId: e.target.value ? Number(e.target.value) : '', supplierId: '' }))} className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                       <option value="">בחר קטגוריה</option>
                       {availableCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -2503,7 +2521,7 @@ const GroupTransactionModal: React.FC<GroupTransactionModalProps> = ({
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={handleSavePanelSplit}
-                  disabled={!panelSplit.txDate || !panelSplit.entries.some(e => e.projectId && e.amount && Number(e.amount) > 0)}
+                  disabled={!panelSplit.txDate || !panelSplit.entries.some(e => e.projectId && e.amount && Number(e.amount) > 0) || (!panelSplit.fromFund && !panelSplit.categoryId)}
                   className="px-6 py-2 text-xs bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg hover:from-teal-600 hover:to-teal-700 transition-all shadow-md font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   שמור

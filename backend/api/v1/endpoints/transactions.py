@@ -87,7 +87,9 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
     transaction_data = data.model_dump()
     transaction_data['created_by_user_id'] = user.id
 
-    # Handle fund operations if from_fund is True
+    # Handle fund operations if from_fund is True.
+    # commit=False: the balance change is only flushed here and commits together with
+    # the transaction creation below - if creation fails, the fund change rolls back too.
     if data.from_fund:
         from backend.services.fund_service import FundService
         fund_service = FundService(db)
@@ -97,10 +99,10 @@ async def create_transaction(db: DBSessionDep, data: TransactionCreate, user=Dep
 
         if data.type == 'Expense':
             # Deduct from fund for expenses
-            await fund_service.deduct_from_fund(data.project_id, data.amount)
+            await fund_service.deduct_from_fund(data.project_id, data.amount, commit=False)
         elif data.type == 'Income':
             # Add to fund for income
-            await fund_service.add_to_fund(data.project_id, data.amount)
+            await fund_service.add_to_fund(data.project_id, data.amount, commit=False)
 
     logger.info("יוצר עסקה עם created_by_user_id=%s, user=%s", user.id, user.full_name)
 
@@ -200,7 +202,8 @@ async def create_transactions_batch(
             elif row.type == 'Income':
                 fund_delta_income += float(row.amount)
 
-    # One fund call per direction (not N)
+    # One fund call per direction (not N). commit=False keeps the balance change in the
+    # same DB transaction as the batch insert - all-or-nothing including the fund.
     if fund_delta_expense > 0 or fund_delta_income > 0:
         from backend.services.fund_service import FundService
         fund_service = FundService(db)
@@ -208,9 +211,9 @@ async def create_transactions_batch(
         if not fund:
             raise HTTPException(status_code=400, detail="Fund not found for this project")
         if fund_delta_expense > 0:
-            await fund_service.deduct_from_fund(project_id, fund_delta_expense)
+            await fund_service.deduct_from_fund(project_id, fund_delta_expense, commit=False)
         if fund_delta_income > 0:
-            await fund_service.add_to_fund(project_id, fund_delta_income)
+            await fund_service.add_to_fund(project_id, fund_delta_income, commit=False)
 
     rows_data = []
     for row in rows:
@@ -590,10 +593,15 @@ async def rollback_transaction(tx_id: int, db: DBSessionDep, user=Depends(get_cu
             status_code=400,
             detail="Cannot rollback transaction that has documents; use delete instead"
         )
-    if getattr(tx, "from_fund", False) and tx.type == "Expense":
+    # Reverse the fund effect in both directions; commit=False so the balance change
+    # commits atomically with the delete below.
+    if getattr(tx, "from_fund", False):
         from backend.services.fund_service import FundService
         fund_service = FundService(db)
-        await fund_service.refund_to_fund(tx.project_id, tx.amount)
+        if tx.type == "Expense":
+            await fund_service.refund_to_fund(tx.project_id, tx.amount, commit=False)
+        elif tx.type == "Income":
+            await fund_service.deduct_from_fund(tx.project_id, tx.amount, commit=False)
     await repo.delete(tx)
     return {"ok": True}
 
@@ -606,11 +614,15 @@ async def delete_transaction(tx_id: int, db: DBSessionDep, user=Depends(require_
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    # Restore fund balance if this was a fund transaction
-    if getattr(tx, 'from_fund', False) and tx.type == 'Expense':
+    # Restore fund balance if this was a fund transaction (both directions);
+    # commit=False so the balance change commits atomically with the delete below.
+    if getattr(tx, 'from_fund', False):
         from backend.services.fund_service import FundService
         fund_service = FundService(db)
-        await fund_service.refund_to_fund(tx.project_id, tx.amount)
+        if tx.type == 'Expense':
+            await fund_service.refund_to_fund(tx.project_id, tx.amount, commit=False)
+        elif tx.type == 'Income':
+            await fund_service.deduct_from_fund(tx.project_id, tx.amount, commit=False)
 
     # Get project name for audit log
     project = await ProjectRepository(db).get_by_id(tx.project_id)
