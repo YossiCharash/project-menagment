@@ -106,8 +106,9 @@ class BuildingService:
     def _build_apartments(self, building_id: int, data: BuildingCreate) -> List[Apartment]:
         """Generate the apartment rows for a freshly created building.
 
-        Residential units: floors_count × units_per_floor, numbered per floor
-        as ``<floor><unit>`` (e.g. floor 2 unit 3 → "203"). Common areas are
+        Residential units: floors_count × units_per_floor, numbered
+        sequentially in ascending order across all floors starting from
+        ``first_unit_number`` (e.g. first=1 → 1, 2, 3, …). Common areas are
         appended on the ground floor when ``has_common_areas`` is set.
         """
         apartments = self._build_residential_units(building_id, data)
@@ -120,17 +121,18 @@ class BuildingService:
     ) -> List[Apartment]:
         apartments: List[Apartment] = []
         last_floor = FIRST_FLOOR + data.floors_count - 1
+        next_unit_number = data.first_unit_number
         for floor in range(FIRST_FLOOR, last_floor + 1):
-            for unit_index in range(1, data.units_per_floor + 1):
-                unit_number = f"{floor}{unit_index:02d}"
+            for _ in range(1, data.units_per_floor + 1):
                 apartments.append(
                     Apartment(
                         building_id=building_id,
                         floor=floor,
-                        unit_number=unit_number,
+                        unit_number=str(next_unit_number),
                         is_common_area=False,
                     )
                 )
+                next_unit_number += 1
         return apartments
 
     def _build_common_areas(self, building_id: int) -> List[Apartment]:
