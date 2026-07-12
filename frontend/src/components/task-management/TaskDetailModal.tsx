@@ -111,6 +111,9 @@ export default function TaskDetailModal({
   const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const [togglingSuper, setTogglingSuper] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+  // Tracks the last (task, newest-message) we auto-scrolled for, so background
+  // polls that return the same tail don't yank the user back to the bottom.
+  const lastScrollKeyRef = useRef<string>('')
 
   const fetchTask = useCallback(async (id: number) => {
     setTaskLoading(true)
@@ -143,16 +146,18 @@ export default function TaskDetailModal({
 
   // Single source of truth for loading the chat. Reused by the open-task effect
   // and after any delete so this UI never diverges from the server.
-  const reloadMessages = useCallback(async () => {
+  // `silent` skips the loading spinner (used by the background poll) so the list
+  // doesn't flash the "loading" placeholder on every refresh.
+  const reloadMessages = useCallback(async (silent = false) => {
     if (!taskId) return
-    setTaskMessagesLoading(true)
+    if (!silent) setTaskMessagesLoading(true)
     try {
       const { data } = await api.get<TaskMessageType[]>(`/tasks/${taskId}/messages`)
       setTaskMessages(data)
     } catch {
-      setTaskMessages([])
+      if (!silent) setTaskMessages([])
     } finally {
-      setTaskMessagesLoading(false)
+      if (!silent) setTaskMessagesLoading(false)
     }
   }, [taskId])
 
@@ -215,12 +220,18 @@ export default function TaskDetailModal({
   // draft. Cleared on close / task change.
   useEffect(() => {
     if (!taskId || editingMessageId !== null) return
-    const intervalId = window.setInterval(() => { void reloadMessages() }, 10000)
+    const intervalId = window.setInterval(() => { void reloadMessages(true) }, 10000)
     return () => window.clearInterval(intervalId)
   }, [taskId, editingMessageId, reloadMessages])
 
   useEffect(() => {
     if (!taskId || taskMessages.length === 0) return
+    // Only auto-scroll when the newest message actually changes (open, or a new
+    // reply arrives) — not on every 10s poll that returns the same messages.
+    const lastId = taskMessages[taskMessages.length - 1].id
+    const scrollKey = `${taskId}:${lastId}`
+    if (lastScrollKeyRef.current === scrollKey) return
+    lastScrollKeyRef.current = scrollKey
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [taskId, taskMessages])
 
