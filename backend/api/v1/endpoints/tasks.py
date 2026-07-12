@@ -29,6 +29,7 @@ from backend.schemas.task import (
     TaskAttachmentOut,
     TaskMessageOut,
     TaskMessageAttachmentOut,
+    TaskMessageUpdate,
     ArchivedTasksFilter,
     TaskChecklistItemCreate,
     TaskChecklistItemUpdate,
@@ -44,6 +45,7 @@ from backend.models.task import (
     TaskAttachment,
     TaskMessage,
     TaskMessageAttachment,
+    TaskMessageRead,
     TaskChecklistItem,
     TaskStatus,
     EventType,
@@ -214,7 +216,7 @@ def _attachment_file_url(stored_path: str | None) -> str:
     return f"/uploads/{path}"
 
 
-def _message_to_out(msg: TaskMessage, author) -> TaskMessageOut:
+def _message_to_out(msg: TaskMessage, author, read_by_all: bool = False) -> TaskMessageOut:
     """Build a TaskMessageOut (with attachments) from a TaskMessage."""
     attachments = []
     for att in getattr(msg, "attachments", None) or []:
@@ -230,6 +232,8 @@ def _message_to_out(msg: TaskMessage, author) -> TaskMessageOut:
         avatar_url=getattr(author, "avatar_url", None),
         message=msg.message,
         created_at=msg.created_at,
+        edited_at=getattr(msg, "edited_at", None),
+        read_by_all=read_by_all,
         attachments=attachments,
     )
 
@@ -649,6 +653,70 @@ def _can_delete_message(message, user) -> bool:
     return user.role == "Admin" or message.user_id == user.id
 
 
+def _task_recipient_ids(task: Task) -> set[int]:
+    """All chat recipients of a task: every assignee plus every participant.
+
+    Used for WhatsApp-style read receipts — a message is "read by all" when each
+    of these users (except the author) has read the chat up to that message.
+    """
+    recipient_ids: set[int] = set()
+    if getattr(task, "assigned_to_user_id", None) is not None:
+        recipient_ids.add(task.assigned_to_user_id)
+    for assignee in getattr(task, "assignees", None) or []:
+        assignee_id = getattr(assignee, "id", None)
+        if assignee_id is not None:
+            recipient_ids.add(assignee_id)
+    for participant in getattr(task, "participants", None) or []:
+        participant_id = getattr(participant, "user_id", None)
+        if participant_id is not None:
+            recipient_ids.add(participant_id)
+    return recipient_ids
+
+
+async def _mark_task_chat_read(db, task_id: int, user_id: int) -> None:
+    """Upsert the user's ``last_read_at`` for a task's chat to now.
+
+    Records that ``user_id`` has read the task chat up to this moment, which is
+    what other members' messages check against to flip to the read (✓✓) state.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    result = await db.execute(
+        select(TaskMessageRead).where(
+            TaskMessageRead.task_id == task_id,
+            TaskMessageRead.user_id == user_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is None:
+        db.add(TaskMessageRead(task_id=task_id, user_id=user_id, last_read_at=now))
+    else:
+        existing.last_read_at = now
+    await db.flush()
+
+
+async def _recipient_last_read_map(db, task_id: int) -> dict[int, datetime]:
+    """Return ``{user_id: last_read_at}`` for everyone who has read a task's chat."""
+    result = await db.execute(
+        select(TaskMessageRead.user_id, TaskMessageRead.last_read_at).where(
+            TaskMessageRead.task_id == task_id
+        )
+    )
+    return {user_id: last_read_at for user_id, last_read_at in result.all()}
+
+
+def _is_message_read_by_all(
+    msg: TaskMessage, recipient_ids: set[int], last_read_map: dict[int, datetime]
+) -> bool:
+    """True if every recipient other than the author has read up to this message."""
+    others = recipient_ids - {msg.user_id}
+    if not others:
+        return False
+    return all(
+        others_last_read is not None and others_last_read >= msg.created_at
+        for others_last_read in (last_read_map.get(other_id) for other_id in others)
+    )
+
+
 def _can_manage_task(task: Task, user) -> bool:
     """True if user may add/manage this task: Admin, any assignee, or the creator."""
     if user.role == "Admin":
@@ -678,7 +746,19 @@ async def list_task_messages(
         .order_by(TaskMessage.created_at)
     )
     messages_sorted = list(result.scalars().unique().all())
-    return [_message_to_out(m, getattr(m, "user", None)) for m in messages_sorted]
+    # Opening the chat marks it read for this user (drives others' ✓✓); then
+    # compute, per message, whether every other recipient has read up to it.
+    await _mark_task_chat_read(db, task_id, user.id)
+    recipient_ids = _task_recipient_ids(task)
+    last_read_map = await _recipient_last_read_map(db, task_id)
+    return [
+        _message_to_out(
+            m,
+            getattr(m, "user", None),
+            read_by_all=_is_message_read_by_all(m, recipient_ids, last_read_map),
+        )
+        for m in messages_sorted
+    ]
 
 
 @router.post("/{task_id}/messages", response_model=TaskMessageOut)
@@ -734,6 +814,43 @@ async def _load_message_with_attachments(db, message_id: int) -> TaskMessage | N
         .where(TaskMessage.id == message_id)
     )
     return result.scalar_one_or_none()
+
+
+@router.patch("/{task_id}/messages/{message_id}", response_model=TaskMessageOut)
+async def edit_task_message(
+        task_id: int,
+        message_id: int,
+        payload: TaskMessageUpdate,
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Edit the text of a chat message (WhatsApp-style). Author only.
+
+    Only the message's original author may edit it (Admins included only when the
+    Admin is the author). The new text must be non-empty. ``edited_at`` is stamped
+    so the UI can show a "נערך" label. Attachments are untouched.
+    """
+    repo = TaskRepository(db)
+    task = await repo.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not _can_access_task(task, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    msg = await _load_message_with_attachments(db, message_id)
+    if not msg or msg.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.user_id != user.id:
+        raise HTTPException(status_code=403, detail="רק כותב ההודעה יכול לערוך אותה")
+    new_text = (payload.message or "").strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="לא ניתן לשמור הודעה ריקה")
+    msg.message = new_text
+    msg.edited_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.flush()
+    recipient_ids = _task_recipient_ids(task)
+    last_read_map = await _recipient_last_read_map(db, task_id)
+    read_by_all = _is_message_read_by_all(msg, recipient_ids, last_read_map)
+    return _message_to_out(msg, user, read_by_all=read_by_all)
 
 
 @router.delete("/{task_id}/messages/{message_id}", status_code=204)
