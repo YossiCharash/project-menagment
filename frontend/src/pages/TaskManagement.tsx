@@ -9,14 +9,15 @@ import TaskList from '../components/task-management/TaskList'
 import Notifications from './Notifications'
 import ArchivedTasksList from '../components/task-management/ArchivedTasksList'
 import SuperTasksPanel from '../components/task-management/SuperTasksPanel'
-import BacklogPanel from '../components/task-management/BacklogPanel'
+import BacklogTab from '../components/task-management/BacklogTab'
 
-type TabId = 'board' | 'calendar' | 'tasks' | 'messages' | 'archive'
+type TabId = 'board' | 'calendar' | 'tasks' | 'backlog' | 'messages' | 'archive'
 
 const TABS: { id: TabId; label: string; icon: typeof LayoutGrid }[] = [
   { id: 'board', label: 'לוח', icon: LayoutGrid },
   { id: 'calendar', label: 'יומן', icon: Calendar },
   { id: 'tasks', label: 'משימות', icon: ListTodo },
+  { id: 'backlog', label: 'Backlog', icon: ListTodo },
   { id: 'messages', label: 'הודעות', icon: Bell },
   { id: 'archive', label: 'ארכיון', icon: Archive },
 ]
@@ -27,8 +28,6 @@ export default function TaskManagement() {
   const [activeTab, setActiveTab] = useState<TabId>(
     () => (tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : 'board')
   )
-  const [pendingBacklogCreate, setPendingBacklogCreate] = useState(false)
-
   useEffect(() => {
     if (tabParam && TABS.some((t) => t.id === tabParam)) {
       setActiveTab(tabParam)
@@ -78,15 +77,6 @@ export default function TaskManagement() {
             )
           })}
           <SuperTasksPanel />
-          <BacklogPanel
-            onRequestCreate={() => {
-              // Backlog tasks are created via the calendar tab's create modal — send the
-              // user there and signal the embedded calendar to open the no-date create modal.
-              setActiveTab('calendar')
-              setSearchParams({ tab: 'calendar' }, { replace: true })
-              setPendingBacklogCreate(true)
-            }}
-          />
         </div>
 
         {/* Tab Content */}
@@ -111,11 +101,7 @@ export default function TaskManagement() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
               >
-                <TaskCalendar
-                  embedded
-                  pendingBacklogCreate={pendingBacklogCreate}
-                  onBacklogCreateConsumed={() => setPendingBacklogCreate(false)}
-                />
+                <TaskCalendar embedded />
               </motion.div>
             )}
             {activeTab === 'tasks' && (
@@ -127,6 +113,17 @@ export default function TaskManagement() {
                 transition={{ duration: 0.2 }}
               >
                 <TaskList />
+              </motion.div>
+            )}
+            {activeTab === 'backlog' && (
+              <motion.div
+                key="backlog"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <BacklogTab />
               </motion.div>
             )}
             {activeTab === 'messages' && (
