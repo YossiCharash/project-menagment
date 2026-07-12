@@ -259,7 +259,7 @@ export default function TaskList() {
                       </td>
                       <td className="py-3 px-4">
                         <span className="inline-flex items-center gap-1.5">
-                          <UnreadMessagesDot show={task.has_unread_messages} />
+                          <UnreadMessagesDot show={task.has_unread_messages} count={task.unread_messages_count} />
                           <span className="font-medium text-gray-900 dark:text-white">
                             {task.title}
                           </span>
