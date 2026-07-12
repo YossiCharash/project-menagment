@@ -8,6 +8,8 @@ import { formatTaskCode } from '../../lib/taskCode'
 import {
   Archive,
   Bell,
+  Check,
+  CheckCheck,
   CheckCircle,
   MessageCircle,
   Paperclip,
@@ -97,6 +99,9 @@ export default function TaskDetailModal({
   const [taskMessageInput, setTaskMessageInput] = useState('')
   const [taskMessageSending, setTaskMessageSending] = useState(false)
   const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
   const [taskChatPendingFiles, setTaskChatPendingFiles] = useState<File[]>([])
   const taskChatFileInputRef = useRef<HTMLInputElement>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -106,6 +111,9 @@ export default function TaskDetailModal({
   const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const [togglingSuper, setTogglingSuper] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+  // Tracks the last (task, newest-message) we auto-scrolled for, so background
+  // polls that return the same tail don't yank the user back to the bottom.
+  const lastScrollKeyRef = useRef<string>('')
 
   const fetchTask = useCallback(async (id: number) => {
     setTaskLoading(true)
@@ -126,6 +134,8 @@ export default function TaskDetailModal({
       setTaskMessages([])
       setTaskMessageInput('')
       setTaskChatPendingFiles([])
+      setEditingMessageId(null)
+      setEditingText('')
       return
     }
     if (initialTask && initialTask.id === taskId) {
@@ -136,16 +146,18 @@ export default function TaskDetailModal({
 
   // Single source of truth for loading the chat. Reused by the open-task effect
   // and after any delete so this UI never diverges from the server.
-  const reloadMessages = useCallback(async () => {
+  // `silent` skips the loading spinner (used by the background poll) so the list
+  // doesn't flash the "loading" placeholder on every refresh.
+  const reloadMessages = useCallback(async (silent = false) => {
     if (!taskId) return
-    setTaskMessagesLoading(true)
+    if (!silent) setTaskMessagesLoading(true)
     try {
       const { data } = await api.get<TaskMessageType[]>(`/tasks/${taskId}/messages`)
       setTaskMessages(data)
     } catch {
-      setTaskMessages([])
+      if (!silent) setTaskMessages([])
     } finally {
-      setTaskMessagesLoading(false)
+      if (!silent) setTaskMessagesLoading(false)
     }
   }, [taskId])
 
@@ -178,8 +190,48 @@ export default function TaskDetailModal({
     }
   }, [taskId, deletingMessageId, reloadMessages])
 
+  const handleStartEditMessage = useCallback((messageId: number, currentText: string) => {
+    setEditingMessageId(messageId)
+    setEditingText(currentText)
+  }, [])
+
+  const handleCancelEditMessage = useCallback(() => {
+    setEditingMessageId(null)
+    setEditingText('')
+  }, [])
+
+  const handleSaveEditMessage = useCallback(async () => {
+    if (!taskId || editingMessageId === null || savingEdit) return
+    const text = editingText.trim()
+    if (!text) return
+    setSavingEdit(true)
+    try {
+      await api.patch(`/tasks/${taskId}/messages/${editingMessageId}`, { message: text })
+      setEditingMessageId(null)
+      setEditingText('')
+      await reloadMessages()
+    } finally {
+      setSavingEdit(false)
+    }
+  }, [taskId, editingMessageId, editingText, savingEdit, reloadMessages])
+
+  // Live refresh (WhatsApp-style): while the chat is open, poll for new messages
+  // and updated read receipts. Paused while editing so a reload can't clobber the
+  // draft. Cleared on close / task change.
+  useEffect(() => {
+    if (!taskId || editingMessageId !== null) return
+    const intervalId = window.setInterval(() => { void reloadMessages(true) }, 10000)
+    return () => window.clearInterval(intervalId)
+  }, [taskId, editingMessageId, reloadMessages])
+
   useEffect(() => {
     if (!taskId || taskMessages.length === 0) return
+    // Only auto-scroll when the newest message actually changes (open, or a new
+    // reply arrives) — not on every 10s poll that returns the same messages.
+    const lastId = taskMessages[taskMessages.length - 1].id
+    const scrollKey = `${taskId}:${lastId}`
+    if (lastScrollKeyRef.current === scrollKey) return
+    lastScrollKeyRef.current = scrollKey
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [taskId, taskMessages])
 
@@ -518,7 +570,9 @@ export default function TaskDetailModal({
                 taskMessages.map((msg) => {
                   const isMine = msg.user_id === me?.id
                   const canDelete = me?.role === 'Admin' || msg.user_id === me?.id
+                  const canEdit = isMine && !!msg.message
                   const isDeleting = deletingMessageId === msg.id
+                  const isEditing = editingMessageId === msg.id
                   return (
                     <div key={msg.id} className={cn('flex w-full', isMine ? 'justify-end' : 'justify-start')}>
                       <div className={cn('flex gap-2 max-w-[80%]', isMine && 'flex-row-reverse')}>
@@ -541,6 +595,18 @@ export default function TaskDetailModal({
                             {!isMine && (
                               <p className="text-xs font-medium text-gray-600 dark:text-gray-400 flex-1">{msg.full_name}</p>
                             )}
+                            {canEdit && !isEditing && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditMessage(msg.id, msg.message)}
+                                disabled={isDeleting}
+                                className="p-0.5 rounded flex-shrink-0 disabled:opacity-50 text-blue-100 hover:bg-blue-700"
+                                title="ערוך הודעה"
+                                aria-label="ערוך הודעה"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             {canDelete && (
                               <button
                                 type="button"
@@ -557,8 +623,49 @@ export default function TaskDetailModal({
                               </button>
                             )}
                           </div>
-                          {msg.message && (
-                            <p className="text-sm break-words whitespace-pre-wrap">{msg.message}</p>
+                          {isEditing ? (
+                            <div className="mt-1">
+                              <textarea
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault()
+                                    void handleSaveEditMessage()
+                                  }
+                                  if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    handleCancelEditMessage()
+                                  }
+                                }}
+                                rows={2}
+                                autoFocus
+                                disabled={savingEdit}
+                                className="w-full text-sm rounded-lg p-1.5 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 resize-none"
+                              />
+                              <div className="flex items-center justify-end gap-2 mt-1">
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMessage}
+                                  disabled={savingEdit}
+                                  className={cn('text-xs px-2 py-0.5 rounded disabled:opacity-50', isMine ? 'text-blue-100 hover:bg-blue-700' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600')}
+                                >
+                                  ביטול
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveEditMessage()}
+                                  disabled={savingEdit || !editingText.trim()}
+                                  className="text-xs px-2 py-0.5 rounded bg-white text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                                >
+                                  שמור
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            msg.message && (
+                              <p className="text-sm break-words whitespace-pre-wrap">{msg.message}</p>
+                            )
                           )}
                           {(msg.attachments?.length ?? 0) > 0 && (
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -587,9 +694,15 @@ export default function TaskDetailModal({
                               ))}
                             </div>
                           )}
-                          <p className={cn('text-xs mt-0.5', isMine ? 'text-blue-100/80' : 'text-gray-400 dark:text-gray-500')}>
-                            {new Date(msg.created_at).toLocaleString('he-IL')}
-                          </p>
+                          <div className={cn('flex items-center gap-1 mt-0.5 text-xs', isMine ? 'text-blue-100/80 justify-end' : 'text-gray-400 dark:text-gray-500')}>
+                            <span>{new Date(msg.created_at).toLocaleString('he-IL')}</span>
+                            {msg.edited_at && <span title={new Date(msg.edited_at).toLocaleString('he-IL')}>· נערך</span>}
+                            {isMine && (
+                              msg.read_by_all
+                                ? <CheckCheck className="w-4 h-4 text-sky-300" aria-label="נקרא" />
+                                : <Check className="w-4 h-4 text-blue-100/70" aria-label="נשלח" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

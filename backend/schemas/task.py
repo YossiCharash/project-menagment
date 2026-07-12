@@ -79,12 +79,23 @@ class TaskMessageOut(BaseModel):
     avatar_url: str | None = None
     message: str
     created_at: datetime
+    # Set once the author edits the message; drives the "נערך" label.
+    edited_at: datetime | None = None
+    # True when every OTHER recipient (assignees + participants) has read this
+    # message; drives the blue double-check (✓✓) on the author's own messages.
+    read_by_all: bool = False
     attachments: list[TaskMessageAttachmentOut] = []
 
     _serialize_created_at = field_serializer("created_at")(staticmethod(to_utc_z))
+    _serialize_edited_at = field_serializer("edited_at")(staticmethod(to_utc_z))
 
 
 class TaskMessageCreate(BaseModel):
+    message: str
+
+
+class TaskMessageUpdate(BaseModel):
+    """Payload to edit an existing chat message (text only)."""
     message: str
 
 

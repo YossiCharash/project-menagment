@@ -194,6 +194,8 @@ class TaskMessage(Base):
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    # Set the first time the author edits the message text (WhatsApp-style "נערך").
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     task: Mapped["Task"] = relationship("Task", back_populates="messages")
     user: Mapped["User"] = relationship("User", back_populates="task_messages", lazy="selectin")
@@ -218,6 +220,31 @@ class TaskMessageAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     message: Mapped["TaskMessage"] = relationship("TaskMessage", back_populates="attachments")
+
+
+class TaskMessageRead(Base):
+    """WhatsApp-style read receipt: how far a user has read a task's chat.
+
+    One row per (task, user) holding ``last_read_at`` — the moment the user last
+    opened the task chat. A message is "read by all" when every OTHER recipient
+    (assignees + participants) has a ``last_read_at`` at or after its
+    ``created_at``, which drives the blue double-check on the author's messages.
+    """
+    __tablename__ = "task_message_reads"
+    __table_args__ = (
+        UniqueConstraint("task_id", "user_id", name="uq_task_message_reads_task_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
 
 
 class TaskAttachment(Base):
