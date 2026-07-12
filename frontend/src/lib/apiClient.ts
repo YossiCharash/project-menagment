@@ -339,7 +339,9 @@ export class TransactionAPI {
     const payload = {
       transactions: transactions.map(t => ({ ...t, amount: Math.abs(t.amount) }))
     }
-    const { data } = await api.post<Transaction[]>('/transactions/batch', payload)
+    // Long timeout: a large batch + Render cold start can exceed the 60s default.
+    // Aborting client-side while the server keeps processing creates duplicate transactions on retry.
+    const { data } = await api.post<Transaction[]>('/transactions/batch', payload, { timeout: 180000 })
     return data
   }
 
@@ -816,7 +818,9 @@ export class UnforeseenTransactionAPI {
 
   // Create a new unforeseen transaction
   static async createUnforeseenTransaction(tx: UnforeseenTransactionCreate): Promise<UnforeseenTransaction> {
-    const { data } = await api.post<UnforeseenTransaction>('/unforeseen-transactions', tx)
+    // Long timeout - see TransactionAPI.createBatch: client-side abort while the server
+    // finishes the insert leads to duplicates when the user retries.
+    const { data } = await api.post<UnforeseenTransaction>('/unforeseen-transactions', tx, { timeout: 120000 })
     return data
   }
 
