@@ -83,6 +83,10 @@ import AddKeyModal from '../components/building-reception/AddKeyModal'
  */
 export default function BuildingReceptionDesk() {
   const dispatch = useAppDispatch()
+  // Only admins may create/edit/delete whole buildings and projects; desk
+  // operators keep managing the contents (apartments, tenants, keys, …).
+  const me = useAppSelector((state: RootState) => state.auth.me)
+  const canManageBuildings = me?.role === 'Admin' || me?.role === 'SuperAdmin'
   const buildings = useAppSelector((state: RootState) => state.buildingReception.buildings)
   const activeBuilding = useAppSelector((state: RootState) => state.buildingReception.activeBuilding)
   const activeApartment = useAppSelector((state: RootState) => state.buildingReception.activeApartment)
@@ -527,6 +531,7 @@ export default function BuildingReceptionDesk() {
           buildings={buildings}
           activeBuilding={activeBuilding}
           loading={loadingBuilding}
+          canManageBuildings={canManageBuildings}
           onSelectProject={setSelectedProjectId}
           onCreateProject={() => setCreateProjectOpen(true)}
           onDeleteProject={handleDeleteProject}

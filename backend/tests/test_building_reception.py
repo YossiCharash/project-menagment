@@ -452,6 +452,55 @@ class TestPermissions:
         )
         assert response.status_code == 403, response.text
 
+    async def test_desk_operator_manages_contents_but_not_buildings(
+        self,
+        test_client: AsyncClient,
+        test_db,
+        admin_token: str,
+        member_token: str,
+        member_user: User,
+    ):
+        """A desk operator granted BUILDING_RECEPTION write manages the contents
+        (e.g. apartments) but is still denied creating or deleting whole
+        buildings, which are gated on the admin-only BUILDING resource."""
+        from backend.iam.models import ResourcePolicy
+
+        for action in ("read", "write"):
+            test_db.add(
+                ResourcePolicy(
+                    user_id=member_user.id,
+                    resource_type="building_reception",
+                    resource_id="*",
+                    action=action,
+                    effect="allow",
+                )
+            )
+        await test_db.commit()
+
+        building = await _create_building(test_client, admin_token)
+
+        # Contents: the desk operator may add an apartment.
+        add_apartment = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(member_token),
+            json={"building_id": building["id"], "floor": 3, "unit_number": "301"},
+        )
+        assert add_apartment.status_code == 200, add_apartment.text
+
+        # Structure: the desk operator may NOT create a building.
+        create_building = await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(member_token),
+            json={"name": "בניין אסור", "floors_count": 1, "units_per_floor": 1},
+        )
+        assert create_building.status_code == 403, create_building.text
+
+        # ...nor delete one.
+        delete_building = await test_client.delete(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(member_token)
+        )
+        assert delete_building.status_code == 403, delete_building.text
+
 
 @pytest.mark.asyncio
 @pytest.mark.api
