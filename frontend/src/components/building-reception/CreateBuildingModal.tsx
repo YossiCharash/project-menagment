@@ -16,6 +16,7 @@ interface CreateBuildingModalProps {
 
 const DEFAULT_FLOORS = 5
 const DEFAULT_UNITS_PER_FLOOR = 4
+const DEFAULT_FIRST_UNIT_NUMBER = 1
 
 /**
  * Wizard-style modal for provisioning a new building. Owns only its own draft
@@ -35,6 +36,7 @@ export default function CreateBuildingModal({
   const [projectId, setProjectId] = useState<number | null>(defaultProjectId ?? null)
   const [floors, setFloors] = useState(DEFAULT_FLOORS)
   const [unitsPerFloor, setUnitsPerFloor] = useState(DEFAULT_UNITS_PER_FLOOR)
+  const [firstUnitNumber, setFirstUnitNumber] = useState(DEFAULT_FIRST_UNIT_NUMBER)
   const [hasCommonAreas, setHasCommonAreas] = useState(true)
 
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function CreateBuildingModal({
   }, [isOpen, defaultProjectId])
 
   const totalUnits = floors * unitsPerFloor
+  const lastUnitNumber = firstUnitNumber + totalUnits - 1
   // A building must belong to a project — there is no unassigned view anymore.
   const canSubmit = name.trim().length > 0 && projectId != null && !submitting
 
@@ -55,6 +58,7 @@ export default function CreateBuildingModal({
       floors_count: floors,
       units_per_floor: unitsPerFloor,
       has_common_areas: hasCommonAreas,
+      first_unit_number: firstUnitNumber,
     })
   }
 
@@ -117,6 +121,10 @@ export default function CreateBuildingModal({
         </div>
       </div>
 
+      <LabeledField label="מספר הדירה הראשונה">
+        <Stepper value={firstUnitNumber} min={1} max={9999} onChange={setFirstUnitNumber} />
+      </LabeledField>
+
       <button
         type="button"
         onClick={() => setHasCommonAreas((current) => !current)}
@@ -142,7 +150,9 @@ export default function CreateBuildingModal({
 
       <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-3.5 py-2.5 leading-relaxed">
         ייווצרו <b className="text-gray-900 dark:text-white">{totalUnits}</b> דירות ב-
-        <b className="text-gray-900 dark:text-white"> {floors}</b> קומות. ניתן יהיה להיכנס לכל דירה ולמלא פרטים מלאים.
+        <b className="text-gray-900 dark:text-white"> {floors}</b> קומות, ממוספרות
+        <b className="text-gray-900 dark:text-white"> {firstUnitNumber}</b> עד
+        <b className="text-gray-900 dark:text-white"> {lastUnitNumber}</b> בסדר עולה. ניתן יהיה להיכנס לכל דירה ולמלא פרטים מלאים.
       </div>
     </ModalShell>
   )

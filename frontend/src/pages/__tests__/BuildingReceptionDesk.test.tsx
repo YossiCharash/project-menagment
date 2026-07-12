@@ -8,6 +8,7 @@ import { Provider } from 'react-redux'
 import { configureStore } from '@reduxjs/toolkit'
 import BuildingReceptionDesk from '../BuildingReceptionDesk'
 import buildingReception from '../../store/slices/buildingReceptionSlice'
+import auth from '../../store/slices/authSlice'
 
 const buildingListItem = {
   id: 1,
@@ -70,8 +71,28 @@ const mockedApi = BuildingReceptionAPI as unknown as {
   listProjects: ReturnType<typeof vi.fn>
 }
 
-const renderPage = () => {
-  const store = configureStore({ reducer: { buildingReception } })
+const renderPage = (role: 'Admin' | 'Member' = 'Admin') => {
+  // The desk gates building/project management on an Admin role, so the store
+  // must expose the current user's role for the create/delete controls.
+  const store = configureStore({
+    reducer: { buildingReception, auth },
+    preloadedState: {
+      auth: {
+        token: 'test-token',
+        loading: false,
+        error: null,
+        registered: false,
+        me: {
+          id: 1,
+          email: 'user@test.com',
+          full_name: 'Test User',
+          role,
+          is_active: true,
+        },
+        requiresPasswordChange: false,
+      },
+    },
+  })
   return render(
     <Provider store={store}>
       <BrowserRouter>
@@ -133,6 +154,18 @@ describe('BuildingReceptionDesk', () => {
     await waitFor(() => {
       expect(mockedApi.deleteBuilding).toHaveBeenCalledWith(1)
     })
+  })
+
+  it('hides the building/project controls from a non-admin desk operator', async () => {
+    renderPage('Member')
+    await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
+    await screen.findByText(/מבט-על מתחם/)
+
+    // The "add building", "add project" and delete controls are admin-only.
+    expect(screen.queryByText('בניין')).not.toBeInTheDocument()
+    expect(screen.queryByText('פרויקט')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /מחיקת הבניין/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /מחיקת פרויקט/ })).not.toBeInTheDocument()
   })
 
   it('creates a building through the wizard', async () => {

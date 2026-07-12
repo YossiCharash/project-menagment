@@ -16,6 +16,7 @@ import type {
   BuildingProject,
   BuildingProjectCreate,
   BuildingProjectListItem,
+  BuildingProjectUpdate,
   BuildingReceptionTaskCreate,
   BuildingUpdate,
   Delivery,
@@ -50,6 +51,11 @@ export class BuildingReceptionAPI {
 
   static async createProject(payload: BuildingProjectCreate): Promise<BuildingProject> {
     const { data } = await api.post<BuildingProject>(`${BASE}/projects`, payload)
+    return data
+  }
+
+  static async updateProject(projectId: number, changes: BuildingProjectUpdate): Promise<BuildingProject> {
+    const { data } = await api.put<BuildingProject>(`${BASE}/projects/${projectId}`, changes)
     return data
   }
 

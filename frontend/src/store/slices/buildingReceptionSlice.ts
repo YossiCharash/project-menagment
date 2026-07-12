@@ -14,6 +14,7 @@ import type {
   BuildingListItem,
   BuildingProjectCreate,
   BuildingProjectListItem,
+  BuildingProjectUpdate,
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
@@ -81,6 +82,22 @@ export const createProject = createAsyncThunk(
       return project
     } catch (error) {
       return rejectWithValue(asMessage(error, 'הקמת הפרויקט נכשלה'))
+    }
+  },
+)
+
+export const updateProject = createAsyncThunk(
+  'buildingReception/updateProject',
+  async (
+    { projectId, changes }: { projectId: number; changes: BuildingProjectUpdate },
+    { dispatch, rejectWithValue },
+  ) => {
+    try {
+      const project = await BuildingReceptionAPI.updateProject(projectId, changes)
+      void dispatch(fetchProjects())
+      return project
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון הפרויקט נכשל'))
     }
   },
 )
