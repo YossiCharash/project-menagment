@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../../lib/api'
 import Modal from '../Modal'
-import { Tag, Paperclip, X } from 'lucide-react'
+import { Paperclip, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type {
   Task,
@@ -18,10 +18,12 @@ import {
   TASK_STATUS_LABELS,
 } from '../../pages/TaskCalendar'
 import type { Apartment, BuildingListItem, BuildingProjectListItem } from '../../types/api'
-import { useDeleteTaskLabel } from './useDeleteTaskLabel'
 import RecordButton from './RecordButton'
 import ParticipantPicker from './ParticipantPicker'
 import AssigneePicker from './AssigneePicker'
+import LabelPicker from './LabelPicker'
+import SearchableSelect from './SearchableSelect'
+import type { ComboOption } from './SearchableMultiSelect'
 
 /**
  * The three mutually-exclusive scheduling shapes a task can take, mirroring the
@@ -195,18 +197,7 @@ export default function CreateTaskModal({
   const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [newLabelName, setNewLabelName] = useState('')
-  const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
-  const [addingLabel, setAddingLabel] = useState(false)
-
   const showLinkage = Array.isArray(buildings) && Array.isArray(projects)
-
-  const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
-    onDeleted: (labelId) => {
-      setCreateForm((form) => ({ ...form, label_ids: form.label_ids.filter((id) => id !== labelId) }))
-      onLabelsChanged?.()
-    },
-  })
 
   // Reset the whole form each time the modal opens, honoring the provided
   // defaults (apartment, assignee, backlog).
@@ -214,8 +205,6 @@ export default function CreateTaskModal({
     if (!isOpen) return
     setCreateError(null)
     setCreatePendingFiles([])
-    setNewLabelName('')
-    setNewLabelColor('#3B82F6')
     if (fileInputRef.current) fileInputRef.current.value = ''
     setProjectId(defaultProjectId ?? null)
     setBuildingId(defaultBuildingId ?? null)
@@ -281,23 +270,15 @@ export default function CreateTaskModal({
     }
   }, [])
 
-  const handleCreateLabel = useCallback(async () => {
-    const name = newLabelName.trim()
-    if (!name) return
-    setAddingLabel(true)
-    try {
-      const color = newLabelColor.startsWith('#') ? newLabelColor : `#${newLabelColor}`
-      const { data } = await api.post<TaskLabelType>('/tasks/labels', { name, color: color || '#3B82F6' })
-      setCreateForm((form) => ({ ...form, label_ids: [...form.label_ids, data.id] }))
-      setNewLabelName('')
-      setNewLabelColor('#3B82F6')
-      onLabelsChanged?.()
-    } catch (err) {
-      console.error('Failed to create label:', err)
-    } finally {
-      setAddingLabel(false)
-    }
-  }, [newLabelName, newLabelColor, onLabelsChanged])
+  // Reception-cascade dropdown options (empty for the calendar, which has no linkage).
+  const projectOptions: ComboOption[] = (projects ?? []).map((project) => ({ id: project.id, label: project.name }))
+  const buildingOptions: ComboOption[] = (buildings ?? [])
+    .filter((building) => building.project_id === projectId)
+    .map((building) => ({ id: building.id, label: building.name }))
+  const apartmentOptions: ComboOption[] = buildingApartments.map((apartment) => ({
+    id: apartment.id,
+    label: apartmentOptionLabel(apartment),
+  }))
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -508,146 +489,48 @@ export default function CreateTaskModal({
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">שיוך: פרויקט ← בניין ← דירה</label>
             <div className="grid grid-cols-3 gap-2">
-              <select
-                id="create-project"
-                name="create-project"
-                aria-label="פרויקט"
-                value={projectId ?? ''}
-                onChange={(e) => {
-                  const value = e.target.value ? Number(e.target.value) : null
+              <SearchableSelect
+                ariaLabel="פרויקט"
+                options={projectOptions}
+                value={projectId}
+                onChange={(value) => {
                   setProjectId(value)
                   setBuildingId(null)
                   setApartmentId(null)
                 }}
-                dir="rtl"
-                className={cn(
-                  'w-full px-2 py-1.5 border rounded-lg text-sm',
-                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                )}
-              >
-                <option value="">בחר פרויקט</option>
-                {projects!.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
-              </select>
-              <select
-                id="create-building"
-                name="create-building"
-                aria-label="בניין"
-                value={buildingId ?? ''}
+                placeholder="בחר פרויקט"
+              />
+              <SearchableSelect
+                ariaLabel="בניין"
+                options={buildingOptions}
+                value={buildingId}
                 disabled={projectId == null}
-                onChange={(e) => {
-                  const value = e.target.value ? Number(e.target.value) : null
+                onChange={(value) => {
                   setBuildingId(value)
                   setApartmentId(null)
                 }}
-                dir="rtl"
-                className={cn(
-                  'w-full px-2 py-1.5 border rounded-lg text-sm disabled:opacity-50',
-                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                )}
-              >
-                <option value="">בחר בניין</option>
-                {buildings!
-                  .filter((building) => building.project_id === projectId)
-                  .map((building) => (
-                    <option key={building.id} value={building.id}>{building.name}</option>
-                  ))}
-              </select>
-              <select
-                id="create-apartment"
-                name="create-apartment"
-                aria-label="דירה (אופציונלי)"
-                value={apartmentId ?? ''}
-                disabled={buildingId == null || loadingApartments}
-                onChange={(e) => setApartmentId(e.target.value ? Number(e.target.value) : null)}
-                dir="rtl"
-                className={cn(
-                  'w-full px-2 py-1.5 border rounded-lg text-sm disabled:opacity-50',
-                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                )}
-              >
-                <option value="">{loadingApartments ? 'טוען…' : 'ללא דירה'}</option>
-                {buildingApartments.map((apartment) => (
-                  <option key={apartment.id} value={apartment.id}>
-                    {apartmentOptionLabel(apartment)}
-                  </option>
-                ))}
-              </select>
+                placeholder="בחר בניין"
+              />
+              <SearchableSelect
+                ariaLabel="דירה (אופציונלי)"
+                options={apartmentOptions}
+                value={apartmentId}
+                disabled={buildingId == null}
+                loading={loadingApartments}
+                onChange={setApartmentId}
+                placeholder="ללא דירה"
+                clearLabel="ללא דירה"
+              />
             </div>
           </div>
         )}
 
-        <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
-            <Tag className="w-3.5 h-3.5" /> לייבלים
-          </label>
-          <div className="flex flex-wrap gap-1.5 mb-1">
-            {taskLabels.map((label) => (
-              <span key={label.id} className="inline-flex items-center gap-0.5">
-                <label
-                  className={cn(
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border cursor-pointer',
-                    createForm.label_ids.includes(label.id) ? 'border-transparent text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
-                  )}
-                  style={createForm.label_ids.includes(label.id) ? { backgroundColor: label.color } : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    checked={createForm.label_ids.includes(label.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) setCreateForm((f) => ({ ...f, label_ids: [...f.label_ids, label.id] }))
-                      else setCreateForm((f) => ({ ...f, label_ids: f.label_ids.filter((id) => id !== label.id) }))
-                    }}
-                    className="sr-only"
-                  />
-                  <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" style={createForm.label_ids.includes(label.id) ? {} : { backgroundColor: label.color }} />
-                  {label.name}
-                </label>
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteLabel(label) }}
-                  disabled={deletingLabelId === label.id}
-                  title="מחק לייבל"
-                  className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-            <input
-              id="create-new-label-name"
-              name="create-new-label-name"
-              type="text"
-              placeholder="לייבל חדש"
-              value={newLabelName}
-              onChange={(e) => setNewLabelName(e.target.value)}
-              aria-label="שם לייבל חדש"
-              className={cn(
-                'px-2 py-1 border rounded text-xs w-24',
-                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-              )}
-            />
-            <input
-              id="create-new-label-color"
-              name="create-new-label-color"
-              type="color"
-              value={newLabelColor}
-              onChange={(e) => setNewLabelColor(e.target.value)}
-              className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent"
-              title="צבע"
-              aria-label="צבע לייבל חדש"
-            />
-            <button
-              type="button"
-              onClick={handleCreateLabel}
-              disabled={addingLabel || !newLabelName.trim()}
-              className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-            >
-              הוסף
-            </button>
-          </div>
-        </div>
+        <LabelPicker
+          labels={taskLabels}
+          selectedIds={createForm.label_ids}
+          onChange={(ids) => setCreateForm((f) => ({ ...f, label_ids: ids }))}
+          onLabelsChanged={onLabelsChanged}
+        />
 
         {taskType === 'all_day' && (
           <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Search, Plus, ChevronLeft, AlertTriangle, X } from 'lucide-react'
+import { Search, Plus, ChevronLeft, AlertTriangle, X, Trash2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
 import type {
@@ -31,7 +31,7 @@ import {
   fetchBuildings,
   fetchBuilding,
   createBuilding,
-  assignBuildingToProject,
+  deleteBuilding,
   fetchApartment,
   fetchApartmentTasks,
   closeApartment,
@@ -62,7 +62,6 @@ import {
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
 import BuildingOverview from '../components/building-reception/BuildingOverview'
-import UnassignedBuildingsPanel from '../components/building-reception/UnassignedBuildingsPanel'
 import ApartmentDetailPanel from '../components/building-reception/ApartmentDetailPanel'
 import CreateBuildingModal from '../components/building-reception/CreateBuildingModal'
 import CreateProjectModal from '../components/building-reception/CreateProjectModal'
@@ -213,13 +212,13 @@ export default function BuildingReceptionDesk() {
       () => setCreateProjectOpen(false),
     )
 
-  // Attach a legacy project-less building to a project, then jump the filter to
-  // that project so the newly-assigned building is visible immediately.
-  const handleAssignBuildingToProject = (buildingId: number, projectId: number) => {
-    void dispatch(assignBuildingToProject({ buildingId, projectId }))
-      .unwrap()
-      .then(() => setSelectedProjectId(projectId))
-      .catch(() => undefined)
+  // Delete a building after an explicit confirmation — it wipes the building and
+  // every apartment/record beneath it.
+  const handleDeleteBuilding = (buildingId: number) => {
+    const target = buildings.find((building) => building.id === buildingId)
+    const name = target?.name ?? 'הבניין'
+    if (!window.confirm(`למחוק את "${name}" ואת כל הדירות והרשומות שתחתיו? פעולה זו אינה הפיכה.`)) return
+    void dispatch(deleteBuilding(buildingId))
   }
 
   const handleDeleteProject = (projectId: number) => {
@@ -491,11 +490,37 @@ export default function BuildingReceptionDesk() {
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 pb-10">
-        <UnassignedBuildingsPanel
-          buildings={buildings.filter((building) => building.project_id === null)}
-          projects={projects}
-          onAssign={handleAssignBuildingToProject}
-        />
+        {/* TEMP: one-off surface to delete legacy project-less buildings. */}
+        {buildings.some((building) => building.project_id === null) && (
+          <div
+            dir="rtl"
+            className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3"
+          >
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300 mb-2">
+              בניינים ישנים ללא פרויקט — למחיקה
+            </p>
+            <ul className="flex flex-col gap-2">
+              {buildings
+                .filter((building) => building.project_id === null)
+                .map((building) => (
+                  <li
+                    key={building.id}
+                    className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2"
+                  >
+                    <span className="flex-1 text-sm font-bold text-gray-900 dark:text-white">{building.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBuilding(building.id)}
+                      className="text-sm font-bold text-white px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      מחק
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
         <BuildingOverview
           projects={projects}
           selectedProjectId={selectedProjectId}
@@ -507,6 +532,7 @@ export default function BuildingReceptionDesk() {
           onDeleteProject={handleDeleteProject}
           onSelectBuilding={handleSelectBuilding}
           onCreateBuilding={() => setCreateBuildingOpen(true)}
+          onDeleteBuilding={handleDeleteBuilding}
           onSelectApartment={handleSelectApartment}
           onAddApartment={(floor) => {
             setEditingApartment(null)
