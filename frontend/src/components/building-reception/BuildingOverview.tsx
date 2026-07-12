@@ -14,6 +14,7 @@ interface BuildingOverviewProps {
   onDeleteProject: (projectId: number) => void
   onSelectBuilding: (buildingId: number) => void
   onCreateBuilding: () => void
+  onDeleteBuilding: (buildingId: number) => void
   onSelectApartment: (apartment: Apartment) => void
   onAddApartment: (floor: number) => void
 }
@@ -40,6 +41,7 @@ export default function BuildingOverview({
   onDeleteProject,
   onSelectBuilding,
   onCreateBuilding,
+  onDeleteBuilding,
   onSelectApartment,
   onAddApartment,
 }: BuildingOverviewProps) {
@@ -140,6 +142,17 @@ export default function BuildingOverview({
             <Plus className="w-5 h-5" />
             בניין
           </button>
+          {activeInProject && activeBuilding && (
+            <button
+              type="button"
+              onClick={() => onDeleteBuilding(activeBuilding.id)}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200 dark:border-gray-700 hover:text-red-500 hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+              aria-label={`מחיקת הבניין "${activeBuilding.name}"`}
+              title={`מחיקת הבניין "${activeBuilding.name}"`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
