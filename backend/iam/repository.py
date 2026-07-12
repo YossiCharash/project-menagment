@@ -69,6 +69,10 @@ _GLOBAL_ROLE_POLICIES: dict[str, dict[str, set[str]]] = {
         # Admins fully manage the Building Reception Desk (buildings, apartments,
         # keys, tenants, vehicles, deliveries).
         ResourceType.BUILDING_RECEPTION.value: _ALL_ACTIONS,
+        # Structural building/project management is admin-only: only admins may
+        # create, edit or delete whole buildings and their projects. Desk
+        # operators keep BUILDING_RECEPTION access for the contents.
+        ResourceType.BUILDING.value: _ALL_ACTIONS,
     },
     GlobalRole.MEMBER.value: {
         # Members get an empty permission set on every resource by default...

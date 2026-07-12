@@ -54,6 +54,11 @@ class ResourceType(str, Enum):
     NOTIFICATION = "notification"
     DASHBOARD = "dashboard"
     BUILDING_RECEPTION = "building_reception"
+    # Structural management of buildings and their projects (create / edit /
+    # delete). Kept separate from BUILDING_RECEPTION so day-to-day desk work
+    # (apartments, tenants, keys, deliveries) can stay open to desk operators
+    # while only admins may add or remove whole buildings.
+    BUILDING = "building"
     CEMS_WAREHOUSE = "cems_warehouse"
     CEMS_CONSUMABLE = "cems_consumable"
     CEMS_FIXED_ASSET = "cems_fixed_asset"

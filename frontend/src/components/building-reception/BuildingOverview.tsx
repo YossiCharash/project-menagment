@@ -1,4 +1,4 @@
-import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Trash2 } from 'lucide-react'
+import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Pencil, Trash2 } from 'lucide-react'
 import type { Apartment, Building, BuildingListItem, BuildingProjectListItem } from '../../types/api'
 import { ACCENT, PALETTE, groupByFloor } from './constants'
 import ApartmentCell from './ApartmentCell'
@@ -9,8 +9,11 @@ interface BuildingOverviewProps {
   buildings: BuildingListItem[]
   activeBuilding: Building | null
   loading: boolean
+  /** Admin-only: gate the create/delete controls for whole buildings & projects. */
+  canManageBuildings: boolean
   onSelectProject: (projectId: number | null) => void
   onCreateProject: () => void
+  onEditProject: (project: BuildingProjectListItem) => void
   onDeleteProject: (projectId: number) => void
   onSelectBuilding: (buildingId: number) => void
   onCreateBuilding: () => void
@@ -36,8 +39,10 @@ export default function BuildingOverview({
   buildings,
   activeBuilding,
   loading,
+  canManageBuildings,
   onSelectProject,
   onCreateProject,
+  onEditProject,
   onDeleteProject,
   onSelectBuilding,
   onCreateBuilding,
@@ -78,16 +83,29 @@ export default function BuildingOverview({
             </button>
           )
         })}
-        <button
-          type="button"
-          onClick={onCreateProject}
-          className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 border border-dashed"
-          style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
-        >
-          <FolderPlus className="w-4 h-4" />
-          פרויקט
-        </button>
-        {selectedProject && (
+        {canManageBuildings && (
+          <button
+            type="button"
+            onClick={onCreateProject}
+            className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 border border-dashed"
+            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+          >
+            <FolderPlus className="w-4 h-4" />
+            פרויקט
+          </button>
+        )}
+        {canManageBuildings && selectedProject && (
+          <button
+            type="button"
+            onClick={() => onEditProject(selectedProject)}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+            aria-label="עריכת פרויקט"
+            title={`עריכת הפרויקט "${selectedProject.name}"`}
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+        )}
+        {canManageBuildings && selectedProject && (
           <button
             type="button"
             onClick={() => onDeleteProject(selectedProject.id)}
@@ -133,16 +151,18 @@ export default function BuildingOverview({
               )
             })}
           </div>
-          <button
-            type="button"
-            onClick={onCreateBuilding}
-            className="text-sm font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 border border-dashed"
-            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
-          >
-            <Plus className="w-5 h-5" />
-            בניין
-          </button>
-          {activeInProject && activeBuilding && (
+          {canManageBuildings && (
+            <button
+              type="button"
+              onClick={onCreateBuilding}
+              className="text-sm font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 border border-dashed"
+              style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+            >
+              <Plus className="w-5 h-5" />
+              בניין
+            </button>
+          )}
+          {canManageBuildings && activeInProject && activeBuilding && (
             <button
               type="button"
               onClick={() => onDeleteBuilding(activeBuilding.id)}

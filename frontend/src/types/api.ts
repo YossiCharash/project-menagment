@@ -536,6 +536,8 @@ export interface BuildingCreate {
   floors_count: number
   units_per_floor: number
   has_common_areas: boolean
+  /** Number of the first residential unit; the rest ascend sequentially. */
+  first_unit_number?: number
 }
 
 export interface BuildingProject {
@@ -556,6 +558,11 @@ export interface BuildingProjectListItem {
 
 export interface BuildingProjectCreate {
   name: string
+  description?: string | null
+}
+
+export interface BuildingProjectUpdate {
+  name?: string
   description?: string | null
 }
 

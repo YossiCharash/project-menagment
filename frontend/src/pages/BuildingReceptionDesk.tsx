@@ -6,6 +6,7 @@ import type {
   Apartment,
   ApartmentCreate,
   BuildingProjectCreate,
+  BuildingProjectListItem,
   ApartmentDetail,
   ApartmentKey,
   AuthorizedVehicle,
@@ -27,6 +28,7 @@ import TaskEditModal from '../components/task-management/TaskEditModal'
 import {
   fetchProjects,
   createProject,
+  updateProject,
   deleteProject,
   fetchBuildings,
   fetchBuilding,
@@ -83,6 +85,10 @@ import AddKeyModal from '../components/building-reception/AddKeyModal'
  */
 export default function BuildingReceptionDesk() {
   const dispatch = useAppDispatch()
+  // Only admins may create/edit/delete whole buildings and projects; desk
+  // operators keep managing the contents (apartments, tenants, keys, …).
+  const me = useAppSelector((state: RootState) => state.auth.me)
+  const canManageBuildings = me?.role === 'Admin' || me?.role === 'SuperAdmin'
   const buildings = useAppSelector((state: RootState) => state.buildingReception.buildings)
   const activeBuilding = useAppSelector((state: RootState) => state.buildingReception.activeBuilding)
   const activeApartment = useAppSelector((state: RootState) => state.buildingReception.activeApartment)
@@ -94,6 +100,8 @@ export default function BuildingReceptionDesk() {
 
   const [createBuildingOpen, setCreateBuildingOpen] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  // Non-null means the project modal is open in edit mode for this project.
+  const [editingProject, setEditingProject] = useState<BuildingProjectListItem | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [taskOpen, setTaskOpen] = useState(false)
   // Assignee directory + labels needed by the shared CreateTaskModal.
@@ -206,11 +214,23 @@ export default function BuildingReceptionDesk() {
       },
     )
 
-  const handleCreateProject = (payload: BuildingProjectCreate) =>
-    runSubmit(
-      () => dispatch(createProject(payload)).unwrap(),
-      () => setCreateProjectOpen(false),
-    )
+  const closeProjectModal = () => {
+    setCreateProjectOpen(false)
+    setEditingProject(null)
+  }
+
+  // One handler for the project modal: update when an edit target is set,
+  // otherwise create a new project.
+  const handleSubmitProject = (payload: BuildingProjectCreate) => {
+    if (editingProject) {
+      void runSubmit(
+        () => dispatch(updateProject({ projectId: editingProject.id, changes: payload })).unwrap(),
+        closeProjectModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createProject(payload)).unwrap(), closeProjectModal)
+  }
 
   // Delete a building after an explicit confirmation — it wipes the building and
   // every apartment/record beneath it.
@@ -527,8 +547,13 @@ export default function BuildingReceptionDesk() {
           buildings={buildings}
           activeBuilding={activeBuilding}
           loading={loadingBuilding}
+          canManageBuildings={canManageBuildings}
           onSelectProject={setSelectedProjectId}
-          onCreateProject={() => setCreateProjectOpen(true)}
+          onCreateProject={() => {
+            setEditingProject(null)
+            setCreateProjectOpen(true)
+          }}
+          onEditProject={(project) => setEditingProject(project)}
           onDeleteProject={handleDeleteProject}
           onSelectBuilding={handleSelectBuilding}
           onCreateBuilding={() => setCreateBuildingOpen(true)}
@@ -610,9 +635,10 @@ export default function BuildingReceptionDesk() {
       />
 
       <CreateProjectModal
-        isOpen={createProjectOpen}
-        onClose={() => setCreateProjectOpen(false)}
-        onSubmit={handleCreateProject}
+        isOpen={createProjectOpen || editingProject !== null}
+        onClose={closeProjectModal}
+        initial={editingProject ? { name: editingProject.name, description: editingProject.description } : null}
+        onSubmit={handleSubmitProject}
         submitting={submitting}
       />
 

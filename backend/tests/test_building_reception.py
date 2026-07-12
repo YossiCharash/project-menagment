@@ -26,6 +26,7 @@ async def _create_building(
     floors_count: int = 2,
     units_per_floor: int = 3,
     has_common_areas: bool = True,
+    first_unit_number: int = 1,
 ) -> dict:
     """Create a building via the API and return the ``BuildingOut`` JSON."""
     response = await client.post(
@@ -38,6 +39,7 @@ async def _create_building(
             "floors_count": floors_count,
             "units_per_floor": units_per_floor,
             "has_common_areas": has_common_areas,
+            "first_unit_number": first_unit_number,
         },
     )
     assert response.status_code == 200, response.text
@@ -67,9 +69,27 @@ class TestBuildingCrud:
 
         assert len(residential) == 6
         assert len(commons) == 3
-        unit_numbers = sorted(a["unit_number"] for a in residential)
-        assert unit_numbers == ["101", "102", "103", "201", "202", "203"]
+        # Sequential ascending numbering starting at the default first unit (1),
+        # continuous across floors — no per-floor "hundreds" jump.
+        unit_numbers = sorted((int(a["unit_number"]) for a in residential))
+        assert unit_numbers == [1, 2, 3, 4, 5, 6]
         assert {a["unit_number"] for a in commons} == {"לובי", "חניון", "מחסן"}
+
+    async def test_apartments_numbered_from_custom_first_number(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """The admin-supplied first number seeds a continuous ascending sequence."""
+        building = await _create_building(
+            test_client,
+            admin_token,
+            floors_count=3,
+            units_per_floor=2,
+            has_common_areas=False,
+            first_unit_number=101,
+        )
+        residential = [a for a in building["apartments"] if not a["is_common_area"]]
+        unit_numbers = sorted(int(a["unit_number"]) for a in residential)
+        assert unit_numbers == [101, 102, 103, 104, 105, 106]
 
     async def test_create_building_without_common_areas(
         self, test_client: AsyncClient, admin_token: str
@@ -200,6 +220,24 @@ class TestProjects:
             json={"name": "x", "project_id": 999999, "floors_count": 1, "units_per_floor": 1},
         )
         assert response.status_code == 400, response.text
+
+    async def test_update_project_edits_name_and_description(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        project = await self._create_project(test_client, admin_token, name="שם ישן")
+        response = await test_client.put(
+            f"{BASE}/projects/{project['id']}",
+            headers=_auth(admin_token),
+            json={"name": "שם חדש", "description": "תיאור מעודכן"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["name"] == "שם חדש"
+        assert response.json()["description"] == "תיאור מעודכן"
+
+        reloaded = await test_client.get(
+            f"{BASE}/projects/{project['id']}", headers=_auth(admin_token)
+        )
+        assert reloaded.json()["name"] == "שם חדש"
 
     async def test_delete_project_detaches_buildings(self, test_client: AsyncClient, admin_token: str):
         project = await self._create_project(test_client, admin_token, name="למחיקה")
@@ -451,6 +489,55 @@ class TestPermissions:
             f"{BASE}/buildings/{created['id']}", headers=_auth(member_token)
         )
         assert response.status_code == 403, response.text
+
+    async def test_desk_operator_manages_contents_but_not_buildings(
+        self,
+        test_client: AsyncClient,
+        test_db,
+        admin_token: str,
+        member_token: str,
+        member_user: User,
+    ):
+        """A desk operator granted BUILDING_RECEPTION write manages the contents
+        (e.g. apartments) but is still denied creating or deleting whole
+        buildings, which are gated on the admin-only BUILDING resource."""
+        from backend.iam.models import ResourcePolicy
+
+        for action in ("read", "write"):
+            test_db.add(
+                ResourcePolicy(
+                    user_id=member_user.id,
+                    resource_type="building_reception",
+                    resource_id="*",
+                    action=action,
+                    effect="allow",
+                )
+            )
+        await test_db.commit()
+
+        building = await _create_building(test_client, admin_token)
+
+        # Contents: the desk operator may add an apartment.
+        add_apartment = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(member_token),
+            json={"building_id": building["id"], "floor": 3, "unit_number": "301"},
+        )
+        assert add_apartment.status_code == 200, add_apartment.text
+
+        # Structure: the desk operator may NOT create a building.
+        create_building = await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(member_token),
+            json={"name": "בניין אסור", "floors_count": 1, "units_per_floor": 1},
+        )
+        assert create_building.status_code == 403, create_building.text
+
+        # ...nor delete one.
+        delete_building = await test_client.delete(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(member_token)
+        )
+        assert delete_building.status_code == 403, delete_building.text
 
 
 @pytest.mark.asyncio

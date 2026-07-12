@@ -56,6 +56,11 @@ from backend.services.technician_visit_service import TechnicianVisitService
 router = APIRouter()
 
 _RESOURCE = ResourceType.BUILDING_RECEPTION.value
+# Structural building/project management (create / edit / delete a whole
+# building or project) is gated on a separate, admin-only resource so that
+# desk operators keep managing the contents (apartments, tenants, keys,
+# deliveries) without being able to add or remove buildings.
+_BUILDING_RESOURCE = ResourceType.BUILDING.value
 # Reception desk is a global (non project-scoped) resource.
 _NO_PROJECT = None
 
@@ -73,6 +78,18 @@ def require_update(user=Depends(require_permission(Action.UPDATE.value, _RESOURC
 
 
 def require_delete(user=Depends(require_permission(Action.DELETE.value, _RESOURCE, project_id_param=_NO_PROJECT))):
+    return user
+
+
+def require_building_write(user=Depends(require_permission(Action.WRITE.value, _BUILDING_RESOURCE, project_id_param=_NO_PROJECT))):
+    return user
+
+
+def require_building_update(user=Depends(require_permission(Action.UPDATE.value, _BUILDING_RESOURCE, project_id_param=_NO_PROJECT))):
+    return user
+
+
+def require_building_delete(user=Depends(require_permission(Action.DELETE.value, _BUILDING_RESOURCE, project_id_param=_NO_PROJECT))):
     return user
 
 
@@ -198,7 +215,7 @@ def _project_to_out(project) -> BuildingProjectOut:
 
 
 @router.post("/projects", response_model=BuildingProjectOut)
-async def create_project(db: DBSessionDep, data: BuildingProjectCreate, user=Depends(require_write)):
+async def create_project(db: DBSessionDep, data: BuildingProjectCreate, user=Depends(require_building_write)):
     service = BuildingProjectService(db)
     try:
         project = await service.create_project(data)
@@ -234,7 +251,7 @@ async def get_project(project_id: int, db: DBSessionDep, user=Depends(require_re
 
 
 @router.put("/projects/{project_id}", response_model=BuildingProjectOut)
-async def update_project(project_id: int, db: DBSessionDep, data: BuildingProjectUpdate, user=Depends(require_update)):
+async def update_project(project_id: int, db: DBSessionDep, data: BuildingProjectUpdate, user=Depends(require_building_update)):
     service = BuildingProjectService(db)
     try:
         project = await service.update_project(project_id, data)
@@ -244,7 +261,7 @@ async def update_project(project_id: int, db: DBSessionDep, data: BuildingProjec
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(project_id: int, db: DBSessionDep, user=Depends(require_delete)):
+async def delete_project(project_id: int, db: DBSessionDep, user=Depends(require_building_delete)):
     service = BuildingProjectService(db)
     try:
         await service.delete_project(project_id)
@@ -257,7 +274,7 @@ async def delete_project(project_id: int, db: DBSessionDep, user=Depends(require
 
 
 @router.post("/buildings", response_model=BuildingOut)
-async def create_building(db: DBSessionDep, data: BuildingCreate, user=Depends(require_write)):
+async def create_building(db: DBSessionDep, data: BuildingCreate, user=Depends(require_building_write)):
     service = BuildingService(db)
     try:
         building = await service.create_building(data)
@@ -286,7 +303,7 @@ async def get_building(building_id: int, db: DBSessionDep, user=Depends(require_
 
 
 @router.put("/buildings/{building_id}", response_model=BuildingOut)
-async def update_building(building_id: int, db: DBSessionDep, data: BuildingUpdate, user=Depends(require_update)):
+async def update_building(building_id: int, db: DBSessionDep, data: BuildingUpdate, user=Depends(require_building_update)):
     service = BuildingService(db)
     try:
         building = await service.update_building(building_id, data)
@@ -296,7 +313,7 @@ async def update_building(building_id: int, db: DBSessionDep, data: BuildingUpda
 
 
 @router.delete("/buildings/{building_id}", status_code=204)
-async def delete_building(building_id: int, db: DBSessionDep, user=Depends(require_delete)):
+async def delete_building(building_id: int, db: DBSessionDep, user=Depends(require_building_delete)):
     service = BuildingService(db)
     try:
         await service.delete_building(building_id)
