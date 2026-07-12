@@ -152,7 +152,12 @@ export default function TaskDetailModal({
     if (!taskId) return
     if (!silent) setTaskMessagesLoading(true)
     try {
-      const { data } = await api.get<TaskMessageType[]>(`/tasks/${taskId}/messages`)
+      // Cache-bust + no-store so read receipts (✓✓) and new replies are never
+      // served from a stale browser/proxy cache on the background poll.
+      const { data } = await api.get<TaskMessageType[]>(`/tasks/${taskId}/messages`, {
+        params: { _t: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       setTaskMessages(data)
     } catch {
       if (!silent) setTaskMessages([])
@@ -220,8 +225,19 @@ export default function TaskDetailModal({
   // draft. Cleared on close / task change.
   useEffect(() => {
     if (!taskId || editingMessageId !== null) return
-    const intervalId = window.setInterval(() => { void reloadMessages(true) }, 10000)
-    return () => window.clearInterval(intervalId)
+    const intervalId = window.setInterval(() => {
+      if (!document.hidden) void reloadMessages(true)
+    }, 8000)
+    // Refresh the moment the sender returns to the tab/window, so read receipts
+    // and new replies appear immediately rather than after the next poll tick.
+    const onVisible = () => { if (!document.hidden) void reloadMessages(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
   }, [taskId, editingMessageId, reloadMessages])
 
   useEffect(() => {
