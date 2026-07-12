@@ -40,15 +40,17 @@ export default function BacklogTab({ refreshSignal }: BacklogTabProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const fetchBacklogTasks = useCallback(async () => {
-    setLoading(true)
+  // silent=true refreshes in the background (unread-count poll): no spinner, and
+  // it keeps the current rows on a transient failure instead of clearing them.
+  const fetchBacklogTasks = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const tasks = await getBacklogTasks()
       setBacklogTasks(tasks)
     } catch {
-      setBacklogTasks([])
+      if (!silent) setBacklogTasks([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -80,6 +82,20 @@ export default function BacklogTab({ refreshSignal }: BacklogTabProps) {
   useEffect(() => {
     if (refreshSignal !== undefined) fetchBacklogTasks()
   }, [refreshSignal, fetchBacklogTasks])
+
+  // Poll in the background so a new reply's unread badge appears without a manual
+  // reload; also refresh the moment the tab regains focus.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) void fetchBacklogTasks(true)
+    }, 30_000)
+    const onVisible = () => { if (!document.hidden) void fetchBacklogTasks(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [fetchBacklogTasks])
 
   const handleTaskUpdated = useCallback((updated: Task) => {
     setBacklogTasks((prev) => {
@@ -164,7 +180,7 @@ export default function BacklogTab({ refreshSignal }: BacklogTabProps) {
                   >
                     <div className="flex-1 min-w-0">
                       <span className="inline-flex items-center gap-1.5">
-                        <UnreadMessagesDot show={task.has_unread_messages} />
+                        <UnreadMessagesDot show={task.has_unread_messages} count={task.unread_messages_count} />
                         <span className="font-medium text-gray-900 dark:text-white truncate">
                           {task.title}
                         </span>

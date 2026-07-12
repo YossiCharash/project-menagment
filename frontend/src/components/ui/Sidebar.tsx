@@ -26,6 +26,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext'
 import { useInventorySettings } from '../../contexts/InventorySettingsContext'
 import { cn } from '../../lib/utils'
+import api from '../../lib/api'
 import { useSelector, useDispatch } from 'react-redux'
 import type { RootState, AppDispatch } from '../../store'
 import { fetchUnreadCount } from '../../store/slices/notificationsSlice'
@@ -145,12 +146,47 @@ function filterNavigationItems(
   })
 }
 
+/**
+ * Total unread task-chat messages for the current user, polled in the background
+ * (~30s) and refreshed on tab focus. Drives the red badge on the "ניהול משימות"
+ * nav item so a new message is visible from anywhere in the app.
+ */
+function useTaskUnreadTotal(): number {
+  const me = useSelector((state: RootState) => state.auth.me)
+  const [total, setTotal] = useState(0)
+  useEffect(() => {
+    if (!me) {
+      setTotal(0)
+      return
+    }
+    let active = true
+    const load = async () => {
+      try {
+        const { data } = await api.get<{ total_unread: number }>('/tasks/unread-summary')
+        if (active) setTotal(data.total_unread ?? 0)
+      } catch {
+        /* ignore transient failures */
+      }
+    }
+    void load()
+    const interval = setInterval(() => { if (!document.hidden) void load() }, 30_000)
+    const onVisible = () => { if (!document.hidden) void load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      active = false
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [me])
+  return total
+}
+
 export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const location = useLocation()
   const dispatch = useDispatch<AppDispatch>()
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
-  const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
+  const taskUnread = useTaskUnreadTotal()
   const permissions = useSelector((state: RootState) => state.permissions.permissions)
   const { open: openInventorySettings } = useInventorySettings()
   const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
@@ -251,9 +287,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                     "w-5 h-5",
                     isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
                   )} />
-                  {item.href === '/task-management' && unreadNotifications > 0 && (
-                    <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
-                      {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  {item.href === '/task-management' && taskUnread > 0 && (
+                    <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-medium">
+                      {taskUnread > 99 ? '99+' : taskUnread}
                     </span>
                   )}
                 </span>
@@ -353,7 +389,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
   const me = useSelector((state: RootState) => state.auth.me)
-  const unreadNotifications = useSelector((state: RootState) => state.notifications.unreadCount)
+  const taskUnread = useTaskUnreadTotal()
   const permissions = useSelector((state: RootState) => state.permissions.permissions)
   const { open: openInventorySettings } = useInventorySettings()
   const navigationItems = filterNavigationItems(ALL_NAVIGATION_ITEMS, me?.role, permissions)
@@ -429,9 +465,9 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                           "w-5 h-5",
                           isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
                         )} />
-                        {item.href === '/task-management' && unreadNotifications > 0 && (
-                          <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-medium">
-                            {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                        {item.href === '/task-management' && taskUnread > 0 && (
+                          <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-medium">
+                            {taskUnread > 99 ? '99+' : taskUnread}
                           </span>
                         )}
                       </span>
