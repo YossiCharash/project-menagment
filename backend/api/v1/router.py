@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from backend.api.v1.endpoints import transactions, auth, reports, suppliers, users, projects, financial_aggregation, \
     admin_invites, email_verification, recurring_transactions, oauth, member_invites, budgets, audit_logs, categories, \
     unforeseen_transactions, quote_structure, quote_projects, tasks, quote_subjects, outlook, group_transaction_drafts, \
-    notifications, building_reception
+    notifications, building_reception, assistant
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -30,6 +30,7 @@ api_router.include_router(outlook.router, prefix="/outlook", tags=["outlook"])
 api_router.include_router(group_transaction_drafts.router, prefix="/group-transaction-drafts", tags=["group-transaction-drafts"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(building_reception.router, prefix="/building-reception", tags=["building-reception"])
+api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 
 # IAM - Identity & Access Management
 from backend.iam.endpoints import router as iam_router
