@@ -9,6 +9,8 @@ interface BuildingOverviewProps {
   buildings: BuildingListItem[]
   activeBuilding: Building | null
   loading: boolean
+  /** Admin-only: gate the create/delete controls for whole buildings & projects. */
+  canManageBuildings: boolean
   onSelectProject: (projectId: number | null) => void
   onCreateProject: () => void
   onDeleteProject: (projectId: number) => void
@@ -36,6 +38,7 @@ export default function BuildingOverview({
   buildings,
   activeBuilding,
   loading,
+  canManageBuildings,
   onSelectProject,
   onCreateProject,
   onDeleteProject,
@@ -78,16 +81,18 @@ export default function BuildingOverview({
             </button>
           )
         })}
-        <button
-          type="button"
-          onClick={onCreateProject}
-          className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 border border-dashed"
-          style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
-        >
-          <FolderPlus className="w-4 h-4" />
-          פרויקט
-        </button>
-        {selectedProject && (
+        {canManageBuildings && (
+          <button
+            type="button"
+            onClick={onCreateProject}
+            className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 border border-dashed"
+            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+          >
+            <FolderPlus className="w-4 h-4" />
+            פרויקט
+          </button>
+        )}
+        {canManageBuildings && selectedProject && (
           <button
             type="button"
             onClick={() => onDeleteProject(selectedProject.id)}
@@ -133,16 +138,18 @@ export default function BuildingOverview({
               )
             })}
           </div>
-          <button
-            type="button"
-            onClick={onCreateBuilding}
-            className="text-sm font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 border border-dashed"
-            style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
-          >
-            <Plus className="w-5 h-5" />
-            בניין
-          </button>
-          {activeInProject && activeBuilding && (
+          {canManageBuildings && (
+            <button
+              type="button"
+              onClick={onCreateBuilding}
+              className="text-sm font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 border border-dashed"
+              style={{ color: ACCENT, borderColor: `${ACCENT}73`, background: `${ACCENT}12` }}
+            >
+              <Plus className="w-5 h-5" />
+              בניין
+            </button>
+          )}
+          {canManageBuildings && activeInProject && activeBuilding && (
             <button
               type="button"
               onClick={() => onDeleteBuilding(activeBuilding.id)}
