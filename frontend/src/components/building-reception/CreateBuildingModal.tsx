@@ -43,7 +43,8 @@ export default function CreateBuildingModal({
   }, [isOpen, defaultProjectId])
 
   const totalUnits = floors * unitsPerFloor
-  const canSubmit = name.trim().length > 0 && !submitting
+  // A building must belong to a project — there is no unassigned view anymore.
+  const canSubmit = name.trim().length > 0 && projectId != null && !submitting
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -81,23 +82,27 @@ export default function CreateBuildingModal({
         <TextField value={address} onChange={setAddress} placeholder="רחוב ומספר" />
       </LabeledField>
 
-      {projects.length > 0 && (
-        <LabeledField label="פרויקט">
+      <LabeledField label="פרויקט">
+        {projects.length === 0 ? (
+          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3.5 py-2.5">
+            יש ליצור פרויקט לפני הקמת בניין. סגור חלון זה ולחץ על "פרויקט".
+          </p>
+        ) : (
           <select
             value={projectId ?? ''}
             onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : null)}
             dir="rtl"
             className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-3 py-2.5 text-sm font-semibold bg-white dark:bg-gray-800 text-gray-900 dark:text-white outline-none"
           >
-            <option value="">ללא פרויקט</option>
+            <option value="">בחר פרויקט</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
             ))}
           </select>
-        </LabeledField>
-      )}
+        )}
+      </LabeledField>
 
       <div className="flex gap-3">
         <div className="flex-1">

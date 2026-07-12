@@ -563,6 +563,7 @@ export interface BuildingUpdate {
   name?: string
   address?: string | null
   compound_name?: string | null
+  project_id?: number | null
   floors_count?: number
   units_per_floor?: number
   has_common_areas?: boolean
