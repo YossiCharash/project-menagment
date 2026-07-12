@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 import os
 import uuid
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, or_, exists, distinct
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile, Form
@@ -31,6 +31,7 @@ from backend.schemas.task import (
     TaskMessageOut,
     TaskMessageAttachmentOut,
     TaskMessageUpdate,
+    TaskUnreadSummaryOut,
     ArchivedTasksFilter,
     TaskChecklistItemCreate,
     TaskChecklistItemUpdate,
@@ -47,6 +48,7 @@ from backend.models.task import (
     TaskMessage,
     TaskMessageAttachment,
     TaskMessageRead,
+    task_assignees,
     TaskChecklistItem,
     TaskStatus,
     EventType,
@@ -349,7 +351,7 @@ def _task_assignees_out(task: Task) -> list[TaskAssigneeOut]:
     ]
 
 
-def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
+def _task_to_out(task: Task, unread_count: int = 0) -> dict:
     color = _user_color(task.assigned_user)
     if color is None:
         idx = ((task.assigned_to_user_id or 1) - 1) % len(EMPLOYEE_COLORS)
@@ -392,7 +394,8 @@ def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
         "assigned_to_user_id": task.assigned_to_user_id,
         "apartment_id": getattr(task, "apartment_id", None),
         "building_id": getattr(task, "building_id", None),
-        "has_unread_messages": has_unread_messages,
+        "has_unread_messages": unread_count > 0,
+        "unread_messages_count": unread_count,
         "unique_tag": task.unique_tag,
         "recurrence_rule": recurrence_rule if recurrence_rule in RECURRENCE_RULE_VALUES else "",
         "recurrence_end_date": recurrence_end_date,
@@ -422,16 +425,14 @@ def _task_to_out(task: Task, has_unread_messages: bool = False) -> dict:
 
 
 async def _tasks_to_out_with_unread(db, user_id: int, tasks: list[Task]) -> list[dict]:
-    """Serialize task cards, flagging those with unread chat replies for ``user_id``.
+    """Serialize task cards with each task's unread chat-message count for ``user_id``.
 
-    Resolves the "has unread replies for me" signal in a single query via
-    ``NotificationRepository.get_task_ids_with_unread_message`` and applies it per
-    task. Shared by every list endpoint that renders cards (DRY).
+    Resolves the "how many unread replies for me" signal in a single query via
+    ``_unread_message_counts`` (based on the read-receipt ``last_read_at``) and
+    applies it per task. Shared by every list endpoint that renders cards (DRY).
     """
-    unread_ids = await NotificationRepository(db).get_task_ids_with_unread_message(
-        user_id, [task.id for task in tasks]
-    )
-    return [_task_to_out(task, task.id in unread_ids) for task in tasks]
+    counts = await _unread_message_counts(db, user_id, [task.id for task in tasks])
+    return [_task_to_out(task, counts.get(task.id, 0)) for task in tasks]
 
 
 @router.get("/", response_model=list[TaskOut])
@@ -710,6 +711,34 @@ async def _mark_task_chat_read(db, task_id: int, user_id: int) -> None:
         await _touch()
 
 
+async def _unread_message_counts(
+    db, user_id: int, task_ids: list[int]
+) -> dict[int, int]:
+    """Return ``{task_id: unread_count}`` for the given tasks and user.
+
+    A message counts as unread when it was authored by someone else and was
+    created after this user's ``last_read_at`` for the task (or the user has
+    never opened the chat). Single grouped query; empty input short-circuits.
+    """
+    if not task_ids:
+        return {}
+    read = TaskMessageRead
+    result = await db.execute(
+        select(TaskMessage.task_id, func.count(TaskMessage.id))
+        .outerjoin(
+            read,
+            (read.task_id == TaskMessage.task_id) & (read.user_id == user_id),
+        )
+        .where(
+            TaskMessage.task_id.in_(task_ids),
+            TaskMessage.user_id != user_id,
+            or_(read.last_read_at.is_(None), TaskMessage.created_at > read.last_read_at),
+        )
+        .group_by(TaskMessage.task_id)
+    )
+    return {task_id: count for task_id, count in result.all()}
+
+
 async def _recipient_last_read_map(db, task_id: int) -> dict[int, datetime]:
     """Return ``{user_id: last_read_at}`` for everyone who has read a task's chat."""
     result = await db.execute(
@@ -940,6 +969,43 @@ async def delete_task_message_attachment(
     return None
 
 
+@router.get("/unread-summary", response_model=TaskUnreadSummaryOut)
+async def get_unread_summary(
+        db: DBSessionDep,
+        user=Depends(get_current_user),
+):
+    """Total unread chat messages across all tasks the current user is tied to.
+
+    Feeds the global nav badge. Counts messages authored by someone else, created
+    after the user's ``last_read_at`` (or never read), on non-archived tasks where
+    the user is the assignee, a co-assignee, or a participant. One aggregate query.
+    """
+    read = TaskMessageRead
+    recipient_condition = or_(
+        Task.assigned_to_user_id == user.id,
+        exists().where(
+            (task_assignees.c.task_id == Task.id) & (task_assignees.c.user_id == user.id)
+        ),
+        exists().where(
+            (TaskParticipant.task_id == Task.id) & (TaskParticipant.user_id == user.id)
+        ),
+    )
+    result = await db.execute(
+        select(func.count(TaskMessage.id), func.count(distinct(TaskMessage.task_id)))
+        .select_from(TaskMessage)
+        .join(Task, Task.id == TaskMessage.task_id)
+        .outerjoin(read, (read.task_id == TaskMessage.task_id) & (read.user_id == user.id))
+        .where(
+            TaskMessage.user_id != user.id,
+            Task.is_archived.is_(False),
+            or_(read.last_read_at.is_(None), TaskMessage.created_at > read.last_read_at),
+            recipient_condition,
+        )
+    )
+    total_unread, task_count = result.one()
+    return TaskUnreadSummaryOut(total_unread=total_unread or 0, task_count=task_count or 0)
+
+
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(
         task_id: int,
@@ -957,8 +1023,10 @@ async def get_task(
     if task.assigned_to_user_id == user.id and task.assignee_viewed_at is None:
         task.assignee_viewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.flush()
-    # Opening the task reads its chat: clear this user's unread reply notifications.
+    # Opening the task reads its chat: clear this user's unread reply notifications
+    # and advance their read-receipt so the unread-message count resets to zero.
     await NotificationRepository(db).mark_task_messages_read(user.id, task_id)
+    await _mark_task_chat_read(db, task_id, user.id)
     out = _task_to_out(task)
     checklist_repo = TaskChecklistRepository(db)
     summary = await checklist_repo.get_summary(task_id)

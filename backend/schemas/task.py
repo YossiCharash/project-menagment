@@ -90,6 +90,12 @@ class TaskMessageOut(BaseModel):
     _serialize_edited_at = field_serializer("edited_at")(staticmethod(to_utc_z))
 
 
+class TaskUnreadSummaryOut(BaseModel):
+    """Global unread task-chat summary for the current user (drives the nav badge)."""
+    total_unread: int = 0
+    task_count: int = 0
+
+
 class TaskMessageCreate(BaseModel):
     message: str
 
@@ -230,6 +236,8 @@ class TaskOut(BaseModel):
     building_id: int | None = None
     # True when the current user has unread chat replies on this task (WhatsApp-style dot).
     has_unread_messages: bool = False
+    # How many chat messages on this task the current user hasn't read (badge count).
+    unread_messages_count: int = 0
     assigned_user_name: str | None = None
     assigned_user_color: str | None = None
     assigned_user_avatar: str | None = None
