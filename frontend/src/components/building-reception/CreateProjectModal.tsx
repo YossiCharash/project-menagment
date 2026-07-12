@@ -8,19 +8,26 @@ interface CreateProjectModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (payload: BuildingProjectCreate) => void
+  /** When provided, the modal opens in edit mode pre-filled with these values. */
+  initial?: { name: string; description: string | null } | null
   submitting?: boolean
 }
 
-/** Modal for creating a reception-desk project that groups several buildings. */
-export default function CreateProjectModal({ isOpen, onClose, onSubmit, submitting }: CreateProjectModalProps) {
+/**
+ * Modal for creating or editing a reception-desk project that groups several
+ * buildings. Passing `initial` switches it to edit mode (same fields, different
+ * copy) — the parent decides create vs. update from its own edit target.
+ */
+export default function CreateProjectModal({ isOpen, onClose, onSubmit, initial, submitting }: CreateProjectModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const isEdit = initial != null
 
   useEffect(() => {
     if (!isOpen) return
-    setName('')
-    setDescription('')
-  }, [isOpen])
+    setName(initial?.name ?? '')
+    setDescription(initial?.description ?? '')
+  }, [isOpen, initial])
 
   const canSubmit = name.trim().length > 0 && !submitting
 
@@ -34,13 +41,13 @@ export default function CreateProjectModal({ isOpen, onClose, onSubmit, submitti
       isOpen={isOpen}
       onClose={onClose}
       icon={Layers}
-      title="הקמת פרויקט"
+      title={isEdit ? 'עריכת פרויקט' : 'הקמת פרויקט'}
       subtitle="פרויקט מקבץ כמה בניינים תחת מתחם אחד"
       footer={
         <>
           <SecondaryButton onClick={onClose}>ביטול</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={!canSubmit} icon={Check}>
-            הקם פרויקט
+            {isEdit ? 'שמור שינויים' : 'הקם פרויקט'}
           </PrimaryButton>
         </>
       }

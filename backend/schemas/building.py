@@ -15,7 +15,10 @@ class BuildingBase(BaseModel):
 
 
 class BuildingCreate(BuildingBase):
-    pass
+    # Number assigned to the first residential unit. Subsequent units are
+    # numbered sequentially in ascending order across all floors (1, 2, 3, …),
+    # instead of the legacy per-floor "<floor><unit>" scheme.
+    first_unit_number: int = Field(default=1, ge=1)
 
 
 class BuildingUpdate(BaseModel):

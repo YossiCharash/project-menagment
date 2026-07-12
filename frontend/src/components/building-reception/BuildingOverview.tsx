@@ -1,4 +1,4 @@
-import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Trash2 } from 'lucide-react'
+import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Pencil, Trash2 } from 'lucide-react'
 import type { Apartment, Building, BuildingListItem, BuildingProjectListItem } from '../../types/api'
 import { ACCENT, PALETTE, groupByFloor } from './constants'
 import ApartmentCell from './ApartmentCell'
@@ -13,6 +13,7 @@ interface BuildingOverviewProps {
   canManageBuildings: boolean
   onSelectProject: (projectId: number | null) => void
   onCreateProject: () => void
+  onEditProject: (project: BuildingProjectListItem) => void
   onDeleteProject: (projectId: number) => void
   onSelectBuilding: (buildingId: number) => void
   onCreateBuilding: () => void
@@ -41,6 +42,7 @@ export default function BuildingOverview({
   canManageBuildings,
   onSelectProject,
   onCreateProject,
+  onEditProject,
   onDeleteProject,
   onSelectBuilding,
   onCreateBuilding,
@@ -90,6 +92,17 @@ export default function BuildingOverview({
           >
             <FolderPlus className="w-4 h-4" />
             פרויקט
+          </button>
+        )}
+        {canManageBuildings && selectedProject && (
+          <button
+            type="button"
+            onClick={() => onEditProject(selectedProject)}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+            aria-label="עריכת פרויקט"
+            title={`עריכת הפרויקט "${selectedProject.name}"`}
+          >
+            <Pencil className="w-4 h-4" />
           </button>
         )}
         {canManageBuildings && selectedProject && (
