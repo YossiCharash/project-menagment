@@ -30,6 +30,9 @@ _ADDITIVE_MIGRATIONS: tuple[str, ...] = (
     # Reception-desk projects grouping buildings (buildings table pre-exists).
     "ALTER TABLE buildings ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES building_projects(id)",
     "CREATE INDEX IF NOT EXISTS ix_buildings_project_id ON buildings (project_id)",
+    # WhatsApp-style chat: "edited" timestamp on a task message (task_messages pre-exists).
+    # The task_message_reads table itself is a NEW table, so create_all provisions it.
+    "ALTER TABLE task_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP",
 )
 
 # ── Main application models ──────────────────────────────────────────────────
