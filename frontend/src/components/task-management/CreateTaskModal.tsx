@@ -17,7 +17,7 @@ import {
   RecurrenceEditor,
   TASK_STATUS_LABELS,
 } from '../../pages/TaskCalendar'
-import type { Apartment } from '../../types/api'
+import type { Apartment, BuildingListItem, BuildingProjectListItem } from '../../types/api'
 import { useDeleteTaskLabel } from './useDeleteTaskLabel'
 import RecordButton from './RecordButton'
 import ParticipantPicker from './ParticipantPicker'
@@ -131,11 +131,19 @@ export interface CreateTaskModalProps {
   /** Pre-fill configuration applied when the modal opens. */
   defaults?: CreateTaskDefaults
   /**
-   * When provided, an apartment linkage dropdown ("שיוך לדירה") is rendered and
-   * `apartment_id` is included in the create payload. Omit to hide the field
-   * entirely (the Task Calendar has no apartment context).
+   * Building-reception linkage. When both `projects` and `buildings` are
+   * provided, a cascading פרויקט → בניין → דירה selector is rendered and the
+   * chosen `building_id`/`apartment_id` are included in the create payload.
+   * Omit for the Task Calendar, which has no reception context.
    */
-  apartments?: Apartment[]
+  projects?: BuildingProjectListItem[]
+  buildings?: BuildingListItem[]
+  /** Loads a building's apartments on demand for the cascade's final step. */
+  loadApartments?: (buildingId: number) => Promise<Apartment[]>
+  /** Pre-select this project when the modal opens (reception desk context). */
+  defaultProjectId?: number | null
+  /** Pre-select this building when the modal opens (reception desk context). */
+  defaultBuildingId?: number | null
   /** Pre-select this apartment when the modal opens (reception desk context). */
   defaultApartmentId?: number | null
   /** Pre-select this assignee when the modal opens. */
@@ -163,7 +171,11 @@ export default function CreateTaskModal({
   users,
   taskLabels,
   defaults,
-  apartments,
+  projects,
+  buildings,
+  loadApartments,
+  defaultProjectId,
+  defaultBuildingId,
   defaultApartmentId,
   defaultAssigneeId,
   defaultBacklog,
@@ -172,7 +184,12 @@ export default function CreateTaskModal({
 }: CreateTaskModalProps) {
   const [createForm, setCreateForm] = useState<CreateTaskForm>({ ...EMPTY_FORM })
   const [taskType, setTaskType] = useState<TaskTypeOption>('meeting')
+  // Building-reception linkage cascade: פרויקט → בניין → דירה (apartment optional).
+  const [projectId, setProjectId] = useState<number | null>(defaultProjectId ?? null)
+  const [buildingId, setBuildingId] = useState<number | null>(defaultBuildingId ?? null)
   const [apartmentId, setApartmentId] = useState<number | null>(defaultApartmentId ?? null)
+  const [buildingApartments, setBuildingApartments] = useState<Apartment[]>([])
+  const [loadingApartments, setLoadingApartments] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([])
@@ -182,7 +199,7 @@ export default function CreateTaskModal({
   const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
   const [addingLabel, setAddingLabel] = useState(false)
 
-  const showApartmentField = Array.isArray(apartments)
+  const showLinkage = Array.isArray(buildings) && Array.isArray(projects)
 
   const { requestDeleteLabel, deletingLabelId } = useDeleteTaskLabel({
     onDeleted: (labelId) => {
@@ -200,6 +217,8 @@ export default function CreateTaskModal({
     setNewLabelName('')
     setNewLabelColor('#3B82F6')
     if (fileInputRef.current) fileInputRef.current.value = ''
+    setProjectId(defaultProjectId ?? null)
+    setBuildingId(defaultBuildingId ?? null)
     setApartmentId(defaultApartmentId ?? null)
 
     const assignees = defaultAssigneeId != null ? [defaultAssigneeId] : []
@@ -225,6 +244,8 @@ export default function CreateTaskModal({
     }
   }, [
     isOpen,
+    defaultProjectId,
+    defaultBuildingId,
     defaultApartmentId,
     defaultAssigneeId,
     defaultBacklog,
@@ -233,6 +254,22 @@ export default function CreateTaskModal({
     defaults?.endTime,
     defaults?.date,
   ])
+
+  // Load the selected building's apartments for the cascade's final step. The
+  // list resets whenever the chosen building changes (or clears).
+  useEffect(() => {
+    if (!isOpen || !showLinkage || buildingId == null || !loadApartments) {
+      setBuildingApartments([])
+      return
+    }
+    let cancelled = false
+    setLoadingApartments(true)
+    loadApartments(buildingId)
+      .then((list) => { if (!cancelled) setBuildingApartments(list) })
+      .catch(() => { if (!cancelled) setBuildingApartments([]) })
+      .finally(() => { if (!cancelled) setLoadingApartments(false) })
+    return () => { cancelled = true }
+  }, [isOpen, showLinkage, buildingId, loadApartments])
 
   const setTaskTypeWithDefaults = useCallback((type: TaskTypeOption) => {
     setTaskType(type)
@@ -267,6 +304,10 @@ export default function CreateTaskModal({
     setCreateError(null)
     if (!createForm.title.trim() || createForm.assigned_to_user_ids.length === 0) {
       setCreateError('נא למלא את כל השדות החובה')
+      return
+    }
+    if (showLinkage && (projectId == null || buildingId == null)) {
+      setCreateError('יש לבחור פרויקט ובניין למשימה')
       return
     }
 
@@ -318,7 +359,7 @@ export default function CreateTaskModal({
         ...recurrence,
         requires_closure_approval: createForm.requires_closure_approval,
         is_backlog: !!defaultBacklog && taskType === 'no_date',
-        ...(showApartmentField ? { apartment_id: apartmentId } : {}),
+        ...(showLinkage ? { building_id: buildingId, apartment_id: apartmentId } : {}),
       })
       for (const file of createPendingFiles) {
         const formData = new FormData()
@@ -463,27 +504,77 @@ export default function CreateTaskModal({
           onChange={(ids) => setCreateForm((f) => ({ ...f, participant_ids: ids }))}
         />
 
-        {showApartmentField && (
+        {showLinkage && (
           <div>
-            <label htmlFor="create-apartment" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">שיוך לדירה</label>
-            <select
-              id="create-apartment"
-              name="create-apartment"
-              value={apartmentId ?? ''}
-              onChange={(e) => setApartmentId(e.target.value ? Number(e.target.value) : null)}
-              dir="rtl"
-              className={cn(
-                'w-full px-2 py-1.5 border rounded-lg text-sm',
-                'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-              )}
-            >
-              <option value="">ללא שיוך</option>
-              {apartments!.map((apartment) => (
-                <option key={apartment.id} value={apartment.id}>
-                  {apartmentOptionLabel(apartment)}
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">שיוך: פרויקט ← בניין ← דירה</label>
+            <div className="grid grid-cols-3 gap-2">
+              <select
+                id="create-project"
+                name="create-project"
+                aria-label="פרויקט"
+                value={projectId ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value ? Number(e.target.value) : null
+                  setProjectId(value)
+                  setBuildingId(null)
+                  setApartmentId(null)
+                }}
+                dir="rtl"
+                className={cn(
+                  'w-full px-2 py-1.5 border rounded-lg text-sm',
+                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                )}
+              >
+                <option value="">בחר פרויקט</option>
+                {projects!.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+              <select
+                id="create-building"
+                name="create-building"
+                aria-label="בניין"
+                value={buildingId ?? ''}
+                disabled={projectId == null}
+                onChange={(e) => {
+                  const value = e.target.value ? Number(e.target.value) : null
+                  setBuildingId(value)
+                  setApartmentId(null)
+                }}
+                dir="rtl"
+                className={cn(
+                  'w-full px-2 py-1.5 border rounded-lg text-sm disabled:opacity-50',
+                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                )}
+              >
+                <option value="">בחר בניין</option>
+                {buildings!
+                  .filter((building) => building.project_id === projectId)
+                  .map((building) => (
+                    <option key={building.id} value={building.id}>{building.name}</option>
+                  ))}
+              </select>
+              <select
+                id="create-apartment"
+                name="create-apartment"
+                aria-label="דירה (אופציונלי)"
+                value={apartmentId ?? ''}
+                disabled={buildingId == null || loadingApartments}
+                onChange={(e) => setApartmentId(e.target.value ? Number(e.target.value) : null)}
+                dir="rtl"
+                className={cn(
+                  'w-full px-2 py-1.5 border rounded-lg text-sm disabled:opacity-50',
+                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                )}
+              >
+                <option value="">{loadingApartments ? 'טוען…' : 'ללא דירה'}</option>
+                {buildingApartments.map((apartment) => (
+                  <option key={apartment.id} value={apartment.id}>
+                    {apartmentOptionLabel(apartment)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
 
