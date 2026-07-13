@@ -58,9 +58,49 @@ class ApartmentService:
         return await self.apartment_repository.get_with_details(created.id)
 
     async def delete_apartment(self, apartment_id: int) -> None:
-        """Delete a specific apartment (and its keys/tenants/etc. via cascade)."""
+        """Delete a specific apartment and close the gap it leaves behind.
+
+        Residential units are numbered sequentially, so removing one on its own
+        would leave a hole (delete #8 → 7, 9, 10, …). To keep the sequence
+        contiguous, every later residential unit shifts down by one
+        (9 → 8, 10 → 9, …) so the number the desk sees after a deletion reads
+        as the caller expects. Cascade removes the apartment's keys/tenants/etc.
+        """
         apartment = await self.get_apartment(apartment_id)
+        building_id = apartment.building_id
+        removed_number = (
+            None
+            if apartment.is_common_area
+            else self._parse_unit_number(apartment.unit_number)
+        )
         await self.apartment_repository.delete(apartment)
+        if removed_number is not None:
+            await self._renumber_after_delete(building_id, removed_number)
+
+    async def _renumber_after_delete(self, building_id: int, removed_number: int) -> None:
+        """Shift every later residential unit down by one to fill the deleted gap.
+
+        Common areas (text labels) and any non-numeric unit number are left
+        untouched; only purely numeric residential units above ``removed_number``
+        move. The shift is monotonic, so it never collides with a kept number.
+        """
+        apartments = await self.apartment_repository.list_by_building(building_id)
+        shifted: list[Apartment] = []
+        for apt in apartments:
+            if apt.is_common_area:
+                continue
+            number = self._parse_unit_number(apt.unit_number)
+            if number is not None and number > removed_number:
+                apt.unit_number = str(number - 1)
+                shifted.append(apt)
+        if shifted:
+            await self.apartment_repository.save_all(shifted)
+
+    @staticmethod
+    def _parse_unit_number(raw_value: str | None) -> int | None:
+        """Return the integer value of a purely numeric unit number, else None."""
+        text = (raw_value or "").strip()
+        return int(text) if text.isdigit() else None
 
     async def get_apartment(self, apartment_id: int) -> Apartment:
         apartment = await self.apartment_repository.get(apartment_id)
