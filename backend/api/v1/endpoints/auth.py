@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from backend.core.deps import DBSessionDep, require_admin, get_current_user
@@ -219,28 +219,26 @@ async def logout():
 
 
 @router.post("/forgot-password", dependencies=[Depends(rate_limit(max_requests=3, window_seconds=60))])
-async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
+async def forgot_password(db: DBSessionDep, request: PasswordResetRequest, background_tasks: BackgroundTasks):
     """Request password reset"""
     auth_service = AuthService(db)
     user = await auth_service.get_user_by_email(request.email)
 
-    if user:
-        # Use an initial_password_reset token (keyed by user id) so the reset
-        # link works with the existing /reset-password page, which submits to
-        # the reset-password-with-token endpoint.
-        from backend.core.security import create_initial_password_reset_token
-        reset_token = create_initial_password_reset_token(user.id, expires_days=1)
+    # Only issue a reset for active accounts. The email is dispatched as a
+    # background task so the response returns in constant time regardless of
+    # whether the account exists — otherwise the SMTP round-trip would create a
+    # timing side-channel that leaks which emails are registered.
+    if user and user.is_active:
+        expires_minutes = 30
+        reset_token = await auth_service.create_password_reset_token(user.email, expires_minutes=expires_minutes)
         email_service = EmailService()
-        email_sent = await email_service.send_password_reset_email(
+        background_tasks.add_task(
+            email_service.send_password_reset_email,
             email=user.email,
             full_name=user.full_name,
             reset_token=reset_token,
+            validity_text=f"{expires_minutes} דקות",
         )
-        if not email_sent:
-            logging.getLogger(__name__).warning(
-                "Failed to send password reset email to %s. Reset token was generated but email was not sent.",
-                user.email,
-            )
 
     # Always return success to prevent email enumeration
     return {"message": "If the email exists, a reset link has been sent"}
@@ -277,24 +275,30 @@ async def reset_password_with_token(
     reset_data: ResetPasswordWithToken
 ):
     """Reset password using token and temporary password verification"""
-    from backend.core.security import verify_initial_password_reset_token, verify_password
-    
+    from backend.core.security import (
+        verify_initial_password_reset_token,
+        verify_password_reset_token,
+        verify_password,
+    )
+
     auth_service = AuthService(db)
-    
-    # Verify token
+
+    # Accept both token types that land on the /reset-password page:
+    #  - initial_password_reset (keyed by user id) for admin-created accounts
+    #  - password_reset (keyed by email) for the forgot-password flow
+    user = None
     user_id = verify_initial_password_reset_token(reset_data.token)
-    if not user_id:
+    if user_id:
+        user = await auth_service.users.get_by_id(user_id)
+    else:
+        email = verify_password_reset_token(reset_data.token)
+        if email:
+            user = await auth_service.get_user_by_email(email)
+
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired token"
-        )
-    
-    # Get user
-    user = await auth_service.users.get_by_id(user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
         )
     
     # Verify temporary password only if provided
