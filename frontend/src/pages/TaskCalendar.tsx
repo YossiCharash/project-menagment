@@ -18,6 +18,7 @@ import ToastNotification, { useToast } from '../components/ToastNotification'
 import TaskChecklist from '../components/task-management/TaskChecklist'
 import { cn } from '../lib/utils'
 import { formatTaskCode } from '../lib/taskCode'
+import { canEditTask } from '../lib/taskPermissions'
 import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
@@ -2568,14 +2569,16 @@ export default function TaskCalendar({
                 <Bell className="w-4 h-4" />
                 {remindingTaskId === selectedTask?.id ? 'שולח...' : 'הזכר'}
               </button>
-              <button
-                type="button"
-                onClick={() => selectedTask && openEditModal(selectedTask)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-              >
-                <Pencil className="w-4 h-4" />
-                עריכה
-              </button>
+              {canEditTask(selectedTask, me) && (
+                <button
+                  type="button"
+                  onClick={() => selectedTask && openEditModal(selectedTask)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  <Pencil className="w-4 h-4" />
+                  עריכה
+                </button>
+              )}
               {selectedTask.status === 'completed' && !selectedTask.is_archived && (
                 <button
                   type="button"

@@ -277,6 +277,103 @@ class TestMultiAssigneeReassignment:
 
 @pytest.mark.api
 @pytest.mark.asyncio
+class TestAssigneeCanEdit:
+    """Any assignee (primary or co-owner) — not just an admin — may edit a task."""
+
+    async def test_primary_assignee_can_edit_title(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_a_token: str,
+        assignee_b: User,
+    ):
+        """The primary assignee (a Member) can edit the task's fields."""
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.put(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {assignee_a_token}"},
+            json={"title": "Edited by primary assignee"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["title"] == "Edited by primary assignee"
+
+    async def test_co_assignee_can_edit_status(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+        assignee_b_token: str,
+    ):
+        """A co-owner assignee (not the primary) can also edit the task."""
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.put(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {assignee_b_token}"},
+            json={"status": "in_progress"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "in_progress"
+
+    async def test_assignee_edit_may_resend_unchanged_assignee_set(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_a_token: str,
+        assignee_b: User,
+    ):
+        """The edit form re-sends the current assignees; that must not 403.
+
+        A genuine reassignment is blocked (see ``test_non_admin_cannot_reassign``),
+        but re-sending the SAME set (as the edit modal always does) is accepted and
+        the assignee set is left unchanged.
+        """
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.put(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {assignee_a_token}"},
+            json={
+                "title": "Edited, assignees untouched",
+                "assigned_to_user_id": assignee_a.id,
+                "assigned_to_user_ids": [assignee_a.id, assignee_b.id],
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["title"] == "Edited, assignees untouched"
+        assert set(data["assigned_to_user_ids"]) == {assignee_a.id, assignee_b.id}
+
+    async def test_non_assignee_member_cannot_edit(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+        member_user: User,
+        member_token: str,
+    ):
+        """A Member who is neither an assignee nor an admin cannot edit (403)."""
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.put(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {member_token}"},
+            json={"title": "Should be rejected"},
+        )
+        assert response.status_code == 403, response.text
+
+
+@pytest.mark.api
+@pytest.mark.asyncio
 class TestMultiAssigneeNotifications:
     """Every co-owner assignee receives an assignment notification."""
 
