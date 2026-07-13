@@ -13,6 +13,7 @@ const AdminInviteManagement = React.lazy(() => import('./pages/AdminInviteManage
 const EmailVerificationRegister = React.lazy(() => import('./pages/EmailVerificationRegister'))
 const OAuthCallback = React.lazy(() => import('./pages/OAuthCallback'))
 const ResetPassword = React.lazy(() => import('./pages/ResetPassword'))
+const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'))
 const AdminManagement = React.lazy(() => import('./pages/AdminManagement'))
 const UserManagement = React.lazy(() => import('./pages/UserManagement'))
 const AuditLogs = React.lazy(() => import('./pages/AuditLogs'))
@@ -192,6 +193,7 @@ function AppContent() {
           <Route path="/email-register" element={<EmailVerificationRegister />} />
           <Route path="/auth/callback" element={<OAuthCallback />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/confirm-transfer/:token" element={<ConfirmTransferPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
