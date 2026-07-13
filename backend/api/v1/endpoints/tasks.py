@@ -562,7 +562,14 @@ async def list_archived_tasks(
 
 @router.get("/super", response_model=list[TaskOut])
 async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
-    """Return all active super tasks (not completed, not archived). All authenticated users can see."""
+    """Return all active super tasks (not completed, not archived). Admin only.
+
+    Super tasks are a system-wide, admin-managed list, so only Admins may see
+    them. Non-admins get an empty list (rather than a 403) so the polling
+    Super Tasks panel simply renders nothing for them.
+    """
+    if user.role != "Admin":
+        return []
     repo = TaskRepository(db)
     tasks = await repo.list_super_tasks()
     return await _tasks_to_out_with_unread(db, user.id, tasks)
@@ -1067,6 +1074,9 @@ async def create_task(
     # end-after-N (count) and end-by-date are mutually exclusive; count wins if both sent.
     recurrence_end_date = None if recurrence["recurrence_count"] else getattr(data, "recurrence_end_date", None)
     initial_status = data.status if data.status in TASK_STATUS_VALUES else TaskStatus.PENDING
+    # Super tasks are admin-only (mirrors the update endpoint): a non-admin can
+    # never create one, even by sending is_super_task=true directly.
+    is_super_task = bool(getattr(data, "is_super_task", False)) and user.role == "Admin"
     task = Task(
         title=data.title,
         start_time=start_val,
@@ -1083,7 +1093,7 @@ async def create_task(
         recurrence_monthly_mode=recurrence["recurrence_monthly_mode"],
         recurrence_count=recurrence["recurrence_count"],
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
-        is_super_task=getattr(data, "is_super_task", False),
+        is_super_task=is_super_task,
         is_backlog=getattr(data, "is_backlog", False),
         apartment_id=getattr(data, "apartment_id", None),
         building_id=getattr(data, "building_id", None),
