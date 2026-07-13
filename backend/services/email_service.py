@@ -174,6 +174,31 @@ class EmailService:
         except Exception:
             return False
 
+    async def send_password_reset_email(self, email: str, full_name: str, reset_token: str, expires_minutes: int = 30) -> bool:
+        """Send password reset email with a reset link"""
+        try:
+            reset_link = f"{get_frontend_url()}/reset-password?token={reset_token}"
+            subject = "איפוס סיסמה - מערכת ניהול פרויקטים"
+            greeting = f"שלום {full_name}," if full_name else "שלום,"
+            body = f"""{greeting}
+
+קיבלנו בקשה לאיפוס הסיסמה שלך במערכת ניהול פרויקטי החזקת מבנים.
+
+כדי להגדיר סיסמה חדשה, אנא לחצו על הקישור הבא:
+{reset_link}
+
+הקישור תקף למשך {expires_minutes} דקות.
+
+אם לא ביקשתם לאפס את הסיסמה, אנא התעלמו מהודעה זו — הסיסמה שלכם לא תשתנה.
+
+בברכה,
+צוות המערכת"""
+
+            return await self._send_email(email, subject, body)
+        except Exception:
+            logger.error("שליחת אימייל איפוס סיסמה ל-%s נכשלה", email, exc_info=True)
+            return False
+
     def _create_html_email(self, body: str) -> str:
         """Create HTML email with RTL support"""
         # Escape HTML special characters
