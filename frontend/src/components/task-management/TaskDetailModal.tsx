@@ -827,21 +827,19 @@ export default function TaskDetailModal({
                 עריכה
               </button>
             )}
-            {effectiveTask.status === 'completed' && !effectiveTask.is_archived && (
-              <PermissionGuard action="update" resource="task">
-                <button
-                  type="button"
-                  onClick={() => handleArchiveTask(effectiveTask)}
-                  disabled={archivingTaskId === effectiveTask.id}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
-                  title="ארכב את המשימה שטופלה"
-                >
-                  <Archive className="w-4 h-4" />
-                  {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב'}
-                </button>
-              </PermissionGuard>
+            {effectiveTask.status === 'completed' && !effectiveTask.is_archived && canEditTask(effectiveTask, me) && (
+              <button
+                type="button"
+                onClick={() => handleArchiveTask(effectiveTask)}
+                disabled={archivingTaskId === effectiveTask.id}
+                className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                title="ארכב את המשימה שטופלה"
+              >
+                <Archive className="w-4 h-4" />
+                {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב'}
+              </button>
             )}
-            <PermissionGuard action="delete" resource="task">
+            {canEditTask(effectiveTask, me) && (
               <button
                 type="button"
                 onClick={() => handleDeleteTask(effectiveTask)}
@@ -851,7 +849,7 @@ export default function TaskDetailModal({
                 <Trash2 className="w-4 h-4" />
                 {deletingTaskId === effectiveTask.id ? 'מוחק...' : 'מחק'}
               </button>
-            </PermissionGuard>
+            )}
             <button
               type="button"
               onClick={onClose}
