@@ -5,6 +5,7 @@ import api, { avatarUrl, fileAttachmentUrl } from '../../lib/api'
 import Modal from '../Modal'
 import { cn } from '../../lib/utils'
 import { formatTaskCode } from '../../lib/taskCode'
+import { canEditTask } from '../../lib/taskPermissions'
 import {
   Archive,
   Bell,
@@ -816,17 +817,15 @@ export default function TaskDetailModal({
               <Bell className="w-4 h-4" />
               {remindingTaskId === effectiveTask.id ? 'שולח...' : 'הזכר'}
             </button>
-            {showEditButton && (
-              <PermissionGuard action="update" resource="task">
-                <button
-                  type="button"
-                  onClick={() => { onEdit?.(effectiveTask); onClose() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                >
-                  <Pencil className="w-4 h-4" />
-                  עריכה
-                </button>
-              </PermissionGuard>
+            {showEditButton && canEditTask(effectiveTask, me) && (
+              <button
+                type="button"
+                onClick={() => { onEdit?.(effectiveTask); onClose() }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                <Pencil className="w-4 h-4" />
+                עריכה
+              </button>
             )}
             {effectiveTask.status === 'completed' && !effectiveTask.is_archived && (
               <PermissionGuard action="update" resource="task">

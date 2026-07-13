@@ -1143,16 +1143,25 @@ async def update_task(
         task_id: int,
         data: TaskUpdate,
         db: DBSessionDep,
-        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(get_current_user),
 ):
-    """Update task time/date (used by drag & drop), status, or other fields. Member can only update own tasks."""
+    """Update task time/date (used by drag & drop), status, or other fields.
+
+    Editable by an Admin or any assignee of the task (the primary assignee or a
+    co-assignee). We intentionally do NOT gate this on the ``update`` task
+    permission: the Member global role is write-only on tasks by design, so an
+    assignee who is a Member would otherwise be unable to edit a task assigned to
+    them. This mirrors ``archive_task``'s access model. Participants (Outlook-style
+    invitees) are not assignees and must use ``respond`` to accept/decline.
+    Reassignment and the super-task flag remain admin-only (enforced below).
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin" and task.assigned_to_user_id != user.id:
+    if not (user.role == "Admin" or _is_task_assignee(task, user.id)):
         raise HTTPException(status_code=403,
-                            detail="Access denied. Only the organizer can edit. Use respond to accept/decline.")
+                            detail="Access denied. Only an assignee or admin can edit. Use respond to accept/decline.")
     update_data = data.model_dump(exclude_unset=True)
     # Only admins can toggle super task flag
     if "is_super_task" in update_data and user.role != "Admin":
@@ -1206,6 +1215,20 @@ async def update_task(
     set_reassign = "assigned_to_user_ids" in update_data and update_data["assigned_to_user_ids"] is not None
     if scalar_reassign or set_reassign:
         if user.role != "Admin":
+            # A non-admin assignee may edit the task but may NOT change who it is
+            # assigned to. The edit form always re-sends the current assignees, so
+            # a genuine reassignment (a set that differs from the current one) is
+            # rejected, while an unchanged set is accepted and simply ignored.
+            requested_ids = set(_ordered_unique_assignee_ids(
+                update_data["assigned_to_user_id"] if scalar_reassign else None,
+                update_data.get("assigned_to_user_ids"),
+            ))
+            current_ids = {task.assigned_to_user_id} | {
+                getattr(a, "id", None) for a in (getattr(task, "assignees", None) or [])
+            }
+            current_ids.discard(None)
+            if requested_ids and requested_ids != current_ids:
+                raise HTTPException(status_code=403, detail="רק מנהל יכול לשנות את המשתמשים המוקצים למשימה")
             update_data.pop("assigned_to_user_id", None)  # Only Admin can reassign
             update_data.pop("assigned_to_user_ids", None)
         else:
