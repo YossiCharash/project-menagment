@@ -4,7 +4,7 @@ import { useAppDispatch } from '../utils/hooks'
 import { fetchMe, login, clearPasswordChangeRequirement } from '../store/slices/authSlice'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../store'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react'
 import { LoadingSpinner } from '../components/ui/Loading'
 import { Logo } from '../components/ui/Logo'
@@ -163,6 +163,16 @@ export default function Login() {
                 </>
               )}
             </motion.button>
+
+            {/* Forgot Password Link */}
+            <div className="text-center">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                שכחתי סיסמה?
+              </Link>
+            </div>
 
           </form>
 

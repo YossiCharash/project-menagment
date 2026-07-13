@@ -174,7 +174,7 @@ class EmailService:
         except Exception:
             return False
 
-    async def send_password_reset_email(self, email: str, full_name: str, reset_token: str, expires_minutes: int = 30) -> bool:
+    async def send_password_reset_email(self, email: str, full_name: str, reset_token: str, validity_text: str = "24 שעות") -> bool:
         """Send password reset email with a reset link"""
         try:
             reset_link = f"{get_frontend_url()}/reset-password?token={reset_token}"
@@ -187,7 +187,7 @@ class EmailService:
 כדי להגדיר סיסמה חדשה, אנא לחצו על הקישור הבא:
 {reset_link}
 
-הקישור תקף למשך {expires_minutes} דקות.
+הקישור תקף למשך {validity_text}.
 
 אם לא ביקשתם לאפס את הסיסמה, אנא התעלמו מהודעה זו — הסיסמה שלכם לא תשתנה.
 

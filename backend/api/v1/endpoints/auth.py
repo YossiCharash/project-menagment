@@ -225,7 +225,11 @@ async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
     user = await auth_service.get_user_by_email(request.email)
 
     if user:
-        reset_token = await auth_service.create_password_reset_token(user.email)
+        # Use an initial_password_reset token (keyed by user id) so the reset
+        # link works with the existing /reset-password page, which submits to
+        # the reset-password-with-token endpoint.
+        from backend.core.security import create_initial_password_reset_token
+        reset_token = create_initial_password_reset_token(user.id, expires_days=1)
         email_service = EmailService()
         email_sent = await email_service.send_password_reset_email(
             email=user.email,
