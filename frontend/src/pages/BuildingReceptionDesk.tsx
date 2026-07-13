@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Search, Plus, ChevronLeft, AlertTriangle, X, Trash2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
@@ -533,6 +533,90 @@ export default function BuildingReceptionDesk() {
     setKeyTransferOpen(true)
   }
 
+  // Memoized edit-modal payloads. The 10s live refresh re-renders this page,
+  // and an inline `initial={...}` object would get a new reference each render —
+  // that would refire each open modal's seeding effect and wipe the user's
+  // in-progress edits. Keying the memo on the editing target keeps the
+  // reference stable across polls and only rebuilds when the target changes.
+  const tenantInitial = useMemo(
+    () =>
+      editingTenant
+        ? {
+            name: editingTenant.name,
+            phone: editingTenant.phone,
+            email: editingTenant.email,
+            move_in_date: editingTenant.move_in_date,
+          }
+        : null,
+    [editingTenant],
+  )
+  const vehicleInitial = useMemo(
+    () =>
+      editingVehicle
+        ? {
+            plate: editingVehicle.plate,
+            model: editingVehicle.model,
+            owner_name: editingVehicle.owner_name,
+            parking_spot: editingVehicle.parking_spot,
+          }
+        : null,
+    [editingVehicle],
+  )
+  const deliveryInitial = useMemo(
+    () =>
+      editingDelivery
+        ? { title: editingDelivery.title, kind: editingDelivery.kind, meta: editingDelivery.meta }
+        : null,
+    [editingDelivery],
+  )
+  const technicianInitial = useMemo(
+    () =>
+      editingTechnicianVisit
+        ? {
+            name: editingTechnicianVisit.name,
+            role: editingTechnicianVisit.role,
+            phone: editingTechnicianVisit.phone,
+            note: editingTechnicianVisit.note,
+          }
+        : null,
+    [editingTechnicianVisit],
+  )
+  const clientInitial = useMemo(
+    () =>
+      editingClientVisit
+        ? {
+            name: editingClientVisit.name,
+            arrived_at: editingClientVisit.arrived_at,
+            expected_until: editingClientVisit.expected_until,
+            note: editingClientVisit.note,
+          }
+        : null,
+    [editingClientVisit],
+  )
+  const apartmentInitial = useMemo(
+    () =>
+      editingApartment
+        ? {
+            floor: editingApartment.floor,
+            unit_number: editingApartment.unit_number,
+            label: editingApartment.label,
+            is_common_area: editingApartment.is_common_area,
+            owner_name: editingApartment.owner_name,
+            owner_phone: editingApartment.owner_phone,
+            management_company_name: editingApartment.management_company_name,
+            management_company_phone: editingApartment.management_company_phone,
+            attorneys: editingApartment.attorneys,
+            equipment: editingApartment.equipment,
+            notes: editingApartment.notes,
+          }
+        : null,
+    [editingApartment],
+  )
+  const projectInitial = useMemo(
+    () => (editingProject ? { name: editingProject.name, description: editingProject.description } : null),
+    [editingProject],
+  )
+
   return (
     <div dir="rtl" className="flex flex-col h-full min-h-0">
       <header className="flex items-center gap-4 flex-wrap px-1 pb-4">
@@ -713,7 +797,7 @@ export default function BuildingReceptionDesk() {
       <CreateProjectModal
         isOpen={createProjectOpen || editingProject !== null}
         onClose={closeProjectModal}
-        initial={editingProject ? { name: editingProject.name, description: editingProject.description } : null}
+        initial={projectInitial}
         onSubmit={handleSubmitProject}
         submitting={submitting}
       />
@@ -768,16 +852,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addVehicleOpen}
         onClose={closeVehicleModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingVehicle
-            ? {
-                plate: editingVehicle.plate,
-                model: editingVehicle.model,
-                owner_name: editingVehicle.owner_name,
-                parking_spot: editingVehicle.parking_spot,
-              }
-            : null
-        }
+        initial={vehicleInitial}
         onSubmit={handleSubmitVehicle}
         submitting={submitting}
       />
@@ -786,16 +861,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addTenantOpen}
         onClose={closeTenantModal}
         hasCurrentTenant={activeApartment?.current_tenant != null}
-        initial={
-          editingTenant
-            ? {
-                name: editingTenant.name,
-                phone: editingTenant.phone,
-                email: editingTenant.email,
-                move_in_date: editingTenant.move_in_date,
-              }
-            : null
-        }
+        initial={tenantInitial}
         onSubmit={handleSubmitTenant}
         submitting={submitting}
       />
@@ -804,11 +870,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addDeliveryOpen}
         onClose={closeDeliveryModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingDelivery
-            ? { title: editingDelivery.title, kind: editingDelivery.kind, meta: editingDelivery.meta }
-            : null
-        }
+        initial={deliveryInitial}
         onSubmit={handleSubmitDelivery}
         submitting={submitting}
       />
@@ -817,16 +879,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addTechnicianOpen}
         onClose={closeTechnicianModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingTechnicianVisit
-            ? {
-                name: editingTechnicianVisit.name,
-                role: editingTechnicianVisit.role,
-                phone: editingTechnicianVisit.phone,
-                note: editingTechnicianVisit.note,
-              }
-            : null
-        }
+        initial={technicianInitial}
         onSubmit={handleSubmitTechnicianVisit}
         submitting={submitting}
       />
@@ -835,16 +888,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addClientOpen}
         onClose={closeClientModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingClientVisit
-            ? {
-                name: editingClientVisit.name,
-                arrived_at: editingClientVisit.arrived_at,
-                expected_until: editingClientVisit.expected_until,
-                note: editingClientVisit.note,
-              }
-            : null
-        }
+        initial={clientInitial}
         onSubmit={handleSubmitClientVisit}
         submitting={submitting}
       />
@@ -854,23 +898,7 @@ export default function BuildingReceptionDesk() {
         onClose={closeApartmentModal}
         buildingId={activeBuilding?.id ?? null}
         defaultFloor={addApartmentFloor ?? 1}
-        initial={
-          editingApartment
-            ? {
-                floor: editingApartment.floor,
-                unit_number: editingApartment.unit_number,
-                label: editingApartment.label,
-                is_common_area: editingApartment.is_common_area,
-                owner_name: editingApartment.owner_name,
-                owner_phone: editingApartment.owner_phone,
-                management_company_name: editingApartment.management_company_name,
-                management_company_phone: editingApartment.management_company_phone,
-                attorneys: editingApartment.attorneys,
-                equipment: editingApartment.equipment,
-                notes: editingApartment.notes,
-              }
-            : null
-        }
+        initial={apartmentInitial}
         onSubmit={handleSubmitApartment}
         submitting={submitting}
       />
