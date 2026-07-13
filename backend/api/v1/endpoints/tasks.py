@@ -564,9 +564,12 @@ async def list_archived_tasks(
 async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
     """Return all active super tasks (not completed, not archived). Admin only.
 
-    Super tasks are a system-wide, admin-managed list, so only Admins may see
-    them. Non-admins get an empty list (rather than a 403) so the polling
-    Super Tasks panel simply renders nothing for them.
+    This is the dedicated, system-wide Super Tasks list, which is admin-managed
+    and admin-only. Non-admins get an empty list (rather than a 403) so the
+    polling Super Tasks panel simply renders nothing for them. Note this only
+    hides the aggregated list/panel: a super task assigned to a member is still
+    visible to that member through the normal task list/board/calendar, like any
+    other task assigned to them.
     """
     if user.role != "Admin":
         return []

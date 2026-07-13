@@ -34,8 +34,9 @@ export default function SuperTasksPanel() {
   }, [])
 
   useEffect(() => {
-    // Super tasks are an admin-only, system-wide list; regular users never
-    // fetch or see them.
+    // The aggregated Super Tasks list/panel is admin-only; regular users never
+    // fetch or render it. (A super task assigned to a member still shows in that
+    // member's normal board/calendar/task list, like any other assigned task.)
     if (!isAdmin) return
     fetchSuperTasks()
     const interval = setInterval(fetchSuperTasks, 60_000)
