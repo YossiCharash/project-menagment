@@ -426,6 +426,8 @@ export default function TaskDetailModal({
               <span>דורש אישור סגירה</span>
             </p>
           )}
+              {/* Super tasks are admin-only, so only Admins may toggle the flag. */}
+              {me?.role === 'Admin' && (
               <PermissionGuard action="update" resource="task">
                 <div className="flex items-center gap-3 py-1">
                   <Zap className={cn('w-4 h-4', effectiveTask.is_super_task ? 'text-red-600' : 'text-gray-400')} />
@@ -454,6 +456,7 @@ export default function TaskDetailModal({
                   </span>
                 </div>
               </PermissionGuard>
+              )}
           <div className="text-sm flex items-start gap-2 flex-wrap">
             <span className="text-gray-600 dark:text-gray-400">
               {(effectiveTask.assignees?.length ?? 0) > 1 ? 'מוקצה למשתמשים: ' : 'מוקצה למשתמש: '}
