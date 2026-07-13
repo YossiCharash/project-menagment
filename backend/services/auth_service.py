@@ -97,9 +97,9 @@ class AuthService:
         user.password_hash = hash_password(new_password)
         await self.users.update(user)
 
-    async def create_password_reset_token(self, email: str) -> str:
+    async def create_password_reset_token(self, email: str, expires_minutes: int = 30) -> str:
         """Create password reset token for user"""
-        return create_password_reset_token(email)
+        return create_password_reset_token(email, expires_minutes=expires_minutes)
 
     def verify_password(self, password: str, hashed: str) -> bool:
         """Verify password against hash"""

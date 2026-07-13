@@ -174,7 +174,7 @@ class EmailService:
         except Exception:
             return False
 
-    async def send_password_reset_email(self, email: str, full_name: str, reset_token: str, validity_text: str = "24 שעות") -> bool:
+    async def send_password_reset_email(self, email: str, full_name: str, reset_token: str, validity_text: str) -> bool:
         """Send password reset email with a reset link"""
         try:
             reset_link = f"{get_frontend_url()}/reset-password?token={reset_token}"
