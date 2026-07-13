@@ -92,6 +92,7 @@ export default function TaskDetailModal({
   onEdit,
 }: TaskDetailModalProps) {
   const me = useSelector((state: RootState) => state.auth.me)
+  const isAdmin = me?.role === 'Admin'
   const [task, setTask] = useState<Task | null>(initialTask ?? null)
   const [taskLoading, setTaskLoading] = useState(false)
   const [taskMessages, setTaskMessages] = useState<TaskMessageType[]>([])
@@ -369,7 +370,6 @@ export default function TaskDetailModal({
           </p>
           {(() => {
             const overdueInfo = getOverdueInfo(effectiveTask)
-            const isAdmin = me?.role === 'Admin'
             const isPendingClosure = effectiveTask.status === 'pending_closure'
 
             return (
@@ -427,7 +427,7 @@ export default function TaskDetailModal({
             </p>
           )}
               {/* Super tasks are admin-only, so only Admins may toggle the flag. */}
-              {me?.role === 'Admin' && (
+              {isAdmin && (
               <PermissionGuard action="update" resource="task">
                 <div className="flex items-center gap-3 py-1">
                   <Zap className={cn('w-4 h-4', effectiveTask.is_super_task ? 'text-red-600' : 'text-gray-400')} />
@@ -561,7 +561,7 @@ export default function TaskDetailModal({
           {/* רשימת משימות */}
           <TaskChecklist
             taskId={effectiveTask.id}
-            canEdit={me?.role === 'Admin' || me?.id === effectiveTask.assigned_to_user_id}
+            canEdit={isAdmin || me?.id === effectiveTask.assigned_to_user_id}
             participants={(effectiveTask.participants || []).map((p) => ({
               id: p.user_id,
               name: p.full_name,
@@ -588,7 +588,7 @@ export default function TaskDetailModal({
               ) : (
                 taskMessages.map((msg) => {
                   const isMine = msg.user_id === me?.id
-                  const canDelete = me?.role === 'Admin' || msg.user_id === me?.id
+                  const canDelete = isAdmin || msg.user_id === me?.id
                   const canEdit = isMine && !!msg.message
                   const isDeleting = deletingMessageId === msg.id
                   const isEditing = editingMessageId === msg.id
