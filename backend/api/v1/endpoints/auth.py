@@ -223,13 +223,21 @@ async def forgot_password(db: DBSessionDep, request: PasswordResetRequest):
     """Request password reset"""
     auth_service = AuthService(db)
     user = await auth_service.get_user_by_email(request.email)
-    
+
     if user:
-        # In a real app, you would send an email here
         reset_token = await auth_service.create_password_reset_token(user.email)
-        # For now, just return success (in production, send email)
-        return {"message": "If the email exists, a reset link has been sent"}
-    
+        email_service = EmailService()
+        email_sent = await email_service.send_password_reset_email(
+            email=user.email,
+            full_name=user.full_name,
+            reset_token=reset_token,
+        )
+        if not email_sent:
+            logging.getLogger(__name__).warning(
+                "Failed to send password reset email to %s. Reset token was generated but email was not sent.",
+                user.email,
+            )
+
     # Always return success to prevent email enumeration
     return {"message": "If the email exists, a reset link has been sent"}
 
