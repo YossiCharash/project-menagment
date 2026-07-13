@@ -9,6 +9,7 @@ import type {
   ApartmentKey,
   Tenant,
   TechnicianVisit,
+  ClientVisit,
 } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
 import KeyStatusList from './KeyStatusList'
@@ -17,8 +18,9 @@ import VehicleList from './VehicleList'
 import TenantHistory from './TenantHistory'
 import ApartmentTaskList from './ApartmentTaskList'
 import TechnicianVisitList from './TechnicianVisitList'
+import ClientVisitList from './ClientVisitList'
 
-type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technicians' | 'history'
+type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technicians' | 'clients' | 'history'
 
 interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
@@ -47,6 +49,10 @@ interface ApartmentDetailPanelProps {
   onMarkTechnicianLeft: (visitId: number) => void
   onEditTechnicianVisit: (visit: TechnicianVisit) => void
   onDeleteTechnicianVisit: (visitId: number) => void
+  onAddClientVisit: () => void
+  onMarkClientLeft: (visitId: number) => void
+  onEditClientVisit: (visit: ClientVisit) => void
+  onDeleteClientVisit: (visitId: number) => void
 }
 
 interface TabDef {
@@ -134,6 +140,10 @@ export default function ApartmentDetailPanel({
   onMarkTechnicianLeft,
   onEditTechnicianVisit,
   onDeleteTechnicianVisit,
+  onAddClientVisit,
+  onMarkClientLeft,
+  onEditClientVisit,
+  onDeleteClientVisit,
 }: ApartmentDetailPanelProps) {
   const [tab, setTab] = useState<TabId>('details')
   const isOpen = apartment !== null || loading
@@ -142,6 +152,7 @@ export default function ApartmentDetailPanel({
   const deskHeldKeysCount = apartment?.keys.filter((key) => key.holder === 'in_desk').length ?? 0
   const pendingDeliveries = apartment?.deliveries.filter((delivery) => delivery.status === 'pending').length ?? 0
   const insideTechniciansCount = apartment?.technician_visits.filter((visit) => visit.status === 'inside').length ?? 0
+  const activeClientsCount = apartment?.client_visits.filter((visit) => visit.status === 'present').length ?? 0
 
   const openTasksCount = tasks.filter((task) => task.status !== 'completed').length
 
@@ -152,11 +163,14 @@ export default function ApartmentDetailPanel({
     { id: 'vehicles', label: 'רכבים', count: apartment?.vehicles.length || undefined },
     { id: 'deliveries', label: 'משלוחים', count: pendingDeliveries || undefined },
     { id: 'technicians', label: 'טכנאים', count: insideTechniciansCount || undefined },
+    { id: 'clients', label: 'לקוחות', count: activeClientsCount || undefined },
     { id: 'history', label: 'היסטוריה' },
   ]
 
   const tenant = apartment?.current_tenant ?? null
-  const isVacant = apartment !== null && tenant === null && !apartment.is_common_area
+  // Occupancy (מאוכלסת/פנויה) is driven by an active client arrival, not the
+  // tenant record — see the "לקוחות" tab.
+  const isVacant = apartment !== null && activeClientsCount === 0 && !apartment.is_common_area
   const statusColor = apartment?.is_common_area ? PALETTE.common : isVacant ? PALETTE.vacant : PALETTE.occupied
   const statusLabel = apartment?.is_common_area ? 'תקין' : isVacant ? 'פנויה' : 'מאוכלסת'
 
@@ -280,7 +294,11 @@ export default function ApartmentDetailPanel({
                         <DetailRow
                           icon={Users}
                           label="דיירים"
-                          value={isVacant ? 'דירה פנויה' : (tenant?.name ?? apartment.label ?? '—')}
+                          value={
+                            !tenant && !apartment.is_common_area
+                              ? 'דירה פנויה'
+                              : (tenant?.name ?? apartment.label ?? '—')
+                          }
                         />
                         <DetailRow icon={Phone} label="טלפון" value={tenant?.phone ?? '—'} />
                         <DetailRow icon={Mail} label="דוא״ל" value={tenant?.email ?? '—'} />
@@ -445,6 +463,16 @@ export default function ApartmentDetailPanel({
                       onAddVisit={onAddTechnicianVisit}
                       onEditVisit={onEditTechnicianVisit}
                       onDeleteVisit={onDeleteTechnicianVisit}
+                    />
+                  )}
+
+                  {tab === 'clients' && (
+                    <ClientVisitList
+                      visits={apartment.client_visits}
+                      onMarkLeft={onMarkClientLeft}
+                      onAddVisit={onAddClientVisit}
+                      onEditVisit={onEditClientVisit}
+                      onDeleteVisit={onDeleteClientVisit}
                     />
                   )}
 

@@ -1,5 +1,5 @@
 import type { ApartmentActivity } from '../../types/api'
-import { ACCENT, formatDate } from './constants'
+import { ACCENT, activityKindLabel, formatDate } from './constants'
 
 interface TenantHistoryProps {
   activities: ApartmentActivity[]
@@ -25,7 +25,7 @@ export default function TenantHistory({ activities }: TenantHistoryProps) {
           </div>
           <div className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-bold text-gray-900 dark:text-white">{activity.kind}</span>
+              <span className="text-sm font-bold text-gray-900 dark:text-white">{activityKindLabel(activity.kind)}</span>
               <span className="text-[11px] font-bold text-gray-400">{formatDate(activity.created_at)}</span>
             </div>
             <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">

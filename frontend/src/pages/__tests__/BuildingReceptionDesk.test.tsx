@@ -35,12 +35,39 @@ const building = {
       is_common_area: false,
       created_at: '2024-01-01T00:00:00',
       current_tenant: null,
+      has_active_client_visit: false,
       keys_count: 0,
       vehicles_count: 0,
       pending_deliveries_count: 0,
       open_tasks_count: 0,
     },
   ],
+}
+
+// Full ApartmentDetail returned when the side panel opens, with one client
+// currently present (so occupancy reads מאוכלסת and the לקוחות tab has a row).
+const apartmentDetail = {
+  ...building.apartments[0],
+  has_active_client_visit: true,
+  tenants: [],
+  keys: [],
+  vehicles: [],
+  deliveries: [],
+  technician_visits: [],
+  client_visits: [
+    {
+      id: 91,
+      apartment_id: 11,
+      name: 'לקוח בדיקה',
+      arrived_at: '2026-07-13T09:00:00',
+      expected_until: null,
+      note: null,
+      status: 'present',
+      left_at: null,
+      created_at: '2026-07-13T09:00:00',
+    },
+  ],
+  activities: [],
 }
 
 // Mock the transport layer so the slice thunks resolve without real HTTP.
@@ -51,6 +78,7 @@ vi.mock('../../lib/buildingReceptionApi', () => {
     createBuilding: vi.fn(),
     deleteBuilding: vi.fn(),
     getApartment: vi.fn(),
+    listApartmentTasks: vi.fn(),
     listTaskAssignees: vi.fn(),
     createTask: vi.fn(),
     listProjects: vi.fn(),
@@ -66,6 +94,7 @@ const mockedApi = BuildingReceptionAPI as unknown as {
   createBuilding: ReturnType<typeof vi.fn>
   deleteBuilding: ReturnType<typeof vi.fn>
   getApartment: ReturnType<typeof vi.fn>
+  listApartmentTasks: ReturnType<typeof vi.fn>
   listTaskAssignees: ReturnType<typeof vi.fn>
   createTask: ReturnType<typeof vi.fn>
   listProjects: ReturnType<typeof vi.fn>
@@ -110,6 +139,8 @@ beforeEach(() => {
   mockedApi.listBuildings.mockResolvedValue([buildingListItem])
   mockedApi.getBuilding.mockResolvedValue(building)
   mockedApi.createBuilding.mockResolvedValue({ ...building, id: 2, name: 'בניין חדש' })
+  mockedApi.getApartment.mockResolvedValue(apartmentDetail)
+  mockedApi.listApartmentTasks.mockResolvedValue([])
   mockedApi.listTaskAssignees.mockResolvedValue([])
 })
 
@@ -166,6 +197,26 @@ describe('BuildingReceptionDesk', () => {
     expect(screen.queryByText('פרויקט')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /מחיקת הבניין/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /מחיקת פרויקט/ })).not.toBeInTheDocument()
+  })
+
+  it('shows client-driven occupancy and the לקוחות tab in the apartment panel', async () => {
+    renderPage()
+    await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
+
+    // Open the apartment side panel.
+    fireEvent.click(await screen.findByText('דירה 101'))
+    await waitFor(() => expect(mockedApi.getApartment).toHaveBeenCalledWith(11))
+
+    // Occupancy is driven by the active client arrival, not the (absent) tenant.
+    // The panel badge reads מאוכלסת (the grid tile shows it too once its summary
+    // reports an active visit).
+    const occupied = await screen.findAllByText('מאוכלסת')
+    expect(occupied.length).toBeGreaterThan(0)
+
+    // The לקוחות tab lists the present client.
+    fireEvent.click(screen.getAllByText('לקוחות')[0])
+    expect(await screen.findByText('לקוח בדיקה')).toBeInTheDocument()
+    expect(screen.getByText('יציאה מיידית')).toBeInTheDocument()
   })
 
   it('creates a building through the wizard', async () => {

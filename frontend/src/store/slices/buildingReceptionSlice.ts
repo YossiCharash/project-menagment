@@ -20,6 +20,8 @@ import type {
   KeyTransferCreate,
   TechnicianVisitCreate,
   TechnicianVisitUpdate,
+  ClientVisitCreate,
+  ClientVisitUpdate,
   TenantCreate,
   TenantUpdate,
 } from '../../types/api'
@@ -296,6 +298,85 @@ export const markTechnicianLeft = createAsyncThunk(
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'רישום יציאת הטכנאי נכשל'))
+    }
+  },
+)
+
+// ---- Client visits ----------------------------------------------------------
+
+export const createClientVisit = createAsyncThunk(
+  'buildingReception/createClientVisit',
+  async (payload: ClientVisitCreate, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.createClientVisit(payload)
+      return await BuildingReceptionAPI.getApartment(payload.apartment_id)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רישום הגעת הלקוח נכשל'))
+    }
+  },
+)
+
+export const markClientLeft = createAsyncThunk(
+  'buildingReception/markClientLeft',
+  async ({ visitId, apartmentId }: { visitId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.markClientLeft(visitId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רישום יציאת הלקוח נכשל'))
+    }
+  },
+)
+
+export const updateClientVisit = createAsyncThunk(
+  'buildingReception/updateClientVisit',
+  async (
+    { visitId, apartmentId, changes }: { visitId: number; apartmentId: number; changes: ClientVisitUpdate },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.updateClientVisit(visitId, changes)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'עדכון הגעת הלקוח נכשל'))
+    }
+  },
+)
+
+export const deleteClientVisit = createAsyncThunk(
+  'buildingReception/deleteClientVisit',
+  async ({ visitId, apartmentId }: { visitId: number; apartmentId: number }, { rejectWithValue }) => {
+    try {
+      await BuildingReceptionAPI.deleteClientVisit(visitId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת הגעת הלקוח נכשלה'))
+    }
+  },
+)
+
+// ---- Silent background refresh (10s live polling) ---------------------------
+// These mirror fetchBuilding / fetchApartment but skip the loading flags and
+// task-clearing so the desk refreshes in place without a "loading" flicker.
+
+export const refreshBuildingSilently = createAsyncThunk(
+  'buildingReception/refreshBuildingSilently',
+  async (buildingId: number, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.getBuilding(buildingId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רענון נתוני הבניין נכשל'))
+    }
+  },
+)
+
+export const refreshApartmentSilently = createAsyncThunk(
+  'buildingReception/refreshApartmentSilently',
+  async (apartmentId: number, { rejectWithValue }) => {
+    try {
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'רענון פרטי הדירה נכשל'))
     }
   },
 )
@@ -582,7 +663,26 @@ const slice = createSlice({
       .addCase(markTechnicianLeft.fulfilled, applyApartment)
       .addCase(updateTechnicianVisit.fulfilled, applyApartment)
       .addCase(deleteTechnicianVisit.fulfilled, applyApartment)
+      .addCase(createClientVisit.fulfilled, applyApartment)
+      .addCase(markClientLeft.fulfilled, applyApartment)
+      .addCase(updateClientVisit.fulfilled, applyApartment)
+      .addCase(deleteClientVisit.fulfilled, applyApartment)
       .addCase(updateApartment.fulfilled, applyApartment)
+
+      // Silent 10s polling: update data in place, never toggle loading flags.
+      // Ignore a poll that resolved after the user closed the panel or moved to
+      // a different apartment/building, so a stale in-flight response can't
+      // reopen a closed panel or revert a switch.
+      .addCase(refreshApartmentSilently.fulfilled, (state, action) => {
+        if (state.activeApartment?.id === action.payload.id) {
+          state.activeApartment = action.payload
+        }
+      })
+      .addCase(refreshBuildingSilently.fulfilled, (state, action) => {
+        if (state.activeBuilding?.id === action.payload.id) {
+          state.activeBuilding = action.payload
+        }
+      })
 
       .addCase(createApartment.fulfilled, (state, action) => {
         state.activeBuilding = action.payload
@@ -598,6 +698,8 @@ const slice = createSlice({
       // surfaces its Hebrew message so the page's error banner can show it.
       .addMatcher(isRejected, (state, action) => {
         if (!action.type.startsWith('buildingReception/')) return
+        // A failed background poll must stay invisible — don't flash the banner.
+        if (action.type.includes('Silently')) return
         state.error = (action.payload as string) || action.error?.message || 'הפעולה נכשלה'
       })
   },

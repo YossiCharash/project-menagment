@@ -20,7 +20,7 @@ export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProp
     ? (apartment.label ?? 'שטח משותף')
     : isVacant
       ? '— פנויה —'
-      : (apartment.current_tenant?.name ?? '—')
+      : (apartment.current_tenant?.name ?? 'לקוח בדירה')
   const statusLabel = apartment.is_common_area ? 'תקין' : isVacant ? 'פנויה' : 'מאוכלסת'
 
   return (

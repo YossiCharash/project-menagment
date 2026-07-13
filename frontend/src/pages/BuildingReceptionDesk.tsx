@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Search, Plus, ChevronLeft, AlertTriangle, X, Trash2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../utils/hooks'
 import type { RootState } from '../store'
@@ -17,6 +17,8 @@ import type {
   KeyTransferCreate,
   TechnicianVisit,
   TechnicianVisitCreate,
+  ClientVisit,
+  ClientVisitCreate,
   Tenant,
   TenantCreate,
 } from '../types/api'
@@ -60,6 +62,12 @@ import {
   markTechnicianLeft,
   updateTechnicianVisit,
   deleteTechnicianVisit,
+  createClientVisit,
+  markClientLeft,
+  updateClientVisit,
+  deleteClientVisit,
+  refreshBuildingSilently,
+  refreshApartmentSilently,
 } from '../store/slices/buildingReceptionSlice'
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
@@ -72,6 +80,7 @@ import AddVehicleModal from '../components/building-reception/AddVehicleModal'
 import AddTenantModal from '../components/building-reception/AddTenantModal'
 import AddDeliveryModal from '../components/building-reception/AddDeliveryModal'
 import AddTechnicianVisitModal from '../components/building-reception/AddTechnicianVisitModal'
+import AddClientVisitModal from '../components/building-reception/AddClientVisitModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 import AddKeyModal from '../components/building-reception/AddKeyModal'
 
@@ -116,6 +125,7 @@ export default function BuildingReceptionDesk() {
   const [addTenantOpen, setAddTenantOpen] = useState(false)
   const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
   const [addTechnicianOpen, setAddTechnicianOpen] = useState(false)
+  const [addClientOpen, setAddClientOpen] = useState(false)
   const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
   const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -126,6 +136,7 @@ export default function BuildingReceptionDesk() {
   const [editingVehicle, setEditingVehicle] = useState<AuthorizedVehicle | null>(null)
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null)
   const [editingTechnicianVisit, setEditingTechnicianVisit] = useState<TechnicianVisit | null>(null)
+  const [editingClientVisit, setEditingClientVisit] = useState<ClientVisit | null>(null)
 
   // Load the building + project lists once; then open the first building.
   useEffect(() => {
@@ -178,6 +189,21 @@ export default function BuildingReceptionDesk() {
   }, [dispatch, activeBuilding, visibleBuildings])
 
   const activeApartmentId = activeApartment?.id ?? null
+
+  // Live updates: silently re-fetch the open building + apartment every 10s so
+  // occupancy and indicators stay current (and the auto-vacancy flip shows up)
+  // without a manual reload. Silent thunks skip loading flags to avoid flicker.
+  const activeBuildingId = activeBuilding?.id ?? null
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (activeBuildingId !== null) void dispatch(refreshBuildingSilently(activeBuildingId))
+      if (activeApartmentId !== null) {
+        void dispatch(refreshApartmentSilently(activeApartmentId))
+        void dispatch(fetchApartmentTasks(activeApartmentId))
+      }
+    }, 10000)
+    return () => window.clearInterval(intervalId)
+  }, [dispatch, activeBuildingId, activeApartmentId])
 
   // The task modal's building → apartment cascade loads apartments on demand.
   const loadBuildingApartments = useCallback(
@@ -457,6 +483,46 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteTechnicianVisit({ visitId, apartmentId: activeApartmentId }))
   }
 
+  // --- Client visits ---
+  const closeClientModal = () => {
+    setAddClientOpen(false)
+    setEditingClientVisit(null)
+  }
+
+  const handleSubmitClientVisit = (payload: ClientVisitCreate) => {
+    if (editingClientVisit && activeApartmentId !== null) {
+      void runSubmit(
+        () =>
+          dispatch(
+            updateClientVisit({
+              visitId: editingClientVisit.id,
+              apartmentId: activeApartmentId,
+              changes: {
+                name: payload.name,
+                arrived_at: payload.arrived_at,
+                expected_until: payload.expected_until,
+                note: payload.note,
+              },
+            }),
+          ).unwrap(),
+        closeClientModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createClientVisit(payload)).unwrap(), closeClientModal)
+  }
+
+  const handleMarkClientLeft = (visitId: number) => {
+    if (activeApartmentId === null) return
+    void dispatch(markClientLeft({ visitId, apartmentId: activeApartmentId }))
+  }
+
+  const handleDeleteClientVisit = (visitId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את רשומת הגעת הלקוח?')) return
+    void dispatch(deleteClientVisit({ visitId, apartmentId: activeApartmentId }))
+  }
+
   // When an apartment has no keys yet, seed a default one so a hand-out can be
   // recorded immediately from the transfer modal.
   const handleOpenKeyTransfer = async () => {
@@ -466,6 +532,90 @@ export default function BuildingReceptionDesk() {
     }
     setKeyTransferOpen(true)
   }
+
+  // Memoized edit-modal payloads. The 10s live refresh re-renders this page,
+  // and an inline `initial={...}` object would get a new reference each render —
+  // that would refire each open modal's seeding effect and wipe the user's
+  // in-progress edits. Keying the memo on the editing target keeps the
+  // reference stable across polls and only rebuilds when the target changes.
+  const tenantInitial = useMemo(
+    () =>
+      editingTenant
+        ? {
+            name: editingTenant.name,
+            phone: editingTenant.phone,
+            email: editingTenant.email,
+            move_in_date: editingTenant.move_in_date,
+          }
+        : null,
+    [editingTenant],
+  )
+  const vehicleInitial = useMemo(
+    () =>
+      editingVehicle
+        ? {
+            plate: editingVehicle.plate,
+            model: editingVehicle.model,
+            owner_name: editingVehicle.owner_name,
+            parking_spot: editingVehicle.parking_spot,
+          }
+        : null,
+    [editingVehicle],
+  )
+  const deliveryInitial = useMemo(
+    () =>
+      editingDelivery
+        ? { title: editingDelivery.title, kind: editingDelivery.kind, meta: editingDelivery.meta }
+        : null,
+    [editingDelivery],
+  )
+  const technicianInitial = useMemo(
+    () =>
+      editingTechnicianVisit
+        ? {
+            name: editingTechnicianVisit.name,
+            role: editingTechnicianVisit.role,
+            phone: editingTechnicianVisit.phone,
+            note: editingTechnicianVisit.note,
+          }
+        : null,
+    [editingTechnicianVisit],
+  )
+  const clientInitial = useMemo(
+    () =>
+      editingClientVisit
+        ? {
+            name: editingClientVisit.name,
+            arrived_at: editingClientVisit.arrived_at,
+            expected_until: editingClientVisit.expected_until,
+            note: editingClientVisit.note,
+          }
+        : null,
+    [editingClientVisit],
+  )
+  const apartmentInitial = useMemo(
+    () =>
+      editingApartment
+        ? {
+            floor: editingApartment.floor,
+            unit_number: editingApartment.unit_number,
+            label: editingApartment.label,
+            is_common_area: editingApartment.is_common_area,
+            owner_name: editingApartment.owner_name,
+            owner_phone: editingApartment.owner_phone,
+            management_company_name: editingApartment.management_company_name,
+            management_company_phone: editingApartment.management_company_phone,
+            attorneys: editingApartment.attorneys,
+            equipment: editingApartment.equipment,
+            notes: editingApartment.notes,
+          }
+        : null,
+    [editingApartment],
+  )
+  const projectInitial = useMemo(
+    () => (editingProject ? { name: editingProject.name, description: editingProject.description } : null),
+    [editingProject],
+  )
 
   return (
     <div dir="rtl" className="flex flex-col h-full min-h-0">
@@ -623,6 +773,16 @@ export default function BuildingReceptionDesk() {
           setAddTechnicianOpen(true)
         }}
         onDeleteTechnicianVisit={handleDeleteTechnicianVisit}
+        onAddClientVisit={() => {
+          setEditingClientVisit(null)
+          setAddClientOpen(true)
+        }}
+        onMarkClientLeft={handleMarkClientLeft}
+        onEditClientVisit={(visit) => {
+          setEditingClientVisit(visit)
+          setAddClientOpen(true)
+        }}
+        onDeleteClientVisit={handleDeleteClientVisit}
       />
 
       <CreateBuildingModal
@@ -637,7 +797,7 @@ export default function BuildingReceptionDesk() {
       <CreateProjectModal
         isOpen={createProjectOpen || editingProject !== null}
         onClose={closeProjectModal}
-        initial={editingProject ? { name: editingProject.name, description: editingProject.description } : null}
+        initial={projectInitial}
         onSubmit={handleSubmitProject}
         submitting={submitting}
       />
@@ -692,16 +852,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addVehicleOpen}
         onClose={closeVehicleModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingVehicle
-            ? {
-                plate: editingVehicle.plate,
-                model: editingVehicle.model,
-                owner_name: editingVehicle.owner_name,
-                parking_spot: editingVehicle.parking_spot,
-              }
-            : null
-        }
+        initial={vehicleInitial}
         onSubmit={handleSubmitVehicle}
         submitting={submitting}
       />
@@ -710,16 +861,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addTenantOpen}
         onClose={closeTenantModal}
         hasCurrentTenant={activeApartment?.current_tenant != null}
-        initial={
-          editingTenant
-            ? {
-                name: editingTenant.name,
-                phone: editingTenant.phone,
-                email: editingTenant.email,
-                move_in_date: editingTenant.move_in_date,
-              }
-            : null
-        }
+        initial={tenantInitial}
         onSubmit={handleSubmitTenant}
         submitting={submitting}
       />
@@ -728,11 +870,7 @@ export default function BuildingReceptionDesk() {
         isOpen={addDeliveryOpen}
         onClose={closeDeliveryModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingDelivery
-            ? { title: editingDelivery.title, kind: editingDelivery.kind, meta: editingDelivery.meta }
-            : null
-        }
+        initial={deliveryInitial}
         onSubmit={handleSubmitDelivery}
         submitting={submitting}
       />
@@ -741,17 +879,17 @@ export default function BuildingReceptionDesk() {
         isOpen={addTechnicianOpen}
         onClose={closeTechnicianModal}
         apartmentId={activeApartmentId}
-        initial={
-          editingTechnicianVisit
-            ? {
-                name: editingTechnicianVisit.name,
-                role: editingTechnicianVisit.role,
-                phone: editingTechnicianVisit.phone,
-                note: editingTechnicianVisit.note,
-              }
-            : null
-        }
+        initial={technicianInitial}
         onSubmit={handleSubmitTechnicianVisit}
+        submitting={submitting}
+      />
+
+      <AddClientVisitModal
+        isOpen={addClientOpen}
+        onClose={closeClientModal}
+        apartmentId={activeApartmentId}
+        initial={clientInitial}
+        onSubmit={handleSubmitClientVisit}
         submitting={submitting}
       />
 
@@ -760,23 +898,7 @@ export default function BuildingReceptionDesk() {
         onClose={closeApartmentModal}
         buildingId={activeBuilding?.id ?? null}
         defaultFloor={addApartmentFloor ?? 1}
-        initial={
-          editingApartment
-            ? {
-                floor: editingApartment.floor,
-                unit_number: editingApartment.unit_number,
-                label: editingApartment.label,
-                is_common_area: editingApartment.is_common_area,
-                owner_name: editingApartment.owner_name,
-                owner_phone: editingApartment.owner_phone,
-                management_company_name: editingApartment.management_company_name,
-                management_company_phone: editingApartment.management_company_phone,
-                attorneys: editingApartment.attorneys,
-                equipment: editingApartment.equipment,
-                notes: editingApartment.notes,
-              }
-            : null
-        }
+        initial={apartmentInitial}
         onSubmit={handleSubmitApartment}
         submitting={submitting}
       />
