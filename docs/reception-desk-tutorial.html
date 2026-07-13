@@ -1,0 +1,1010 @@
+<title>דלפק הבניין — סרטון הדרכה</title>
+<style>
+  :root {
+    --accent: #7B5BF5;
+    --accent-soft: rgba(123, 91, 245, 0.12);
+    --occupied: #12B76A;
+    --vacant: #9CA3AF;
+    --common: #7B5BF5;
+    --delivery: #3B82F6;
+    --tech: #F79009;
+    --task: #E5544B;
+
+    --bg: #EEEBF6;
+    --stage-bg: #F7F6FB;
+    --panel-bg: #F4F2FA;
+    --card: #FFFFFF;
+    --ink: #1A1726;
+    --muted: #6B6B7B;
+    --faint: #9A9AA8;
+    --line: #E7E4F0;
+    --line-strong: #D8D3E8;
+    --shadow: 0 24px 60px -20px rgba(40, 24, 90, 0.35);
+
+    --font: "Segoe UI", "Arial Hebrew", "Noto Sans Hebrew", "Rubik", system-ui, -apple-system, sans-serif;
+    --frame-w: 960;
+    --frame-h: 600;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #100E18;
+      --stage-bg: #17141F;
+      --panel-bg: #1C1826;
+      --card: #221E2E;
+      --ink: #F2EFFA;
+      --muted: #A29CB4;
+      --faint: #746E86;
+      --line: #322C42;
+      --line-strong: #3D3651;
+      --accent-soft: rgba(123, 91, 245, 0.20);
+      --shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #EEEBF6; --stage-bg: #F7F6FB; --panel-bg: #F4F2FA; --card: #FFFFFF;
+    --ink: #1A1726; --muted: #6B6B7B; --faint: #9A9AA8; --line: #E7E4F0;
+    --line-strong: #D8D3E8; --accent-soft: rgba(123,91,245,0.12);
+    --shadow: 0 24px 60px -20px rgba(40, 24, 90, 0.35);
+  }
+  :root[data-theme="dark"] {
+    --bg: #100E18; --stage-bg: #17141F; --panel-bg: #1C1826; --card: #221E2E;
+    --ink: #F2EFFA; --muted: #A29CB4; --faint: #746E86; --line: #322C42;
+    --line-strong: #3D3651; --accent-soft: rgba(123,91,245,0.20);
+    --shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .wrap {
+    font-family: var(--font);
+    direction: rtl;
+    background:
+      radial-gradient(1200px 500px at 80% -10%, var(--accent-soft), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: clamp(14px, 3vw, 40px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+
+  /* ---------- Player chrome ---------- */
+  .player {
+    width: 100%;
+    max-width: 1040px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-badge {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: linear-gradient(140deg, var(--accent), #9C7BFF);
+    display: grid; place-items: center;
+    color: #fff; box-shadow: 0 8px 20px -6px rgba(123,91,245,0.6);
+    flex-shrink: 0;
+  }
+  .brand-badge svg { width: 22px; height: 22px; }
+  .brand h1 { font-size: clamp(17px, 2.2vw, 22px); margin: 0; font-weight: 800; letter-spacing: -0.02em; }
+  .brand p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .topbar-spacer { flex: 1; }
+  .chip {
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    background: var(--card); border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .chip b { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Stage (fixed-aspect video frame) ---------- */
+  .stage-shell {
+    position: relative;
+    width: 100%;
+    background: var(--stage-bg);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .scaler {
+    position: absolute;
+    top: 0; right: 0;
+    width: calc(var(--frame-w) * 1px);
+    height: calc(var(--frame-h) * 1px);
+    transform-origin: top right;
+    direction: rtl;
+  }
+  .frame {
+    position: absolute; inset: 0;
+    padding: 22px 24px;
+    display: flex;
+    opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  .frame.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .frame { transition: none; }
+  }
+
+  /* ---------- Mock app pieces ---------- */
+  .mock { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .mock-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .breadcrumb { font-size: 12.5px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .breadcrumb b { color: var(--ink); }
+  .mh-spacer { flex: 1; }
+  .searchbox {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 8px 12px; width: 240px;
+    color: var(--faint); font-size: 12.5px; font-weight: 600;
+  }
+  .btn-accent {
+    background: var(--accent); color: #fff; border: none;
+    font-family: inherit; font-weight: 700; font-size: 13px;
+    padding: 9px 14px; border-radius: 12px;
+    display: inline-flex; align-items: center; gap: 6px; cursor: default;
+  }
+  .btn-ghost {
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px dashed rgba(123,91,245,0.45);
+    font-family: inherit; font-weight: 700; font-size: 12.5px;
+    padding: 8px 12px; border-radius: 12px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .row-label { font-size: 11.5px; font-weight: 800; color: var(--muted); }
+  .pill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pill {
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    background: transparent; border: 1px solid var(--line-strong);
+    padding: 6px 12px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pill .count { opacity: 0.7; }
+  .pill-add {
+    color: var(--accent); border: 1px dashed rgba(123,91,245,0.45);
+    background: var(--accent-soft);
+  }
+
+  .title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .title-row h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .title-row p { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .bld-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+  .bld-tab { font-size: 12.5px; font-weight: 700; color: var(--muted); padding: 7px 12px; border-radius: 9px; text-align: center; line-height: 1.15; }
+  .bld-tab small { display: block; font-size: 10px; font-weight: 500; opacity: 0.8; }
+  .bld-tab.active { background: var(--accent); color: #fff; }
+  .head-actions { display: flex; align-items: center; gap: 8px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--faint); display: grid; place-items: center; }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  .legend {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 14px;
+    font-size: 11.5px; font-weight: 600; color: var(--muted);
+  }
+  .legend b { color: var(--ink); font-weight: 800; font-size: 11.5px; }
+  .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .lg .sw { width: 12px; height: 12px; border-radius: 4px; }
+  .lg .ic { width: 15px; height: 15px; }
+  .lg-sep { width: 1px; height: 15px; background: var(--line-strong); }
+
+  .floors { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .floor {
+    display: flex; gap: 12px; align-items: stretch;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px 14px;
+  }
+  .floor-tag {
+    width: 78px; flex-shrink: 0; text-align: center;
+    border-left: 1px solid var(--line); padding-left: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  }
+  .floor-tag .fn { font-weight: 800; font-size: 13px; }
+  .floor-tag .fc { font-size: 10.5px; color: var(--faint); font-weight: 600; }
+  .floor-tag svg { width: 18px; height: 18px; color: var(--faint); }
+  .units { flex: 1; display: flex; flex-wrap: wrap; gap: 10px; }
+  .cell {
+    width: 66px; height: 66px; border-radius: 13px;
+    border: 1.5px solid; position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font-weight: 800; font-size: 15px;
+  }
+  .cell .cu { line-height: 1; }
+  .cell .cl { font-size: 8.5px; font-weight: 700; opacity: 0.8; }
+  .cell .dots { position: absolute; bottom: 5px; display: flex; gap: 3px; }
+  .cell .dot { width: 6px; height: 6px; border-radius: 999px; }
+  .cell.occupied { border-color: rgba(18,183,106,0.5); background: rgba(18,183,106,0.10); color: #0e8a52; }
+  .cell.vacant { border-color: var(--line-strong); background: var(--card); color: var(--muted); }
+  .cell.common { border-color: rgba(123,91,245,0.5); background: rgba(123,91,245,0.10); color: var(--accent); }
+  .cell-add {
+    width: 66px; height: 66px; border-radius: 13px;
+    border: 1.5px dashed rgba(123,91,245,0.5); background: rgba(123,91,245,0.06);
+    color: var(--accent); display: grid; place-items: center;
+  }
+  .cell-add svg { width: 20px; height: 20px; }
+
+  /* spotlight highlight */
+  .spot {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 14px;
+    box-shadow: 0 0 0 6px var(--accent-soft), 0 10px 30px -8px rgba(123,91,245,0.6);
+    animation: pulse 1.6s ease-in-out infinite;
+    position: relative; z-index: 3;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 5px var(--accent-soft), 0 10px 30px -8px rgba(123,91,245,0.5); }
+    50% { box-shadow: 0 0 0 11px rgba(123,91,245,0.05), 0 10px 34px -8px rgba(123,91,245,0.7); }
+  }
+  @media (prefers-reduced-motion: reduce) { .spot { animation: none; } }
+
+  /* ---------- Apartment side panel ---------- */
+  .backdrop { position: absolute; inset: 0; background: rgba(20,10,45,0.28); z-index: 5; }
+  .panel {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 420px;
+    background: var(--panel-bg); z-index: 6;
+    box-shadow: 0 0 60px rgba(0,0,0,0.35);
+    display: flex; flex-direction: column;
+    animation: slideIn 0.4s cubic-bezier(0.2,0.8,0.2,1);
+  }
+  @keyframes slideIn { from { transform: translateX(-102%); } to { transform: translateX(0); } }
+  @media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+  .p-head { background: var(--card); border-bottom: 1px solid var(--line); padding: 16px 18px 0; }
+  .p-head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .p-id { display: flex; gap: 12px; align-items: center; }
+  .p-ic { width: 48px; height: 48px; border-radius: 13px; display: grid; place-items: center; flex-shrink: 0; }
+  .p-ic svg { width: 24px; height: 24px; }
+  .p-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+  .p-sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+  .p-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px; margin-top: 6px; }
+  .p-status .sd { width: 7px; height: 7px; border-radius: 999px; }
+  .p-actions { display: flex; gap: 6px; }
+  .tabs { display: flex; gap: 2px; margin-top: 14px; overflow: hidden; }
+  .tab { font-size: 12.5px; font-weight: 800; color: var(--faint); padding: 9px 11px; border-bottom: 2.5px solid transparent; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .badge { font-size: 10px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 999px; display: inline-grid; place-items: center; padding: 0 4px; background: var(--accent-soft); color: var(--accent); }
+  .tab .badge.alert { background: rgba(229,84,75,0.15); color: var(--task); }
+  .p-body { flex: 1; padding: 16px 18px; overflow: hidden; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; padding: 4px 14px;
+  }
+  .drow { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .drow:last-child { border-bottom: none; }
+  .drow .dk { font-size: 12.5px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .drow .dk svg { width: 16px; height: 16px; color: var(--faint); }
+  .drow .dv { font-size: 12.5px; font-weight: 800; }
+  .dsection { margin-top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 11px 14px; }
+  .dsection .dsl { font-size: 12px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .dsection .dsl svg { width: 15px; height: 15px; color: var(--faint); }
+  .dsection .dsv { font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+  .p-btnrow { display: flex; gap: 8px; margin-top: 12px; }
+  .pbtn { flex: 1; border-radius: 12px; padding: 10px; font-size: 12.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line-strong); color: var(--muted); background: var(--card); }
+  .pbtn.accent { color: var(--accent); border-color: rgba(123,91,245,0.45); background: var(--accent-soft); }
+  .pbtn.tech { color: var(--tech); border-color: rgba(247,144,9,0.45); background: rgba(247,144,9,0.10); }
+  .pbtn svg { width: 16px; height: 16px; }
+
+  .listcard { background: var(--card); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+  .li { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .li:last-child { border-bottom: none; }
+  .li .lic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
+  .li .lic svg { width: 17px; height: 17px; }
+  .li .lt { flex: 1; min-width: 0; }
+  .li .lt .l1 { font-size: 12.5px; font-weight: 800; }
+  .li .lt .l2 { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 1px; }
+  .li .state { font-size: 10.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .li .miniact { display: flex; gap: 3px; }
+  .li .miniact span { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--faint); background: var(--stage-bg); }
+  .li .miniact svg { width: 14px; height: 14px; }
+  .st-green { background: rgba(18,183,106,0.14); color: var(--occupied); }
+  .st-amber { background: rgba(247,144,9,0.15); color: var(--tech); }
+  .st-blue  { background: rgba(59,130,246,0.15); color: var(--delivery); }
+  .st-red   { background: rgba(229,84,75,0.15); color: var(--task); }
+  .st-gray  { background: var(--stage-bg); color: var(--muted); }
+  .st-violet{ background: var(--accent-soft); color: var(--accent); }
+  .add-strip { margin-top: 10px; }
+  .sec-label { font-size: 11px; font-weight: 800; color: var(--faint); margin: 14px 2px 7px; }
+
+  .timeline-list { display: flex; flex-direction: column; }
+  .tlrow { display: flex; gap: 10px; padding: 9px 0; }
+  .tlrow .tld { width: 9px; height: 9px; border-radius: 999px; margin-top: 4px; flex-shrink: 0; }
+  .tlrow .tlt { flex: 1; }
+  .tlrow .tlt .tl1 { font-size: 12px; font-weight: 800; }
+  .tlrow .tlt .tl2 { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+  .tlrow .tltime { font-size: 10px; color: var(--faint); font-weight: 700; }
+
+  /* ---------- Caption / narration ---------- */
+  .caption {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px 18px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    min-height: 92px;
+  }
+  .cap-num {
+    flex-shrink: 0;
+    width: 40px; height: 40px; border-radius: 11px;
+    background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center; font-weight: 800; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cap-text { flex: 1; }
+  .cap-title { font-size: 15px; font-weight: 800; margin-bottom: 3px; letter-spacing: -0.01em; }
+  .cap-body { font-size: 14px; line-height: 1.6; color: var(--muted); font-weight: 500; }
+  .cap-body .kw { color: var(--accent); font-weight: 800; }
+
+  /* ---------- Controls / progress ---------- */
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ctrl-btns { display: flex; align-items: center; gap: 6px; }
+  .cbtn {
+    width: 42px; height: 42px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    display: grid; place-items: center; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .cbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .cbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cbtn svg { width: 18px; height: 18px; }
+  .cbtn.play { width: 50px; height: 50px; background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cbtn.play:hover { color: #fff; filter: brightness(1.05); }
+  .cbtn.play svg { width: 21px; height: 21px; }
+  .speed {
+    font-family: inherit; font-weight: 800; font-size: 12.5px;
+    border: 1px solid var(--line); background: var(--card); color: var(--muted);
+    border-radius: 12px; padding: 0 12px; height: 42px; cursor: pointer;
+    font-variant-numeric: tabular-nums; min-width: 52px;
+  }
+  .speed:hover { border-color: var(--accent); color: var(--accent); }
+  .time { font-size: 12.5px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; margin-inline-start: auto; }
+
+  .track { display: flex; gap: 4px; width: 100%; margin-top: 4px; }
+  .seg { flex: 1; height: 7px; border-radius: 999px; background: var(--line-strong); overflow: hidden; cursor: pointer; }
+  .seg .fill { height: 100%; width: 0%; background: var(--accent); border-radius: 999px; }
+  .seg.done .fill { width: 100%; }
+
+  /* ---------- Chapter list ---------- */
+  .chapters {
+    width: 100%; max-width: 1040px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 8px;
+  }
+  .chapter {
+    text-align: right; font-family: inherit; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .chapter:hover { border-color: var(--accent); }
+  .chapter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chapter.active { border-color: var(--accent); background: var(--accent-soft); }
+  .chapter .cnum { font-size: 11px; font-weight: 800; color: var(--faint); font-variant-numeric: tabular-nums; width: 20px; }
+  .chapter.active .cnum { color: var(--accent); }
+  .chapter .cttl { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .foot { font-size: 12px; color: var(--faint); font-weight: 600; text-align: center; max-width: 640px; line-height: 1.6; }
+
+  @media (max-width: 560px) {
+    .searchbox { display: none; }
+    .time { display: none; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="player">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14"/><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/></svg>
+        </div>
+        <div>
+          <h1>דלפק הבניין — סרטון הדרכה</h1>
+          <p>סיור מודרך בכל יכולות הדלפק</p>
+        </div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="chip">פרק <b id="chapNow">1</b> / <b id="chapTotal">15</b></div>
+    </div>
+
+    <div class="stage-shell" id="stageShell">
+      <div class="scaler" id="scaler">
+        <div class="frame" id="frameA"></div>
+        <div class="frame" id="frameB"></div>
+      </div>
+    </div>
+
+    <div class="caption">
+      <div class="cap-num" id="capNum">1</div>
+      <div class="cap-text">
+        <div class="cap-title" id="capTitle">—</div>
+        <div class="cap-body" id="capBody">—</div>
+      </div>
+    </div>
+
+    <div class="track" id="track"></div>
+
+    <div class="controls">
+      <div class="ctrl-btns">
+        <button class="cbtn" id="btnPrev" aria-label="הפרק הקודם" title="הקודם">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14l-11-7z"/></svg>
+        </button>
+        <button class="cbtn play" id="btnPlay" aria-label="נגן או השהה" title="נגן / השהה">
+          <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+        </button>
+        <button class="cbtn" id="btnNext" aria-label="הפרק הבא" title="הבא">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5l11 7-11 7z"/></svg>
+        </button>
+        <button class="cbtn" id="btnRestart" aria-label="התחל מחדש" title="התחל מהתחלה">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+      </div>
+      <button class="speed" id="btnSpeed" aria-label="מהירות ניגון">1×</button>
+      <div class="time"><span id="tCur">0:00</span> / <span id="tTot">0:00</span></div>
+    </div>
+  </div>
+
+  <div class="chapters" id="chapters"></div>
+
+  <p class="foot">
+    זהו סרטון הדרכה אינטראקטיבי המדמה את מסכי המערכת. מתנגן אוטומטית — אפשר להשהות, לדלג בין פרקים,
+    או ללחוץ על פרק כדי לקפוץ אליו. הצבעים והמסכים תואמים למערכת האמיתית.
+  </p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- tiny inline icon set (stroke) ----
+  const I = {
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-7l-2-2H4a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1z"/><path d="M12 11v4M10 13h4"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+    layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></svg>',
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/></svg>',
+    users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M21 20a6 6 0 0 0-4-5.6"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l1.5 5-2 1.5a12 12 0 0 0 5 5l1.5-2 5 1.5v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+    usercheck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 11-3.3M16 11l2 2 4-4"/></svg>',
+    building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h.01M15 7h.01M9 11h.01M15 11h.01M9 15h6"/></svg>',
+    key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4"/><path d="m10.5 12.5 8-8M15 6l3 3M17 4l3 3"/></svg>',
+    wrench: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3a5 5 0 0 0-4.5 7L3 17.5 6.5 21l7.5-7.5A5 5 0 1 0 15 3z"/></svg>',
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12l-4 4H4z"/><path d="M20 16h-4v4"/></svg>',
+    car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13 6.5 8h11L19 13"/><path d="M3 17v-3h18v3a1 1 0 0 1-1 1h-1a2 2 0 0 1-4 0H9a2 2 0 0 1-4 0H4a1 1 0 0 1-1-1z"/><path d="M7 15h.01M17 15h.01"/></svg>',
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 9-5 9 5v8l-9 5-9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-11"/></svg>',
+    clip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12l2 2 4-4"/></svg>',
+    userplus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 11-3.3M18 8v6M15 11h6"/></svg>',
+    userminus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 11-3.3M15 11h6"/></svg>',
+    logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M9 12h9M15 8l3 4-3 4"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
+  };
+
+  // ---------- reusable mock builders ----------
+  function apt(u, kind, opts) {
+    opts = opts || {};
+    const dots = [];
+    if (opts.key) dots.push('<span class="dot" style="background:var(--accent)"></span>');
+    if (opts.delivery) dots.push('<span class="dot" style="background:var(--delivery)"></span>');
+    if (opts.task) dots.push('<span class="dot" style="background:var(--task)"></span>');
+    const label = opts.label ? '<span class="cl">'+opts.label+'</span>' : '';
+    return '<div class="cell '+kind+(opts.spot?' spot':'')+'">'
+      + '<span class="cu">'+u+'</span>'+label
+      + (dots.length ? '<span class="dots">'+dots.join('')+'</span>' : '')
+      + '</div>';
+  }
+
+  function overview(o) {
+    o = o || {};
+    const hl = o.hl || '';
+    const projects = [
+      { n: 'מגדלי הצפון', c: 3, active: true },
+      { n: 'פרויקט הים', c: 2 },
+      { n: 'קריית העסקים', c: 1 },
+    ].map(p => '<div class="pill'+(p.active?' active':'')+'">'+p.n+' <span class="count">('+p.c+')</span></div>').join('');
+
+    const bldTabs = [
+      { n: 'בניין A', a: 'רח׳ הברוש 12', active: true },
+      { n: 'בניין B', a: 'רח׳ הברוש 14' },
+    ].map(b => '<div class="bld-tab'+(b.active?' active':'')+'">'+b.n+'<small>'+b.a+'</small></div>').join('');
+
+    const floor3 = '<div class="floor'+(hl==='floor'?' spot':'')+'">'
+      + '<div class="floor-tag">'+I.layers+'<div class="fn">קומה 3</div><div class="fc">3 דירות</div></div>'
+      + '<div class="units">'
+      + apt('12', 'occupied', { key: true, spot: hl === 'cell' })
+      + apt('11', 'vacant', {})
+      + apt('10', 'occupied', { delivery: true, task: true })
+      + '<div class="cell-add'+(hl==='add'?' spot':'')+'">'+I.plus+'</div>'
+      + '</div></div>';
+
+    const floor2 = '<div class="floor">'
+      + '<div class="floor-tag">'+I.layers+'<div class="fn">קומה 2</div><div class="fc">3 דירות</div></div>'
+      + '<div class="units">'
+      + apt('8', 'occupied', { key: true })
+      + apt('7', 'vacant', {})
+      + apt('6', 'occupied', {})
+      + '<div class="cell-add">'+I.plus+'</div>'
+      + '</div></div>';
+
+    const floor0 = '<div class="floor">'
+      + '<div class="floor-tag">'+I.layers+'<div class="fn">קומה 0</div><div class="fc">2 שטחים</div></div>'
+      + '<div class="units">'
+      + apt('לובי', 'common', { label: 'שטח משותף' })
+      + apt('חניון', 'common', {})
+      + '<div class="cell-add">'+I.plus+'</div>'
+      + '</div></div>';
+
+    return '<div class="mock">'
+      + '<div class="mock-head">'
+      +   '<div class="breadcrumb">מערכת ניהול נכסים '+I.chev+' <b>דלפק הבניין</b></div>'
+      +   '<div class="mh-spacer"></div>'
+      +   '<div class="searchbox'+(hl==='search'?' spot':'')+'">'+I.search+' חיפוש דירה, דייר, משימה…</div>'
+      +   '<button class="btn-accent'+(hl==='task'?' spot':'')+'">'+I.plus+' משימה חדשה</button>'
+      + '</div>'
+      + '<div class="pill-row'+(hl==='projects'?' spot':'')+'">'
+      +   '<span class="row-label">פרויקטים:</span>'+projects
+      +   '<div class="pill pill-add">'+I.folder+' פרויקט</div>'
+      +   (hl==='projects' ? '<span class="icon-btn">'+I.pencil+'</span><span class="icon-btn">'+I.trash+'</span>' : '')
+      + '</div>'
+      + '<div class="title-row">'
+      +   '<div><h2>מבט-על מתחם · מגדלי הצפון</h2><p>תצוגה לפי הסדר הפיזי של הבניין — קומות ודירות כפי שהן בפועל</p></div>'
+      +   '<div class="head-actions'+(hl==='buildings'?' spot':'')+'"><div class="bld-tabs">'+bldTabs+'</div>'
+      +     '<button class="btn-ghost">'+I.plus+' בניין</button>'
+      +     '<span class="icon-btn">'+I.trash+'</span>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="legend'+(hl==='legend'?' spot':'')+'">'
+      +   '<b>מקרא:</b>'
+      +   '<span class="lg"><span class="sw" style="background:var(--occupied)"></span>מאוכלסת</span>'
+      +   '<span class="lg"><span class="sw" style="background:var(--vacant)"></span>פנויה</span>'
+      +   '<span class="lg"><span class="sw" style="background:var(--common)"></span>שטח משותף</span>'
+      +   '<span class="lg-sep"></span>'
+      +   '<span class="lg" style="color:var(--accent)"><span class="ic">'+I.key+'</span>מפתח בחוץ</span>'
+      +   '<span class="lg" style="color:var(--delivery)"><span class="ic">'+I.box+'</span>משלוח ממתין</span>'
+      +   '<span class="lg" style="color:var(--task)"><span class="ic">'+I.clip+'</span>משימה פתוחה</span>'
+      + '</div>'
+      + '<div class="floors">'+floor3+floor2+floor0+'</div>'
+      + '</div>';
+  }
+
+  // ----- apartment panel -----
+  function panel(p) {
+    p = p || {};
+    const tab = p.tab || 'details';
+    const hl = p.hl || '';
+    const occupied = !!p.occupied;
+    const statusColor = occupied ? 'var(--occupied)' : 'var(--vacant)';
+    const statusLabel = occupied ? 'מאוכלסת' : 'פנויה';
+
+    const tabDefs = [
+      ['details', 'פרטים', null],
+      ['tasks', 'משימות', p.taskCount ? String(p.taskCount) : null],
+      ['keys', 'מפתחות', p.keyAlert ? '!' : null],
+      ['vehicles', 'רכבים', p.vehCount ? String(p.vehCount) : null],
+      ['deliveries', 'משלוחים', p.delCount ? String(p.delCount) : null],
+      ['technicians', 'טכנאים', p.techCount ? String(p.techCount) : null],
+      ['clients', 'לקוחות', p.cliCount ? String(p.cliCount) : null],
+      ['history', 'היסטוריה', null],
+    ];
+    const tabs = tabDefs.map(([id, lbl, bdg]) => {
+      const badge = bdg ? '<span class="badge'+(bdg==='!'?' alert':'')+'">'+bdg+'</span>' : '';
+      const spot = (hl === 'tab:' + id) ? ' spot' : '';
+      return '<div class="tab'+(id===tab?' active':'')+spot+'">'+lbl+badge+'</div>';
+    }).join('');
+
+    let body = '';
+    if (tab === 'details') body = detailsBody(p);
+    else if (tab === 'tasks') body = tasksBody(p);
+    else if (tab === 'keys') body = keysBody(p);
+    else if (tab === 'vehicles') body = vehiclesBody(p);
+    else if (tab === 'deliveries') body = deliveriesBody(p);
+    else if (tab === 'technicians') body = techBody(p);
+    else if (tab === 'clients') body = clientsBody(p);
+    else if (tab === 'history') body = historyBody(p);
+
+    return overview({}) // dimmed base
+      + '<div class="backdrop"></div>'
+      + '<div class="panel">'
+      +   '<div class="p-head">'
+      +     '<div class="p-head-top">'
+      +       '<div class="p-id">'
+      +         '<div class="p-ic" style="background:'+ (occupied?'rgba(18,183,106,0.14)':'rgba(156,163,175,0.16)') +';color:'+statusColor+'">'+I.home+'</div>'
+      +         '<div><div class="p-title">דירה 12</div><div class="p-sub">קומה 3</div>'
+      +           '<div class="p-status" style="color:'+statusColor+';background:'+(occupied?'rgba(18,183,106,0.14)':'rgba(156,163,175,0.16)')+'"><span class="sd" style="background:'+statusColor+'"></span>'+statusLabel+'</div>'
+      +         '</div>'
+      +       '</div>'
+      +       '<div class="p-actions"><span class="icon-btn">'+I.pencil+'</span><span class="icon-btn">'+I.trash+'</span><span class="icon-btn">'+I.x+'</span></div>'
+      +     '</div>'
+      +     '<div class="tabs">'+tabs+'</div>'
+      +   '</div>'
+      +   '<div class="p-body">'+body+'</div>'
+      + '</div>';
+  }
+
+  function detailsBody(p) {
+    const rows = [
+      [I.users, 'דיירים', 'דנה כהן'],
+      [I.phone, 'טלפון', '050-1234567'],
+      [I.mail, 'דוא״ל', 'dana@mail.com'],
+      [I.cal, 'תחילת חוזה', '01/09/2025'],
+      [I.usercheck, 'בעלי הדירה', 'משפחת לוי'],
+      [I.building, 'חברת ניהול', 'ניהול נכסים בע״מ'],
+      [I.key, 'מפתחות אצלנו', 'כן (1)'],
+    ].map(([ic, k, v], i, a) =>
+      '<div class="drow"><span class="dk">'+ic+k+'</span><span class="dv">'+v+'</span></div>'
+    ).join('');
+    const spotBtns = p.hl === 'tenant-btns' ? ' spot' : '';
+    return '<div class="card">'+rows+'</div>'
+      + '<div class="dsection"><div class="dsl">'+I.note+'הערות</div><div class="dsv">נא לתאם מסירת מפתח מראש. חניה בקומה -1.</div></div>'
+      + '<div class="p-btnrow'+spotBtns+'"><div class="pbtn">'+I.pencil+' עריכת דייר</div><div class="pbtn accent">'+I.userplus+' החלפת דייר</div></div>'
+      + '<div class="p-btnrow"><div class="pbtn tech" style="flex:1">'+I.wrench+' כניסת טכנאי</div></div>';
+  }
+
+  function tenantsExtra() {
+    return '<div class="sec-label">דיירים קודמים</div>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic st-gray">'+I.userminus+'</span><div class="lt"><div class="l1">רון ישראלי</div><div class="l2">עזב · 31/08/2025</div></div><div class="miniact"><span>'+I.pencil+'</span><span>'+I.trash+'</span></div></div>'
+      + '</div>';
+  }
+
+  function tasksBody(p) {
+    const spot = p.hl === 'add' ? ' spot' : '';
+    const items = [
+      ['תיקון נזילה במטבח', 'אחראי: יוסי · תחזוקה', 'st-red', 'פתוחה'],
+      ['בדיקת מערכת אינטרקום', 'אחראי: מאיה · חשמל', 'st-amber', 'בתהליך'],
+      ['החלפת נורות בלובי', 'הושלם · 04/07', 'st-green', 'הושלם'],
+    ].map(([t, s, st, lbl]) =>
+      '<div class="li"><span class="lic '+st+'">'+I.clip+'</span><div class="lt"><div class="l1">'+t+'</div><div class="l2">'+s+'</div></div><span class="state '+st+'">'+lbl+'</span></div>'
+    ).join('');
+    return '<button class="btn-accent'+spot+'" style="width:100%;justify-content:center;margin-bottom:12px">'+I.plus+' משימה חדשה לדירה</button>'
+      + '<div class="listcard">'+items+'</div>';
+  }
+
+  function keysBody(p) {
+    const spotT = p.hl === 'transfer' ? ' spot' : '';
+    const out = !!p.keyOut;
+    return '<button class="btn-accent'+spotT+'" style="width:100%;justify-content:center;margin-bottom:12px">'+I.key+' מסירת מפתח</button>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic st-violet">'+I.key+'</span><div class="lt"><div class="l1">מפתח ראשי</div><div class="l2">'+(out?'נמסר לדנה כהן · היום 09:14':'נמצא בדלפק')+'</div></div>'
+      +     '<span class="state '+(out?'st-red':'st-green')+'">'+(out?'בחוץ':'בדלפק')+'</span></div>'
+      +   '<div class="li"><span class="lic st-violet">'+I.key+'</span><div class="lt"><div class="l1">מפתח מחסן</div><div class="l2">נמצא בדלפק</div></div><span class="state st-green">בדלפק</span></div>'
+      + '</div>'
+      + '<div class="sec-label">יומן העברות</div>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic st-red">'+I.logout+'</span><div class="lt"><div class="l1">מפתח ראשי נמסר</div><div class="l2">אל: דנה כהן · 09:14</div></div></div>'
+      +   '<div class="li"><span class="lic st-green">'+I.check+'</span><div class="lt"><div class="l1">מפתח ראשי הוחזר</div><div class="l2">מאת: טכנאי מזגנים · אתמול</div></div></div>'
+      + '</div>';
+  }
+
+  function vehiclesBody(p) {
+    const spot = p.hl === 'add' ? ' spot' : '';
+    const items = [
+      ['12-345-67', 'טויוטה קורולה · חניה 14', 'דנה כהן'],
+      ['98-765-43', 'יונדאי i20 · חניה 15', 'אורח קבוע'],
+    ].map(([plate, meta]) =>
+      '<div class="li"><span class="lic st-violet">'+I.car+'</span><div class="lt"><div class="l1">'+plate+'</div><div class="l2">'+meta+'</div></div><div class="miniact"><span>'+I.pencil+'</span><span>'+I.trash+'</span></div></div>'
+    ).join('');
+    return '<button class="btn-ghost'+spot+'" style="width:100%;justify-content:center;margin-bottom:12px">'+I.plus+' רכב מורשה</button><div class="listcard">'+items+'</div>';
+  }
+
+  function deliveriesBody(p) {
+    const delivered = !!p.delivered;
+    const spot = p.hl === 'mark' ? ' spot' : '';
+    return '<button class="btn-ghost" style="width:100%;justify-content:center;margin-bottom:12px">'+I.plus+' משלוח שהגיע</button>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic st-blue">'+I.box+'</span><div class="lt"><div class="l1">חבילה — Amazon</div><div class="l2">התקבל היום 11:02</div></div>'
+      +     (delivered
+          ? '<span class="state st-green">'+I.check+' נמסר</span>'
+          : '<button class="btn-accent'+spot+'" style="padding:6px 12px">'+I.check+' נמסר</button>')
+      +   '</div>'
+      +   '<div class="li"><span class="lic st-blue">'+I.box+'</span><div class="lt"><div class="l1">מכתב רשום</div><div class="l2">נמסר אתמול 16:40</div></div><span class="state st-green">'+I.check+' נמסר</span></div>'
+      + '</div>';
+  }
+
+  function techBody(p) {
+    const left = !!p.techLeft;
+    const spot = p.hl === 'mark' ? ' spot' : '';
+    return '<button class="btn-ghost" style="width:100%;justify-content:center;margin-bottom:12px;color:var(--tech);border-color:rgba(247,144,9,0.45);background:rgba(247,144,9,0.1)">'+I.wrench+' כניסת טכנאי</button>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic st-amber">'+I.wrench+'</span><div class="lt"><div class="l1">אבי — טכנאי מזגנים</div><div class="l2">054-7778888 · נכנס 10:30</div></div>'
+      +     (left
+          ? '<span class="state st-gray">עזב 11:15</span>'
+          : '<button class="btn-accent'+spot+'" style="padding:6px 12px;background:var(--tech)">'+I.logout+' עזב</button>')
+      +   '</div>'
+      +   '<div class="li"><span class="lic st-gray">'+I.wrench+'</span><div class="lt"><div class="l1">חברת ניקיון — צוות</div><div class="l2">עזב אתמול 14:00</div></div><span class="state st-gray">עזב</span></div>'
+      + '</div>';
+  }
+
+  function clientsBody(p) {
+    const present = !!p.clientPresent;
+    const spot = p.hl === 'add' ? ' spot' : (p.hl === 'mark' ? ' spot' : '');
+    return '<button class="btn-ghost'+(p.hl==='add'?' spot':'')+'" style="width:100%;justify-content:center;margin-bottom:12px;color:var(--occupied);border-color:rgba(18,183,106,0.45);background:rgba(18,183,106,0.1)">'+I.userplus+' הגעת לקוח</button>'
+      + '<div class="listcard">'
+      +   '<div class="li"><span class="lic '+(present?'st-green':'st-gray')+'">'+I.users+'</span><div class="lt"><div class="l1">משפחת אברהם</div><div class="l2">'+(present?'הגיעו 12:05 · צפי עד 14:00':'עזבו 13:50')+'</div></div>'
+      +     (present
+          ? '<button class="btn-accent'+(p.hl==='mark'?' spot':'')+'" style="padding:6px 12px;background:var(--occupied)">'+I.logout+' עזב</button>'
+          : '<span class="state st-gray">עזב</span>')
+      +   '</div>'
+      + '</div>'
+      + '<div class="dsection" style="border-color:'+(present?'rgba(18,183,106,0.4)':'var(--line)')+'"><div class="dsl">'+I.home+'סטטוס הדירה</div><div class="dsv" style="color:'+(present?'var(--occupied)':'var(--muted)')+'">'+(present?'מאוכלסת — לקוח נוכח בדירה':'פנויה — אין לקוח נוכחי')+'</div></div>';
+  }
+
+  function historyBody() {
+    const rows = [
+      ['var(--accent)', 'מפתח ראשי נמסר', 'אל דנה כהן', '09:14'],
+      ['var(--delivery)', 'משלוח התקבל', 'חבילה — Amazon', '11:02'],
+      ['var(--tech)', 'טכנאי נכנס', 'אבי — מזגנים', '10:30'],
+      ['var(--occupied)', 'לקוח הגיע', 'משפחת אברהם', '12:05'],
+      ['var(--task)', 'משימה נפתחה', 'תיקון נזילה במטבח', 'אתמול'],
+      ['var(--accent)', 'החלפת דייר', 'רון ישראלי → דנה כהן', '01/09'],
+    ].map(([c, t, s, tm]) =>
+      '<div class="tlrow"><span class="tld" style="background:'+c+'"></span><div class="tlt"><div class="tl1">'+t+'</div><div class="tl2">'+s+'</div></div><span class="tltime">'+tm+'</span></div>'
+    ).join('');
+    return '<div class="card" style="padding:6px 14px"><div class="timeline-list">'+rows+'</div></div>';
+  }
+
+  // ---------- storyboard ----------
+  const kw = s => s.replace(/\[(.+?)\]/g, '<span class="kw">$1</span>');
+  const scenes = [
+    {
+      t: 'ברוכים הבאים לדלפק הבניין',
+      b: 'מרכז השליטה של הקבלה. בסרטון נעבור על [כל היכולות] — מפרויקטים ובניינים, דרך דירות ודיירים, ועד מפתחות, משלוחים, טכנאים, לקוחות ומשימות.',
+      d: 7000, render: () => overview({ hl: '' }),
+    },
+    {
+      t: 'פרויקטים',
+      b: 'כל בניין שייך ל[פרויקט]. בוחרים פרויקט משורת הפרויקטים — המספר בסוגריים הוא מספר הבניינים בו. מנהל מערכת יכול [ליצור, לערוך ולמחוק] פרויקט.',
+      d: 7000, render: () => overview({ hl: 'projects' }),
+    },
+    {
+      t: 'בחירת בניין',
+      b: 'בתוך הפרויקט בוחרים [בניין] מלשוניות הבניינים. מנהל מערכת יכול להוסיף בניין חדש בכפתור [בניין], או למחוק בניין קיים.',
+      d: 7000, render: () => overview({ hl: 'buildings' }),
+    },
+    {
+      t: 'מבט-על מתחם',
+      b: 'הבניין מוצג לפי הסדר [הפיזי] — קומות ודירות כפי שהן בפועל. [המקרא] מסביר את הצבעים: מאוכלסת, פנויה ושטח משותף, ואת הסימונים: מפתח בחוץ, משלוח ממתין ומשימה פתוחה.',
+      d: 8000, render: () => overview({ hl: 'legend' }),
+    },
+    {
+      t: 'הוספת דירה',
+      b: 'בכל קומה כפתור [ה+ המקווקו] מוסיף דירה חדשה — קומה, מספר יחידה, בעלים, חברת ניהול, ציוד והערות. אפשר גם לסמן דירה כ[שטח משותף].',
+      d: 7000, render: () => overview({ hl: 'add' }),
+    },
+    {
+      t: 'כרטיס הדירה — פרטים',
+      b: 'לחיצה על דירה פותחת את [כרטיס הדירה]. בלשונית [פרטים] רואים דייר נוכחי, טלפון, דוא״ל, תאריכי חוזה, בעלים, חברת ניהול, מיופי כח, ציוד והערות.',
+      d: 8000, render: () => panel({ tab: 'details', occupied: true, keyAlert: false, taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'ניהול דיירים',
+      b: 'מ[הוספת] או [החלפת] דייר בלחיצה אחת. הדייר הקודם נשמר תחת "דיירים קודמים", וכל היסטוריית הדיירים נשמרת ולא נמחקת.',
+      d: 7500, render: () => panel({ tab: 'details', occupied: true, hl: 'tenant-btns', taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'מפתחות ומסירתם',
+      b: 'לשונית [מפתחות] מנהלת את המפתחות הפיזיים. מוסיפים מפתח ומוסרים אותו דרך [מסירת מפתח]. כשמפתח [בחוץ] מופיעה התראה, וההחזרה מתועדת ביומן ההעברות.',
+      d: 8000, render: () => panel({ tab: 'keys', occupied: true, keyOut: true, keyAlert: true, hl: 'transfer', taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'רכבים מורשים',
+      b: 'לשונית [רכבים] שומרת רכבים מורשים — מספר רישוי, דגם, בעלים ומספר חניה — כדי לזהות במהירות מי מורשה להיכנס לחניון.',
+      d: 7000, render: () => panel({ tab: 'vehicles', occupied: true, vehCount: 2, hl: 'add', taskCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'משלוחים',
+      b: 'משלוח שהגיע נרשם בלשונית [משלוחים] וממתין למסירה. בלחיצה על [נמסר] הוא מסומן כהושלם — כך תמיד ברור מה עוד ממתין בדלפק.',
+      d: 7500, render: () => panel({ tab: 'deliveries', occupied: true, delivered: true, hl: 'mark', delCount: 1, taskCount: 2, vehCount: 2 }),
+    },
+    {
+      t: 'כניסת טכנאים',
+      b: 'כניסת [טכנאי] נרשמת עם שם, תפקיד וטלפון. בסיום מסמנים [עזב] — כך בכל רגע יודעים בדיוק מי נמצא בבניין.',
+      d: 7000, render: () => panel({ tab: 'technicians', occupied: true, techLeft: true, hl: 'mark', techCount: 1, taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'הגעת לקוחות',
+      b: '[הגעת לקוח] מסמנת את הדירה כ[מאוכלסת]. עם היציאה מסמנים [עזב], והדירה חוזרת [אוטומטית] למצב "פנויה".',
+      d: 7500, render: () => panel({ tab: 'clients', occupied: true, clientPresent: true, hl: 'mark', cliCount: 1, taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'משימות',
+      b: 'לכל דירה אפשר לפתוח [משימות] משויכות — עם אחראי, תווית ותאריך. משימה פתוחה מסומנת גם על הדירה במבט-העל.',
+      d: 7000, render: () => panel({ tab: 'tasks', occupied: true, taskCount: 2, hl: 'add', vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'ציר הזמן — היסטוריה',
+      b: 'לשונית [היסטוריה] מרכזת [ציר זמן] של כל הפעילות בדירה: החלפות דייר, מפתחות, משלוחים, טכנאים, לקוחות ומשימות — הכל במקום אחד.',
+      d: 7500, render: () => panel({ tab: 'history', occupied: true, taskCount: 2, vehCount: 2, delCount: 1 }),
+    },
+    {
+      t: 'עדכון חי, חיפוש והרשאות',
+      b: 'הכל מתעדכן [אוטומטית כל 10 שניות], יש [חיפוש] מהיר לדירה/דייר/משימה, ו[הרשאות לפי תפקיד]. זהו דלפק הבניין — כל הבניין בכף היד.',
+      d: 8000, render: () => overview({ hl: 'search' }),
+    },
+  ];
+
+  // ---------- player engine ----------
+  const frames = [document.getElementById('frameA'), document.getElementById('frameB')];
+  let front = 0;
+  let idx = 0;
+  let playing = false;
+  let elapsed = 0;      // ms within current scene
+  let last = 0;         // rAF timestamp
+  let speed = 1;
+  const speeds = [1, 1.5, 2, 0.5];
+  let speedPos = 0;
+
+  const el = {
+    capNum: document.getElementById('capNum'),
+    capTitle: document.getElementById('capTitle'),
+    capBody: document.getElementById('capBody'),
+    chapNow: document.getElementById('chapNow'),
+    chapTotal: document.getElementById('chapTotal'),
+    track: document.getElementById('track'),
+    chapters: document.getElementById('chapters'),
+    playIcon: document.getElementById('playIcon'),
+    pauseIcon: document.getElementById('pauseIcon'),
+    tCur: document.getElementById('tCur'),
+    tTot: document.getElementById('tTot'),
+    btnSpeed: document.getElementById('btnSpeed'),
+  };
+
+  el.chapTotal.textContent = scenes.length;
+  const totalMs = scenes.reduce((s, sc) => s + sc.d, 0);
+
+  function fmt(ms) {
+    const s = Math.round(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  el.tTot.textContent = fmt(totalMs);
+
+  // build track segments
+  scenes.forEach((sc, i) => {
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    seg.style.flex = sc.d;
+    seg.innerHTML = '<div class="fill"></div>';
+    seg.addEventListener('click', () => { go(i); });
+    el.track.appendChild(seg);
+  });
+  const segFills = Array.from(el.track.children).map(s => s.firstChild);
+
+  // build chapter list
+  scenes.forEach((sc, i) => {
+    const b = document.createElement('button');
+    b.className = 'chapter';
+    b.innerHTML = '<span class="cnum">' + String(i + 1).padStart(2, '0') + '</span><span class="cttl">' + sc.t + '</span>';
+    b.addEventListener('click', () => { go(i); if (!playing) play(); });
+    el.chapters.appendChild(b);
+  });
+  const chapEls = Array.from(el.chapters.children);
+
+  function renderScene(i) {
+    const back = 1 - front;
+    frames[back].innerHTML = scenes[i].render();
+    frames[back].classList.add('show');
+    frames[front].classList.remove('show');
+    front = back;
+  }
+
+  function paintCaption(i) {
+    const sc = scenes[i];
+    el.capNum.textContent = i + 1;
+    el.capTitle.textContent = sc.t;
+    el.capBody.innerHTML = kw(sc.b);
+    el.chapNow.textContent = i + 1;
+    chapEls.forEach((c, j) => c.classList.toggle('active', j === i));
+    segFills.forEach((f, j) => {
+      const seg = f.parentElement;
+      seg.classList.toggle('done', j < i);
+      if (j > i) f.style.width = '0%';
+    });
+  }
+
+  function go(i) {
+    idx = ((i % scenes.length) + scenes.length) % scenes.length;
+    elapsed = 0;
+    renderScene(idx);
+    paintCaption(idx);
+    updateTime();
+  }
+
+  function updateTime() {
+    let before = 0;
+    for (let j = 0; j < idx; j++) before += scenes[j].d;
+    el.tCur.textContent = fmt(before + elapsed);
+  }
+
+  function tick(ts) {
+    if (!playing) return;
+    if (!last) last = ts;
+    const dt = (ts - last) * speed;
+    last = ts;
+    elapsed += dt;
+    const dur = scenes[idx].d;
+    if (elapsed >= dur) {
+      segFills[idx].style.width = '100%';
+      if (idx === scenes.length - 1) { pause(); go(idx); return; }
+      go(idx + 1);
+    } else {
+      segFills[idx].style.width = (elapsed / dur * 100) + '%';
+      updateTime();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function play() {
+    if (playing) return;
+    playing = true;
+    last = 0;
+    el.playIcon.style.display = 'none';
+    el.pauseIcon.style.display = '';
+    requestAnimationFrame(tick);
+  }
+  function pause() {
+    playing = false;
+    el.playIcon.style.display = '';
+    el.pauseIcon.style.display = 'none';
+  }
+  function toggle() { playing ? pause() : play(); }
+
+  document.getElementById('btnPlay').addEventListener('click', toggle);
+  document.getElementById('btnNext').addEventListener('click', () => go(idx + 1));
+  document.getElementById('btnPrev').addEventListener('click', () => { (elapsed > 1200 ? go(idx) : go(idx - 1)); });
+  document.getElementById('btnRestart').addEventListener('click', () => { go(0); play(); });
+  el.btnSpeed.addEventListener('click', () => {
+    speedPos = (speedPos + 1) % speeds.length;
+    speed = speeds[speedPos];
+    el.btnSpeed.textContent = (speed % 1 === 0 ? speed : speed) + '×';
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    else if (e.code === 'ArrowLeft') go(idx + 1);   // RTL: left = next
+    else if (e.code === 'ArrowRight') go(idx - 1);
+  });
+
+  // ---------- responsive scaling of the fixed frame ----------
+  const shell = document.getElementById('stageShell');
+  const scaler = document.getElementById('scaler');
+  const FW = 960, FH = 600;
+  function rescale() {
+    const w = shell.clientWidth;
+    const s = w / FW;
+    scaler.style.transform = 'scale(' + s + ')';
+    shell.style.height = (FH * s) + 'px';
+  }
+  window.addEventListener('resize', rescale);
+
+  // init
+  rescale();
+  go(0);
+  // autoplay after a short beat
+  setTimeout(() => { rescale(); play(); }, 600);
+})();
+</script>
