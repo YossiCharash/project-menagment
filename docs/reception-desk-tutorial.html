@@ -70,10 +70,19 @@
     gap: 18px;
   }
 
+  /* ---------- Layout: player + side menu ---------- */
+  .layout {
+    width: 100%;
+    max-width: 1360px;
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+  }
+
   /* ---------- Player chrome ---------- */
   .player {
-    width: 100%;
-    max-width: 1040px;
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -381,18 +390,32 @@
   .seg .fill { height: 100%; width: 0%; background: var(--accent); border-radius: 999px; }
   .seg.done .fill { width: 100%; }
 
-  /* ---------- Chapter list ---------- */
+  /* ---------- Side menu (chapters) ---------- */
+  .sidebar {
+    width: 268px; flex-shrink: 0;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+    position: sticky; top: 20px;
+    max-height: calc(100vh - 60px);
+  }
+  .sidebar-title {
+    font-size: 12px; font-weight: 800; color: var(--muted);
+    letter-spacing: 0.04em; text-transform: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 2px 4px 8px; border-bottom: 1px solid var(--line);
+  }
+  .sidebar-title svg { width: 16px; height: 16px; color: var(--accent); }
   .chapters {
-    width: 100%; max-width: 1040px;
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+    overflow-y: auto; padding-left: 2px;
   }
   .chapter {
     text-align: right; font-family: inherit; cursor: pointer;
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 12px; padding: 10px 12px;
+    background: transparent; border: 1px solid transparent;
+    border-radius: 11px; padding: 9px 10px;
     display: flex; align-items: center; gap: 10px;
-    transition: border-color 0.15s, transform 0.1s;
+    transition: border-color 0.15s, background 0.15s;
   }
   .chapter:hover { border-color: var(--accent); }
   .chapter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -402,6 +425,16 @@
   .chapter .cttl { font-size: 12.5px; font-weight: 700; color: var(--ink); }
   .foot { font-size: 12px; color: var(--faint); font-weight: 600; text-align: center; max-width: 640px; line-height: 1.6; }
 
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; }
+    .sidebar {
+      width: 100%; position: static; max-height: none;
+    }
+    .chapters {
+      flex-direction: row; flex-wrap: wrap; overflow: visible;
+    }
+    .chapter { flex: 1 1 200px; }
+  }
   @media (max-width: 560px) {
     .searchbox { display: none; }
     .time { display: none; }
@@ -409,6 +442,7 @@
 </style>
 
 <div class="wrap">
+  <div class="layout">
   <div class="player">
     <div class="topbar">
       <div class="brand">
@@ -462,7 +496,14 @@
     </div>
   </div>
 
-  <div class="chapters" id="chapters"></div>
+  <aside class="sidebar">
+    <div class="sidebar-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      פרקים
+    </div>
+    <div class="chapters" id="chapters"></div>
+  </aside>
+  </div>
 
   <p class="foot">
     זהו סרטון הדרכה אינטראקטיבי המדמה את מסכי המערכת. מתנגן אוטומטית — אפשר להשהות, לדלג בין פרקים,
