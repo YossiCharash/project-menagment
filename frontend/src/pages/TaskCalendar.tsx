@@ -2579,7 +2579,7 @@ export default function TaskCalendar({
                   עריכה
                 </button>
               )}
-              {selectedTask.status === 'completed' && !selectedTask.is_archived && (
+              {selectedTask.status === 'completed' && !selectedTask.is_archived && canEditTask(selectedTask, me) && (
                 <button
                   type="button"
                   onClick={() => selectedTask && handleArchiveTask(selectedTask)}
@@ -2591,15 +2591,17 @@ export default function TaskCalendar({
                   {archivingTaskId === selectedTask?.id ? 'מארכב...' : 'ארכב'}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => selectedTask && setDeleteConfirm(selectedTask)}
-                disabled={!!deletingTaskId}
-                className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                {deletingTaskId === selectedTask?.id ? 'מוחק...' : 'מחק'}
-              </button>
+              {canEditTask(selectedTask, me) && (
+                <button
+                  type="button"
+                  onClick={() => selectedTask && setDeleteConfirm(selectedTask)}
+                  disabled={!!deletingTaskId}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deletingTaskId === selectedTask?.id ? 'מוחק...' : 'מחק'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelectedTask(null)}

@@ -1364,15 +1364,22 @@ async def respond_to_invitation(
 async def delete_task(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("delete", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(get_current_user),
 ):
-    """Delete a task or meeting. Member can only delete own tasks."""
+    """Delete a task or meeting.
+
+    Deletable by an Admin or any assignee (primary or co-assignee), mirroring
+    the ``update_task``/``archive_task`` access model. We intentionally do NOT
+    gate this on the ``delete`` task permission: the Member global role is
+    write-only on tasks by design, so an assignee who is a Member would otherwise
+    be unable to delete a task assigned to them.
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin" and task.assigned_to_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied. You can only delete your own tasks.")
+    if not (user.role == "Admin" or _is_task_assignee(task, user.id)):
+        raise HTTPException(status_code=403, detail="Access denied. Only an assignee or admin can delete this task.")
     outlook_id = task.outlook_event_id
     user_id = task.assigned_to_user_id
     await repo.delete(task)

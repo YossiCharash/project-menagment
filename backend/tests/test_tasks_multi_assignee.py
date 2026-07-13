@@ -374,6 +374,64 @@ class TestAssigneeCanEdit:
 
 @pytest.mark.api
 @pytest.mark.asyncio
+class TestAssigneeCanDelete:
+    """Any assignee (primary or co-owner) — not just an admin — may delete a task."""
+
+    async def test_primary_assignee_can_delete(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_a_token: str,
+        assignee_b: User,
+    ):
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.delete(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {assignee_a_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+    async def test_co_assignee_can_delete(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+        assignee_b_token: str,
+    ):
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.delete(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {assignee_b_token}"},
+        )
+        assert response.status_code == 204, response.text
+
+    async def test_non_assignee_member_cannot_delete(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        assignee_a: User,
+        assignee_b: User,
+        member_user: User,
+        member_token: str,
+    ):
+        created = await _create_multi_assignee_task(
+            test_client, admin_token, assignee_a, [assignee_b]
+        )
+        response = await test_client.delete(
+            f"/api/v1/tasks/{created['id']}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert response.status_code == 403, response.text
+
+
+@pytest.mark.api
+@pytest.mark.asyncio
 class TestMultiAssigneeNotifications:
     """Every co-owner assignee receives an assignment notification."""
 
