@@ -39,7 +39,9 @@ export function deriveIndicators(apartment: Apartment): ApartmentIndicators {
     hasKeys: apartment.keys_count > 0,
     hasPendingDelivery: apartment.pending_deliveries_count > 0,
     hasOpenTask: apartment.open_tasks_count > 0,
-    isVacant: apartment.current_tenant === null && !apartment.is_common_area,
+    // Occupancy is driven by an active client arrival (הגעת לקוח), not by the
+    // tenant record: מאוכלסת while a client is present, otherwise פנויה.
+    isVacant: !apartment.has_active_client_visit && !apartment.is_common_area,
   }
 }
 
@@ -75,10 +77,67 @@ export function apartmentTitle(apartment: Pick<Apartment, 'unit_number' | 'is_co
   return `דירה ${apartment.unit_number}`
 }
 
+/** Hebrew labels for each activity timeline `kind` (mirrors backend ActivityKind). */
+export const ACTIVITY_KIND_LABELS: Record<string, string> = {
+  tenant_changed: 'החלפת דייר',
+  key_out: 'מפתח נמסר',
+  key_in: 'מפתח הוחזר',
+  delivery: 'משלוח',
+  technician: 'טכנאי',
+  client: 'לקוח',
+  task: 'משימה',
+}
+
+/** Hebrew display name for an activity kind, falling back to the raw key. */
+export function activityKindLabel(kind: string): string {
+  return ACTIVITY_KIND_LABELS[kind] ?? kind
+}
+
 /** Formats an ISO date string as a short Hebrew-locale date (dd/mm/yyyy). */
 export function formatDate(iso: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+/**
+ * Server datetimes are stored as naive UTC and serialized without an offset
+ * (e.g. "2026-07-13T14:30:00"). `new Date()` would read those as *local* time,
+ * so we append "Z" when no timezone marker is present to pin them to UTC.
+ */
+function asUtcDate(iso: string): Date {
+  const hasZone = /[zZ]|[+-]\d{2}:\d{2}$/.test(iso)
+  return new Date(hasZone ? iso : `${iso}Z`)
+}
+
+/** Formats a server datetime as a Hebrew-locale date + time (dd/mm/yyyy, HH:MM). */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return '—'
+  const date = asUtcDate(iso)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString('he-IL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** Converts a `<input type="datetime-local">` value (local wall-clock) to UTC ISO. */
+export function localInputToUtcIso(localValue: string): string | null {
+  if (!localValue) return null
+  const date = new Date(localValue)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
+/** Converts a server UTC datetime to a local `datetime-local` input value. */
+export function utcIsoToLocalInput(iso: string | null): string {
+  if (!iso) return ''
+  const date = asUtcDate(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

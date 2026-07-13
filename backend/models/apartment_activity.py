@@ -13,6 +13,7 @@ class ActivityKind:
     KEY_IN = "key_in"
     DELIVERY = "delivery"
     TECHNICIAN = "technician"
+    CLIENT = "client"
     TASK = "task"
 
 

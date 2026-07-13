@@ -25,6 +25,7 @@ class BuildingRepository:
                 selectinload(Building.apartments).selectinload(Apartment.keys),
                 selectinload(Building.apartments).selectinload(Apartment.vehicles),
                 selectinload(Building.apartments).selectinload(Apartment.deliveries),
+                selectinload(Building.apartments).selectinload(Apartment.client_visits),
             )
             .where(Building.id == building_id)
         )

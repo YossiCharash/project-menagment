@@ -460,6 +460,36 @@ export interface TechnicianVisitUpdate {
   status?: TechnicianVisitStatus
 }
 
+export type ClientVisitStatus = 'present' | 'left'
+
+export interface ClientVisit {
+  id: number
+  apartment_id: number
+  name: string | null
+  arrived_at: string
+  expected_until: string | null
+  note: string | null
+  status: ClientVisitStatus
+  left_at: string | null
+  created_at: string
+}
+
+export interface ClientVisitCreate {
+  apartment_id: number
+  name?: string | null
+  arrived_at: string
+  expected_until?: string | null
+  note?: string | null
+}
+
+export interface ClientVisitUpdate {
+  name?: string | null
+  arrived_at?: string
+  expected_until?: string | null
+  note?: string | null
+  status?: ClientVisitStatus
+}
+
 export interface ApartmentActivity {
   id: number
   apartment_id: number
@@ -485,6 +515,7 @@ export interface Apartment {
   notes: string | null
   created_at: string
   current_tenant: Tenant | null
+  has_active_client_visit: boolean
   keys_count: number
   vehicles_count: number
   pending_deliveries_count: number
@@ -498,6 +529,7 @@ export interface ApartmentDetail extends Apartment {
   vehicles: AuthorizedVehicle[]
   deliveries: Delivery[]
   technician_visits: TechnicianVisit[]
+  client_visits: ClientVisit[]
   activities: ApartmentActivity[]
 }
 
