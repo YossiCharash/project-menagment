@@ -42,6 +42,7 @@ from backend.core.schedulers import (
     run_recurring_transactions_scheduler,
     run_contract_renewal_scheduler,
     run_task_archive_scheduler,
+    run_client_visit_expiry_scheduler,
 )
 from backend.core.log_alert_handler import setup_whatsapp_log_handler, setup_console_log_handler
 from backend.db.session import engine
@@ -116,6 +117,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(run_recurring_transactions_scheduler())
     asyncio.create_task(run_contract_renewal_scheduler())
     asyncio.create_task(run_task_archive_scheduler())
+    asyncio.create_task(run_client_visit_expiry_scheduler())
 
     yield
 

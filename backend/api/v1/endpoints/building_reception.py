@@ -44,6 +44,11 @@ from backend.schemas.technician_visit import (
     TechnicianVisitOut,
     TechnicianVisitUpdate,
 )
+from backend.schemas.client_visit import (
+    ClientVisitCreate,
+    ClientVisitOut,
+    ClientVisitUpdate,
+)
 from backend.services.building_service import BuildingService
 from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
@@ -52,6 +57,8 @@ from backend.services.key_service import KeyService
 from backend.services.authorized_vehicle_service import AuthorizedVehicleService
 from backend.services.delivery_service import DeliveryService
 from backend.services.technician_visit_service import TechnicianVisitService
+from backend.services.client_visit_service import ClientVisitService
+from backend.models.client_visit import ClientVisitStatus
 
 router = APIRouter()
 
@@ -134,9 +141,14 @@ def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> Apartm
         1 for delivery in (apartment.deliveries or [])
         if delivery.status == DeliveryStatus.PENDING
     )
+    has_active_client_visit = any(
+        visit.status == ClientVisitStatus.PRESENT
+        for visit in (apartment.client_visits or [])
+    )
     return ApartmentOut(
         **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
+        has_active_client_visit=has_active_client_visit,
         keys_count=len(apartment.keys or []),
         vehicles_count=len(apartment.vehicles or []),
         pending_deliveries_count=pending_deliveries,
@@ -156,6 +168,10 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
         technician_visits=[
             TechnicianVisitOut.model_validate(v)
             for v in (apartment.technician_visits or [])
+        ],
+        client_visits=[
+            ClientVisitOut.model_validate(v)
+            for v in (apartment.client_visits or [])
         ],
         activities=[a for a in (apartment.activities or [])],
     )
@@ -297,6 +313,12 @@ async def get_building(building_id: int, db: DBSessionDep, user=Depends(require_
     service = BuildingService(db)
     try:
         building = await service.get_building(building_id)
+        # Reconcile client arrivals whose end-time has passed so the desk shows
+        # up-to-date occupancy on every (polled) load; re-read only if something
+        # actually changed to keep the common path a single query.
+        apartment_ids = [apartment.id for apartment in (building.apartments or [])]
+        if await ClientVisitService(db).expire_due_visits(apartment_ids):
+            building = await service.get_building(building_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return await _building_out_with_open_tasks(building, db)
@@ -350,6 +372,10 @@ async def get_apartment(apartment_id: int, db: DBSessionDep, user=Depends(requir
     service = ApartmentService(db)
     try:
         apartment = await service.get_apartment_detail(apartment_id)
+        # Auto-expire a client arrival whose end-time has passed before serving
+        # the panel, so an open apartment turns vacant on its next poll.
+        if await ClientVisitService(db).expire_due_visits([apartment_id]):
+            apartment = await service.get_apartment_detail(apartment_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _apartment_to_detail(apartment)
@@ -623,6 +649,66 @@ async def update_technician_visit(
 @router.delete("/technician-visits/{visit_id}", status_code=204)
 async def delete_technician_visit(visit_id: int, db: DBSessionDep, user=Depends(require_delete)):
     service = TechnicianVisitService(db)
+    try:
+        await service.delete_visit(visit_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
+
+
+# --- Client visits --------------------------------------------------------
+
+
+@router.get(
+    "/apartments/{apartment_id}/client-visits",
+    response_model=list[ClientVisitOut],
+)
+async def list_client_visits(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
+    service = ClientVisitService(db)
+    try:
+        visits = await service.list_for_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return [ClientVisitOut.model_validate(v) for v in visits]
+
+
+@router.post("/client-visits", response_model=ClientVisitOut)
+async def create_client_visit(
+    db: DBSessionDep, data: ClientVisitCreate, user=Depends(require_write)
+):
+    service = ClientVisitService(db)
+    try:
+        visit = await service.create_visit(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ClientVisitOut.model_validate(visit)
+
+
+@router.post("/client-visits/{visit_id}/exit", response_model=ClientVisitOut)
+async def exit_client_visit(visit_id: int, db: DBSessionDep, user=Depends(require_update)):
+    service = ClientVisitService(db)
+    try:
+        visit = await service.mark_left(visit_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ClientVisitOut.model_validate(visit)
+
+
+@router.put("/client-visits/{visit_id}", response_model=ClientVisitOut)
+async def update_client_visit(
+    visit_id: int, db: DBSessionDep, data: ClientVisitUpdate, user=Depends(require_update)
+):
+    service = ClientVisitService(db)
+    try:
+        visit = await service.update_visit(visit_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return ClientVisitOut.model_validate(visit)
+
+
+@router.delete("/client-visits/{visit_id}", status_code=204)
+async def delete_client_visit(visit_id: int, db: DBSessionDep, user=Depends(require_delete)):
+    service = ClientVisitService(db)
     try:
         await service.delete_visit(visit_id)
     except ValueError as exc:

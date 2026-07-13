@@ -17,6 +17,8 @@ import type {
   KeyTransferCreate,
   TechnicianVisit,
   TechnicianVisitCreate,
+  ClientVisit,
+  ClientVisitCreate,
   Tenant,
   TenantCreate,
 } from '../types/api'
@@ -60,6 +62,12 @@ import {
   markTechnicianLeft,
   updateTechnicianVisit,
   deleteTechnicianVisit,
+  createClientVisit,
+  markClientLeft,
+  updateClientVisit,
+  deleteClientVisit,
+  refreshBuildingSilently,
+  refreshApartmentSilently,
 } from '../store/slices/buildingReceptionSlice'
 import BuildingReceptionAPI from '../lib/buildingReceptionApi'
 import { ACCENT, apartmentTitle } from '../components/building-reception/constants'
@@ -72,6 +80,7 @@ import AddVehicleModal from '../components/building-reception/AddVehicleModal'
 import AddTenantModal from '../components/building-reception/AddTenantModal'
 import AddDeliveryModal from '../components/building-reception/AddDeliveryModal'
 import AddTechnicianVisitModal from '../components/building-reception/AddTechnicianVisitModal'
+import AddClientVisitModal from '../components/building-reception/AddClientVisitModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 import AddKeyModal from '../components/building-reception/AddKeyModal'
 
@@ -116,6 +125,7 @@ export default function BuildingReceptionDesk() {
   const [addTenantOpen, setAddTenantOpen] = useState(false)
   const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
   const [addTechnicianOpen, setAddTechnicianOpen] = useState(false)
+  const [addClientOpen, setAddClientOpen] = useState(false)
   const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
   const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -126,6 +136,7 @@ export default function BuildingReceptionDesk() {
   const [editingVehicle, setEditingVehicle] = useState<AuthorizedVehicle | null>(null)
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null)
   const [editingTechnicianVisit, setEditingTechnicianVisit] = useState<TechnicianVisit | null>(null)
+  const [editingClientVisit, setEditingClientVisit] = useState<ClientVisit | null>(null)
 
   // Load the building + project lists once; then open the first building.
   useEffect(() => {
@@ -178,6 +189,21 @@ export default function BuildingReceptionDesk() {
   }, [dispatch, activeBuilding, visibleBuildings])
 
   const activeApartmentId = activeApartment?.id ?? null
+
+  // Live updates: silently re-fetch the open building + apartment every 10s so
+  // occupancy and indicators stay current (and the auto-vacancy flip shows up)
+  // without a manual reload. Silent thunks skip loading flags to avoid flicker.
+  const activeBuildingId = activeBuilding?.id ?? null
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (activeBuildingId !== null) void dispatch(refreshBuildingSilently(activeBuildingId))
+      if (activeApartmentId !== null) {
+        void dispatch(refreshApartmentSilently(activeApartmentId))
+        void dispatch(fetchApartmentTasks(activeApartmentId))
+      }
+    }, 10000)
+    return () => window.clearInterval(intervalId)
+  }, [dispatch, activeBuildingId, activeApartmentId])
 
   // The task modal's building → apartment cascade loads apartments on demand.
   const loadBuildingApartments = useCallback(
@@ -457,6 +483,46 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteTechnicianVisit({ visitId, apartmentId: activeApartmentId }))
   }
 
+  // --- Client visits ---
+  const closeClientModal = () => {
+    setAddClientOpen(false)
+    setEditingClientVisit(null)
+  }
+
+  const handleSubmitClientVisit = (payload: ClientVisitCreate) => {
+    if (editingClientVisit && activeApartmentId !== null) {
+      void runSubmit(
+        () =>
+          dispatch(
+            updateClientVisit({
+              visitId: editingClientVisit.id,
+              apartmentId: activeApartmentId,
+              changes: {
+                name: payload.name,
+                arrived_at: payload.arrived_at,
+                expected_until: payload.expected_until,
+                note: payload.note,
+              },
+            }),
+          ).unwrap(),
+        closeClientModal,
+      )
+      return
+    }
+    void runSubmit(() => dispatch(createClientVisit(payload)).unwrap(), closeClientModal)
+  }
+
+  const handleMarkClientLeft = (visitId: number) => {
+    if (activeApartmentId === null) return
+    void dispatch(markClientLeft({ visitId, apartmentId: activeApartmentId }))
+  }
+
+  const handleDeleteClientVisit = (visitId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את רשומת הגעת הלקוח?')) return
+    void dispatch(deleteClientVisit({ visitId, apartmentId: activeApartmentId }))
+  }
+
   // When an apartment has no keys yet, seed a default one so a hand-out can be
   // recorded immediately from the transfer modal.
   const handleOpenKeyTransfer = async () => {
@@ -623,6 +689,16 @@ export default function BuildingReceptionDesk() {
           setAddTechnicianOpen(true)
         }}
         onDeleteTechnicianVisit={handleDeleteTechnicianVisit}
+        onAddClientVisit={() => {
+          setEditingClientVisit(null)
+          setAddClientOpen(true)
+        }}
+        onMarkClientLeft={handleMarkClientLeft}
+        onEditClientVisit={(visit) => {
+          setEditingClientVisit(visit)
+          setAddClientOpen(true)
+        }}
+        onDeleteClientVisit={handleDeleteClientVisit}
       />
 
       <CreateBuildingModal
@@ -752,6 +828,24 @@ export default function BuildingReceptionDesk() {
             : null
         }
         onSubmit={handleSubmitTechnicianVisit}
+        submitting={submitting}
+      />
+
+      <AddClientVisitModal
+        isOpen={addClientOpen}
+        onClose={closeClientModal}
+        apartmentId={activeApartmentId}
+        initial={
+          editingClientVisit
+            ? {
+                name: editingClientVisit.name,
+                arrived_at: editingClientVisit.arrived_at,
+                expected_until: editingClientVisit.expected_until,
+                note: editingClientVisit.note,
+              }
+            : null
+        }
+        onSubmit={handleSubmitClientVisit}
         submitting={submitting}
       />
 
