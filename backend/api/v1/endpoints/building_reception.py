@@ -314,11 +314,11 @@ async def get_building(building_id: int, db: DBSessionDep, user=Depends(require_
     try:
         building = await service.get_building(building_id)
         # Reconcile client arrivals whose end-time has passed so the desk shows
-        # up-to-date occupancy on every (polled) load; re-read only if something
-        # actually changed to keep the common path a single query.
+        # up-to-date occupancy on every (polled) load. The pass mutates the same
+        # ClientVisit rows already loaded on the building (one identity map, and
+        # expire_on_commit=False), so no re-read is needed to reflect the change.
         apartment_ids = [apartment.id for apartment in (building.apartments or [])]
-        if await ClientVisitService(db).expire_due_visits(apartment_ids):
-            building = await service.get_building(building_id)
+        await ClientVisitService(db).expire_due_visits(apartment_ids)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return await _building_out_with_open_tasks(building, db)
@@ -373,9 +373,10 @@ async def get_apartment(apartment_id: int, db: DBSessionDep, user=Depends(requir
     try:
         apartment = await service.get_apartment_detail(apartment_id)
         # Auto-expire a client arrival whose end-time has passed before serving
-        # the panel, so an open apartment turns vacant on its next poll.
-        if await ClientVisitService(db).expire_due_visits([apartment_id]):
-            apartment = await service.get_apartment_detail(apartment_id)
+        # the panel, so an open apartment turns vacant on its next poll. The pass
+        # mutates the already-loaded ClientVisit rows in place (shared identity
+        # map, expire_on_commit=False), so the serialized detail reflects it.
+        await ClientVisitService(db).expire_due_visits([apartment_id])
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _apartment_to_detail(apartment)

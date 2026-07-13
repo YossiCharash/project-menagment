@@ -670,9 +670,18 @@ const slice = createSlice({
       .addCase(updateApartment.fulfilled, applyApartment)
 
       // Silent 10s polling: update data in place, never toggle loading flags.
-      .addCase(refreshApartmentSilently.fulfilled, applyApartment)
+      // Ignore a poll that resolved after the user closed the panel or moved to
+      // a different apartment/building, so a stale in-flight response can't
+      // reopen a closed panel or revert a switch.
+      .addCase(refreshApartmentSilently.fulfilled, (state, action) => {
+        if (state.activeApartment?.id === action.payload.id) {
+          state.activeApartment = action.payload
+        }
+      })
       .addCase(refreshBuildingSilently.fulfilled, (state, action) => {
-        state.activeBuilding = action.payload
+        if (state.activeBuilding?.id === action.payload.id) {
+          state.activeBuilding = action.payload
+        }
       })
 
       .addCase(createApartment.fulfilled, (state, action) => {
