@@ -35,6 +35,9 @@ class BuildingReceptionErrorMessages:
     TECHNICIAN_VISIT_NOT_FOUND = "ביקור הטכנאי לא נמצא במערכת"
     TECHNICIAN_NAME_REQUIRED = "שם הטכנאי הוא שדה חובה"
     TECHNICIAN_ALREADY_LEFT = "יציאת הטכנאי כבר נרשמה"
+    CLIENT_VISIT_NOT_FOUND = "הגעת הלקוח לא נמצאה במערכת"
+    CLIENT_ARRIVAL_REQUIRED = "מועד הגעת הלקוח הוא שדה חובה"
+    CLIENT_ALREADY_LEFT = "יציאת הלקוח כבר נרשמה"
 
     # --- formatted messages --------------------------------------------
 
@@ -77,6 +80,11 @@ class BuildingReceptionErrorMessages:
     def technician_visit_not_found_by_id(visit_id: int) -> str:
         """Message shown when a technician-visit id cannot be resolved."""
         return f"ביקור הטכנאי עם המזהה {visit_id} לא נמצא במערכת"
+
+    @staticmethod
+    def client_visit_not_found_by_id(visit_id: int) -> str:
+        """Message shown when a client-visit id cannot be resolved."""
+        return f"הגעת הלקוח עם המזהה {visit_id} לא נמצאה במערכת"
 
     @staticmethod
     def invalid_key_direction(direction: str) -> str:

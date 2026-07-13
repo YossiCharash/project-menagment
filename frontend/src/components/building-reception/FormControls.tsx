@@ -41,6 +41,24 @@ export function TextField({ value, onChange, placeholder, type = 'text' }: TextF
   )
 }
 
+interface DateTimeFieldProps {
+  value: string
+  onChange: (value: string) => void
+}
+
+/** Controlled date+time picker (`datetime-local`) with the module's field styling. */
+export function DateTimeField({ value, onChange }: DateTimeFieldProps) {
+  return (
+    <input
+      type="datetime-local"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={FIELD_CLASS}
+      style={{ '--br-accent': ACCENT } as React.CSSProperties}
+    />
+  )
+}
+
 interface TextAreaProps {
   value: string
   onChange: (value: string) => void

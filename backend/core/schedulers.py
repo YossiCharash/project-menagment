@@ -88,6 +88,43 @@ async def run_contract_renewal_scheduler() -> None:
             await asyncio.sleep(60 * 60)
 
 
+async def run_client_visit_expiry_scheduler() -> None:
+    """Background task that turns apartments vacant when a client arrival's
+    ``expected_until`` has passed.
+
+    Runs the same pass the desk triggers lazily on read, so occupancy stays
+    correct even when nobody is viewing the reception desk. First run ~20s
+    after startup, then every 60 seconds (arrivals use minute-level times).
+    """
+    from backend.db.session import AsyncSessionLocal
+    from backend.services.client_visit_service import ClientVisitService
+
+    first_run = True
+
+    while True:
+        try:
+            if not first_run:
+                await asyncio.sleep(60)
+            else:
+                first_run = False
+                await asyncio.sleep(20)
+
+            async with AsyncSessionLocal() as db:
+                try:
+                    expired = await ClientVisitService(db).expire_due_visits()
+                    if expired:
+                        logger.info("Auto-expired %d client visit(s)", expired)
+                except Exception:
+                    logger.exception("Error expiring due client visits")
+                finally:
+                    await db.close()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Error in client visit expiry scheduler")
+            await asyncio.sleep(60 * 60)
+
+
 def _seconds_until_midnight() -> float:
     """Calculate seconds from now until the next midnight (local time)."""
     now = datetime.now()
