@@ -316,6 +316,130 @@ class PermissionsEngine:
         )
 
     # ------------------------------------------------------------------
+    # Building Reception Desk -- per-building access
+    # ------------------------------------------------------------------
+
+    async def grant_building_reception(
+        self,
+        user_id: int,
+        building_id: int,
+        actions: Sequence[str],
+        *,
+        actor_user_id: int | None = None,
+    ) -> None:
+        """Grant a user access to a single building's reception desk.
+
+        This is a thin, intention-revealing wrapper over
+        ``grant_resource_permission`` that stores one ``ResourcePolicy`` per
+        action with ``resource_type='building_reception'`` and
+        ``resource_id=<building_id>``. The permission engine then allows desk
+        operations on that building only (see the resolution chain in
+        ``SQLAlchemyPermissionProvider``).
+        """
+        for action in actions:
+            await self.grant_resource_permission(
+                user_id=user_id,
+                resource_type=ResourceType.BUILDING_RECEPTION.value,
+                resource_id=str(building_id),
+                action=action,
+                actor_user_id=actor_user_id,
+            )
+
+    async def revoke_building_reception(
+        self,
+        user_id: int,
+        building_id: int,
+        actions: Sequence[str],
+        *,
+        actor_user_id: int | None = None,
+    ) -> None:
+        """Revoke a user's access to a single building's reception desk."""
+        for action in actions:
+            await self.revoke_resource_permission(
+                user_id=user_id,
+                resource_type=ResourceType.BUILDING_RECEPTION.value,
+                resource_id=str(building_id),
+                action=action,
+                actor_user_id=actor_user_id,
+            )
+
+    async def list_building_reception_access(
+        self, user_id: int
+    ) -> list[dict[str, int | list[str]]]:
+        """Return the per-building reception grants held by a user.
+
+        Only building-scoped policies are returned (``resource_id`` is a real
+        building id, not the ``"*"`` wildcard). The result groups the granted
+        actions per building::
+
+            [{"building_id": 3, "actions": ["read", "write"]}, ...]
+        """
+        from sqlalchemy import select, and_
+
+        result = await self._db.execute(
+            select(ResourcePolicy.resource_id, ResourcePolicy.action)
+            .where(
+                and_(
+                    ResourcePolicy.user_id == user_id,
+                    ResourcePolicy.resource_type
+                    == ResourceType.BUILDING_RECEPTION.value,
+                    ResourcePolicy.resource_id != "*",
+                )
+            )
+        )
+        grouped: dict[int, list[str]] = {}
+        for resource_id, action in result.all():
+            if resource_id is None or not str(resource_id).isdigit():
+                continue
+            grouped.setdefault(int(resource_id), []).append(action)
+        return [
+            {"building_id": bid, "actions": sorted(actions)}
+            for bid, actions in sorted(grouped.items())
+        ]
+
+    async def get_accessible_reception_building_ids(
+        self, user_id: int, action: str = "read"
+    ) -> set[int] | None:
+        """Return the building ids a user may perform ``action`` on at the desk.
+
+        Returns ``None`` when the user has *unrestricted* access for the given
+        action -- i.e. a wildcard ``building_reception:*`` policy or a global
+        role (Admin / SuperAdmin) already grants it on every building. Callers
+        should treat ``None`` as "all buildings".
+
+        Otherwise returns the (possibly empty) set of building ids the user was
+        explicitly granted through per-building policies.
+        """
+        from sqlalchemy import select, and_
+
+        # Wildcard policy or global role => access to every building.
+        unrestricted = await self._provider.has_permission(
+            user_id=user_id,
+            action=action,
+            resource_type=ResourceType.BUILDING_RECEPTION.value,
+            resource_id=None,
+        )
+        if unrestricted:
+            return None
+
+        result = await self._db.execute(
+            select(ResourcePolicy.resource_id).where(
+                and_(
+                    ResourcePolicy.user_id == user_id,
+                    ResourcePolicy.resource_type
+                    == ResourceType.BUILDING_RECEPTION.value,
+                    ResourcePolicy.action == action,
+                    ResourcePolicy.resource_id != "*",
+                )
+            )
+        )
+        return {
+            int(rid)
+            for rid in result.scalars().all()
+            if rid is not None and str(rid).isdigit()
+        }
+
+    # ------------------------------------------------------------------
     # Permissions summary
     # ------------------------------------------------------------------
 
