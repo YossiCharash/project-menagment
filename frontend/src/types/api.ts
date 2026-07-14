@@ -517,6 +517,8 @@ export interface Apartment {
   current_tenant: Tenant | null
   has_active_client_visit: boolean
   keys_count: number
+  keys_in_desk_count: number
+  keys_out_count: number
   vehicles_count: number
   pending_deliveries_count: number
   open_tasks_count: number

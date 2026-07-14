@@ -362,6 +362,57 @@ class TestKeys:
         kinds = [a["kind"] for a in detail["activities"]]
         assert "key_out" in kinds and "key_in" in kinds
 
+    async def test_overview_splits_key_counts_by_holder(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """The building overview reports desk-held vs handed-out keys separately
+        so the grid can show a "מפתח אצל הדלפק" marker and a "הוצאנו מפתח" one."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+
+        first_key = (
+            await test_client.post(
+                f"{BASE}/keys",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "label": "מפתח ראשי"},
+            )
+        ).json()
+        await test_client.post(
+            f"{BASE}/keys",
+            headers=_auth(admin_token),
+            json={"apartment_id": apartment_id, "label": "מפתח משני"},
+        )
+
+        # Both keys start life at the desk.
+        summary = await self._apartment_summary(
+            test_client, admin_token, building["id"], apartment_id
+        )
+        assert summary["keys_count"] == 2
+        assert summary["keys_in_desk_count"] == 2
+        assert summary["keys_out_count"] == 0
+
+        # Hand one key out → the split shifts by one in each direction.
+        await test_client.post(
+            f"{BASE}/keys/{first_key['id']}/transfer",
+            headers=_auth(admin_token),
+            json={"direction": "out", "counterparty_name": "משה לוי"},
+        )
+        summary = await self._apartment_summary(
+            test_client, admin_token, building["id"], apartment_id
+        )
+        assert summary["keys_count"] == 2
+        assert summary["keys_in_desk_count"] == 1
+        assert summary["keys_out_count"] == 1
+
+    async def _apartment_summary(
+        self, client: AsyncClient, token: str, building_id: int, apartment_id: int
+    ) -> dict:
+        response = await client.get(
+            f"{BASE}/buildings/{building_id}", headers=_auth(token)
+        )
+        assert response.status_code == 200, response.text
+        return next(a for a in response.json()["apartments"] if a["id"] == apartment_id)
+
     async def test_transfer_invalid_direction_rejected(
         self, test_client: AsyncClient, admin_token: str
     ):

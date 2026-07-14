@@ -13,6 +13,8 @@ export const ACCENT = '#7B5BF5'
 /** Semantic colours reused by dots, chips and indicators. */
 export const PALETTE = {
   key: ACCENT,
+  keyDesk: '#12B76A', // מפתח אצל הדלפק (מוחזק בכספת) — matches KeyStatusList's IN_GREEN
+  keyOut: '#E5544B', // הוצאנו מפתח (טרם הוחזר) — matches KeyStatusList's OUT_RED
   delivery: '#3B82F6',
   technician: '#F79009',
   task: '#E5544B',
@@ -22,26 +24,41 @@ export const PALETTE = {
 } as const
 
 export interface ApartmentIndicators {
-  hasKeys: boolean
+  /** At least one key is currently held at the reception desk. */
+  hasKeyInDesk: boolean
+  /** At least one key is currently handed out (not yet returned). */
+  hasKeyOut: boolean
   hasPendingDelivery: boolean
   hasOpenTask: boolean
   isVacant: boolean
 }
 
 /**
+ * Occupancy rule for a residential apartment (מאוכלסת/פנויה). It follows the
+ * resident record: מאוכלסת while a current tenant lives here, otherwise פנויה.
+ * Client arrivals are transient and tracked separately in the "לקוחות" tab.
+ * Common areas are never "vacant". Single source of truth shared by the grid
+ * tile and the detail panel so the two can't drift.
+ */
+export function isApartmentVacant(
+  apartment: Pick<Apartment, 'current_tenant' | 'is_common_area'>,
+): boolean {
+  return !apartment.current_tenant && !apartment.is_common_area
+}
+
+/**
  * Derives the little indicator icons shown on an apartment cell from the
- * summary counts carried by the list payload. (Per-key holder state is only
- * available in the full ApartmentDetail, so the cell shows "has keys on file"
- * rather than "key currently out".)
+ * summary counts carried by the list payload. The two key states are tracked
+ * separately: one icon for keys sitting at the desk (בדלפק) and one for keys
+ * currently handed out (הוצאנו מפתח).
  */
 export function deriveIndicators(apartment: Apartment): ApartmentIndicators {
   return {
-    hasKeys: apartment.keys_count > 0,
+    hasKeyInDesk: apartment.keys_in_desk_count > 0,
+    hasKeyOut: apartment.keys_out_count > 0,
     hasPendingDelivery: apartment.pending_deliveries_count > 0,
     hasOpenTask: apartment.open_tasks_count > 0,
-    // Occupancy is driven by an active client arrival (הגעת לקוח), not by the
-    // tenant record: מאוכלסת while a client is present, otherwise פנויה.
-    isVacant: !apartment.has_active_client_visit && !apartment.is_common_area,
+    isVacant: isApartmentVacant(apartment),
   }
 }
 

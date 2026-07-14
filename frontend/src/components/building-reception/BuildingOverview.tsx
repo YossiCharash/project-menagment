@@ -186,8 +186,12 @@ export default function BuildingOverview({
         ))}
         <span className="w-px h-4 bg-gray-200 dark:bg-gray-600" />
         <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
-          <KeyRound className="w-4 h-4" style={{ color: PALETTE.key }} />
-          מפתח בחוץ
+          <KeyRound className="w-4 h-4" style={{ color: PALETTE.keyDesk }} />
+          מפתח אצל הדלפק
+        </span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <KeyRound className="w-4 h-4" style={{ color: PALETTE.keyOut }} />
+          הוצאנו מפתח
         </span>
         <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
           <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} />
