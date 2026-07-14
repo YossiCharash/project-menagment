@@ -70,6 +70,7 @@ from backend.services.personal_area_service import PersonalAreaService
 from backend.services.auth_service import AuthService
 from backend.services.s3_service import S3Service
 from backend.models.apartment_document import ApartmentDocument
+from backend.core.rate_limit import _limiter, get_client_ip
 from backend.services.tenant_service import TenantService
 from backend.services.key_service import KeyService
 from backend.services.authorized_vehicle_service import AuthorizedVehicleService
@@ -562,9 +563,31 @@ async def update_apartment(apartment_id: int, db: DBSessionDep, data: ApartmentU
 # re-verifies the password server-side, so an "unlocked" UI can never be trusted
 # to have skipped the check.
 
-async def _assert_admin_password(db, password: str) -> None:
-    """Raise HTTP 403 unless ``password`` matches an active admin's password."""
+# Brute-force cap on the personal-area admin password: at most this many FAILED
+# attempts per client IP per window. Only wrong passwords count, so a manager
+# unlocking many apartments in a row is never throttled. Keyed on the client IP
+# (not the request path) so rotating apartment ids cannot reset the counter.
+_PW_MAX_FAILURES = 10
+_PW_WINDOW_SECONDS = 60
+
+
+async def _assert_admin_password(request: Request, db, password: str) -> None:
+    """Verify the admin password, throttling repeated failures to stop brute force.
+
+    Raises 429 once too many recent failures accumulate for the caller's IP, and
+    403 on a wrong password (recording it toward the limit). A correct password
+    never counts against the limit.
+    """
+    key = f"personal-area-admin-pw:{get_client_ip(request)}"
+    if _limiter.over_limit(key, _PW_MAX_FAILURES, _PW_WINDOW_SECONDS):
+        retry_after = _limiter.get_retry_after(key, _PW_WINDOW_SECONDS)
+        raise HTTPException(
+            status_code=429,
+            detail=f"יותר מדי ניסיונות. נסו שוב בעוד {retry_after} שניות.",
+            headers={"Retry-After": str(retry_after)},
+        )
     if not await AuthService(db).verify_admin_password(password):
+        _limiter.record(key)
         raise HTTPException(status_code=403, detail=BuildingReceptionErrorMessages.WRONG_ADMIN_PASSWORD)
 
 
@@ -580,12 +603,13 @@ def _personal_area_out(apartment, documents) -> PersonalAreaOut:
 @router.post("/apartments/{apartment_id}/personal-area", response_model=PersonalAreaOut)
 async def unlock_personal_area(
     apartment_id: int,
+    request: Request,
     db: DBSessionDep,
     data: PersonalAreaUnlock,
     user=Depends(require_reception(Action.READ.value, source="apartment")),
 ):
     """Verify the admin password and return the apartment's personal-area payload."""
-    await _assert_admin_password(db, data.password)
+    await _assert_admin_password(request, db, data.password)
     service = PersonalAreaService(db)
     try:
         apartment, documents = await service.get_personal_area(apartment_id)
@@ -597,17 +621,21 @@ async def unlock_personal_area(
 @router.put("/apartments/{apartment_id}/personal-area", response_model=PersonalAreaOut)
 async def update_personal_area(
     apartment_id: int,
+    request: Request,
     db: DBSessionDep,
     data: PersonalAreaUpdate,
     user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
 ):
-    """Update the private details/notes (admin password re-authorizes the write)."""
-    await _assert_admin_password(db, data.password)
+    """Update the private details/notes (admin password re-authorizes the write).
+
+    Only fields the caller actually sent are written (partial update), so omitting
+    ``private_notes`` preserves it instead of clearing it.
+    """
+    await _assert_admin_password(request, db, data.password)
+    changes = data.model_dump(exclude_unset=True, exclude={"password"})
     service = PersonalAreaService(db)
     try:
-        apartment, documents = await service.update_private_fields(
-            apartment_id, data.private_details, data.private_notes
-        )
+        apartment, documents = await service.update_private_fields(apartment_id, changes)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _personal_area_out(apartment, documents)
@@ -616,6 +644,7 @@ async def update_personal_area(
 @router.post("/apartments/{apartment_id}/personal-area/documents", response_model=ApartmentDocumentOut)
 async def upload_personal_area_document(
     apartment_id: int,
+    request: Request,
     db: DBSessionDep,
     password: str = Form(...),
     file: UploadFile = File(...),
@@ -623,11 +652,11 @@ async def upload_personal_area_document(
     user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
 ):
     """Upload a document into the apartment's personal area (admin-password gated)."""
-    await _assert_admin_password(db, password)
+    await _assert_admin_password(request, db, password)
     service = PersonalAreaService(db)
-    # Validate the apartment exists before touching storage.
+    # Validate the apartment exists before touching storage (no document load).
     try:
-        await service.get_personal_area(apartment_id)
+        await service.ensure_apartment(apartment_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -659,12 +688,13 @@ async def upload_personal_area_document(
 async def delete_personal_area_document(
     apartment_id: int,
     document_id: int,
+    request: Request,
     db: DBSessionDep,
     data: PersonalAreaUnlock,
     user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
 ):
     """Delete a personal-area document (admin-password gated)."""
-    await _assert_admin_password(db, data.password)
+    await _assert_admin_password(request, db, data.password)
     service = PersonalAreaService(db)
     try:
         file_path = await service.delete_document(apartment_id, document_id)
