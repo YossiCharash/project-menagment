@@ -61,6 +61,11 @@ class ApartmentRepository:
         await self.db.refresh(apartment)
         return apartment
 
+    async def save_all(self, apartments: List[Apartment]) -> None:
+        """Persist in-place edits to already-tracked apartments in one commit."""
+        self.db.add_all(apartments)
+        await self.db.commit()
+
     async def delete(self, apartment: Apartment) -> None:
         await self.db.delete(apartment)
         await self.db.commit()
