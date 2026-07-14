@@ -13,7 +13,7 @@ interface ApartmentCellProps {
  * click upward. No data fetching or business logic lives here.
  */
 export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProps) {
-  const { hasKeys, hasPendingDelivery, hasOpenTask, isVacant } = deriveIndicators(apartment)
+  const { hasKeyInDesk, hasKeyOut, hasPendingDelivery, hasOpenTask, isVacant } = deriveIndicators(apartment)
 
   const accentBorder = apartment.is_common_area ? ACCENT : isVacant ? PALETTE.vacant : PALETTE.occupied
   const tenantLabel = apartment.is_common_area
@@ -36,7 +36,12 @@ export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProp
           {apartmentTitle(apartment)}
         </span>
         <span className="flex items-center gap-1">
-          {hasKeys && <KeyRound className="w-4 h-4" style={{ color: PALETTE.key }} aria-label="מפתח" />}
+          {hasKeyInDesk && (
+            <KeyRound className="w-4 h-4" style={{ color: PALETTE.keyDesk }} aria-label="מפתח אצל הדלפק" />
+          )}
+          {hasKeyOut && (
+            <KeyRound className="w-4 h-4" style={{ color: PALETTE.keyOut }} aria-label="הוצאנו מפתח" />
+          )}
           {hasPendingDelivery && (
             <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} aria-label="משלוח ממתין" />
           )}

@@ -1,6 +1,6 @@
 import { KeyRound, ArrowLeftRight, AlertTriangle, Plus, Trash2, Pencil } from 'lucide-react'
 import type { ApartmentKey } from '../../types/api'
-import { ACCENT, formatDate } from './constants'
+import { ACCENT, PALETTE, formatDate } from './constants'
 
 interface KeyStatusListProps {
   keys: ApartmentKey[]
@@ -10,8 +10,9 @@ interface KeyStatusListProps {
   onDeleteKey: (keyId: number) => void
 }
 
-const OUT_RED = '#E5544B'
-const IN_GREEN = '#12B76A'
+// Shared with the overview grid markers so the desk-green / out-red stay in sync.
+const OUT_RED = PALETTE.keyOut
+const IN_GREEN = PALETTE.keyDesk
 
 /** Keys state list + the per-key transfer log, shown in the apartment panel. */
 export default function KeyStatusList({ keys, onTransfer, onAddKey, onEditKey, onDeleteKey }: KeyStatusListProps) {
