@@ -108,8 +108,16 @@ function labelFor(map: Record<string, string>, key: string): string {
 }
 
 function isAllowed(permissions: IamPermission[], rt: string, action: string): boolean {
+  // The matrix is a blanket "does this user have this capability everywhere"
+  // overview, so a permission scoped to a single resource instance (a specific
+  // resource_id, e.g. one building's reception desk) must NOT light the cell —
+  // otherwise a per-building grant looks identical to all-building/global access.
+  // Wildcard ('*') and role/global sources (no resource_id) still count.
   return permissions.some(
-    (p) => p.resource_type === rt && p.action === action
+    (p) =>
+      p.resource_type === rt &&
+      p.action === action &&
+      (p.resource_id === undefined || p.resource_id === '*')
   )
 }
 
@@ -720,6 +728,10 @@ function BuildingReceptionTab({ userId, access, buildings, onRefresh }: Building
     buildings.find((b) => b.id === id)?.name ?? `בניין #${id}`
 
   const toggleAction = (action: string) => {
+    // READ is the baseline the desk needs to list/open a building, so it stays
+    // on and cannot be turned off — a write/update/delete-only grant would be
+    // silently unusable (the server also forces read in on every grant).
+    if (action === 'read') return
     setSelectedActions((prev) =>
       prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
     )
@@ -850,18 +862,22 @@ function BuildingReceptionTab({ userId, access, buildings, onRefresh }: Building
               <div className="flex flex-wrap gap-2">
                 {RECEPTION_ACTIONS.map((action) => {
                   const checked = selectedActions.includes(action)
+                  const locked = action === 'read'
                   return (
                     <button
                       type="button"
                       key={action}
                       onClick={() => toggleAction(action)}
+                      disabled={locked}
+                      title={locked ? 'קריאה נדרשת תמיד כדי לצפות בבניין' : undefined}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150 ${
                         checked
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                      }`}
+                      } ${locked ? 'opacity-70 cursor-not-allowed' : ''}`}
                     >
                       {labelFor(ACTION_LABELS, action)}
+                      {locked ? ' •' : ''}
                     </button>
                   )
                 })}
@@ -909,13 +925,11 @@ export default function UserPermissions() {
     setLoading(true)
     setError(null)
     try {
-      const [userRes, iamRes, projectsRes, rolesRes, buildingsRes, accessRes] = await Promise.all([
+      const [userRes, iamRes, projectsRes, rolesRes] = await Promise.all([
         api.get<User>(`/users/${uid}`),
         api.get<IamData>(`/iam/users/${uid}/permissions`),
         api.get('/projects'),
         api.get<RolesData>('/iam/roles'),
-        api.get<BuildingOption[]>('/iam/buildings'),
-        api.get<BuildingReceptionAccess[]>(`/iam/users/${uid}/building-reception`),
       ])
       setUser(userRes.data)
       setIamData(iamRes.data)
@@ -923,8 +937,6 @@ export default function UserPermissions() {
       const pd = projectsRes.data
       setProjects(Array.isArray(pd) ? pd : (pd.items ?? pd.projects ?? []))
       setRolesData(rolesRes.data)
-      setBuildings(buildingsRes.data)
-      setBuildingAccess(accessRes.data)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'שגיאה בטעינת נתונים')
     } finally {
@@ -952,9 +964,27 @@ export default function UserPermissions() {
     }
   }, [uid])
 
+  // The per-building reception data loads independently of the main page so a
+  // failure here only disables the reception tab, never the whole permissions
+  // screen (roles / matrix / policies stay usable).
+  const fetchBuildingReception = useCallback(async () => {
+    if (!uid) return
+    try {
+      const [buildingsRes, accessRes] = await Promise.all([
+        api.get<BuildingOption[]>('/iam/buildings'),
+        api.get<BuildingReceptionAccess[]>(`/iam/users/${uid}/building-reception`),
+      ])
+      setBuildings(buildingsRes.data)
+      setBuildingAccess(accessRes.data)
+    } catch {
+      // silent – the reception tab shows its empty state
+    }
+  }, [uid])
+
   useEffect(() => {
     fetchAll()
-  }, [fetchAll])
+    fetchBuildingReception()
+  }, [fetchAll, fetchBuildingReception])
 
   const handleGlobalRoleChange = async () => {
     if (!newGlobalRole) return
@@ -981,7 +1011,7 @@ export default function UserPermissions() {
     )
   }
 
-  if (me.role !== 'Admin') {
+  if (me.role !== 'Admin' && me.role !== 'SuperAdmin') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center" dir="rtl">
         <div className="text-center">

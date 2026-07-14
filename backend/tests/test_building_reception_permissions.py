@@ -6,9 +6,11 @@ to it, while Admins and the legacy ``building_reception:*`` wildcard keep access
 to every building.
 """
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 from backend.models.user import User
+from backend.core.security import hash_password
 
 BASE = "/api/v1/building-reception"
 IAM = "/api/v1/iam"
@@ -16,6 +18,32 @@ IAM = "/api/v1/iam"
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def superadmin_user(test_db) -> User:
+    user = User(
+        email="superadmin@test.com",
+        password_hash=hash_password("testpass123"),
+        full_name="Test SuperAdmin",
+        role="SuperAdmin",
+        is_active=True,
+        email_verified=True,
+    )
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def superadmin_token(test_client: AsyncClient, superadmin_user: User) -> str:
+    response = await test_client.post(
+        "/api/v1/auth/login",
+        json={"email": "superadmin@test.com", "password": "testpass123"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
 
 
 async def _create_building(client: AsyncClient, token: str, *, name: str) -> dict:
@@ -214,3 +242,104 @@ class TestPerBuildingReception:
         assert listed.status_code == 200
         ids = {b["id"] for b in listed.json()}
         assert {building_a["id"], building_b["id"]} <= ids
+
+    async def test_grant_always_includes_read_so_it_is_usable(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        member_token: str,
+        member_user: User,
+    ):
+        """A write-only grant would be inert (visibility is gated on read), so
+        the server forces read in and the building becomes visible/openable."""
+        building = await _create_building(test_client, admin_token, name="בניין א")
+
+        grant = await test_client.post(
+            f"{IAM}/users/{member_user.id}/building-reception",
+            headers=_auth(admin_token),
+            json={"building_id": building["id"], "actions": ["write"]},
+        )
+        assert grant.status_code == 201, grant.text
+        assert "read" in grant.json()["actions"]
+
+        # The building is now visible and openable by the member.
+        listed = await test_client.get(f"{BASE}/buildings", headers=_auth(member_token))
+        assert listed.status_code == 200
+        assert building["id"] in {b["id"] for b in listed.json()}
+        opened = await test_client.get(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(member_token)
+        )
+        assert opened.status_code == 200, opened.text
+
+    async def test_scoped_operator_cannot_read_unrelated_project(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        member_token: str,
+        member_user: User,
+    ):
+        """A member scoped to a building in project X gets 404 for a project Y
+        that holds no building they can access (no name/description leak)."""
+        project_x = await test_client.post(
+            f"{BASE}/projects", headers=_auth(admin_token), json={"name": "מתחם X"}
+        )
+        assert project_x.status_code == 200, project_x.text
+        project_y = await test_client.post(
+            f"{BASE}/projects", headers=_auth(admin_token), json={"name": "מתחם Y"}
+        )
+        assert project_y.status_code == 200, project_y.text
+
+        building_x = await test_client.post(
+            f"{BASE}/buildings",
+            headers=_auth(admin_token),
+            json={
+                "name": "בניין ב-X",
+                "project_id": project_x.json()["id"],
+                "floors_count": 1,
+                "units_per_floor": 1,
+                "has_common_areas": False,
+                "first_unit_number": 1,
+            },
+        )
+        assert building_x.status_code == 200, building_x.text
+
+        await test_client.post(
+            f"{IAM}/users/{member_user.id}/building-reception",
+            headers=_auth(admin_token),
+            json={"building_id": building_x.json()["id"], "actions": ["read"]},
+        )
+
+        # Project X (contains an accessible building) is readable.
+        ok = await test_client.get(
+            f"{BASE}/projects/{project_x.json()['id']}", headers=_auth(member_token)
+        )
+        assert ok.status_code == 200, ok.text
+        # Project Y (no accessible building) is hidden as 404.
+        hidden = await test_client.get(
+            f"{BASE}/projects/{project_y.json()['id']}", headers=_auth(member_token)
+        )
+        assert hidden.status_code == 404, hidden.text
+
+    async def test_superadmin_can_manage_building_reception(
+        self,
+        test_client: AsyncClient,
+        admin_token: str,
+        superadmin_token: str,
+        member_user: User,
+    ):
+        """SuperAdmin (top tier) may administer per-building reception grants."""
+        building = await _create_building(test_client, admin_token, name="בניין א")
+
+        grant = await test_client.post(
+            f"{IAM}/users/{member_user.id}/building-reception",
+            headers=_auth(superadmin_token),
+            json={"building_id": building["id"], "actions": ["read", "write"]},
+        )
+        assert grant.status_code == 201, grant.text
+
+        listed = await test_client.get(
+            f"{IAM}/users/{member_user.id}/building-reception",
+            headers=_auth(superadmin_token),
+        )
+        assert listed.status_code == 200, listed.text
+        assert len(listed.json()) == 1
