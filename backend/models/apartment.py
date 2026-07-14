@@ -23,6 +23,9 @@ class Apartment(Base):
     attorneys: Mapped[str | None] = mapped_column(Text, default=None)  # מיופי כח נוספים (שורה לכל איש קשר)
     equipment: Mapped[str | None] = mapped_column(Text, default=None)  # ציוד שנמצא בדירה
     notes: Mapped[str | None] = mapped_column(Text, default=None)  # הערות על הדירה
+    # ── Personal area (אזור אישי) — gated behind the admin password ──────────
+    private_details: Mapped[str | None] = mapped_column(Text, default=None)  # פרטים פרטיים
+    private_notes: Mapped[str | None] = mapped_column(Text, default=None)  # הערות פרטיות
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
@@ -48,4 +51,7 @@ class Apartment(Base):
     )
     activities: Mapped[list["ApartmentActivity"]] = relationship(
         "ApartmentActivity", back_populates="apartment", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list["ApartmentDocument"]] = relationship(
+        "ApartmentDocument", back_populates="apartment", cascade="all, delete-orphan"
     )

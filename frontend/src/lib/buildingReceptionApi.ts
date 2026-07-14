@@ -23,6 +23,9 @@ import type {
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
+  PersonalArea,
+  PersonalAreaUpdate,
+  ApartmentDocument,
   TechnicianVisit,
   TechnicianVisitCreate,
   TechnicianVisitUpdate,
@@ -130,6 +133,59 @@ export class BuildingReceptionAPI {
 
   static async deleteTenant(tenantId: number): Promise<void> {
     await api.delete(`${BASE}/tenants/${tenantId}`)
+  }
+
+  // ---- Personal area (אזור אישי) — admin-password gated ---------------------
+
+  /** Verify the admin password and fetch the apartment's private details/notes/documents. */
+  static async unlockPersonalArea(apartmentId: number, password: string): Promise<PersonalArea> {
+    const { data } = await api.post<PersonalArea>(
+      `${BASE}/apartments/${apartmentId}/personal-area`,
+      { password },
+    )
+    return data
+  }
+
+  /** Update the private details/notes; the admin password re-authorizes the write. */
+  static async updatePersonalArea(
+    apartmentId: number,
+    password: string,
+    changes: PersonalAreaUpdate,
+  ): Promise<PersonalArea> {
+    const { data } = await api.put<PersonalArea>(
+      `${BASE}/apartments/${apartmentId}/personal-area`,
+      { password, ...changes },
+    )
+    return data
+  }
+
+  /** Upload a document into the personal area (admin-password gated). */
+  static async uploadPersonalAreaDocument(
+    apartmentId: number,
+    password: string,
+    file: File,
+    description?: string,
+  ): Promise<ApartmentDocument> {
+    const formData = new FormData()
+    formData.append('password', password)
+    formData.append('file', file)
+    if (description) formData.append('description', description)
+    const { data } = await api.post<ApartmentDocument>(
+      `${BASE}/apartments/${apartmentId}/personal-area/documents`,
+      formData,
+    )
+    return data
+  }
+
+  /** Delete a personal-area document (admin-password gated). */
+  static async deletePersonalAreaDocument(
+    apartmentId: number,
+    documentId: number,
+    password: string,
+  ): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}/personal-area/documents/${documentId}`, {
+      data: { password },
+    })
   }
 
   // ---- Keys -----------------------------------------------------------------

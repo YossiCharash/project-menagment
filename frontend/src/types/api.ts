@@ -535,6 +535,29 @@ export interface ApartmentDetail extends Apartment {
   activities: ApartmentActivity[]
 }
 
+/** A document stored in an apartment's personal area (אזור אישי). */
+export interface ApartmentDocument {
+  id: number
+  apartment_id: number
+  file_path: string
+  filename: string | null
+  description: string | null
+  uploaded_at: string
+}
+
+/** Full personal-area payload, returned only after the admin password verifies. */
+export interface PersonalArea {
+  apartment_id: number
+  private_details: string | null
+  private_notes: string | null
+  documents: ApartmentDocument[]
+}
+
+export interface PersonalAreaUpdate {
+  private_details?: string | null
+  private_notes?: string | null
+}
+
 export interface Building {
   id: number
   name: string
