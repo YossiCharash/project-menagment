@@ -92,11 +92,11 @@ def require_group_access():
 
 
 def require_admin():
-    """Require Admin role"""
+    """Require Admin (or the higher SuperAdmin) role."""
     async def _admin_dep(user = Depends(get_current_user)):
-        if user.role != "Admin":
+        if user.role not in ("Admin", "SuperAdmin"):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
+                status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied. Admin role required"
             )
         return user

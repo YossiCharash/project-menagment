@@ -248,7 +248,7 @@ async def list_user_building_reception(
 
     Non-admins may only view their own grants.
     """
-    if user.role != "Admin" and user_id != user.id:
+    if user.role not in ("Admin", "SuperAdmin") and user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only view your own permissions",
@@ -299,18 +299,23 @@ async def grant_user_building_reception(
             detail="At least one action is required",
         )
 
+    # READ is the baseline the desk needs to even list/open a building; visibility
+    # is gated on it, so a write/update/delete-only grant would be silently inert.
+    # Guarantee it is always present so any grant is usable.
+    actions = sorted(set(body.actions) | {Action.READ.value})
+
     engine = PermissionsEngine(db)
     await engine.grant_building_reception(
         user_id=user_id,
         building_id=body.building_id,
-        actions=body.actions,
+        actions=actions,
         actor_user_id=admin.id,
     )
     return {
         "message": "Building reception access granted",
         "user_id": user_id,
         "building_id": body.building_id,
-        "actions": body.actions,
+        "actions": actions,
     }
 
 

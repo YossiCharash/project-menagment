@@ -18,6 +18,7 @@ from backend.models.client_visit import ClientVisit
 from backend.models.delivery import Delivery, DeliveryStatus
 from backend.models.technician_visit import TechnicianVisit
 from backend.models.tenant import Tenant
+from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
 from backend.schemas.building_project import (
     BuildingProjectCreate,
@@ -402,6 +403,16 @@ async def get_project(project_id: int, db: DBSessionDep, user=Depends(require_an
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     accessible = await _accessible_building_ids(db, user.id)
+    # A building-scoped operator may only open a project that holds at least one
+    # building they can access; otherwise the project is treated as not found so
+    # its name/description are not exposed by id enumeration.
+    if accessible is not None and not any(
+        b.id in accessible for b in (project.buildings or [])
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=BuildingReceptionErrorMessages.project_not_found_by_id(project_id),
+        )
     return _project_to_out(project, accessible)
 
 
