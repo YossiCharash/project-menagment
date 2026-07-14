@@ -187,6 +187,7 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
                 id=document.id,
                 apartment_id=document.entity_id,
                 file_path=document.file_path,
+                file_name=document.file_name,
                 description=document.description,
                 uploaded_at=document.uploaded_at,
             )

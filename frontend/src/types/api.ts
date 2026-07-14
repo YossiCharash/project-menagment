@@ -503,6 +503,7 @@ export interface ApartmentDocument {
   id: number
   apartment_id: number
   file_path: string
+  file_name: string | null
   description: string | null
   uploaded_at: string
 }

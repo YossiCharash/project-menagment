@@ -8,9 +8,11 @@ interface ApartmentDocumentListProps {
   onDelete: (documentId: number) => void
 }
 
-/** Derives a human label for a document: its description, else the file name. */
+/** Derives a human label for a document: its description, else the original file name. */
 function documentLabel(document: ApartmentDocument): string {
   if (document.description) return document.description
+  if (document.file_name) return document.file_name
+  // Legacy rows (pre file_name) fall back to the last path segment of the S3 key.
   const parts = document.file_path.split('/')
   return decodeURIComponent(parts[parts.length - 1] || 'מסמך')
 }

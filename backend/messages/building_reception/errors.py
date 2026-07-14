@@ -39,7 +39,6 @@ class BuildingReceptionErrorMessages:
     CLIENT_ARRIVAL_REQUIRED = "מועד הגעת הלקוח הוא שדה חובה"
     CLIENT_ALREADY_LEFT = "יציאת הלקוח כבר נרשמה"
     DOCUMENT_NOT_FOUND = "המסמך לא נמצא במערכת"
-    DOCUMENT_FILE_REQUIRED = "יש לבחור קובץ להעלאה"
     DOCUMENT_NOT_ON_APARTMENT = "המסמך אינו שייך לדירה זו"
 
     # --- formatted messages --------------------------------------------

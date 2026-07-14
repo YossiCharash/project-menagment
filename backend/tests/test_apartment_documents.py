@@ -88,9 +88,27 @@ class TestApartmentDocuments:
 
         assert doc["apartment_id"] == apartment_id
         assert doc["description"] == "חוזה שכירות"
+        assert doc["file_name"] == "contract.pdf"
         assert "amazonaws.com" in doc["file_path"]
         # The file went through S3 under an apartment-scoped prefix.
         assert fake_s3.uploaded and fake_s3.uploaded[0][0] == f"apartments/{apartment_id}/documents"
+
+    async def test_upload_without_description_keeps_original_filename(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_apartment_id(building)
+
+        response = await test_client.post(
+            f"{BASE}/apartments/{apartment_id}/documents",
+            headers=_auth(admin_token),
+            files={"file": ("floor-plan.png", b"fake-image", "image/png")},
+        )
+        assert response.status_code == 200, response.text
+        doc = response.json()
+        # No description was given, so the original filename is what the UI shows.
+        assert doc["description"] is None
+        assert doc["file_name"] == "floor-plan.png"
 
     async def test_document_appears_on_apartment_detail(
         self, test_client: AsyncClient, admin_token: str

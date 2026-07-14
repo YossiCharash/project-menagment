@@ -14,6 +14,9 @@ class Document(Base):
 
     entity_id: Mapped[int] = mapped_column(Integer, index=True)
     file_path: Mapped[str] = mapped_column(String(500))
+    # Original uploaded filename, kept so the UI can show a human-readable name
+    # (the stored S3 key is uuid-based). Nullable for legacy/other-entity rows.
+    file_name: Mapped[str | None] = mapped_column(String(255), default=None)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)

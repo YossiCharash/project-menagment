@@ -8,6 +8,7 @@ class ApartmentDocumentOut(BaseModel):
     id: int
     apartment_id: int
     file_path: str
+    file_name: str | None = None
     description: str | None = None
     uploaded_at: datetime
 
