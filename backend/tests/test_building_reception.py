@@ -278,6 +278,38 @@ class TestApartmentAndTenant:
         response = await test_client.get(f"{BASE}/apartments/999999", headers=_auth(admin_token))
         assert response.status_code == 404, response.text
 
+    async def test_delete_apartment_renumbers_later_units(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """Deleting #3 shifts 4,5,6 down to 3,4,5 so numbering stays contiguous."""
+        building = await _create_building(
+            test_client, admin_token, floors_count=2, units_per_floor=3
+        )
+        apartments = {
+            a["unit_number"]: a["id"]
+            for a in building["apartments"]
+            if not a["is_common_area"]
+        }
+        assert sorted(int(n) for n in apartments) == [1, 2, 3, 4, 5, 6]
+
+        deleted = await test_client.delete(
+            f"{BASE}/apartments/{apartments['3']}", headers=_auth(admin_token)
+        )
+        assert deleted.status_code == 204, deleted.text
+
+        overview = await test_client.get(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(admin_token)
+        )
+        assert overview.status_code == 200, overview.text
+        after = overview.json()["apartments"]
+        residential = sorted(
+            int(a["unit_number"]) for a in after if not a["is_common_area"]
+        )
+        assert residential == [1, 2, 3, 4, 5]
+        # Common areas keep their text labels — only numeric units are renumbered.
+        commons = {a["unit_number"] for a in after if a["is_common_area"]}
+        assert commons == {"לובי", "חניון", "מחסן"}
+
     async def test_swap_tenant_moves_previous_to_history(
         self, test_client: AsyncClient, admin_token: str
     ):

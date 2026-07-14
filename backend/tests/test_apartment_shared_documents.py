@@ -37,7 +37,7 @@ def fake_s3(monkeypatch):
     _FakeS3Service.uploaded = []
     _FakeS3Service.deleted = []
     monkeypatch.setattr(
-        "backend.services.apartment_document_service.S3Service", _FakeS3Service
+        "backend.services.apartment_shared_document_service.S3Service", _FakeS3Service
     )
     return _FakeS3Service
 
@@ -66,7 +66,7 @@ def _first_apartment_id(building: dict) -> int:
 
 async def _upload(client: AsyncClient, token: str, apartment_id: int, description: str) -> dict:
     response = await client.post(
-        f"{BASE}/apartments/{apartment_id}/documents",
+        f"{BASE}/apartments/{apartment_id}/shared-documents",
         headers=_auth(token),
         files={"file": ("contract.pdf", b"%PDF-1.4 fake", "application/pdf")},
         data={"description": description},
@@ -100,7 +100,7 @@ class TestApartmentDocuments:
         apartment_id = _first_apartment_id(building)
 
         response = await test_client.post(
-            f"{BASE}/apartments/{apartment_id}/documents",
+            f"{BASE}/apartments/{apartment_id}/shared-documents",
             headers=_auth(admin_token),
             files={"file": ("floor-plan.png", b"fake-image", "image/png")},
         )
@@ -121,7 +121,7 @@ class TestApartmentDocuments:
             f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
         )
         assert response.status_code == 200, response.text
-        documents = response.json()["documents"]
+        documents = response.json()["shared_documents"]
         assert len(documents) == 1
         assert documents[0]["description"] == "תעודת זהות"
 
@@ -134,7 +134,7 @@ class TestApartmentDocuments:
         await _upload(test_client, admin_token, apartment_id, "מסמך ב")
 
         response = await test_client.get(
-            f"{BASE}/apartments/{apartment_id}/documents", headers=_auth(admin_token)
+            f"{BASE}/apartments/{apartment_id}/shared-documents", headers=_auth(admin_token)
         )
         assert response.status_code == 200, response.text
         assert len(response.json()) == 2
@@ -147,7 +147,7 @@ class TestApartmentDocuments:
         doc = await _upload(test_client, admin_token, apartment_id, "למחיקה")
 
         response = await test_client.delete(
-            f"{BASE}/apartments/{apartment_id}/documents/{doc['id']}",
+            f"{BASE}/apartments/{apartment_id}/shared-documents/{doc['id']}",
             headers=_auth(admin_token),
         )
         assert response.status_code == 204, response.text
@@ -156,7 +156,7 @@ class TestApartmentDocuments:
         detail = await test_client.get(
             f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
         )
-        assert detail.json()["documents"] == []
+        assert detail.json()["shared_documents"] == []
 
     async def test_delete_document_of_other_apartment_is_404(
         self, test_client: AsyncClient, admin_token: str
@@ -167,7 +167,7 @@ class TestApartmentDocuments:
         doc = await _upload(test_client, admin_token, apartment_id, "שייך לדירה אחרת")
 
         response = await test_client.delete(
-            f"{BASE}/apartments/{other_apartment_id}/documents/{doc['id']}",
+            f"{BASE}/apartments/{other_apartment_id}/shared-documents/{doc['id']}",
             headers=_auth(admin_token),
         )
         assert response.status_code == 404, response.text

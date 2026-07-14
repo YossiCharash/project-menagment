@@ -84,6 +84,7 @@ The platform is composed of three main modules:
   - **Global roles**: `SuperAdmin`, `Admin`, `Member`.
   - **Project-scoped roles**: `ProjectManager`, `ProjectContributor`, `ProjectViewer`.
   - **Resource-level permissions** (per-resource override).
+  - **Per-building reception access** (`building_reception:<building_id>`): grant a specific user the reception desk of a specific building only. Admins and the legacy `building_reception:*` wildcard keep access to every building. Managed from the user's permissions screen (tab **"דלפק לפי בניין"**) or via `POST/DELETE /iam/users/{user_id}/building-reception`.
 - Four canonical actions: `READ`, `WRITE`, `UPDATE`, `DELETE` across all resource types (project, transaction, budget, report, user, supplier, task, quote, inventory, and more).
 - Enforced both server-side (decorators/middleware) and client-side (`RequirePermission`, `RequireAnyPermission`).
 

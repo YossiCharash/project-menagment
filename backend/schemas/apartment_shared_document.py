@@ -2,8 +2,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
-class ApartmentDocumentOut(BaseModel):
-    """A document (file in S3) attached to an apartment, with its description."""
+class ApartmentSharedDocumentOut(BaseModel):
+    """A shared document (file in S3) shown on the apartment's details tab."""
 
     id: int
     apartment_id: int

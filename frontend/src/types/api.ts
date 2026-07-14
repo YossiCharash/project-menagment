@@ -498,8 +498,8 @@ export interface ApartmentActivity {
   created_at: string
 }
 
-/** A document (file stored in S3) attached to an apartment, with its description. */
-export interface ApartmentDocument {
+/** A shared document (file in S3) shown on the apartment's public details tab. */
+export interface ApartmentSharedDocument {
   id: number
   apartment_id: number
   file_path: string
@@ -543,7 +543,30 @@ export interface ApartmentDetail extends Apartment {
   technician_visits: TechnicianVisit[]
   client_visits: ClientVisit[]
   activities: ApartmentActivity[]
+  shared_documents: ApartmentSharedDocument[]
+}
+
+/** A document stored in an apartment's personal area (אזור אישי). */
+export interface ApartmentDocument {
+  id: number
+  apartment_id: number
+  file_path: string
+  filename: string | null
+  description: string | null
+  uploaded_at: string
+}
+
+/** Full personal-area payload, returned only after the admin password verifies. */
+export interface PersonalArea {
+  apartment_id: number
+  private_details: string | null
+  private_notes: string | null
   documents: ApartmentDocument[]
+}
+
+export interface PersonalAreaUpdate {
+  private_details?: string | null
+  private_notes?: string | null
 }
 
 export interface Building {

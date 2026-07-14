@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice, isRejected, type PayloadAction } from '@reduxjs/toolkit'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
+import { extractErrorMessage } from '../../lib/apiError'
 import type {
   ApartmentCreate,
   ApartmentDetail,
@@ -57,10 +58,7 @@ const initialState: BuildingReceptionState = {
  * Small helper that funnels every thunk through the same error-unwrapping
  * logic (DRY): rejected thunks always carry a human-readable Hebrew message.
  */
-const asMessage = (error: unknown, fallback: string): string => {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  return typeof detail === 'string' ? detail : fallback
-}
+const asMessage = (error: unknown, fallback: string): string => extractErrorMessage(error, fallback)
 
 // ---- Thunks -----------------------------------------------------------------
 
@@ -230,14 +228,14 @@ export const transferKey = createAsyncThunk(
   },
 )
 
-export const uploadApartmentDocument = createAsyncThunk(
-  'buildingReception/uploadApartmentDocument',
+export const uploadApartmentSharedDocument = createAsyncThunk(
+  'buildingReception/uploadApartmentSharedDocument',
   async (
     { apartmentId, file, description }: { apartmentId: number; file: File; description: string },
     { rejectWithValue },
   ) => {
     try {
-      await BuildingReceptionAPI.uploadApartmentDocument(apartmentId, file, description)
+      await BuildingReceptionAPI.uploadApartmentSharedDocument(apartmentId, file, description)
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'העלאת המסמך נכשלה'))
@@ -245,14 +243,14 @@ export const uploadApartmentDocument = createAsyncThunk(
   },
 )
 
-export const deleteApartmentDocument = createAsyncThunk(
-  'buildingReception/deleteApartmentDocument',
+export const deleteApartmentSharedDocument = createAsyncThunk(
+  'buildingReception/deleteApartmentSharedDocument',
   async (
     { documentId, apartmentId }: { documentId: number; apartmentId: number },
     { rejectWithValue },
   ) => {
     try {
-      await BuildingReceptionAPI.deleteApartmentDocument(apartmentId, documentId)
+      await BuildingReceptionAPI.deleteApartmentSharedDocument(apartmentId, documentId)
       return await BuildingReceptionAPI.getApartment(apartmentId)
     } catch (error) {
       return rejectWithValue(asMessage(error, 'מחיקת המסמך נכשלה'))
@@ -682,8 +680,8 @@ const slice = createSlice({
       .addCase(deleteKey.fulfilled, applyApartment)
       .addCase(createVehicle.fulfilled, applyApartment)
       .addCase(deleteVehicle.fulfilled, applyApartment)
-      .addCase(uploadApartmentDocument.fulfilled, applyApartment)
-      .addCase(deleteApartmentDocument.fulfilled, applyApartment)
+      .addCase(uploadApartmentSharedDocument.fulfilled, applyApartment)
+      .addCase(deleteApartmentSharedDocument.fulfilled, applyApartment)
       .addCase(createDelivery.fulfilled, applyApartment)
       .addCase(markDelivered.fulfilled, applyApartment)
       .addCase(deleteDelivery.fulfilled, applyApartment)

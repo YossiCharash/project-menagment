@@ -54,8 +54,8 @@ import {
   createVehicle,
   updateVehicle,
   deleteVehicle,
-  uploadApartmentDocument,
-  deleteApartmentDocument,
+  uploadApartmentSharedDocument,
+  deleteApartmentSharedDocument,
   createDelivery,
   markDelivered,
   updateDelivery,
@@ -85,7 +85,7 @@ import AddTechnicianVisitModal from '../components/building-reception/AddTechnic
 import AddClientVisitModal from '../components/building-reception/AddClientVisitModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 import AddKeyModal from '../components/building-reception/AddKeyModal'
-import AddApartmentDocumentModal from '../components/building-reception/AddApartmentDocumentModal'
+import AddApartmentSharedDocumentModal from '../components/building-reception/AddApartmentSharedDocumentModal'
 
 /**
  * Building Reception Desk (דלפק הבניין).
@@ -531,7 +531,7 @@ export default function BuildingReceptionDesk() {
   const handleUploadDocument = (file: File, description: string) => {
     if (activeApartmentId === null) return
     void runSubmit(
-      () => dispatch(uploadApartmentDocument({ apartmentId: activeApartmentId, file, description })).unwrap(),
+      () => dispatch(uploadApartmentSharedDocument({ apartmentId: activeApartmentId, file, description })).unwrap(),
       () => setAddDocumentOpen(false),
     )
   }
@@ -539,7 +539,7 @@ export default function BuildingReceptionDesk() {
   const handleDeleteDocument = (documentId: number) => {
     if (activeApartmentId === null) return
     if (!window.confirm('למחוק את המסמך? הפעולה תמחק גם את הקובץ מהאחסון.')) return
-    void dispatch(deleteApartmentDocument({ documentId, apartmentId: activeApartmentId }))
+    void dispatch(deleteApartmentSharedDocument({ documentId, apartmentId: activeApartmentId }))
   }
 
   // When an apartment has no keys yet, seed a default one so a hand-out can be
@@ -932,7 +932,7 @@ export default function BuildingReceptionDesk() {
         submitting={submitting}
       />
 
-      <AddApartmentDocumentModal
+      <AddApartmentSharedDocumentModal
         isOpen={addDocumentOpen}
         onClose={() => setAddDocumentOpen(false)}
         apartmentId={activeApartmentId}

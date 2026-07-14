@@ -33,6 +33,18 @@ interface Project {
   name: string
 }
 
+interface BuildingOption {
+  id: number
+  name: string
+  project_id: number | null
+}
+
+interface BuildingReceptionAccess {
+  building_id: number
+  building_name: string | null
+  actions: string[]
+}
+
 interface RolesData {
   global_roles: Array<{ name: string; key: string }>
   project_roles: Array<{ name: string; key: string }>
@@ -58,6 +70,8 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   admin_invite: 'הזמנת מנהל',
   notification: 'התראה',
   dashboard: 'לוח בקרה',
+  building_reception: 'דלפק בניין',
+  building: 'ניהול בניינים',
   cems_warehouse: 'מחסן',
   cems_consumable: 'חומר מתכלה',
   cems_fixed_asset: 'רכוש קבוע',
@@ -94,8 +108,16 @@ function labelFor(map: Record<string, string>, key: string): string {
 }
 
 function isAllowed(permissions: IamPermission[], rt: string, action: string): boolean {
+  // The matrix is a blanket "does this user have this capability everywhere"
+  // overview, so a permission scoped to a single resource instance (a specific
+  // resource_id, e.g. one building's reception desk) must NOT light the cell —
+  // otherwise a per-building grant looks identical to all-building/global access.
+  // Wildcard ('*') and role/global sources (no resource_id) still count.
   return permissions.some(
-    (p) => p.resource_type === rt && p.action === action
+    (p) =>
+      p.resource_type === rt &&
+      p.action === action &&
+      (p.resource_id === undefined || p.resource_id === '*')
   )
 }
 
@@ -143,20 +165,22 @@ function Spinner() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-type Tab = 'project-roles' | 'matrix' | 'policies'
+type Tab = 'project-roles' | 'matrix' | 'policies' | 'building-reception'
 
 interface TabBarProps {
   active: Tab
   onChange: (t: Tab) => void
   projectRolesCount: number
   policiesCount: number
+  buildingReceptionCount: number
 }
 
-function TabBar({ active, onChange, projectRolesCount, policiesCount }: TabBarProps) {
+function TabBar({ active, onChange, projectRolesCount, policiesCount, buildingReceptionCount }: TabBarProps) {
   const tabs: { id: Tab; label: string; count: number | null }[] = [
     { id: 'project-roles', label: 'תפקידים בפרויקטים', count: projectRolesCount },
     { id: 'matrix', label: 'מטריצת הרשאות', count: null },
     { id: 'policies', label: 'מדיניות ספציפית', count: policiesCount },
+    { id: 'building-reception', label: 'דלפק לפי בניין', count: buildingReceptionCount },
   ]
   return (
     <div className="flex gap-0 border-b border-gray-200 dark:border-gray-700 mb-6">
@@ -679,6 +703,200 @@ function PoliciesTab({ userId, permissions, rolesData, onRefresh }: PoliciesTabP
   )
 }
 
+// ── Tab 4: Building Reception (per-building desk access) ──────────────────────
+
+const RECEPTION_ACTIONS = ['read', 'write', 'update', 'delete'] as const
+
+interface BuildingReceptionTabProps {
+  userId: number
+  access: BuildingReceptionAccess[]
+  buildings: BuildingOption[]
+  onRefresh: () => void
+}
+
+function BuildingReceptionTab({ userId, access, buildings, onRefresh }: BuildingReceptionTabProps) {
+  const [buildingId, setBuildingId] = useState<string>('')
+  const [selectedActions, setSelectedActions] = useState<string[]>([...RECEPTION_ACTIONS])
+  const [adding, setAdding] = useState(false)
+  const [removing, setRemoving] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const grantedIds = new Set(access.map((a) => a.building_id))
+  const availableBuildings = buildings.filter((b) => !grantedIds.has(b.id))
+
+  const buildingName = (id: number) =>
+    buildings.find((b) => b.id === id)?.name ?? `בניין #${id}`
+
+  const toggleAction = (action: string) => {
+    // READ is the baseline the desk needs to list/open a building, so it stays
+    // on and cannot be turned off — a write/update/delete-only grant would be
+    // silently unusable (the server also forces read in on every grant).
+    if (action === 'read') return
+    setSelectedActions((prev) =>
+      prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
+    )
+  }
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!buildingId || selectedActions.length === 0) return
+    setAdding(true)
+    setError(null)
+    try {
+      await api.post(`/iam/users/${userId}/building-reception`, {
+        building_id: Number(buildingId),
+        actions: selectedActions,
+      })
+      setBuildingId('')
+      setSelectedActions([...RECEPTION_ACTIONS])
+      onRefresh()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהוספה')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleRemove = async (bid: number) => {
+    setRemoving(bid)
+    setError(null)
+    try {
+      await api.delete(`/iam/users/${userId}/building-reception/${bid}`)
+      onRefresh()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'שגיאה בהסרה')
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        הענקת גישה לדלפק של בניין ספציפי. המשתמש יראה ויפעל רק בבניינים שהוקצו לו כאן.
+        מנהל מערכת ומדיניות "כל המשאבים" מקבלים גישה לכל הבניינים.
+      </p>
+
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-600 dark:text-red-400">
+          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+          {error}
+        </div>
+      )}
+
+      {/* Existing per-building grants */}
+      <div>
+        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">בניינים מוקצים</h3>
+        {access.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <svg className="w-14 h-14 text-gray-300 dark:text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">אין בניינים מוקצים</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {access.map((a) => (
+              <div key={a.building_id} className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3 transition-all duration-150 hover:shadow-sm">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    {a.building_name ?? buildingName(a.building_id)}
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {a.actions.map((action) => (
+                      <span key={action} className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        {labelFor(ACTION_LABELS, action)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRemove(a.building_id)}
+                  disabled={removing === a.building_id}
+                  className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                  title="הסר גישה לבניין"
+                >
+                  {removing === a.building_id ? (
+                    <Spinner />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add new per-building grant */}
+      <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-xl p-5">
+        <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-4">הוסף גישה לבניין</h3>
+        {availableBuildings.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {buildings.length === 0 ? 'אין בניינים במערכת' : 'כל הבניינים כבר מוקצים'}
+          </p>
+        ) : (
+          <form onSubmit={handleAdd} className="space-y-4">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">בניין</label>
+                <select
+                  value={buildingId}
+                  onChange={(e) => setBuildingId(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-blue-200 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm transition-all duration-150 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">בחר בניין...</option>
+                  {availableBuildings.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">הרשאות</label>
+              <div className="flex flex-wrap gap-2">
+                {RECEPTION_ACTIONS.map((action) => {
+                  const checked = selectedActions.includes(action)
+                  const locked = action === 'read'
+                  return (
+                    <button
+                      type="button"
+                      key={action}
+                      onClick={() => toggleAction(action)}
+                      disabled={locked}
+                      title={locked ? 'קריאה נדרשת תמיד כדי לצפות בבניין' : undefined}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150 ${
+                        checked
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                      } ${locked ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {labelFor(ACTION_LABELS, action)}
+                      {locked ? ' •' : ''}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={adding || selectedActions.length === 0}
+              className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 text-sm font-semibold shadow-sm"
+            >
+              {adding ? <><Spinner />{' '}מוסיף...</> : '+ הוסף גישה'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function UserPermissions() {
@@ -690,6 +908,8 @@ export default function UserPermissions() {
   const [iamData, setIamData] = useState<IamData | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [rolesData, setRolesData] = useState<RolesData | null>(null)
+  const [buildings, setBuildings] = useState<BuildingOption[]>([])
+  const [buildingAccess, setBuildingAccess] = useState<BuildingReceptionAccess[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('project-roles')
@@ -734,9 +954,37 @@ export default function UserPermissions() {
     }
   }, [uid])
 
+  const refreshBuildingAccess = useCallback(async () => {
+    if (!uid) return
+    try {
+      const res = await api.get<BuildingReceptionAccess[]>(`/iam/users/${uid}/building-reception`)
+      setBuildingAccess(res.data)
+    } catch {
+      // silent – main data stays
+    }
+  }, [uid])
+
+  // The per-building reception data loads independently of the main page so a
+  // failure here only disables the reception tab, never the whole permissions
+  // screen (roles / matrix / policies stay usable).
+  const fetchBuildingReception = useCallback(async () => {
+    if (!uid) return
+    try {
+      const [buildingsRes, accessRes] = await Promise.all([
+        api.get<BuildingOption[]>('/iam/buildings'),
+        api.get<BuildingReceptionAccess[]>(`/iam/users/${uid}/building-reception`),
+      ])
+      setBuildings(buildingsRes.data)
+      setBuildingAccess(accessRes.data)
+    } catch {
+      // silent – the reception tab shows its empty state
+    }
+  }, [uid])
+
   useEffect(() => {
     fetchAll()
-  }, [fetchAll])
+    fetchBuildingReception()
+  }, [fetchAll, fetchBuildingReception])
 
   const handleGlobalRoleChange = async () => {
     if (!newGlobalRole) return
@@ -763,7 +1011,7 @@ export default function UserPermissions() {
     )
   }
 
-  if (me.role !== 'Admin') {
+  if (me.role !== 'Admin' && me.role !== 'SuperAdmin') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center" dir="rtl">
         <div className="text-center">
@@ -798,6 +1046,7 @@ export default function UserPermissions() {
 
   const policiesCount = getResourcePolicies(iamData.permissions).length
   const projectRolesCount = iamData.project_roles.length
+  const buildingReceptionCount = buildingAccess.length
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -913,6 +1162,7 @@ export default function UserPermissions() {
             onChange={setActiveTab}
             projectRolesCount={projectRolesCount}
             policiesCount={policiesCount}
+            buildingReceptionCount={buildingReceptionCount}
           />
 
           {activeTab === 'project-roles' && (
@@ -938,6 +1188,15 @@ export default function UserPermissions() {
               permissions={iamData.permissions}
               rolesData={rolesData}
               onRefresh={refreshIam}
+            />
+          )}
+
+          {activeTab === 'building-reception' && (
+            <BuildingReceptionTab
+              userId={uid}
+              access={buildingAccess}
+              buildings={buildings}
+              onRefresh={refreshBuildingAccess}
             />
           )}
         </div>

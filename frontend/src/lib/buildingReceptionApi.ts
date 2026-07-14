@@ -3,7 +3,7 @@ import type {
   ApartmentCreate,
   ApartmentDetail,
   ApartmentTask,
-  ApartmentDocument,
+  ApartmentSharedDocument,
   ApartmentKey,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
@@ -24,6 +24,9 @@ import type {
   DeliveryCreate,
   DeliveryUpdate,
   KeyTransferCreate,
+  PersonalArea,
+  PersonalAreaUpdate,
+  ApartmentDocument,
   TechnicianVisit,
   TechnicianVisitCreate,
   TechnicianVisitUpdate,
@@ -133,31 +136,86 @@ export class BuildingReceptionAPI {
     await api.delete(`${BASE}/tenants/${tenantId}`)
   }
 
-  // ---- Documents ------------------------------------------------------------
+  // ---- Shared documents (public "details" tab) ------------------------------
 
-  static async listApartmentDocuments(apartmentId: number): Promise<ApartmentDocument[]> {
-    const { data } = await api.get<ApartmentDocument[]>(`${BASE}/apartments/${apartmentId}/documents`)
+  static async listApartmentSharedDocuments(apartmentId: number): Promise<ApartmentSharedDocument[]> {
+    const { data } = await api.get<ApartmentSharedDocument[]>(
+      `${BASE}/apartments/${apartmentId}/shared-documents`,
+    )
     return data
   }
 
-  static async uploadApartmentDocument(
+  static async uploadApartmentSharedDocument(
     apartmentId: number,
     file: File,
     description: string,
-  ): Promise<ApartmentDocument> {
+  ): Promise<ApartmentSharedDocument> {
     const formData = new FormData()
     formData.append('file', file)
     if (description) formData.append('description', description)
-    const { data } = await api.post<ApartmentDocument>(
-      `${BASE}/apartments/${apartmentId}/documents`,
+    const { data } = await api.post<ApartmentSharedDocument>(
+      `${BASE}/apartments/${apartmentId}/shared-documents`,
       formData,
       { headers: { 'Content-Type': 'multipart/form-data' } },
     )
     return data
   }
 
-  static async deleteApartmentDocument(apartmentId: number, documentId: number): Promise<void> {
-    await api.delete(`${BASE}/apartments/${apartmentId}/documents/${documentId}`)
+  static async deleteApartmentSharedDocument(apartmentId: number, documentId: number): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}/shared-documents/${documentId}`)
+  }
+
+  // ---- Personal area (אזור אישי) — admin-password gated ---------------------
+
+  /** Verify the admin password and fetch the apartment's private details/notes/documents. */
+  static async unlockPersonalArea(apartmentId: number, password: string): Promise<PersonalArea> {
+    const { data } = await api.post<PersonalArea>(
+      `${BASE}/apartments/${apartmentId}/personal-area`,
+      { password },
+    )
+    return data
+  }
+
+  /** Update the private details/notes; the admin password re-authorizes the write. */
+  static async updatePersonalArea(
+    apartmentId: number,
+    password: string,
+    changes: PersonalAreaUpdate,
+  ): Promise<PersonalArea> {
+    const { data } = await api.put<PersonalArea>(
+      `${BASE}/apartments/${apartmentId}/personal-area`,
+      { password, ...changes },
+    )
+    return data
+  }
+
+  /** Upload a document into the personal area (admin-password gated). */
+  static async uploadPersonalAreaDocument(
+    apartmentId: number,
+    password: string,
+    file: File,
+    description?: string,
+  ): Promise<ApartmentDocument> {
+    const formData = new FormData()
+    formData.append('password', password)
+    formData.append('file', file)
+    if (description) formData.append('description', description)
+    const { data } = await api.post<ApartmentDocument>(
+      `${BASE}/apartments/${apartmentId}/personal-area/documents`,
+      formData,
+    )
+    return data
+  }
+
+  /** Delete a personal-area document (admin-password gated). */
+  static async deletePersonalAreaDocument(
+    apartmentId: number,
+    documentId: number,
+    password: string,
+  ): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}/personal-area/documents/${documentId}`, {
+      data: { password },
+    })
   }
 
   // ---- Keys -----------------------------------------------------------------

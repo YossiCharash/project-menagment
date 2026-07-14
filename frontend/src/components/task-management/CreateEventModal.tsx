@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSelector } from 'react-redux'
+import type { RootState } from '../../store'
 import api from '../../lib/api'
 import Modal from '../Modal'
 import { Tag, Paperclip, X, Zap } from 'lucide-react'
@@ -113,6 +115,9 @@ function defaultMeetingTimes(): { start_time: string; end_time: string } {
 // ---------------------------------------------------------------------------
 
 export default function CreateEventModal({ isOpen, onClose, initialEventType, onCreated }: CreateEventModalProps) {
+  // Super tasks are admin-only; only Admins may mark a new task as a super task.
+  const isAdmin = useSelector((s: RootState) => s.auth.me?.role === 'Admin')
+
   // -- Data fetched once --
   const [users, setUsers] = useState<Array<{ id: number; full_name: string }>>([])
   const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
@@ -452,13 +457,15 @@ export default function CreateEventModal({ isOpen, onClose, initialEventType, on
             className="w-full px-3 py-1.5 border rounded-lg text-sm border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100" />
         </div>
 
-        {/* super task */}
+        {/* super task (admin-only) */}
+        {isAdmin && (
         <div className="flex items-center gap-2">
           <input type="checkbox" id="ce-is-super-task" checked={createForm.is_super_task} onChange={(e) => setCreateForm(f => ({ ...f, is_super_task: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-red-600" />
           <label htmlFor="ce-is-super-task" className="text-sm text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
             <Zap className="w-3.5 h-3.5" /> משימת על
           </label>
         </div>
+        )}
 
         {/* requires closure */}
         <div className="flex items-center gap-2">

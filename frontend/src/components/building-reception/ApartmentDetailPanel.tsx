@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil, UserCheck, Building2, Wrench, KeyRound, StickyNote } from 'lucide-react'
+import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil, UserCheck, Building2, Wrench, KeyRound, StickyNote, Lock } from 'lucide-react'
 import type {
   ApartmentDetail,
   ApartmentTask,
@@ -11,7 +11,7 @@ import type {
   TechnicianVisit,
   ClientVisit,
 } from '../../types/api'
-import ApartmentDocumentList from './ApartmentDocumentList'
+import ApartmentSharedDocumentList from './ApartmentSharedDocumentList'
 import { ACCENT, PALETTE, apartmentTitle, formatDate, isApartmentVacant } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
@@ -20,8 +20,9 @@ import TenantHistory from './TenantHistory'
 import ApartmentTaskList from './ApartmentTaskList'
 import TechnicianVisitList from './TechnicianVisitList'
 import ClientVisitList from './ClientVisitList'
+import PersonalAreaPanel from './PersonalAreaPanel'
 
-type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technicians' | 'clients' | 'history'
+type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technicians' | 'clients' | 'history' | 'personal'
 
 interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
@@ -62,6 +63,7 @@ interface TabDef {
   id: TabId
   label: string
   count?: number | '!'
+  icon?: React.ComponentType<{ className?: string }>
 }
 
 /** A single label/value row in the details tab. */
@@ -170,6 +172,7 @@ export default function ApartmentDetailPanel({
     { id: 'technicians', label: 'טכנאים', count: insideTechniciansCount || undefined },
     { id: 'clients', label: 'לקוחות', count: activeClientsCount || undefined },
     { id: 'history', label: 'היסטוריה' },
+    { id: 'personal', label: 'אזור אישי', icon: Lock },
   ]
 
   const tenant = apartment?.current_tenant ?? null
@@ -273,6 +276,7 @@ export default function ApartmentDetailPanel({
                             borderBottom: `2.5px solid ${active ? ACCENT : 'transparent'}`,
                           }}
                         >
+                          {tabDef.icon && <tabDef.icon className="w-[15px] h-[15px]" />}
                           {tabDef.label}
                           {tabDef.count !== undefined && (
                             <span
@@ -352,8 +356,8 @@ export default function ApartmentDetailPanel({
                   )}
 
                   {tab === 'details' && (
-                    <ApartmentDocumentList
-                      documents={apartment.documents ?? []}
+                    <ApartmentSharedDocumentList
+                      documents={apartment.shared_documents ?? []}
                       onAdd={onAddDocument}
                       onDelete={onDeleteDocument}
                     />
@@ -490,6 +494,8 @@ export default function ApartmentDetailPanel({
                   )}
 
                   {tab === 'history' && <TenantHistory activities={apartment.activities} />}
+
+                  {tab === 'personal' && <PersonalAreaPanel apartmentId={apartment.id} />}
                 </div>
               </>
             )}
