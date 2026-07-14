@@ -13,16 +13,11 @@ import {
 } from 'lucide-react'
 import type { PersonalArea, ApartmentDocument } from '../../types/api'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
+import { extractErrorMessage } from '../../lib/apiError'
 import { ACCENT, formatDateTime } from './constants'
 
 interface PersonalAreaPanelProps {
   apartmentId: number
-}
-
-/** Pull a Hebrew error message out of an axios error, falling back to a default. */
-function errMessage(error: unknown, fallback: string): string {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  return typeof detail === 'string' ? detail : fallback
 }
 
 function docLabel(doc: ApartmentDocument): string {
@@ -79,7 +74,7 @@ export default function PersonalAreaPanel({ apartmentId }: PersonalAreaPanelProp
       applyData(area)
       setPasswordInput('')
     } catch (err) {
-      setError(errMessage(err, 'סיסמת המנהל שגויה'))
+      setError(extractErrorMessage(err, 'סיסמת המנהל שגויה'))
     } finally {
       setBusy(false)
     }
@@ -104,7 +99,7 @@ export default function PersonalAreaPanel({ apartmentId }: PersonalAreaPanelProp
       })
       applyData(area)
     } catch (err) {
-      setError(errMessage(err, 'שמירת הפרטים נכשלה'))
+      setError(extractErrorMessage(err, 'שמירת הפרטים נכשלה'))
     } finally {
       setSaving(false)
     }
@@ -116,7 +111,10 @@ export default function PersonalAreaPanel({ apartmentId }: PersonalAreaPanelProp
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-selecting the same file later
     if (!file || !password) return
-    const description = window.prompt('תיאור המסמך (לא חובה):', file.name) ?? undefined
+    // Cancelling the prompt (returns null) aborts the whole upload; an empty
+    // string is a deliberate "no description" and proceeds.
+    const description = window.prompt('תיאור המסמך (לא חובה):', file.name)
+    if (description === null) return
     setUploading(true)
     setError(null)
     try {
@@ -128,7 +126,7 @@ export default function PersonalAreaPanel({ apartmentId }: PersonalAreaPanelProp
       )
       setData((prev) => (prev ? { ...prev, documents: [doc, ...prev.documents] } : prev))
     } catch (err) {
-      setError(errMessage(err, 'העלאת המסמך נכשלה'))
+      setError(extractErrorMessage(err, 'העלאת המסמך נכשלה'))
     } finally {
       setUploading(false)
     }
@@ -144,7 +142,7 @@ export default function PersonalAreaPanel({ apartmentId }: PersonalAreaPanelProp
         prev ? { ...prev, documents: prev.documents.filter((d) => d.id !== documentId) } : prev,
       )
     } catch (err) {
-      setError(errMessage(err, 'מחיקת המסמך נכשלה'))
+      setError(extractErrorMessage(err, 'מחיקת המסמך נכשלה'))
     }
   }
 

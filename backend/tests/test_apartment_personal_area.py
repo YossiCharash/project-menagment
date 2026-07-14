@@ -203,3 +203,47 @@ class TestPersonalArea:
             files={"file": ("contract.pdf", b"data", "application/pdf")},
         )
         assert upload.status_code == 403, upload.text
+
+    async def test_repeated_wrong_passwords_are_rate_limited(
+        self, test_client: AsyncClient, admin_token: str, member_token: str, member_user: User, manager_user: User
+    ):
+        """After too many wrong guesses the IP is locked out — even a correct password."""
+        apartment_id = await _create_apartment_for_member(test_client, admin_token, member_user.id)
+        # The first 10 wrong attempts are ordinary 403s...
+        for _ in range(10):
+            rejected = await test_client.post(
+                f"{BASE}/apartments/{apartment_id}/personal-area",
+                headers=_auth(member_token),
+                json={"password": "wrong"},
+            )
+            assert rejected.status_code == 403, rejected.text
+        # ...the next attempt trips the brute-force cap, and the correct password
+        # is now locked out too (the guard runs before verification).
+        blocked = await test_client.post(
+            f"{BASE}/apartments/{apartment_id}/personal-area",
+            headers=_auth(member_token),
+            json={"password": MANAGER_PASSWORD},
+        )
+        assert blocked.status_code == 429, blocked.text
+
+    async def test_partial_update_preserves_untouched_field(
+        self, test_client: AsyncClient, admin_token: str, member_token: str, member_user: User, manager_user: User
+    ):
+        """Sending only private_details must not wipe the stored private_notes."""
+        apartment_id = await _create_apartment_for_member(test_client, admin_token, member_user.id)
+        seed = await test_client.put(
+            f"{BASE}/apartments/{apartment_id}/personal-area",
+            headers=_auth(member_token),
+            json={"password": MANAGER_PASSWORD, "private_details": "D", "private_notes": "N"},
+        )
+        assert seed.status_code == 200, seed.text
+
+        partial = await test_client.put(
+            f"{BASE}/apartments/{apartment_id}/personal-area",
+            headers=_auth(member_token),
+            json={"password": MANAGER_PASSWORD, "private_details": "D2"},
+        )
+        assert partial.status_code == 200, partial.text
+        body = partial.json()
+        assert body["private_details"] == "D2"
+        assert body["private_notes"] == "N"  # untouched field survives

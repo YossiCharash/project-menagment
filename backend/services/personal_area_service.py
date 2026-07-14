@@ -16,6 +16,9 @@ class PersonalAreaService:
     documents; the admin-password check itself is enforced at the endpoint.
     """
 
+    # The private free-text fields the personal-area update endpoint may touch.
+    PRIVATE_TEXT_FIELDS = ("private_details", "private_notes")
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.apartments = ApartmentRepository(db)
@@ -33,17 +36,27 @@ class PersonalAreaService:
             )
         return apartment
 
+    async def ensure_apartment(self, apartment_id: int) -> None:
+        """Validate the apartment exists (raises ValueError otherwise); loads no documents."""
+        await self._get_apartment(apartment_id)
+
     async def get_personal_area(self, apartment_id: int) -> tuple[Apartment, list[ApartmentDocument]]:
         apartment = await self._get_apartment(apartment_id)
         documents = await self.documents.list_by_apartment(apartment_id)
         return apartment, documents
 
     async def update_private_fields(
-        self, apartment_id: int, private_details: str | None, private_notes: str | None
+        self, apartment_id: int, changes: dict
     ) -> tuple[Apartment, list[ApartmentDocument]]:
+        """Apply a partial update: only keys present in ``changes`` are written.
+
+        An omitted field keeps its stored value; an explicit empty string clears it
+        to None (mirrors ApartmentService's optional-text handling).
+        """
         apartment = await self._get_apartment(apartment_id)
-        apartment.private_details = self._normalize(private_details)
-        apartment.private_notes = self._normalize(private_notes)
+        for field in self.PRIVATE_TEXT_FIELDS:
+            if field in changes:
+                setattr(apartment, field, self._normalize(changes[field]))
         await self.apartments.update(apartment)
         documents = await self.documents.list_by_apartment(apartment_id)
         return apartment, documents
