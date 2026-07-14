@@ -78,6 +78,36 @@ class ResourcePolicyOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Building Reception Desk -- per-building access DTOs
+# ---------------------------------------------------------------------------
+
+class BuildingReceptionGrantCreate(BaseModel):
+    """Request body for granting a user access to one building's desk."""
+
+    building_id: int
+    actions: list[str] = Field(
+        default_factory=lambda: ["read", "write", "update", "delete"],
+        description="Reception actions to grant (subset of read/write/update/delete).",
+    )
+
+
+class BuildingReceptionAccessOut(BaseModel):
+    """A single building's reception grant held by a user."""
+
+    building_id: int
+    building_name: str | None = None
+    actions: list[str] = []
+
+
+class BuildingOption(BaseModel):
+    """Lightweight building reference for permission pickers."""
+
+    id: int
+    name: str
+    project_id: int | None = None
+
+
+# ---------------------------------------------------------------------------
 # Permission check DTOs
 # ---------------------------------------------------------------------------
 
