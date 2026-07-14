@@ -64,7 +64,10 @@ class ApartmentDocumentService:
         await self._ensure_apartment_exists(apartment_id)
         file_url = await self._upload_file_to_s3(apartment_id, file)
         doc = await self._persist_document_record(
-            apartment_id, file_url, self._sanitize_description(description)
+            apartment_id,
+            file_url,
+            self._sanitize_description(description),
+            self._sanitize_filename(file.filename),
         )
         return self._build_document_dto(doc)
 
@@ -107,7 +110,7 @@ class ApartmentDocumentService:
         self, document_id: int, apartment_id: int
     ) -> Document:
         doc = await self._documents.get_by_id(document_id)
-        if not doc or doc.id is None:
+        if not doc:
             raise ValueError(
                 BuildingReceptionErrorMessages.document_not_found_by_id(document_id)
             )
@@ -122,6 +125,14 @@ class ApartmentDocumentService:
         stripped = description.strip()
         return stripped or None
 
+    @staticmethod
+    def _sanitize_filename(filename: str | None) -> str | None:
+        """Trim the uploaded filename to the stored column width, empty -> None."""
+        if filename is None:
+            return None
+        stripped = filename.strip()
+        return stripped[:255] or None
+
     async def _upload_file_to_s3(self, apartment_id: int, file: UploadFile) -> str:
         s3 = S3Service()
         await file.seek(0)
@@ -134,12 +145,17 @@ class ApartmentDocumentService:
         )
 
     async def _persist_document_record(
-        self, apartment_id: int, file_url: str, description: str | None
+        self,
+        apartment_id: int,
+        file_url: str,
+        description: str | None,
+        file_name: str | None,
     ) -> Document:
         doc = Document(
             entity_type=APARTMENT_ENTITY_TYPE,
             entity_id=apartment_id,
             file_path=file_url,
+            file_name=file_name,
             description=description,
             source_table=APARTMENT_ENTITY_TYPE,
             source_id=apartment_id,
@@ -171,6 +187,7 @@ class ApartmentDocumentService:
             id=doc.id,
             apartment_id=doc.entity_id,
             file_path=doc.file_path,
+            file_name=doc.file_name,
             description=doc.description,
             uploaded_at=doc.uploaded_at,
         )
