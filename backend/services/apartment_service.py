@@ -5,6 +5,7 @@ from backend.models.apartment import Apartment
 from backend.repositories.apartment_repository import ApartmentRepository
 from backend.repositories.building_repository import BuildingRepository
 from backend.schemas.apartment import ApartmentCreate, ApartmentUpdate
+from backend.services.apartment_document_service import ApartmentDocumentService
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
 
@@ -60,6 +61,9 @@ class ApartmentService:
     async def delete_apartment(self, apartment_id: int) -> None:
         """Delete a specific apartment (and its keys/tenants/etc. via cascade)."""
         apartment = await self.get_apartment(apartment_id)
+        # Documents live in the polymorphic ``documents`` table with no DB
+        # cascade, so purge them (and their S3 files) explicitly first.
+        await ApartmentDocumentService(self.db).delete_all_for_apartment(apartment_id)
         await self.apartment_repository.delete(apartment)
 
     async def get_apartment(self, apartment_id: int) -> Apartment:

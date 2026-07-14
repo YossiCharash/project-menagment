@@ -4,7 +4,7 @@ Endpoints only translate HTTP <-> service calls. All business logic lives in
 the services layer; domain errors raised as ``ValueError`` (with Hebrew
 messages) are converted to HTTP 4xx here.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
@@ -26,6 +26,7 @@ from backend.schemas.apartment import (
     ApartmentUpdate,
     ApartmentTaskOut,
 )
+from backend.schemas.apartment_document import ApartmentDocumentOut
 from backend.repositories.task_repository import TaskRepository
 from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
 from backend.schemas.apartment_key import (
@@ -53,6 +54,7 @@ from backend.schemas.client_visit import (
 from backend.services.building_service import BuildingService
 from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
+from backend.services.apartment_document_service import ApartmentDocumentService
 from backend.services.tenant_service import TenantService
 from backend.services.key_service import KeyService
 from backend.services.authorized_vehicle_service import AuthorizedVehicleService
@@ -180,6 +182,16 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
             for v in (apartment.client_visits or [])
         ],
         activities=[a for a in (apartment.activities or [])],
+        documents=[
+            ApartmentDocumentOut(
+                id=document.id,
+                apartment_id=document.entity_id,
+                file_path=document.file_path,
+                description=document.description,
+                uploaded_at=document.uploaded_at,
+            )
+            for document in (apartment.documents or [])
+        ],
     )
 
 
@@ -416,6 +428,48 @@ async def list_apartment_tasks(apartment_id: int, db: DBSessionDep, user=Depends
         )
         for task in tasks
     ]
+
+
+# --- Apartment documents --------------------------------------------------
+
+
+@router.get(
+    "/apartments/{apartment_id}/documents",
+    response_model=list[ApartmentDocumentOut],
+)
+async def list_apartment_documents(apartment_id: int, db: DBSessionDep, user=Depends(require_read)):
+    service = ApartmentDocumentService(db)
+    try:
+        return await service.list_documents(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/apartments/{apartment_id}/documents", response_model=ApartmentDocumentOut)
+async def upload_apartment_document(
+    apartment_id: int,
+    db: DBSessionDep,
+    file: UploadFile = File(...),
+    description: str | None = Form(None),
+    user=Depends(require_write),
+):
+    service = ApartmentDocumentService(db)
+    try:
+        return await service.attach_document(apartment_id, file, description)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/apartments/{apartment_id}/documents/{document_id}", status_code=204)
+async def delete_apartment_document(
+    apartment_id: int, document_id: int, db: DBSessionDep, user=Depends(require_delete)
+):
+    service = ApartmentDocumentService(db)
+    try:
+        await service.remove_document(apartment_id, document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
 
 
 @router.post("/apartments/{apartment_id}/tenant", response_model=TenantOut)

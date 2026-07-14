@@ -3,6 +3,7 @@ import type {
   ApartmentCreate,
   ApartmentDetail,
   ApartmentTask,
+  ApartmentDocument,
   ApartmentKey,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
@@ -130,6 +131,33 @@ export class BuildingReceptionAPI {
 
   static async deleteTenant(tenantId: number): Promise<void> {
     await api.delete(`${BASE}/tenants/${tenantId}`)
+  }
+
+  // ---- Documents ------------------------------------------------------------
+
+  static async listApartmentDocuments(apartmentId: number): Promise<ApartmentDocument[]> {
+    const { data } = await api.get<ApartmentDocument[]>(`${BASE}/apartments/${apartmentId}/documents`)
+    return data
+  }
+
+  static async uploadApartmentDocument(
+    apartmentId: number,
+    file: File,
+    description: string,
+  ): Promise<ApartmentDocument> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (description) formData.append('description', description)
+    const { data } = await api.post<ApartmentDocument>(
+      `${BASE}/apartments/${apartmentId}/documents`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return data
+  }
+
+  static async deleteApartmentDocument(apartmentId: number, documentId: number): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}/documents/${documentId}`)
   }
 
   // ---- Keys -----------------------------------------------------------------

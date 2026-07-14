@@ -31,6 +31,7 @@ class ApartmentRepository:
                 selectinload(Apartment.technician_visits),
                 selectinload(Apartment.client_visits),
                 selectinload(Apartment.activities),
+                selectinload(Apartment.documents),
             )
             .where(Apartment.id == apartment_id)
         )
