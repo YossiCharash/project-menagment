@@ -1,15 +1,15 @@
 import { FileText, Plus, Trash2, ExternalLink } from 'lucide-react'
-import type { ApartmentDocument } from '../../types/api'
+import type { ApartmentSharedDocument } from '../../types/api'
 import { ACCENT, formatDate } from './constants'
 
-interface ApartmentDocumentListProps {
-  documents: ApartmentDocument[]
+interface ApartmentSharedDocumentListProps {
+  documents: ApartmentSharedDocument[]
   onAdd: () => void
   onDelete: (documentId: number) => void
 }
 
 /** Derives a human label for a document: its description, else the original file name. */
-function documentLabel(document: ApartmentDocument): string {
+function documentLabel(document: ApartmentSharedDocument): string {
   if (document.description) return document.description
   if (document.file_name) return document.file_name
   // Legacy rows (pre file_name) fall back to the last path segment of the S3 key.
@@ -18,7 +18,7 @@ function documentLabel(document: ApartmentDocument): string {
 }
 
 /** "מסמכי הדירה" — the documents section inside the apartment details tab. */
-export default function ApartmentDocumentList({ documents, onAdd, onDelete }: ApartmentDocumentListProps) {
+export default function ApartmentSharedDocumentList({ documents, onAdd, onDelete }: ApartmentSharedDocumentListProps) {
   return (
     <div className="mt-4 flex flex-col gap-2.5">
       <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 px-0.5">מסמכי הדירה</div>

@@ -562,7 +562,17 @@ async def list_archived_tasks(
 
 @router.get("/super", response_model=list[TaskOut])
 async def list_super_tasks(db: DBSessionDep, user=Depends(get_current_user)):
-    """Return all active super tasks (not completed, not archived). All authenticated users can see."""
+    """Return all active super tasks (not completed, not archived). Admin only.
+
+    This is the dedicated, system-wide Super Tasks list, which is admin-managed
+    and admin-only. Non-admins get an empty list (rather than a 403) so the
+    polling Super Tasks panel simply renders nothing for them. Note this only
+    hides the aggregated list/panel: a super task assigned to a member is still
+    visible to that member through the normal task list/board/calendar, like any
+    other task assigned to them.
+    """
+    if user.role != "Admin":
+        return []
     repo = TaskRepository(db)
     tasks = await repo.list_super_tasks()
     return await _tasks_to_out_with_unread(db, user.id, tasks)
@@ -1067,6 +1077,9 @@ async def create_task(
     # end-after-N (count) and end-by-date are mutually exclusive; count wins if both sent.
     recurrence_end_date = None if recurrence["recurrence_count"] else getattr(data, "recurrence_end_date", None)
     initial_status = data.status if data.status in TASK_STATUS_VALUES else TaskStatus.PENDING
+    # Super tasks are admin-only (mirrors the update endpoint): a non-admin can
+    # never create one, even by sending is_super_task=true directly.
+    is_super_task = bool(getattr(data, "is_super_task", False)) and user.role == "Admin"
     task = Task(
         title=data.title,
         start_time=start_val,
@@ -1083,7 +1096,7 @@ async def create_task(
         recurrence_monthly_mode=recurrence["recurrence_monthly_mode"],
         recurrence_count=recurrence["recurrence_count"],
         requires_closure_approval=getattr(data, "requires_closure_approval", False),
-        is_super_task=getattr(data, "is_super_task", False),
+        is_super_task=is_super_task,
         is_backlog=getattr(data, "is_backlog", False),
         apartment_id=getattr(data, "apartment_id", None),
         building_id=getattr(data, "building_id", None),
@@ -1130,16 +1143,25 @@ async def update_task(
         task_id: int,
         data: TaskUpdate,
         db: DBSessionDep,
-        user=Depends(require_permission("update", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(get_current_user),
 ):
-    """Update task time/date (used by drag & drop), status, or other fields. Member can only update own tasks."""
+    """Update task time/date (used by drag & drop), status, or other fields.
+
+    Editable by an Admin or any assignee of the task (the primary assignee or a
+    co-assignee). We intentionally do NOT gate this on the ``update`` task
+    permission: the Member global role is write-only on tasks by design, so an
+    assignee who is a Member would otherwise be unable to edit a task assigned to
+    them. This mirrors ``archive_task``'s access model. Participants (Outlook-style
+    invitees) are not assignees and must use ``respond`` to accept/decline.
+    Reassignment and the super-task flag remain admin-only (enforced below).
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin" and task.assigned_to_user_id != user.id:
+    if not (user.role == "Admin" or _is_task_assignee(task, user.id)):
         raise HTTPException(status_code=403,
-                            detail="Access denied. Only the organizer can edit. Use respond to accept/decline.")
+                            detail="Access denied. Only an assignee or admin can edit. Use respond to accept/decline.")
     update_data = data.model_dump(exclude_unset=True)
     # Only admins can toggle super task flag
     if "is_super_task" in update_data and user.role != "Admin":
@@ -1193,6 +1215,20 @@ async def update_task(
     set_reassign = "assigned_to_user_ids" in update_data and update_data["assigned_to_user_ids"] is not None
     if scalar_reassign or set_reassign:
         if user.role != "Admin":
+            # A non-admin assignee may edit the task but may NOT change who it is
+            # assigned to. The edit form always re-sends the current assignees, so
+            # a genuine reassignment (a set that differs from the current one) is
+            # rejected, while an unchanged set is accepted and simply ignored.
+            requested_ids = set(_ordered_unique_assignee_ids(
+                update_data["assigned_to_user_id"] if scalar_reassign else None,
+                update_data.get("assigned_to_user_ids"),
+            ))
+            current_ids = {task.assigned_to_user_id} | {
+                getattr(a, "id", None) for a in (getattr(task, "assignees", None) or [])
+            }
+            current_ids.discard(None)
+            if requested_ids and requested_ids != current_ids:
+                raise HTTPException(status_code=403, detail="רק מנהל יכול לשנות את המשתמשים המוקצים למשימה")
             update_data.pop("assigned_to_user_id", None)  # Only Admin can reassign
             update_data.pop("assigned_to_user_ids", None)
         else:
@@ -1328,15 +1364,22 @@ async def respond_to_invitation(
 async def delete_task(
         task_id: int,
         db: DBSessionDep,
-        user=Depends(require_permission("delete", "task", resource_id_param="task_id", project_id_param=None)),
+        user=Depends(get_current_user),
 ):
-    """Delete a task or meeting. Member can only delete own tasks."""
+    """Delete a task or meeting.
+
+    Deletable by an Admin or any assignee (primary or co-assignee), mirroring
+    the ``update_task``/``archive_task`` access model. We intentionally do NOT
+    gate this on the ``delete`` task permission: the Member global role is
+    write-only on tasks by design, so an assignee who is a Member would otherwise
+    be unable to delete a task assigned to them.
+    """
     repo = TaskRepository(db)
     task = await repo.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user.role != "Admin" and task.assigned_to_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied. You can only delete your own tasks.")
+    if not (user.role == "Admin" or _is_task_assignee(task, user.id)):
+        raise HTTPException(status_code=403, detail="Access denied. Only an assignee or admin can delete this task.")
     outlook_id = task.outlook_event_id
     user_id = task.assigned_to_user_id
     await repo.delete(task)

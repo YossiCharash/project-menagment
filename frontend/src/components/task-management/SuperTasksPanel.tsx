@@ -8,7 +8,7 @@ import type { Task } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
 
 export default function SuperTasksPanel() {
-  const me = useSelector((s: RootState) => s.auth.user)
+  const me = useSelector((s: RootState) => s.auth.me)
   const isAdmin = me?.role === 'Admin'
 
   const [superTasks, setSuperTasks] = useState<Task[]>([])
@@ -34,10 +34,14 @@ export default function SuperTasksPanel() {
   }, [])
 
   useEffect(() => {
+    // The aggregated Super Tasks list/panel is admin-only; regular users never
+    // fetch or render it. (A super task assigned to a member still shows in that
+    // member's normal board/calendar/task list, like any other assigned task.)
+    if (!isAdmin) return
     fetchSuperTasks()
     const interval = setInterval(fetchSuperTasks, 60_000)
     return () => clearInterval(interval)
-  }, [fetchSuperTasks])
+  }, [fetchSuperTasks, isAdmin])
 
   // Close on outside click
   useEffect(() => {
@@ -99,7 +103,8 @@ export default function SuperTasksPanel() {
     [handleCreateSuperTask]
   )
 
-  if (!loading && superTasks.length === 0 && !isAdmin) return null
+  // Only Admins may see the Super Tasks panel at all.
+  if (!isAdmin) return null
 
   return (
     <>

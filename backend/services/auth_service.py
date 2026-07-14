@@ -104,3 +104,15 @@ class AuthService:
     def verify_password(self, password: str, hashed: str) -> bool:
         """Verify password against hash"""
         return verify_password(password, hashed)
+
+    async def verify_admin_password(self, password: str) -> bool:
+        """Return True if ``password`` matches any active admin user's password.
+
+        Used to gate sensitive, desk-operator-facing areas (e.g. the apartment
+        personal area) behind "the manager's password" — so a Member operating
+        the reception desk can unlock it once a manager types their own password.
+        """
+        if not password:
+            return False
+        admins = await self.users.list_admins()
+        return any(verify_password(password, admin.password_hash) for admin in admins)

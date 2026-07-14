@@ -8,7 +8,7 @@ from backend.schemas.delivery import DeliveryOut
 from backend.schemas.technician_visit import TechnicianVisitOut
 from backend.schemas.client_visit import ClientVisitOut
 from backend.schemas.apartment_activity import ApartmentActivityOut
-from backend.schemas.apartment_document import ApartmentDocumentOut
+from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 
 
 class ApartmentBase(BaseModel):
@@ -72,6 +72,39 @@ class ApartmentTaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ApartmentDocumentOut(BaseModel):
+    """A single document stored in an apartment's personal area."""
+    id: int
+    apartment_id: int
+    file_path: str
+    filename: str | None = None
+    description: str | None = None
+    uploaded_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PersonalAreaUnlock(BaseModel):
+    """Payload used to unlock (and act inside) the personal area with the admin password."""
+    password: str = Field(min_length=1)
+
+
+class PersonalAreaUpdate(PersonalAreaUnlock):
+    """Update the private details/notes; the admin password re-authorizes the write."""
+    private_details: str | None = None
+    private_notes: str | None = None
+
+
+class PersonalAreaOut(BaseModel):
+    """The full personal-area payload returned once the admin password verifies."""
+    apartment_id: int
+    private_details: str | None = None
+    private_notes: str | None = None
+    documents: list[ApartmentDocumentOut] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ApartmentDetailOut(ApartmentBase):
     """Full apartment detail – tenant, keys, vehicles, deliveries, activity feed."""
     id: int
@@ -85,6 +118,6 @@ class ApartmentDetailOut(ApartmentBase):
     technician_visits: list[TechnicianVisitOut] = Field(default_factory=list)
     client_visits: list[ClientVisitOut] = Field(default_factory=list)
     activities: list[ApartmentActivityOut] = Field(default_factory=list)
-    documents: list[ApartmentDocumentOut] = Field(default_factory=list)
+    shared_documents: list[ApartmentSharedDocumentOut] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

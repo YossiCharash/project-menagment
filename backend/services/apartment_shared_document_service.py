@@ -25,7 +25,7 @@ from backend.messages.building_reception.errors import BuildingReceptionErrorMes
 from backend.models.document import Document
 from backend.repositories.apartment_repository import ApartmentRepository
 from backend.repositories.document_repository import DocumentRepository
-from backend.schemas.apartment_document import ApartmentDocumentOut
+from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 from backend.services.s3_service import S3Service
 
 
@@ -35,8 +35,8 @@ APARTMENT_ENTITY_TYPE = "apartment"
 DEFAULT_UPLOAD_FILENAME = "apartment-document"
 
 
-class ApartmentDocumentService:
-    """All apartment-document business rules and orchestration."""
+class ApartmentSharedDocumentService:
+    """Business rules for shared apartment documents (public details tab)."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -47,7 +47,7 @@ class ApartmentDocumentService:
     # List
     # ------------------------------------------------------------------
 
-    async def list_documents(self, apartment_id: int) -> list[ApartmentDocumentOut]:
+    async def list_documents(self, apartment_id: int) -> list[ApartmentSharedDocumentOut]:
         """Return every document attached to the apartment."""
         await self._ensure_apartment_exists(apartment_id)
         docs = await self._documents.list_by_apartment(apartment_id)
@@ -59,7 +59,7 @@ class ApartmentDocumentService:
 
     async def attach_document(
         self, apartment_id: int, file: UploadFile, description: str | None
-    ) -> ApartmentDocumentOut:
+    ) -> ApartmentSharedDocumentOut:
         """Upload the file to S3 and persist a Document row for the apartment."""
         await self._ensure_apartment_exists(apartment_id)
         file_url = await self._upload_file_to_s3(apartment_id, file)
@@ -112,10 +112,10 @@ class ApartmentDocumentService:
         doc = await self._documents.get_by_id(document_id)
         if not doc:
             raise ValueError(
-                BuildingReceptionErrorMessages.document_not_found_by_id(document_id)
+                BuildingReceptionErrorMessages.shared_document_not_found_by_id(document_id)
             )
         if doc.entity_type != APARTMENT_ENTITY_TYPE or doc.entity_id != apartment_id:
-            raise ValueError(BuildingReceptionErrorMessages.DOCUMENT_NOT_ON_APARTMENT)
+            raise ValueError(BuildingReceptionErrorMessages.SHARED_DOCUMENT_NOT_ON_APARTMENT)
         return doc
 
     @staticmethod
@@ -182,8 +182,8 @@ class ApartmentDocumentService:
         return bool(base_url and file_path.startswith(base_url))
 
     @staticmethod
-    def _build_document_dto(doc: Document) -> ApartmentDocumentOut:
-        return ApartmentDocumentOut(
+    def _build_document_dto(doc: Document) -> ApartmentSharedDocumentOut:
+        return ApartmentSharedDocumentOut(
             id=doc.id,
             apartment_id=doc.entity_id,
             file_path=doc.file_path,

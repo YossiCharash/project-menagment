@@ -3,7 +3,7 @@ import { FileText, Plus, Upload } from 'lucide-react'
 import ModalShell from './ModalShell'
 import { LabeledField, PrimaryButton, SecondaryButton, TextField } from './FormControls'
 
-interface AddApartmentDocumentModalProps {
+interface AddApartmentSharedDocumentModalProps {
   isOpen: boolean
   onClose: () => void
   apartmentId: number | null
@@ -16,13 +16,13 @@ interface AddApartmentDocumentModalProps {
  * optional free-text description. Owns only its own draft state; the upload
  * itself is delegated to `onSubmit`.
  */
-export default function AddApartmentDocumentModal({
+export default function AddApartmentSharedDocumentModal({
   isOpen,
   onClose,
   apartmentId,
   onSubmit,
   submitting,
-}: AddApartmentDocumentModalProps) {
+}: AddApartmentSharedDocumentModalProps) {
   const [file, setFile] = useState<File | null>(null)
   const [description, setDescription] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)

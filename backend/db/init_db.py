@@ -33,6 +33,10 @@ _ADDITIVE_MIGRATIONS: tuple[str, ...] = (
     # WhatsApp-style chat: "edited" timestamp on a task message (task_messages pre-exists).
     # The task_message_reads table itself is a NEW table, so create_all provisions it.
     "ALTER TABLE task_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP",
+    # Apartment personal area (אזור אישי) — private fields on the pre-existing apartments table.
+    # The apartment_documents table itself is NEW, so create_all provisions it.
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS private_details TEXT",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS private_notes TEXT",
 )
 
 # ── Main application models ──────────────────────────────────────────────────

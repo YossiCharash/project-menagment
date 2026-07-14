@@ -39,7 +39,9 @@ class BuildingReceptionErrorMessages:
     CLIENT_ARRIVAL_REQUIRED = "מועד הגעת הלקוח הוא שדה חובה"
     CLIENT_ALREADY_LEFT = "יציאת הלקוח כבר נרשמה"
     DOCUMENT_NOT_FOUND = "המסמך לא נמצא במערכת"
-    DOCUMENT_NOT_ON_APARTMENT = "המסמך אינו שייך לדירה זו"
+    SHARED_DOCUMENT_NOT_ON_APARTMENT = "המסמך אינו שייך לדירה זו"
+    WRONG_ADMIN_PASSWORD = "סיסמת המנהל שגויה"
+    STORAGE_NOT_CONFIGURED = "אחסון הקבצים אינו מוגדר במערכת. לא ניתן להעלות מסמכים כרגע."
 
     # --- formatted messages --------------------------------------------
 
@@ -89,8 +91,8 @@ class BuildingReceptionErrorMessages:
         return f"הגעת הלקוח עם המזהה {visit_id} לא נמצאה במערכת"
 
     @staticmethod
-    def document_not_found_by_id(document_id: int) -> str:
-        """Message shown when a document id cannot be resolved."""
+    def shared_document_not_found_by_id(document_id: int) -> str:
+        """Message shown when a shared-document id cannot be resolved."""
         return f"המסמך עם המזהה {document_id} לא נמצא במערכת"
 
     @staticmethod

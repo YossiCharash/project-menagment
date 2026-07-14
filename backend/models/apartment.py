@@ -23,6 +23,9 @@ class Apartment(Base):
     attorneys: Mapped[str | None] = mapped_column(Text, default=None)  # מיופי כח נוספים (שורה לכל איש קשר)
     equipment: Mapped[str | None] = mapped_column(Text, default=None)  # ציוד שנמצא בדירה
     notes: Mapped[str | None] = mapped_column(Text, default=None)  # הערות על הדירה
+    # ── Personal area (אזור אישי) — gated behind the admin password ──────────
+    private_details: Mapped[str | None] = mapped_column(Text, default=None)  # פרטים פרטיים
+    private_notes: Mapped[str | None] = mapped_column(Text, default=None)  # הערות פרטיות
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
@@ -49,10 +52,14 @@ class Apartment(Base):
     activities: Mapped[list["ApartmentActivity"]] = relationship(
         "ApartmentActivity", back_populates="apartment", cascade="all, delete-orphan"
     )
-    # Documents attached to this apartment. The Document table is polymorphic
-    # (entity_type/entity_id) with no real FK, so this is a read-only view join;
-    # deletion cleanup is handled explicitly in ApartmentDocumentService.
-    documents: Mapped[list["Document"]] = relationship(
+    # Private, admin-password-gated personal-area documents (own table).
+    documents: Mapped[list["ApartmentDocument"]] = relationship(
+        "ApartmentDocument", back_populates="apartment", cascade="all, delete-orphan"
+    )
+    # Public "shared" documents shown in the details tab. The documents table is
+    # polymorphic (entity_type/entity_id) with no real FK, so this is a read-only
+    # view join; deletion cleanup is handled by ApartmentSharedDocumentService.
+    shared_documents: Mapped[list["Document"]] = relationship(
         "Document",
         primaryjoin=(
             "and_(foreign(Document.entity_id) == Apartment.id, "

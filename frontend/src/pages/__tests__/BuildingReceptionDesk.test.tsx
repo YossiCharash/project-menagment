@@ -81,7 +81,7 @@ const apartmentDetail = {
     },
   ],
   activities: [],
-  documents: [],
+  shared_documents: [],
 }
 
 // Mock the transport layer so the slice thunks resolve without real HTTP.
