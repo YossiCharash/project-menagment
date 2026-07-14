@@ -38,6 +38,7 @@ from backend.models.delivery import Delivery, DeliveryStatus
 from backend.models.technician_visit import TechnicianVisit, TechnicianVisitStatus
 from backend.models.client_visit import ClientVisit, ClientVisitStatus
 from backend.models.apartment_activity import ApartmentActivity, ActivityKind
+from backend.models.apartment_document import ApartmentDocument
 from backend.iam.models import ProjectRoleAssignment, ResourcePolicy, PermissionAuditLog
 
 __all__ = [
@@ -96,6 +97,7 @@ __all__ = [
     "ClientVisitStatus",
     "ApartmentActivity",
     "ActivityKind",
+    "ApartmentDocument",
     "ProjectRoleAssignment",
     "ResourcePolicy",
     "PermissionAuditLog",

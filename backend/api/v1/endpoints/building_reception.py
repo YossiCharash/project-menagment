@@ -4,7 +4,9 @@ Endpoints only translate HTTP <-> service calls. All business logic lives in
 the services layer; domain errors raised as ``ValueError`` (with Hebrew
 messages) are converted to HTTP 4xx here.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from sqlalchemy import select
 
 from backend.core.deps import DBSessionDep, get_current_user
@@ -32,6 +34,10 @@ from backend.schemas.apartment import (
     ApartmentDetailOut,
     ApartmentUpdate,
     ApartmentTaskOut,
+    ApartmentDocumentOut,
+    PersonalAreaUnlock,
+    PersonalAreaUpdate,
+    PersonalAreaOut,
 )
 from backend.repositories.task_repository import TaskRepository
 from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
@@ -60,6 +66,11 @@ from backend.schemas.client_visit import (
 from backend.services.building_service import BuildingService
 from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
+from backend.services.personal_area_service import PersonalAreaService
+from backend.services.auth_service import AuthService
+from backend.services.s3_service import S3Service
+from backend.models.apartment_document import ApartmentDocument
+from backend.core.rate_limit import _limiter, get_client_ip
 from backend.services.tenant_service import TenantService
 from backend.services.key_service import KeyService
 from backend.services.authorized_vehicle_service import AuthorizedVehicleService
@@ -544,6 +555,158 @@ async def update_apartment(apartment_id: int, db: DBSessionDep, data: ApartmentU
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return _apartment_to_detail(apartment)
+
+
+# ── Personal area (אזור אישי) — admin-password-gated ──────────────────────────
+# The private details/notes and documents on the apartment card are only exposed
+# once the caller re-authenticates with an admin's password. Every read AND write
+# re-verifies the password server-side, so an "unlocked" UI can never be trusted
+# to have skipped the check.
+
+# Brute-force cap on the personal-area admin password: at most this many FAILED
+# attempts per client IP per window. Only wrong passwords count, so a manager
+# unlocking many apartments in a row is never throttled. Keyed on the client IP
+# (not the request path) so rotating apartment ids cannot reset the counter.
+_PW_MAX_FAILURES = 10
+_PW_WINDOW_SECONDS = 60
+
+
+async def _assert_admin_password(request: Request, db, password: str) -> None:
+    """Verify the admin password, throttling repeated failures to stop brute force.
+
+    Raises 429 once too many recent failures accumulate for the caller's IP, and
+    403 on a wrong password (recording it toward the limit). A correct password
+    never counts against the limit.
+    """
+    key = f"personal-area-admin-pw:{get_client_ip(request)}"
+    if _limiter.over_limit(key, _PW_MAX_FAILURES, _PW_WINDOW_SECONDS):
+        retry_after = _limiter.get_retry_after(key, _PW_WINDOW_SECONDS)
+        raise HTTPException(
+            status_code=429,
+            detail=f"יותר מדי ניסיונות. נסו שוב בעוד {retry_after} שניות.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    if not await AuthService(db).verify_admin_password(password):
+        _limiter.record(key)
+        raise HTTPException(status_code=403, detail=BuildingReceptionErrorMessages.WRONG_ADMIN_PASSWORD)
+
+
+def _personal_area_out(apartment, documents) -> PersonalAreaOut:
+    return PersonalAreaOut(
+        apartment_id=apartment.id,
+        private_details=apartment.private_details,
+        private_notes=apartment.private_notes,
+        documents=[ApartmentDocumentOut.model_validate(doc) for doc in documents],
+    )
+
+
+@router.post("/apartments/{apartment_id}/personal-area", response_model=PersonalAreaOut)
+async def unlock_personal_area(
+    apartment_id: int,
+    request: Request,
+    db: DBSessionDep,
+    data: PersonalAreaUnlock,
+    user=Depends(require_reception(Action.READ.value, source="apartment")),
+):
+    """Verify the admin password and return the apartment's personal-area payload."""
+    await _assert_admin_password(request, db, data.password)
+    service = PersonalAreaService(db)
+    try:
+        apartment, documents = await service.get_personal_area(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return _personal_area_out(apartment, documents)
+
+
+@router.put("/apartments/{apartment_id}/personal-area", response_model=PersonalAreaOut)
+async def update_personal_area(
+    apartment_id: int,
+    request: Request,
+    db: DBSessionDep,
+    data: PersonalAreaUpdate,
+    user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
+):
+    """Update the private details/notes (admin password re-authorizes the write).
+
+    Only fields the caller actually sent are written (partial update), so omitting
+    ``private_notes`` preserves it instead of clearing it.
+    """
+    await _assert_admin_password(request, db, data.password)
+    changes = data.model_dump(exclude_unset=True, exclude={"password"})
+    service = PersonalAreaService(db)
+    try:
+        apartment, documents = await service.update_private_fields(apartment_id, changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return _personal_area_out(apartment, documents)
+
+
+@router.post("/apartments/{apartment_id}/personal-area/documents", response_model=ApartmentDocumentOut)
+async def upload_personal_area_document(
+    apartment_id: int,
+    request: Request,
+    db: DBSessionDep,
+    password: str = Form(...),
+    file: UploadFile = File(...),
+    description: str | None = Form(default=None),
+    user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
+):
+    """Upload a document into the apartment's personal area (admin-password gated)."""
+    await _assert_admin_password(request, db, password)
+    service = PersonalAreaService(db)
+    # Validate the apartment exists before touching storage (no document load).
+    try:
+        await service.ensure_apartment(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    try:
+        s3 = S3Service()
+    except ValueError:
+        raise HTTPException(status_code=503, detail=BuildingReceptionErrorMessages.STORAGE_NOT_CONFIGURED)
+
+    await file.seek(0)
+    file_url = await asyncio.to_thread(
+        s3.upload_file,
+        prefix=f"apartments/{apartment_id}/personal-area",
+        file_obj=file.file,
+        filename=file.filename or "document",
+        content_type=file.content_type,
+    )
+
+    document = await service.add_document(
+        apartment_id,
+        file_path=file_url,
+        filename=file.filename,
+        description=description,
+        uploaded_by_id=user.id,
+    )
+    return ApartmentDocumentOut.model_validate(document)
+
+
+@router.delete("/apartments/{apartment_id}/personal-area/documents/{document_id}", status_code=204)
+async def delete_personal_area_document(
+    apartment_id: int,
+    document_id: int,
+    request: Request,
+    db: DBSessionDep,
+    data: PersonalAreaUnlock,
+    user=Depends(require_reception(Action.UPDATE.value, source="apartment")),
+):
+    """Delete a personal-area document (admin-password gated)."""
+    await _assert_admin_password(request, db, data.password)
+    service = PersonalAreaService(db)
+    try:
+        file_path = await service.delete_document(apartment_id, document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    # Best-effort storage cleanup; a storage hiccup must not fail the delete.
+    try:
+        await asyncio.to_thread(S3Service().delete_file, file_path)
+    except Exception:
+        pass
+    return None
 
 
 @router.get("/apartments/{apartment_id}/tasks", response_model=list[ApartmentTaskOut])
