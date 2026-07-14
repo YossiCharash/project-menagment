@@ -10,6 +10,7 @@ from backend.core.deps import DBSessionDep
 from backend.iam.decorators import require_permission
 from backend.iam.enums import Action, ResourceType
 from backend.models.apartment import Apartment
+from backend.models.apartment_key import KeyHolder
 from backend.models.delivery import DeliveryStatus
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
 from backend.schemas.building_project import (
@@ -145,11 +146,16 @@ def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> Apartm
         visit.status == ClientVisitStatus.PRESENT
         for visit in (apartment.client_visits or [])
     )
+    keys = apartment.keys or []
+    keys_in_desk_count = sum(1 for key in keys if key.holder == KeyHolder.IN_DESK)
+    keys_out_count = sum(1 for key in keys if key.holder == KeyHolder.OUT)
     return ApartmentOut(
         **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
         has_active_client_visit=has_active_client_visit,
-        keys_count=len(apartment.keys or []),
+        keys_count=len(keys),
+        keys_in_desk_count=keys_in_desk_count,
+        keys_out_count=keys_out_count,
         vehicles_count=len(apartment.vehicles or []),
         pending_deliveries_count=pending_deliveries,
         open_tasks_count=open_tasks_count,

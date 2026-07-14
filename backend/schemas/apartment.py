@@ -50,6 +50,8 @@ class ApartmentOut(ApartmentBase):
     current_tenant: TenantOut | None = None
     has_active_client_visit: bool = False
     keys_count: int = 0
+    keys_in_desk_count: int = 0  # מפתחות שנמצאים כרגע בדלפק
+    keys_out_count: int = 0  # מפתחות שהוצאו החוצה (טרם הוחזרו)
     vehicles_count: int = 0
     pending_deliveries_count: int = 0
     open_tasks_count: int = 0
