@@ -12,15 +12,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from backend.core.deps import DBSessionDep, get_current_user, require_admin
 from backend.iam.engine import PermissionsEngine
 from backend.iam.enums import ProjectRole
+from backend.iam.enums import Action
 from backend.iam.schemas import (
     ProjectRoleAssignmentCreate,
     ProjectRoleAssignmentOut,
     PermissionCheckRequest,
     PermissionCheckResponse,
     UserPermissionsSummary,
+    BuildingReceptionGrantCreate,
+    BuildingReceptionAccessOut,
+    BuildingOption,
 )
 
 router = APIRouter()
+
+# The reception desk exposes the four canonical actions; any grant is validated
+# against this set so a typo can't create a dead policy row.
+_RECEPTION_ACTIONS = {a.value for a in Action}
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +212,128 @@ async def revoke_resource_permission(
         actor_user_id=admin.id,
     )
     return {"message": "Resource permission revoked"}
+
+
+# ---------------------------------------------------------------------------
+# Building Reception Desk -- per-building access (דלפק לפי בניין)
+# ---------------------------------------------------------------------------
+
+@router.get("/buildings", response_model=list[BuildingOption])
+async def list_buildings_for_permissions(
+    db: DBSessionDep,
+    admin=Depends(require_admin()),
+):
+    """List all buildings (id + name) for the reception permission picker. Admin only."""
+    from backend.models.building import Building
+    from sqlalchemy import select
+
+    result = await db.execute(select(Building).order_by(Building.name))
+    buildings = result.scalars().all()
+    return [
+        BuildingOption(id=b.id, name=b.name, project_id=b.project_id)
+        for b in buildings
+    ]
+
+
+@router.get(
+    "/users/{user_id}/building-reception",
+    response_model=list[BuildingReceptionAccessOut],
+)
+async def list_user_building_reception(
+    user_id: int,
+    db: DBSessionDep,
+    user=Depends(get_current_user),
+):
+    """List the per-building reception grants held by a user.
+
+    Non-admins may only view their own grants.
+    """
+    if user.role != "Admin" and user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own permissions",
+        )
+
+    from backend.models.building import Building
+    from sqlalchemy import select
+
+    engine = PermissionsEngine(db)
+    access = await engine.list_building_reception_access(user_id)
+
+    # Enrich with building names for display.
+    building_ids = [a["building_id"] for a in access]
+    names: dict[int, str] = {}
+    if building_ids:
+        result = await db.execute(
+            select(Building.id, Building.name).where(Building.id.in_(building_ids))
+        )
+        names = {row.id: row.name for row in result.all()}
+
+    return [
+        BuildingReceptionAccessOut(
+            building_id=a["building_id"],
+            building_name=names.get(a["building_id"]),
+            actions=a["actions"],
+        )
+        for a in access
+    ]
+
+
+@router.post("/users/{user_id}/building-reception", status_code=status.HTTP_201_CREATED)
+async def grant_user_building_reception(
+    user_id: int,
+    body: BuildingReceptionGrantCreate,
+    db: DBSessionDep,
+    admin=Depends(require_admin()),
+):
+    """Grant a user access to a single building's reception desk. Admin only."""
+    invalid = [a for a in body.actions if a not in _RECEPTION_ACTIONS]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid action(s): {', '.join(invalid)}",
+        )
+    if not body.actions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one action is required",
+        )
+
+    engine = PermissionsEngine(db)
+    await engine.grant_building_reception(
+        user_id=user_id,
+        building_id=body.building_id,
+        actions=body.actions,
+        actor_user_id=admin.id,
+    )
+    return {
+        "message": "Building reception access granted",
+        "user_id": user_id,
+        "building_id": body.building_id,
+        "actions": body.actions,
+    }
+
+
+@router.delete("/users/{user_id}/building-reception/{building_id}")
+async def revoke_user_building_reception(
+    user_id: int,
+    building_id: int,
+    db: DBSessionDep,
+    admin=Depends(require_admin()),
+):
+    """Revoke all of a user's reception access to a single building. Admin only."""
+    engine = PermissionsEngine(db)
+    await engine.revoke_building_reception(
+        user_id=user_id,
+        building_id=building_id,
+        actions=sorted(_RECEPTION_ACTIONS),
+        actor_user_id=admin.id,
+    )
+    return {
+        "message": "Building reception access revoked",
+        "user_id": user_id,
+        "building_id": building_id,
+    }
 
 
 # ---------------------------------------------------------------------------
