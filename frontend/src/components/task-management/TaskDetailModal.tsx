@@ -5,6 +5,7 @@ import api, { avatarUrl, fileAttachmentUrl } from '../../lib/api'
 import Modal from '../Modal'
 import { cn } from '../../lib/utils'
 import { formatTaskCode } from '../../lib/taskCode'
+import { canEditTask } from '../../lib/taskPermissions'
 import {
   Archive,
   Bell,
@@ -92,6 +93,7 @@ export default function TaskDetailModal({
   onEdit,
 }: TaskDetailModalProps) {
   const me = useSelector((state: RootState) => state.auth.me)
+  const isAdmin = me?.role === 'Admin'
   const [task, setTask] = useState<Task | null>(initialTask ?? null)
   const [taskLoading, setTaskLoading] = useState(false)
   const [taskMessages, setTaskMessages] = useState<TaskMessageType[]>([])
@@ -369,7 +371,6 @@ export default function TaskDetailModal({
           </p>
           {(() => {
             const overdueInfo = getOverdueInfo(effectiveTask)
-            const isAdmin = me?.role === 'Admin'
             const isPendingClosure = effectiveTask.status === 'pending_closure'
 
             return (
@@ -426,6 +427,8 @@ export default function TaskDetailModal({
               <span>דורש אישור סגירה</span>
             </p>
           )}
+              {/* Super tasks are admin-only, so only Admins may toggle the flag. */}
+              {isAdmin && (
               <PermissionGuard action="update" resource="task">
                 <div className="flex items-center gap-3 py-1">
                   <Zap className={cn('w-4 h-4', effectiveTask.is_super_task ? 'text-red-600' : 'text-gray-400')} />
@@ -454,6 +457,7 @@ export default function TaskDetailModal({
                   </span>
                 </div>
               </PermissionGuard>
+              )}
           <div className="text-sm flex items-start gap-2 flex-wrap">
             <span className="text-gray-600 dark:text-gray-400">
               {(effectiveTask.assignees?.length ?? 0) > 1 ? 'מוקצה למשתמשים: ' : 'מוקצה למשתמש: '}
@@ -558,7 +562,7 @@ export default function TaskDetailModal({
           {/* רשימת משימות */}
           <TaskChecklist
             taskId={effectiveTask.id}
-            canEdit={me?.role === 'Admin' || me?.id === effectiveTask.assigned_to_user_id}
+            canEdit={isAdmin || me?.id === effectiveTask.assigned_to_user_id}
             participants={(effectiveTask.participants || []).map((p) => ({
               id: p.user_id,
               name: p.full_name,
@@ -585,7 +589,7 @@ export default function TaskDetailModal({
               ) : (
                 taskMessages.map((msg) => {
                   const isMine = msg.user_id === me?.id
-                  const canDelete = me?.role === 'Admin' || msg.user_id === me?.id
+                  const canDelete = isAdmin || msg.user_id === me?.id
                   const canEdit = isMine && !!msg.message
                   const isDeleting = deletingMessageId === msg.id
                   const isEditing = editingMessageId === msg.id
@@ -813,33 +817,29 @@ export default function TaskDetailModal({
               <Bell className="w-4 h-4" />
               {remindingTaskId === effectiveTask.id ? 'שולח...' : 'הזכר'}
             </button>
-            {showEditButton && (
-              <PermissionGuard action="update" resource="task">
-                <button
-                  type="button"
-                  onClick={() => { onEdit?.(effectiveTask); onClose() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                >
-                  <Pencil className="w-4 h-4" />
-                  עריכה
-                </button>
-              </PermissionGuard>
+            {showEditButton && canEditTask(effectiveTask, me) && (
+              <button
+                type="button"
+                onClick={() => { onEdit?.(effectiveTask); onClose() }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                <Pencil className="w-4 h-4" />
+                עריכה
+              </button>
             )}
-            {effectiveTask.status === 'completed' && !effectiveTask.is_archived && (
-              <PermissionGuard action="update" resource="task">
-                <button
-                  type="button"
-                  onClick={() => handleArchiveTask(effectiveTask)}
-                  disabled={archivingTaskId === effectiveTask.id}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
-                  title="ארכב את המשימה שטופלה"
-                >
-                  <Archive className="w-4 h-4" />
-                  {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב'}
-                </button>
-              </PermissionGuard>
+            {effectiveTask.status === 'completed' && !effectiveTask.is_archived && canEditTask(effectiveTask, me) && (
+              <button
+                type="button"
+                onClick={() => handleArchiveTask(effectiveTask)}
+                disabled={archivingTaskId === effectiveTask.id}
+                className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                title="ארכב את המשימה שטופלה"
+              >
+                <Archive className="w-4 h-4" />
+                {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב'}
+              </button>
             )}
-            <PermissionGuard action="delete" resource="task">
+            {canEditTask(effectiveTask, me) && (
               <button
                 type="button"
                 onClick={() => handleDeleteTask(effectiveTask)}
@@ -849,7 +849,7 @@ export default function TaskDetailModal({
                 <Trash2 className="w-4 h-4" />
                 {deletingTaskId === effectiveTask.id ? 'מוחק...' : 'מחק'}
               </button>
-            </PermissionGuard>
+            )}
             <button
               type="button"
               onClick={onClose}
