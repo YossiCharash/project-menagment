@@ -34,9 +34,21 @@ const building = {
       label: null,
       is_common_area: false,
       created_at: '2024-01-01T00:00:00',
-      current_tenant: null,
+      current_tenant: {
+        id: 71,
+        apartment_id: 11,
+        name: 'דייר נוכחי',
+        phone: null,
+        email: null,
+        move_in_date: null,
+        move_out_date: null,
+        is_current: true,
+        created_at: '2024-01-01T00:00:00',
+      },
       has_active_client_visit: false,
       keys_count: 0,
+      keys_in_desk_count: 0,
+      keys_out_count: 0,
       vehicles_count: 0,
       pending_deliveries_count: 0,
       open_tasks_count: 0,
@@ -44,12 +56,13 @@ const building = {
   ],
 }
 
-// Full ApartmentDetail returned when the side panel opens, with one client
-// currently present (so occupancy reads מאוכלסת and the לקוחות tab has a row).
+// Full ApartmentDetail returned when the side panel opens. Occupancy reads
+// מאוכלסת from the current tenant; a client is also present so the לקוחות tab
+// has a row.
 const apartmentDetail = {
   ...building.apartments[0],
   has_active_client_visit: true,
-  tenants: [],
+  tenants: [building.apartments[0].current_tenant],
   keys: [],
   vehicles: [],
   deliveries: [],
@@ -199,7 +212,7 @@ describe('BuildingReceptionDesk', () => {
     expect(screen.queryByRole('button', { name: /מחיקת פרויקט/ })).not.toBeInTheDocument()
   })
 
-  it('shows client-driven occupancy and the לקוחות tab in the apartment panel', async () => {
+  it('shows tenant-driven occupancy and the לקוחות tab in the apartment panel', async () => {
     renderPage()
     await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
 
@@ -207,9 +220,8 @@ describe('BuildingReceptionDesk', () => {
     fireEvent.click(await screen.findByText('דירה 101'))
     await waitFor(() => expect(mockedApi.getApartment).toHaveBeenCalledWith(11))
 
-    // Occupancy is driven by the active client arrival, not the (absent) tenant.
-    // The panel badge reads מאוכלסת (the grid tile shows it too once its summary
-    // reports an active visit).
+    // Occupancy is driven by the current tenant. Both the grid tile and the
+    // panel badge read מאוכלסת while a resident lives in the apartment.
     const occupied = await screen.findAllByText('מאוכלסת')
     expect(occupied.length).toBeGreaterThan(0)
 
