@@ -38,6 +38,9 @@ class BuildingReceptionErrorMessages:
     CLIENT_VISIT_NOT_FOUND = "הגעת הלקוח לא נמצאה במערכת"
     CLIENT_ARRIVAL_REQUIRED = "מועד הגעת הלקוח הוא שדה חובה"
     CLIENT_ALREADY_LEFT = "יציאת הלקוח כבר נרשמה"
+    DOCUMENT_NOT_FOUND = "המסמך לא נמצא במערכת"
+    DOCUMENT_FILE_REQUIRED = "יש לבחור קובץ להעלאה"
+    DOCUMENT_NOT_ON_APARTMENT = "המסמך אינו שייך לדירה זו"
 
     # --- formatted messages --------------------------------------------
 
@@ -85,6 +88,11 @@ class BuildingReceptionErrorMessages:
     def client_visit_not_found_by_id(visit_id: int) -> str:
         """Message shown when a client-visit id cannot be resolved."""
         return f"הגעת הלקוח עם המזהה {visit_id} לא נמצאה במערכת"
+
+    @staticmethod
+    def document_not_found_by_id(document_id: int) -> str:
+        """Message shown when a document id cannot be resolved."""
+        return f"המסמך עם המזהה {document_id} לא נמצא במערכת"
 
     @staticmethod
     def invalid_key_direction(direction: str) -> str:

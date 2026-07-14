@@ -54,6 +54,8 @@ import {
   createVehicle,
   updateVehicle,
   deleteVehicle,
+  uploadApartmentDocument,
+  deleteApartmentDocument,
   createDelivery,
   markDelivered,
   updateDelivery,
@@ -83,6 +85,7 @@ import AddTechnicianVisitModal from '../components/building-reception/AddTechnic
 import AddClientVisitModal from '../components/building-reception/AddClientVisitModal'
 import AddApartmentModal from '../components/building-reception/AddApartmentModal'
 import AddKeyModal from '../components/building-reception/AddKeyModal'
+import AddApartmentDocumentModal from '../components/building-reception/AddApartmentDocumentModal'
 
 /**
  * Building Reception Desk (דלפק הבניין).
@@ -126,6 +129,7 @@ export default function BuildingReceptionDesk() {
   const [addDeliveryOpen, setAddDeliveryOpen] = useState(false)
   const [addTechnicianOpen, setAddTechnicianOpen] = useState(false)
   const [addClientOpen, setAddClientOpen] = useState(false)
+  const [addDocumentOpen, setAddDocumentOpen] = useState(false)
   const [addApartmentFloor, setAddApartmentFloor] = useState<number | null>(null)
   const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -523,6 +527,21 @@ export default function BuildingReceptionDesk() {
     void dispatch(deleteClientVisit({ visitId, apartmentId: activeApartmentId }))
   }
 
+  // --- Documents ---
+  const handleUploadDocument = (file: File, description: string) => {
+    if (activeApartmentId === null) return
+    void runSubmit(
+      () => dispatch(uploadApartmentDocument({ apartmentId: activeApartmentId, file, description })).unwrap(),
+      () => setAddDocumentOpen(false),
+    )
+  }
+
+  const handleDeleteDocument = (documentId: number) => {
+    if (activeApartmentId === null) return
+    if (!window.confirm('למחוק את המסמך? הפעולה תמחק גם את הקובץ מהאחסון.')) return
+    void dispatch(deleteApartmentDocument({ documentId, apartmentId: activeApartmentId }))
+  }
+
   // When an apartment has no keys yet, seed a default one so a hand-out can be
   // recorded immediately from the transfer modal.
   const handleOpenKeyTransfer = async () => {
@@ -783,6 +802,8 @@ export default function BuildingReceptionDesk() {
           setAddClientOpen(true)
         }}
         onDeleteClientVisit={handleDeleteClientVisit}
+        onAddDocument={() => setAddDocumentOpen(true)}
+        onDeleteDocument={handleDeleteDocument}
       />
 
       <CreateBuildingModal
@@ -908,6 +929,14 @@ export default function BuildingReceptionDesk() {
         onClose={closeKeyModal}
         initialLabel={editingKey ? editingKey.label : null}
         onSubmit={handleSubmitKey}
+        submitting={submitting}
+      />
+
+      <AddApartmentDocumentModal
+        isOpen={addDocumentOpen}
+        onClose={() => setAddDocumentOpen(false)}
+        apartmentId={activeApartmentId}
+        onSubmit={handleUploadDocument}
         submitting={submitting}
       />
     </div>

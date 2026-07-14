@@ -498,6 +498,15 @@ export interface ApartmentActivity {
   created_at: string
 }
 
+/** A document (file stored in S3) attached to an apartment, with its description. */
+export interface ApartmentDocument {
+  id: number
+  apartment_id: number
+  file_path: string
+  description: string | null
+  uploaded_at: string
+}
+
 /** Apartment as it appears inside a building overview (summary counts only). */
 export interface Apartment {
   id: number
@@ -533,6 +542,7 @@ export interface ApartmentDetail extends Apartment {
   technician_visits: TechnicianVisit[]
   client_visits: ClientVisit[]
   activities: ApartmentActivity[]
+  documents: ApartmentDocument[]
 }
 
 export interface Building {
