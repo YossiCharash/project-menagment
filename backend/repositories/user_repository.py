@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.user import User
@@ -20,6 +22,18 @@ class UserRepository(BaseRepository[User]):
         from backend.models.user import UserRole
         res = await self.db.execute(select(User).where(User.role == UserRole.ADMIN.value))
         return res.scalar_one_or_none() is not None
+
+    async def list_admins(self) -> list[User]:
+        """Return every active admin user that can authenticate with a password."""
+        from backend.models.user import UserRole
+        res = await self.db.execute(
+            select(User).where(
+                User.role == UserRole.ADMIN.value,
+                User.is_active.is_(True),
+                User.password_hash.is_not(None),
+            )
+        )
+        return list(res.scalars().all())
 
     async def delete(self, entity: User) -> None:
         """Delete a user with rollback on failure"""

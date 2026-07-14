@@ -38,6 +38,9 @@ class BuildingReceptionErrorMessages:
     CLIENT_VISIT_NOT_FOUND = "הגעת הלקוח לא נמצאה במערכת"
     CLIENT_ARRIVAL_REQUIRED = "מועד הגעת הלקוח הוא שדה חובה"
     CLIENT_ALREADY_LEFT = "יציאת הלקוח כבר נרשמה"
+    DOCUMENT_NOT_FOUND = "המסמך לא נמצא במערכת"
+    WRONG_ADMIN_PASSWORD = "סיסמת המנהל שגויה"
+    STORAGE_NOT_CONFIGURED = "אחסון הקבצים אינו מוגדר במערכת. לא ניתן להעלות מסמכים כרגע."
 
     # --- formatted messages --------------------------------------------
 

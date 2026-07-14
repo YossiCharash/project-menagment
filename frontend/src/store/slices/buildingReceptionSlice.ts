@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice, isRejected, type PayloadAction } from '@reduxjs/toolkit'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
+import { extractErrorMessage } from '../../lib/apiError'
 import type {
   ApartmentCreate,
   ApartmentDetail,
@@ -57,10 +58,7 @@ const initialState: BuildingReceptionState = {
  * Small helper that funnels every thunk through the same error-unwrapping
  * logic (DRY): rejected thunks always carry a human-readable Hebrew message.
  */
-const asMessage = (error: unknown, fallback: string): string => {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  return typeof detail === 'string' ? detail : fallback
-}
+const asMessage = (error: unknown, fallback: string): string => extractErrorMessage(error, fallback)
 
 // ---- Thunks -----------------------------------------------------------------
 

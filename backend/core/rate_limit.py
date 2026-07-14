@@ -30,6 +30,19 @@ class RateLimiter:
         self._requests[key].append(time.monotonic())
         return True
     
+    def over_limit(self, key: str, max_requests: int, window_seconds: int) -> bool:
+        """Read-only check: True if ``key`` already has >= max_requests in the window.
+
+        Unlike ``check`` this does not record an attempt, so callers can decide
+        whether a given attempt should count toward the limit (e.g. only failures).
+        """
+        self._cleanup(key, window_seconds)
+        return len(self._requests[key]) >= max_requests
+
+    def record(self, key: str) -> None:
+        """Record a single attempt against ``key`` (used to count failures)."""
+        self._requests[key].append(time.monotonic())
+
     def get_retry_after(self, key: str, window_seconds: int) -> int:
         """Get seconds until the oldest request expires."""
         if not self._requests[key]:
