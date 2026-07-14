@@ -11,7 +11,7 @@ import type {
   TechnicianVisit,
   ClientVisit,
 } from '../../types/api'
-import { ACCENT, PALETTE, apartmentTitle, formatDate } from './constants'
+import { ACCENT, PALETTE, apartmentTitle, formatDate, isApartmentVacant } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
 import VehicleList from './VehicleList'
@@ -168,10 +168,9 @@ export default function ApartmentDetailPanel({
   ]
 
   const tenant = apartment?.current_tenant ?? null
-  // Occupancy (מאוכלסת/פנויה) follows the resident record: מאוכלסת while a
-  // current tenant lives here. Client arrivals are transient and shown in the
-  // "לקוחות" tab, not as occupancy.
-  const isVacant = apartment !== null && !tenant && !apartment.is_common_area
+  // Occupancy (מאוכלסת/פנויה) follows the resident record via the shared rule;
+  // client arrivals are transient and shown in the "לקוחות" tab, not here.
+  const isVacant = apartment !== null && isApartmentVacant(apartment)
   const statusColor = apartment?.is_common_area ? PALETTE.common : isVacant ? PALETTE.vacant : PALETTE.occupied
   const statusLabel = apartment?.is_common_area ? 'תקין' : isVacant ? 'פנויה' : 'מאוכלסת'
 
