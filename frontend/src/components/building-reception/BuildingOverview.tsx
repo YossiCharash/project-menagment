@@ -118,7 +118,9 @@ export default function BuildingOverview({
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
   // Guard against a stale active building that belongs to another project.
   const activeInProject = activeBuilding !== null && visibleBuildings.some((building) => building.id === activeBuilding.id)
-  const floors = activeInProject && activeBuilding ? groupByFloor(activeBuilding.apartments) : []
+  // Apartments of the currently-open building; grouping into floors happens once
+  // inside FloorsGrid, so we only need the flat list (and its length) here.
+  const activeApartments = activeInProject && activeBuilding ? activeBuilding.apartments : []
   const compound = activeInProject ? activeBuilding?.compound_name ?? activeBuilding?.address ?? '' : ''
 
   return (
@@ -326,12 +328,14 @@ export default function BuildingOverview({
             ))}
           </div>
         )
-      ) : loading ? (
+      ) : loading || !activeInProject ? (
+        // Not-yet-reconciled active building (e.g. right after a project switch)
+        // shows the neutral spinner rather than a misleading "no apartments".
         <div className="text-sm font-semibold text-gray-400 text-center py-16">טוען בניין…</div>
-      ) : floors.length === 0 ? (
+      ) : activeApartments.length === 0 ? (
         <div className="text-sm font-semibold text-gray-400 text-center py-16">לבניין זה אין דירות עדיין.</div>
       ) : (
-        <FloorsGrid apartments={activeBuilding?.apartments ?? []} onSelectApartment={onSelectApartment} onAddApartment={onAddApartment} />
+        <FloorsGrid apartments={activeApartments} onSelectApartment={onSelectApartment} onAddApartment={onAddApartment} />
       )}
     </section>
   )
