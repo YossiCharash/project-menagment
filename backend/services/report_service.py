@@ -1948,7 +1948,11 @@ class ReportService:
         fund_data = None
         if options.include_funds:
             fund_service = FundService(self.db)
-            fund_data = await fund_service.get_fund_by_project(project_id)
+            # Use the same normalized balance the fund panel shows so the report and the
+            # UI never diverge (the panel recalculates + clamps drifted balances; reading
+            # the raw stored current_balance here caused the report to show a stale value).
+            normalized_fund = await fund_service.compute_normalized_balance(project_id, persist=True)
+            fund_data = normalized_fund["fund"] if normalized_fund else None
 
         # --- OPTIMIZED: Summary - Calculate from already fetched transactions ---
         summary_data = {}

@@ -66,6 +66,76 @@ class FundService:
 
         return await self.funds.update(fund)
 
+    async def compute_normalized_balance(self, project_id: int, *, persist: bool = False) -> dict | None:
+        """Recompute the fund's current_balance from monthly additions + fund transactions.
+
+        This is the single source of truth for the "current balance" shown in the
+        fund panel (``get_project_full`` / ``get_project_fund``) and must also be used
+        by the report so both display the same number. Historically the report printed
+        the raw stored ``current_balance`` while the fund panel recalculated it, which
+        made the two diverge whenever the stored balance drifted (e.g. an implied
+        negative initial balance that the panel clamps to 0).
+
+        Returns None when the project has no fund, otherwise a dict with the fund and
+        the computed components. When ``persist`` is True the synced balance is written
+        back to the fund (matching the fund-panel behaviour).
+        """
+        from sqlalchemy import select, and_, func
+        from backend.models.transaction import Transaction
+        from backend.repositories.project_repository import ProjectRepository
+
+        fund = await self.funds.get_by_project_id(project_id)
+        if not fund:
+            return None
+
+        # Sum fund transactions by type
+        totals_query = select(Transaction.type, func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(
+                Transaction.project_id == project_id,
+                Transaction.from_fund == True,
+            )
+        ).group_by(Transaction.type)
+        totals_result = await self.db.execute(totals_query)
+        totals = {row[0]: float(row[1]) for row in totals_result.all()}
+        total_deductions = totals.get('Expense', 0.0)
+        total_additions_from_transactions = totals.get('Income', 0.0)
+
+        # Monthly additions accrued from the project start date to today
+        total_monthly_additions = 0.0
+        monthly_amount = float(fund.monthly_amount)
+        if monthly_amount > 0:
+            today = date.today()
+            project = await ProjectRepository(self.db).get_by_id(project_id)
+            if project and project.start_date:
+                calculation_start_date = project.start_date
+            else:
+                calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else today
+            total_monthly_additions = calculate_monthly_income_amount(
+                monthly_amount, calculation_start_date, today
+            )
+
+        stored_current_balance = float(fund.current_balance)
+        total_additions = total_monthly_additions + total_additions_from_transactions
+        # Work backwards to the initial balance; clamp negatives (implied debt) to 0 so a
+        # drifted stored balance does not carry a phantom shortfall forward.
+        calculated_initial = stored_current_balance + total_deductions - total_additions
+        initial_total = max(0.0, calculated_initial)
+        recalculated_current_balance = initial_total + total_additions - total_deductions
+
+        if persist and abs(recalculated_current_balance - stored_current_balance) > 0.01:
+            await self.update_fund(fund, current_balance=recalculated_current_balance)
+            fund = await self.funds.get_by_project_id(project_id)
+
+        return {
+            "fund": fund,
+            "current_balance": recalculated_current_balance,
+            "initial_total": initial_total,
+            "total_additions": total_additions,
+            "total_deductions": total_deductions,
+            "total_monthly_additions": total_monthly_additions,
+            "total_additions_from_transactions": total_additions_from_transactions,
+        }
+
     async def add_monthly_amount(self, project_id: int) -> Fund | None:
         """Add monthly amount to fund if not already added this month"""
         fund = await self.funds.get_by_project_id(project_id)
