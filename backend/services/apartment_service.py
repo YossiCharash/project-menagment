@@ -5,6 +5,7 @@ from backend.models.apartment import Apartment
 from backend.repositories.apartment_repository import ApartmentRepository
 from backend.repositories.building_repository import BuildingRepository
 from backend.schemas.apartment import ApartmentCreate, ApartmentUpdate
+from backend.services.apartment_shared_document_service import ApartmentSharedDocumentService
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 
 
@@ -67,6 +68,10 @@ class ApartmentService:
         as the caller expects. Cascade removes the apartment's keys/tenants/etc.
         """
         apartment = await self.get_apartment(apartment_id)
+        # Shared documents live in the polymorphic ``documents`` table with no DB
+        # cascade, so purge them (and their S3 files) explicitly first. (The
+        # personal-area ``apartment_documents`` rows cascade via their own FK.)
+        await ApartmentSharedDocumentService(self.db).delete_all_for_apartment(apartment_id)
         building_id = apartment.building_id
         removed_number = (
             None

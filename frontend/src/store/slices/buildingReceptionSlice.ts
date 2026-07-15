@@ -228,6 +228,36 @@ export const transferKey = createAsyncThunk(
   },
 )
 
+export const uploadApartmentSharedDocument = createAsyncThunk(
+  'buildingReception/uploadApartmentSharedDocument',
+  async (
+    { apartmentId, file, description }: { apartmentId: number; file: File; description: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.uploadApartmentSharedDocument(apartmentId, file, description)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'העלאת המסמך נכשלה'))
+    }
+  },
+)
+
+export const deleteApartmentSharedDocument = createAsyncThunk(
+  'buildingReception/deleteApartmentSharedDocument',
+  async (
+    { documentId, apartmentId }: { documentId: number; apartmentId: number },
+    { rejectWithValue },
+  ) => {
+    try {
+      await BuildingReceptionAPI.deleteApartmentSharedDocument(apartmentId, documentId)
+      return await BuildingReceptionAPI.getApartment(apartmentId)
+    } catch (error) {
+      return rejectWithValue(asMessage(error, 'מחיקת המסמך נכשלה'))
+    }
+  },
+)
+
 export const createVehicle = createAsyncThunk(
   'buildingReception/createVehicle',
   async (payload: AuthorizedVehicleCreate, { rejectWithValue }) => {
@@ -650,6 +680,8 @@ const slice = createSlice({
       .addCase(deleteKey.fulfilled, applyApartment)
       .addCase(createVehicle.fulfilled, applyApartment)
       .addCase(deleteVehicle.fulfilled, applyApartment)
+      .addCase(uploadApartmentSharedDocument.fulfilled, applyApartment)
+      .addCase(deleteApartmentSharedDocument.fulfilled, applyApartment)
       .addCase(createDelivery.fulfilled, applyApartment)
       .addCase(markDelivered.fulfilled, applyApartment)
       .addCase(deleteDelivery.fulfilled, applyApartment)
