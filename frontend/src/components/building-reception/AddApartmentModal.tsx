@@ -10,8 +10,14 @@ interface ApartmentInitial {
   unit_number: string
   label: string | null
   is_common_area: boolean
+  parking_number: string | null
+  storage_number: string | null
   owner_name: string | null
   owner_phone: string | null
+  owner_email: string | null
+  owner_name_2: string | null
+  owner_phone_2: string | null
+  owner_email_2: string | null
   management_company_name: string | null
   management_company_phone: string | null
   attorneys: string | null
@@ -46,8 +52,14 @@ export default function AddApartmentModal({
   const [unitNumber, setUnitNumber] = useState('')
   const [label, setLabel] = useState('')
   const [isCommon, setIsCommon] = useState(false)
+  const [parkingNumber, setParkingNumber] = useState('')
+  const [storageNumber, setStorageNumber] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [ownerPhone, setOwnerPhone] = useState('')
+  const [ownerEmail, setOwnerEmail] = useState('')
+  const [ownerName2, setOwnerName2] = useState('')
+  const [ownerPhone2, setOwnerPhone2] = useState('')
+  const [ownerEmail2, setOwnerEmail2] = useState('')
   const [managementCompanyName, setManagementCompanyName] = useState('')
   const [managementCompanyPhone, setManagementCompanyPhone] = useState('')
   const [attorneys, setAttorneys] = useState('')
@@ -60,8 +72,14 @@ export default function AddApartmentModal({
     setUnitNumber(initial?.unit_number ?? '')
     setLabel(initial?.label ?? '')
     setIsCommon(initial?.is_common_area ?? false)
+    setParkingNumber(initial?.parking_number ?? '')
+    setStorageNumber(initial?.storage_number ?? '')
     setOwnerName(initial?.owner_name ?? '')
     setOwnerPhone(initial?.owner_phone ?? '')
+    setOwnerEmail(initial?.owner_email ?? '')
+    setOwnerName2(initial?.owner_name_2 ?? '')
+    setOwnerPhone2(initial?.owner_phone_2 ?? '')
+    setOwnerEmail2(initial?.owner_email_2 ?? '')
     setManagementCompanyName(initial?.management_company_name ?? '')
     setManagementCompanyPhone(initial?.management_company_phone ?? '')
     setAttorneys(initial?.attorneys ?? '')
@@ -79,8 +97,14 @@ export default function AddApartmentModal({
       unit_number: unitNumber.trim(),
       label: label.trim() || null,
       is_common_area: isCommon,
+      parking_number: parkingNumber.trim() || null,
+      storage_number: storageNumber.trim() || null,
       owner_name: ownerName.trim() || null,
       owner_phone: ownerPhone.trim() || null,
+      owner_email: ownerEmail.trim() || null,
+      owner_name_2: ownerName2.trim() || null,
+      owner_phone_2: ownerPhone2.trim() || null,
+      owner_email_2: ownerEmail2.trim() || null,
       management_company_name: managementCompanyName.trim() || null,
       management_company_phone: managementCompanyPhone.trim() || null,
       attorneys: attorneys.trim() || null,
@@ -107,8 +131,8 @@ export default function AddApartmentModal({
     >
       <div className="flex gap-3">
         <div className="flex-1">
-          <LabeledField label="קומה">
-            <Stepper value={floor} min={0} max={60} onChange={setFloor} />
+          <LabeledField label="קומה (אפשר מינוס)">
+            <Stepper value={floor} min={-5} max={60} onChange={setFloor} />
           </LabeledField>
         </div>
         <div className="flex-1">
@@ -121,6 +145,19 @@ export default function AddApartmentModal({
       <LabeledField label="תווית (לא חובה)">
         <TextField value={label} onChange={setLabel} placeholder="לדוגמה: פנטהאוז" />
       </LabeledField>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <LabeledField label="מספר חניה">
+            <TextField value={parkingNumber} onChange={setParkingNumber} placeholder="לדוגמה: -1/42" />
+          </LabeledField>
+        </div>
+        <div className="flex-1">
+          <LabeledField label="מספר מחסן">
+            <TextField value={storageNumber} onChange={setStorageNumber} placeholder="לדוגמה: מ-17" />
+          </LabeledField>
+        </div>
+      </div>
 
       <button
         type="button"
@@ -143,9 +180,10 @@ export default function AddApartmentModal({
         </span>
       </button>
 
+      <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 pt-1">בעלי הנכס — איש קשר 1</div>
       <div className="flex gap-3">
         <div className="flex-1">
-          <LabeledField label="בעלי הדירה">
+          <LabeledField label="שם בעלים">
             <TextField value={ownerName} onChange={setOwnerName} placeholder="שם הבעלים" />
           </LabeledField>
         </div>
@@ -155,6 +193,26 @@ export default function AddApartmentModal({
           </LabeledField>
         </div>
       </div>
+      <LabeledField label="דוא״ל בעלים">
+        <TextField value={ownerEmail} onChange={setOwnerEmail} placeholder="name@example.com" type="email" />
+      </LabeledField>
+
+      <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 pt-1">בעלי הנכס — איש קשר 2</div>
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <LabeledField label="שם בעלים 2">
+            <TextField value={ownerName2} onChange={setOwnerName2} placeholder="שם הבעלים הנוסף" />
+          </LabeledField>
+        </div>
+        <div className="flex-1">
+          <LabeledField label="טלפון בעלים 2">
+            <TextField value={ownerPhone2} onChange={setOwnerPhone2} placeholder="לדוגמה: 050-1234567" type="tel" />
+          </LabeledField>
+        </div>
+      </div>
+      <LabeledField label="דוא״ל בעלים 2">
+        <TextField value={ownerEmail2} onChange={setOwnerEmail2} placeholder="name@example.com" type="email" />
+      </LabeledField>
 
       <div className="flex gap-3">
         <div className="flex-1">
