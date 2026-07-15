@@ -17,8 +17,14 @@ class ApartmentService:
     # never duplicate the per-field strip logic (DRY / single source of truth).
     OPTIONAL_TEXT_FIELDS = (
         "label",
+        "parking_number",
+        "storage_number",
         "owner_name",
         "owner_phone",
+        "owner_email",
+        "owner_name_2",
+        "owner_phone_2",
+        "owner_email_2",
         "management_company_name",
         "management_company_phone",
         "attorneys",

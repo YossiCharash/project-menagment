@@ -377,6 +377,9 @@ export interface Tenant {
   name: string
   phone: string | null
   email: string | null
+  name_2: string | null
+  phone_2: string | null
+  email_2: string | null
   move_in_date: string | null
   move_out_date: string | null
   is_current: boolean
@@ -516,8 +519,14 @@ export interface Apartment {
   unit_number: string
   label: string | null
   is_common_area: boolean
+  parking_number: string | null
+  storage_number: string | null
   owner_name: string | null
   owner_phone: string | null
+  owner_email: string | null
+  owner_name_2: string | null
+  owner_phone_2: string | null
+  owner_email_2: string | null
   management_company_name: string | null
   management_company_phone: string | null
   attorneys: string | null
@@ -649,8 +658,14 @@ export interface ApartmentUpdate {
   unit_number?: string
   label?: string | null
   is_common_area?: boolean
+  parking_number?: string | null
+  storage_number?: string | null
   owner_name?: string | null
   owner_phone?: string | null
+  owner_email?: string | null
+  owner_name_2?: string | null
+  owner_phone_2?: string | null
+  owner_email_2?: string | null
   management_company_name?: string | null
   management_company_phone?: string | null
   attorneys?: string | null
@@ -664,8 +679,14 @@ export interface ApartmentCreate {
   unit_number: string
   label?: string | null
   is_common_area?: boolean
+  parking_number?: string | null
+  storage_number?: string | null
   owner_name?: string | null
   owner_phone?: string | null
+  owner_email?: string | null
+  owner_name_2?: string | null
+  owner_phone_2?: string | null
+  owner_email_2?: string | null
   management_company_name?: string | null
   management_company_phone?: string | null
   attorneys?: string | null
@@ -686,6 +707,9 @@ export interface TenantCreate {
   name: string
   phone?: string | null
   email?: string | null
+  name_2?: string | null
+  phone_2?: string | null
+  email_2?: string | null
   move_in_date?: string | null
   move_out_date?: string | null
 }
@@ -720,6 +744,9 @@ export interface TenantUpdate {
   name?: string
   phone?: string | null
   email?: string | null
+  name_2?: string | null
+  phone_2?: string | null
+  email_2?: string | null
   move_in_date?: string | null
   move_out_date?: string | null
   is_current?: boolean

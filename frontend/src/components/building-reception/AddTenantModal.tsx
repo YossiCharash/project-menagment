@@ -8,6 +8,9 @@ interface TenantInitial {
   name: string
   phone: string | null
   email: string | null
+  name_2: string | null
+  phone_2: string | null
+  email_2: string | null
   move_in_date: string | null
 }
 
@@ -39,6 +42,9 @@ export default function AddTenantModal({
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
+  const [name2, setName2] = useState('')
+  const [phone2, setPhone2] = useState('')
+  const [email2, setEmail2] = useState('')
   const [moveIn, setMoveIn] = useState('')
 
   useEffect(() => {
@@ -46,6 +52,9 @@ export default function AddTenantModal({
     setName(initial?.name ?? '')
     setPhone(initial?.phone ?? '')
     setEmail(initial?.email ?? '')
+    setName2(initial?.name_2 ?? '')
+    setPhone2(initial?.phone_2 ?? '')
+    setEmail2(initial?.email_2 ?? '')
     setMoveIn(initial?.move_in_date ?? '')
   }, [isOpen, initial])
 
@@ -57,6 +66,9 @@ export default function AddTenantModal({
       name: name.trim(),
       phone: phone.trim() || null,
       email: email.trim() || null,
+      name_2: name2.trim() || null,
+      phone_2: phone2.trim() || null,
+      email_2: email2.trim() || null,
       move_in_date: moveIn || null,
     })
   }
@@ -85,6 +97,7 @@ export default function AddTenantModal({
         </>
       }
     >
+      <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400">איש קשר 1</div>
       <LabeledField label="שם הדייר">
         <TextField value={name} onChange={setName} placeholder="שם מלא" />
       </LabeledField>
@@ -98,6 +111,24 @@ export default function AddTenantModal({
         <div className="flex-1">
           <LabeledField label="דוא״ל">
             <TextField value={email} onChange={setEmail} placeholder="name@example.com" />
+          </LabeledField>
+        </div>
+      </div>
+
+      <div className="text-xs font-extrabold text-gray-500 dark:text-gray-400 pt-1">איש קשר 2</div>
+      <LabeledField label="שם איש קשר נוסף">
+        <TextField value={name2} onChange={setName2} placeholder="שם מלא" />
+      </LabeledField>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <LabeledField label="טלפון">
+            <TextField value={phone2} onChange={setPhone2} placeholder="050-0000000" />
+          </LabeledField>
+        </div>
+        <div className="flex-1">
+          <LabeledField label="דוא״ל">
+            <TextField value={email2} onChange={setEmail2} placeholder="name@example.com" />
           </LabeledField>
         </div>
       </div>
