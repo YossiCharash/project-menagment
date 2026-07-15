@@ -12,12 +12,19 @@ from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 
 
 class ApartmentBase(BaseModel):
-    floor: int = Field(default=0, ge=0)
+    # Floors can be negative (basement / parking levels: קומת מינוס), so no ge=0.
+    floor: int = 0
     unit_number: str = Field(min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool = False
+    parking_number: str | None = None
+    storage_number: str | None = None
     owner_name: str | None = None
     owner_phone: str | None = None
+    owner_email: str | None = None
+    owner_name_2: str | None = None
+    owner_phone_2: str | None = None
+    owner_email_2: str | None = None
     management_company_name: str | None = None
     management_company_phone: str | None = None
     attorneys: str | None = None
@@ -30,12 +37,18 @@ class ApartmentCreate(ApartmentBase):
 
 
 class ApartmentUpdate(BaseModel):
-    floor: int | None = Field(default=None, ge=0)
+    floor: int | None = None  # negative allowed (קומת מינוס)
     unit_number: str | None = Field(default=None, min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool | None = None
+    parking_number: str | None = None
+    storage_number: str | None = None
     owner_name: str | None = None
     owner_phone: str | None = None
+    owner_email: str | None = None
+    owner_name_2: str | None = None
+    owner_phone_2: str | None = None
+    owner_email_2: str | None = None
     management_company_name: str | None = None
     management_company_phone: str | None = None
     attorneys: str | None = None
