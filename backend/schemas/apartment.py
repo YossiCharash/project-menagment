@@ -12,8 +12,9 @@ from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 
 
 class ApartmentBase(BaseModel):
-    # Floors can be negative (basement / parking levels: קומת מינוס), so no ge=0.
-    floor: int = 0
+    # Floors can be negative (basement / parking levels: קומת מינוס); bounded to
+    # the same range the UI stepper offers so the API rejects nonsense values.
+    floor: int = Field(default=0, ge=-5, le=60)
     unit_number: str = Field(min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool = False
@@ -37,7 +38,7 @@ class ApartmentCreate(ApartmentBase):
 
 
 class ApartmentUpdate(BaseModel):
-    floor: int | None = None  # negative allowed (קומת מינוס)
+    floor: int | None = Field(default=None, ge=-5, le=60)  # negative allowed (קומת מינוס)
     unit_number: str | None = Field(default=None, min_length=1, max_length=32)
     label: str | None = None
     is_common_area: bool | None = None

@@ -181,30 +181,40 @@ export default function BuildingReceptionDesk() {
 
   // In "all buildings" mode, load every visible building's full detail (with
   // apartments) so they can be stacked on one screen. Only the active building
-  // is otherwise loaded, so this is a dedicated fetch.
-  useEffect(() => {
-    if (!allBuildingsMode) return
+  // is otherwise loaded, so this is a dedicated fetch — reused for both the
+  // initial load and the 10s live refresh below.
+  const loadOverviewBuildings = useCallback(async () => {
     const ids = visibleBuildingIds ? visibleBuildingIds.split(',').map(Number) : []
     if (ids.length === 0) {
       setOverviewBuildings([])
       return
     }
+    try {
+      setOverviewBuildings(await Promise.all(ids.map((id) => BuildingReceptionAPI.getBuilding(id))))
+    } catch {
+      setOverviewBuildings([])
+    }
+  }, [visibleBuildingIds])
+
+  // Initial load (and reload when the visible set changes) shows the spinner;
+  // the 10s poll refreshes silently so occupancy/indicators stay current.
+  useEffect(() => {
+    if (!allBuildingsMode) return
     let cancelled = false
     setOverviewLoading(true)
-    Promise.all(ids.map((id) => BuildingReceptionAPI.getBuilding(id)))
-      .then((results) => {
-        if (!cancelled) setOverviewBuildings(results)
-      })
-      .catch(() => {
-        if (!cancelled) setOverviewBuildings([])
-      })
-      .finally(() => {
-        if (!cancelled) setOverviewLoading(false)
-      })
+    void loadOverviewBuildings().finally(() => {
+      if (!cancelled) setOverviewLoading(false)
+    })
     return () => {
       cancelled = true
     }
-  }, [allBuildingsMode, visibleBuildingIds])
+  }, [allBuildingsMode, loadOverviewBuildings])
+
+  // With ≤1 visible building the "כל הבניינים" toggle is hidden and the tab
+  // strip is disabled, so auto-exit overview mode to avoid a stranded state.
+  useEffect(() => {
+    if (allBuildingsMode && visibleBuildings.length <= 1) setAllBuildingsMode(false)
+  }, [allBuildingsMode, visibleBuildingIds, visibleBuildings.length])
 
   // Default the filter to the first project (and recover if the selected one was
   // deleted). Buildings only exist inside a project, so there is no "all" view.
@@ -235,6 +245,9 @@ export default function BuildingReceptionDesk() {
   const activeBuildingId = activeBuilding?.id ?? null
   useEffect(() => {
     const intervalId = window.setInterval(() => {
+      // In the all-buildings overview, refresh every stacked building silently
+      // so it tracks mutations (tenant swaps, key moves) like the single view.
+      if (allBuildingsMode) void loadOverviewBuildings()
       if (activeBuildingId !== null) void dispatch(refreshBuildingSilently(activeBuildingId))
       if (activeApartmentId !== null) {
         void dispatch(refreshApartmentSilently(activeApartmentId))
@@ -242,7 +255,7 @@ export default function BuildingReceptionDesk() {
       }
     }, 10000)
     return () => window.clearInterval(intervalId)
-  }, [dispatch, activeBuildingId, activeApartmentId])
+  }, [dispatch, activeBuildingId, activeApartmentId, allBuildingsMode, loadOverviewBuildings])
 
   // The task modal's building → apartment cascade loads apartments on demand.
   const loadBuildingApartments = useCallback(
