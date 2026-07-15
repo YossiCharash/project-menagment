@@ -8,6 +8,7 @@ from backend.schemas.delivery import DeliveryOut
 from backend.schemas.technician_visit import TechnicianVisitOut
 from backend.schemas.client_visit import ClientVisitOut
 from backend.schemas.apartment_activity import ApartmentActivityOut
+from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 
 
 class ApartmentBase(BaseModel):
@@ -117,5 +118,6 @@ class ApartmentDetailOut(ApartmentBase):
     technician_visits: list[TechnicianVisitOut] = Field(default_factory=list)
     client_visits: list[ClientVisitOut] = Field(default_factory=list)
     activities: list[ApartmentActivityOut] = Field(default_factory=list)
+    shared_documents: list[ApartmentSharedDocumentOut] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

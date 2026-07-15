@@ -498,6 +498,16 @@ export interface ApartmentActivity {
   created_at: string
 }
 
+/** A shared document (file in S3) shown on the apartment's public details tab. */
+export interface ApartmentSharedDocument {
+  id: number
+  apartment_id: number
+  file_path: string
+  file_name: string | null
+  description: string | null
+  uploaded_at: string
+}
+
 /** Apartment as it appears inside a building overview (summary counts only). */
 export interface Apartment {
   id: number
@@ -533,6 +543,7 @@ export interface ApartmentDetail extends Apartment {
   technician_visits: TechnicianVisit[]
   client_visits: ClientVisit[]
   activities: ApartmentActivity[]
+  shared_documents: ApartmentSharedDocument[]
 }
 
 /** A document stored in an apartment's personal area (אזור אישי). */

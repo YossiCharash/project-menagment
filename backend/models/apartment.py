@@ -52,6 +52,19 @@ class Apartment(Base):
     activities: Mapped[list["ApartmentActivity"]] = relationship(
         "ApartmentActivity", back_populates="apartment", cascade="all, delete-orphan"
     )
+    # Private, admin-password-gated personal-area documents (own table).
     documents: Mapped[list["ApartmentDocument"]] = relationship(
         "ApartmentDocument", back_populates="apartment", cascade="all, delete-orphan"
+    )
+    # Public "shared" documents shown in the details tab. The documents table is
+    # polymorphic (entity_type/entity_id) with no real FK, so this is a read-only
+    # view join; deletion cleanup is handled by ApartmentSharedDocumentService.
+    shared_documents: Mapped[list["Document"]] = relationship(
+        "Document",
+        primaryjoin=(
+            "and_(foreign(Document.entity_id) == Apartment.id, "
+            "Document.entity_type == 'apartment')"
+        ),
+        viewonly=True,
+        order_by="Document.uploaded_at.desc()",
     )

@@ -50,6 +50,9 @@ class DocumentRepository:
     async def list_by_project(self, project_id: int) -> list[Document]:
         return await self.list_by_entity("project", project_id)
 
+    async def list_by_apartment(self, apartment_id: int) -> list[Document]:
+        return await self.list_by_entity("apartment", apartment_id)
+
     async def update(self, doc: Document) -> Document:
         await self.db.commit()
         await self.db.refresh(doc)

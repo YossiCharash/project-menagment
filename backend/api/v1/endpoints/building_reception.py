@@ -39,6 +39,7 @@ from backend.schemas.apartment import (
     PersonalAreaUpdate,
     PersonalAreaOut,
 )
+from backend.schemas.apartment_shared_document import ApartmentSharedDocumentOut
 from backend.repositories.task_repository import TaskRepository
 from backend.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
 from backend.schemas.apartment_key import (
@@ -66,6 +67,7 @@ from backend.schemas.client_visit import (
 from backend.services.building_service import BuildingService
 from backend.services.building_project_service import BuildingProjectService
 from backend.services.apartment_service import ApartmentService
+from backend.services.apartment_shared_document_service import ApartmentSharedDocumentService
 from backend.services.personal_area_service import PersonalAreaService
 from backend.services.auth_service import AuthService
 from backend.services.s3_service import S3Service
@@ -301,6 +303,17 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
             for v in (apartment.client_visits or [])
         ],
         activities=[a for a in (apartment.activities or [])],
+        shared_documents=[
+            ApartmentSharedDocumentOut(
+                id=document.id,
+                apartment_id=document.entity_id,
+                file_path=document.file_path,
+                file_name=document.file_name,
+                description=document.description,
+                uploaded_at=document.uploaded_at,
+            )
+            for document in (apartment.shared_documents or [])
+        ],
     )
 
 
@@ -727,6 +740,57 @@ async def list_apartment_tasks(apartment_id: int, db: DBSessionDep, user=Depends
         )
         for task in tasks
     ]
+
+
+# --- Apartment shared documents (public "details" tab) --------------------
+# These are the non-gated documents shown on the details tab. The private,
+# admin-password-gated documents live under /personal-area/documents above.
+
+
+@router.get(
+    "/apartments/{apartment_id}/shared-documents",
+    response_model=list[ApartmentSharedDocumentOut],
+)
+async def list_apartment_shared_documents(
+    apartment_id: int,
+    db: DBSessionDep,
+    user=Depends(require_reception(Action.READ.value, source="apartment")),
+):
+    service = ApartmentSharedDocumentService(db)
+    try:
+        return await service.list_documents(apartment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/apartments/{apartment_id}/shared-documents", response_model=ApartmentSharedDocumentOut)
+async def upload_apartment_shared_document(
+    apartment_id: int,
+    db: DBSessionDep,
+    file: UploadFile = File(...),
+    description: str | None = Form(None),
+    user=Depends(require_reception(Action.WRITE.value, source="apartment")),
+):
+    service = ApartmentSharedDocumentService(db)
+    try:
+        return await service.attach_document(apartment_id, file, description)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/apartments/{apartment_id}/shared-documents/{document_id}", status_code=204)
+async def delete_apartment_shared_document(
+    apartment_id: int,
+    document_id: int,
+    db: DBSessionDep,
+    user=Depends(require_reception(Action.DELETE.value, source="apartment")),
+):
+    service = ApartmentSharedDocumentService(db)
+    try:
+        await service.remove_document(apartment_id, document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
 
 
 @router.post("/apartments/{apartment_id}/tenant", response_model=TenantOut)

@@ -3,6 +3,7 @@ import type {
   ApartmentCreate,
   ApartmentDetail,
   ApartmentTask,
+  ApartmentSharedDocument,
   ApartmentKey,
   ApartmentKeyCreate,
   ApartmentKeyUpdate,
@@ -133,6 +134,35 @@ export class BuildingReceptionAPI {
 
   static async deleteTenant(tenantId: number): Promise<void> {
     await api.delete(`${BASE}/tenants/${tenantId}`)
+  }
+
+  // ---- Shared documents (public "details" tab) ------------------------------
+
+  static async listApartmentSharedDocuments(apartmentId: number): Promise<ApartmentSharedDocument[]> {
+    const { data } = await api.get<ApartmentSharedDocument[]>(
+      `${BASE}/apartments/${apartmentId}/shared-documents`,
+    )
+    return data
+  }
+
+  static async uploadApartmentSharedDocument(
+    apartmentId: number,
+    file: File,
+    description: string,
+  ): Promise<ApartmentSharedDocument> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (description) formData.append('description', description)
+    const { data } = await api.post<ApartmentSharedDocument>(
+      `${BASE}/apartments/${apartmentId}/shared-documents`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return data
+  }
+
+  static async deleteApartmentSharedDocument(apartmentId: number, documentId: number): Promise<void> {
+    await api.delete(`${BASE}/apartments/${apartmentId}/shared-documents/${documentId}`)
   }
 
   // ---- Personal area (אזור אישי) — admin-password gated ---------------------

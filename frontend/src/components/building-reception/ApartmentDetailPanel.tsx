@@ -11,6 +11,7 @@ import type {
   TechnicianVisit,
   ClientVisit,
 } from '../../types/api'
+import ApartmentSharedDocumentList from './ApartmentSharedDocumentList'
 import { ACCENT, PALETTE, apartmentTitle, formatDate, isApartmentVacant } from './constants'
 import KeyStatusList from './KeyStatusList'
 import DeliveryList from './DeliveryList'
@@ -54,6 +55,8 @@ interface ApartmentDetailPanelProps {
   onMarkClientLeft: (visitId: number) => void
   onEditClientVisit: (visit: ClientVisit) => void
   onDeleteClientVisit: (visitId: number) => void
+  onAddDocument: () => void
+  onDeleteDocument: (documentId: number) => void
 }
 
 interface TabDef {
@@ -146,6 +149,8 @@ export default function ApartmentDetailPanel({
   onMarkClientLeft,
   onEditClientVisit,
   onDeleteClientVisit,
+  onAddDocument,
+  onDeleteDocument,
 }: ApartmentDetailPanelProps) {
   const [tab, setTab] = useState<TabId>('details')
   const isOpen = apartment !== null || loading
@@ -348,6 +353,14 @@ export default function ApartmentDetailPanel({
 
                   {tab === 'details' && apartment.notes && (
                     <DetailSection icon={StickyNote} label="הערות" value={apartment.notes} />
+                  )}
+
+                  {tab === 'details' && (
+                    <ApartmentSharedDocumentList
+                      documents={apartment.shared_documents ?? []}
+                      onAdd={onAddDocument}
+                      onDelete={onDeleteDocument}
+                    />
                   )}
 
                   {tab === 'details' && (
