@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil, UserCheck, Building2, Wrench, KeyRound, StickyNote, Lock } from 'lucide-react'
+import { X, Home, Users, Phone, Mail, CalendarDays, Trash2, UserPlus, UserMinus, Pencil, UserCheck, Building2, Wrench, KeyRound, StickyNote, Lock, Car, Warehouse } from 'lucide-react'
 import type {
   ApartmentDetail,
   ApartmentTask,
@@ -311,14 +311,31 @@ export default function ApartmentDetailPanel({
                         />
                         <DetailRow icon={Phone} label="טלפון" value={tenant?.phone ?? '—'} />
                         <DetailRow icon={Mail} label="דוא״ל" value={tenant?.email ?? '—'} />
+                        {tenant && (tenant.name_2 || tenant.phone_2 || tenant.email_2) && (
+                          <>
+                            <DetailRow icon={Users} label="איש קשר נוסף" value={tenant.name_2 ?? '—'} />
+                            <DetailRow icon={Phone} label="טלפון נוסף" value={tenant.phone_2 ?? '—'} />
+                            <DetailRow icon={Mail} label="דוא״ל נוסף" value={tenant.email_2 ?? '—'} />
+                          </>
+                        )}
                         <DetailRow icon={CalendarDays} label="תחילת חוזה" value={formatDate(tenant?.move_in_date ?? null)} />
                         <DetailRow
                           icon={CalendarDays}
                           label="סיום חוזה"
                           value={formatDate(tenant?.move_out_date ?? null)}
                         />
+                        <DetailRow icon={Car} label="מספר חניה" value={apartment.parking_number ?? '—'} />
+                        <DetailRow icon={Warehouse} label="מספר מחסן" value={apartment.storage_number ?? '—'} />
                         <DetailRow icon={UserCheck} label="בעלי הדירה" value={apartment.owner_name ?? '—'} />
                         <DetailRow icon={Phone} label="טלפון בעלים" value={apartment.owner_phone ?? '—'} />
+                        <DetailRow icon={Mail} label="דוא״ל בעלים" value={apartment.owner_email ?? '—'} />
+                        {(apartment.owner_name_2 || apartment.owner_phone_2 || apartment.owner_email_2) && (
+                          <>
+                            <DetailRow icon={UserCheck} label="בעלים — איש קשר 2" value={apartment.owner_name_2 ?? '—'} />
+                            <DetailRow icon={Phone} label="טלפון בעלים 2" value={apartment.owner_phone_2 ?? '—'} />
+                            <DetailRow icon={Mail} label="דוא״ל בעלים 2" value={apartment.owner_email_2 ?? '—'} />
+                          </>
+                        )}
                         {apartment.management_company_name && (
                           <DetailRow
                             icon={Building2}

@@ -11,6 +11,7 @@ import type {
   ApartmentKey,
   AuthorizedVehicle,
   AuthorizedVehicleCreate,
+  Building,
   BuildingCreate,
   Delivery,
   DeliveryCreate,
@@ -115,6 +116,10 @@ export default function BuildingReceptionDesk() {
   // Non-null means the project modal is open in edit mode for this project.
   const [editingProject, setEditingProject] = useState<BuildingProjectListItem | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  // "כל הבניינים" overview: stack every building in the project on one screen.
+  const [allBuildingsMode, setAllBuildingsMode] = useState(false)
+  const [overviewBuildings, setOverviewBuildings] = useState<Building[]>([])
+  const [overviewLoading, setOverviewLoading] = useState(false)
   const [taskOpen, setTaskOpen] = useState(false)
   // Assignee directory + labels needed by the shared CreateTaskModal.
   const [taskUsers, setTaskUsers] = useState<UserForTask[]>([])
@@ -170,6 +175,36 @@ export default function BuildingReceptionDesk() {
   // selected project are shown (null = no project selected yet → nothing).
   const visibleBuildings =
     selectedProjectId === null ? [] : buildings.filter((building) => building.project_id === selectedProjectId)
+  // Stable signature of the visible building ids so the overview effect only
+  // refetches when the actual set changes (not on every render/poll).
+  const visibleBuildingIds = visibleBuildings.map((building) => building.id).join(',')
+
+  // In "all buildings" mode, load every visible building's full detail (with
+  // apartments) so they can be stacked on one screen. Only the active building
+  // is otherwise loaded, so this is a dedicated fetch.
+  useEffect(() => {
+    if (!allBuildingsMode) return
+    const ids = visibleBuildingIds ? visibleBuildingIds.split(',').map(Number) : []
+    if (ids.length === 0) {
+      setOverviewBuildings([])
+      return
+    }
+    let cancelled = false
+    setOverviewLoading(true)
+    Promise.all(ids.map((id) => BuildingReceptionAPI.getBuilding(id)))
+      .then((results) => {
+        if (!cancelled) setOverviewBuildings(results)
+      })
+      .catch(() => {
+        if (!cancelled) setOverviewBuildings([])
+      })
+      .finally(() => {
+        if (!cancelled) setOverviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [allBuildingsMode, visibleBuildingIds])
 
   // Default the filter to the first project (and recover if the selected one was
   // deleted). Buildings only exist inside a project, so there is no "all" view.
@@ -226,6 +261,7 @@ export default function BuildingReceptionDesk() {
   }
 
   const handleSelectBuilding = (buildingId: number) => {
+    setAllBuildingsMode(false)
     dispatch(closeApartment())
     void dispatch(fetchBuilding(buildingId))
   }
@@ -351,8 +387,14 @@ export default function BuildingReceptionDesk() {
               unit_number: payload.unit_number,
               label: payload.label,
               is_common_area: payload.is_common_area,
+              parking_number: payload.parking_number,
+              storage_number: payload.storage_number,
               owner_name: payload.owner_name,
               owner_phone: payload.owner_phone,
+              owner_email: payload.owner_email,
+              owner_name_2: payload.owner_name_2,
+              owner_phone_2: payload.owner_phone_2,
+              owner_email_2: payload.owner_email_2,
               management_company_name: payload.management_company_name,
               management_company_phone: payload.management_company_phone,
               attorneys: payload.attorneys,
@@ -564,6 +606,9 @@ export default function BuildingReceptionDesk() {
             name: editingTenant.name,
             phone: editingTenant.phone,
             email: editingTenant.email,
+            name_2: editingTenant.name_2,
+            phone_2: editingTenant.phone_2,
+            email_2: editingTenant.email_2,
             move_in_date: editingTenant.move_in_date,
           }
         : null,
@@ -620,8 +665,14 @@ export default function BuildingReceptionDesk() {
             unit_number: editingApartment.unit_number,
             label: editingApartment.label,
             is_common_area: editingApartment.is_common_area,
+            parking_number: editingApartment.parking_number,
+            storage_number: editingApartment.storage_number,
             owner_name: editingApartment.owner_name,
             owner_phone: editingApartment.owner_phone,
+            owner_email: editingApartment.owner_email,
+            owner_name_2: editingApartment.owner_name_2,
+            owner_phone_2: editingApartment.owner_phone_2,
+            owner_email_2: editingApartment.owner_email_2,
             management_company_name: editingApartment.management_company_name,
             management_company_phone: editingApartment.management_company_phone,
             attorneys: editingApartment.attorneys,
@@ -717,6 +768,10 @@ export default function BuildingReceptionDesk() {
           activeBuilding={activeBuilding}
           loading={loadingBuilding}
           canManageBuildings={canManageBuildings}
+          allBuildingsMode={allBuildingsMode}
+          overviewBuildings={overviewBuildings}
+          overviewLoading={overviewLoading}
+          onToggleAllBuildings={() => setAllBuildingsMode((current) => !current)}
           onSelectProject={setSelectedProjectId}
           onCreateProject={() => {
             setEditingProject(null)

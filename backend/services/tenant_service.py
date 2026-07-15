@@ -50,6 +50,12 @@ class TenantService:
             tenant.phone = (update_data["phone"] or "").strip() or None
         if "email" in update_data:
             tenant.email = (update_data["email"] or "").strip() or None
+        if "name_2" in update_data:
+            tenant.name_2 = (update_data["name_2"] or "").strip() or None
+        if "phone_2" in update_data:
+            tenant.phone_2 = (update_data["phone_2"] or "").strip() or None
+        if "email_2" in update_data:
+            tenant.email_2 = (update_data["email_2"] or "").strip() or None
         if "move_in_date" in update_data:
             tenant.move_in_date = update_data["move_in_date"]
         if "move_out_date" in update_data:
@@ -87,6 +93,9 @@ class TenantService:
             name=new_tenant_data.name.strip(),
             phone=(new_tenant_data.phone or "").strip() or None,
             email=(new_tenant_data.email or "").strip() or None,
+            name_2=(new_tenant_data.name_2 or "").strip() or None,
+            phone_2=(new_tenant_data.phone_2 or "").strip() or None,
+            email_2=(new_tenant_data.email_2 or "").strip() or None,
             move_in_date=new_tenant_data.move_in_date or date.today(),
             move_out_date=new_tenant_data.move_out_date,
             is_current=True,

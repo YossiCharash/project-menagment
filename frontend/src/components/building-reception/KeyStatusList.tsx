@@ -1,6 +1,6 @@
 import { KeyRound, ArrowLeftRight, AlertTriangle, Plus, Trash2, Pencil } from 'lucide-react'
 import type { ApartmentKey } from '../../types/api'
-import { ACCENT, PALETTE, formatDate } from './constants'
+import { ACCENT, PALETTE, formatDateTime } from './constants'
 
 interface KeyStatusListProps {
   keys: ApartmentKey[]
@@ -108,8 +108,8 @@ export default function KeyStatusList({ keys, onTransfer, onAddKey, onEditKey, o
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 divide-y divide-gray-100 dark:divide-gray-700">
             {transfers.map((transfer) => (
               <div key={transfer.id} className="flex gap-2.5 py-2.5">
-                <span className="text-[11px] font-bold text-gray-400 flex-shrink-0 w-16">
-                  {formatDate(transfer.created_at)}
+                <span className="text-[11px] font-bold text-gray-400 flex-shrink-0 w-28">
+                  {formatDateTime(transfer.created_at)}
                 </span>
                 <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex-1">
                   {transfer.direction === 'out' ? 'מסירת' : 'החזרת'} {transfer.keyLabel}{' '}

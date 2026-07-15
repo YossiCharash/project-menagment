@@ -37,6 +37,17 @@ _ADDITIVE_MIGRATIONS: tuple[str, ...] = (
     # The apartment_documents table itself is NEW, so create_all provisions it.
     "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS private_details TEXT",
     "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS private_notes TEXT",
+    # Parking/storage numbers + owner email and a 2nd owner contact (apartments pre-exist).
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS parking_number VARCHAR(50)",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS storage_number VARCHAR(50)",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS owner_email VARCHAR(255)",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS owner_name_2 VARCHAR(255)",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS owner_phone_2 VARCHAR(50)",
+    "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS owner_email_2 VARCHAR(255)",
+    # Second contact person on a tenant (tenants pre-exist).
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS name_2 VARCHAR(255)",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone_2 VARCHAR(50)",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_2 VARCHAR(255)",
 )
 
 # ── Main application models ──────────────────────────────────────────────────

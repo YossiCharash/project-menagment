@@ -16,8 +16,14 @@ class Apartment(Base):
     unit_number: Mapped[str] = mapped_column(String(32))
     label: Mapped[str | None] = mapped_column(String(255), default=None)  # תווית: לובי / חניון / מחסן
     is_common_area: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    owner_name: Mapped[str | None] = mapped_column(String(255), default=None)  # בעלי הדירה
-    owner_phone: Mapped[str | None] = mapped_column(String(50), default=None)  # טלפון בעלים
+    parking_number: Mapped[str | None] = mapped_column(String(50), default=None)  # מספר חניה
+    storage_number: Mapped[str | None] = mapped_column(String(50), default=None)  # מספר מחסן
+    owner_name: Mapped[str | None] = mapped_column(String(255), default=None)  # בעלי הדירה — איש קשר 1
+    owner_phone: Mapped[str | None] = mapped_column(String(50), default=None)  # טלפון בעלים — איש קשר 1
+    owner_email: Mapped[str | None] = mapped_column(String(255), default=None)  # דוא״ל בעלים — איש קשר 1
+    owner_name_2: Mapped[str | None] = mapped_column(String(255), default=None)  # בעלים — איש קשר 2
+    owner_phone_2: Mapped[str | None] = mapped_column(String(50), default=None)  # טלפון בעלים — איש קשר 2
+    owner_email_2: Mapped[str | None] = mapped_column(String(255), default=None)  # דוא״ל בעלים — איש קשר 2
     management_company_name: Mapped[str | None] = mapped_column(String(255), default=None)  # חברת ניהול
     management_company_phone: Mapped[str | None] = mapped_column(String(50), default=None)  # טלפון איש קשר — חברת ניהול
     attorneys: Mapped[str | None] = mapped_column(Text, default=None)  # מיופי כח נוספים (שורה לכל איש קשר)
