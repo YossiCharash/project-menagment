@@ -2101,6 +2101,10 @@ export default function ProjectDetail() {
                 monthlyTableYear={state.monthlyTableYear}
                 isViewingHistoricalPeriod={isViewingHistoricalPeriod}
                 selectedPeriod={state.selectedPeriod}
+                globalDateFilterMode={state.globalDateFilterMode}
+                globalSelectedMonth={state.globalSelectedMonth}
+                globalStartDate={state.globalStartDate}
+                globalEndDate={state.globalEndDate}
                 suppliers={suppliers}
                 onYearChange={state.setMonthlyTableYear}
                 onShowTransactionDetails={async (tx) => {
