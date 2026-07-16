@@ -15,6 +15,10 @@ interface MonthlyExpenseTableProps {
         start_date: string
         end_date: string | null
     } | null
+    globalDateFilterMode?: 'current_month' | 'selected_month' | 'date_range' | 'project' | 'all_time'
+    globalSelectedMonth?: string
+    globalStartDate?: string
+    globalEndDate?: string
     suppliers: Array<{id: number; name: string}>
     onYearChange: (year: number) => void
     onShowTransactionDetails: (tx: Transaction) => void
@@ -29,6 +33,10 @@ export default function MonthlyExpenseTable({
     monthlyTableYear,
     isViewingHistoricalPeriod,
     selectedPeriod,
+    globalDateFilterMode,
+    globalSelectedMonth,
+    globalStartDate,
+    globalEndDate,
     suppliers,
     onYearChange,
     onShowTransactionDetails,
@@ -103,6 +111,45 @@ export default function MonthlyExpenseTable({
                 i++
                 // Move to next month
                 current = new Date(year, month + 1, 1)
+            }
+        }
+    }
+
+    // Helper: build the months array spanning from one calendar month to another (inclusive)
+    const buildMonthRange = (rangeStart: Date, rangeEnd: Date) => {
+        let current = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
+        const endYear = rangeEnd.getFullYear()
+        const endMonth = rangeEnd.getMonth()
+        let i = 0
+        while (current.getFullYear() < endYear || (current.getFullYear() === endYear && current.getMonth() <= endMonth)) {
+            const year = current.getFullYear()
+            const month = current.getMonth()
+            const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`
+            months.push({
+                year,
+                month,
+                monthIndex: i,
+                monthKey,
+                label: monthNamesByCalendarMonth[month]
+            })
+            i++
+            current = new Date(year, month + 1, 1)
+        }
+    }
+
+    // When a global date filter is active (not viewing a historical period), build the month
+    // columns from the selected filter so transactions from the chosen date are actually shown.
+    if (months.length === 0 && !isViewingHistoricalPeriod) {
+        if (globalDateFilterMode === 'selected_month' && globalSelectedMonth) {
+            const selected = parseLocalDate(`${globalSelectedMonth}-01`)
+            if (selected) {
+                buildMonthRange(selected, selected)
+            }
+        } else if (globalDateFilterMode === 'date_range' && globalStartDate && globalEndDate) {
+            const rangeStart = parseLocalDate(globalStartDate)
+            const rangeEnd = parseLocalDate(globalEndDate)
+            if (rangeStart && rangeEnd && rangeEnd >= rangeStart) {
+                buildMonthRange(rangeStart, rangeEnd)
             }
         }
     }
