@@ -166,11 +166,11 @@ export default function ApartmentDetailPanel({
   const tabs: TabDef[] = [
     { id: 'details', label: 'פרטים' },
     { id: 'tasks', label: 'משימות', count: openTasksCount || undefined },
+    { id: 'clients', label: 'הגעת לקוחות', count: activeClientsCount || undefined },
     { id: 'keys', label: 'מפתחות', count: keyAlert ? '!' : undefined },
     { id: 'vehicles', label: 'רכבים', count: apartment?.vehicles.length || undefined },
     { id: 'deliveries', label: 'משלוחים', count: pendingDeliveries || undefined },
     { id: 'technicians', label: 'טכנאים', count: insideTechniciansCount || undefined },
-    { id: 'clients', label: 'לקוחות', count: activeClientsCount || undefined },
     { id: 'history', label: 'היסטוריה' },
     { id: 'personal', label: 'אזור אישי', icon: Lock },
   ]
