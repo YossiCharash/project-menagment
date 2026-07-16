@@ -2105,6 +2105,7 @@ export default function ProjectDetail() {
                 globalSelectedMonth={state.globalSelectedMonth}
                 globalStartDate={state.globalStartDate}
                 globalEndDate={state.globalEndDate}
+                firstContractStartDate={firstContractStartDate}
                 suppliers={suppliers}
                 onYearChange={state.setMonthlyTableYear}
                 onShowTransactionDetails={async (tx) => {
