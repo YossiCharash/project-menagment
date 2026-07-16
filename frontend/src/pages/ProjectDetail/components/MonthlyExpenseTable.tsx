@@ -19,6 +19,7 @@ interface MonthlyExpenseTableProps {
     globalSelectedMonth?: string
     globalStartDate?: string
     globalEndDate?: string
+    firstContractStartDate?: string | null
     suppliers: Array<{id: number; name: string}>
     onYearChange: (year: number) => void
     onShowTransactionDetails: (tx: Transaction) => void
@@ -37,6 +38,7 @@ export default function MonthlyExpenseTable({
     globalSelectedMonth,
     globalStartDate,
     globalEndDate,
+    firstContractStartDate,
     suppliers,
     onYearChange,
     onShowTransactionDetails,
@@ -115,8 +117,11 @@ export default function MonthlyExpenseTable({
         }
     }
 
-    // Helper: build the months array spanning from one calendar month to another (inclusive)
+    // Helper: build the months array spanning from one calendar month to another (inclusive).
+    // When the range crosses calendar years, month labels include a 2-digit year so columns
+    // for the same month of different years stay distinguishable.
     const buildMonthRange = (rangeStart: Date, rangeEnd: Date) => {
+        const spansMultipleYears = rangeStart.getFullYear() !== rangeEnd.getFullYear()
         let current = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
         const endYear = rangeEnd.getFullYear()
         const endMonth = rangeEnd.getMonth()
@@ -130,15 +135,39 @@ export default function MonthlyExpenseTable({
                 month,
                 monthIndex: i,
                 monthKey,
-                label: monthNamesByCalendarMonth[month]
+                label: spansMultipleYears
+                    ? `${monthNamesByCalendarMonth[month]} ${String(year).slice(-2)}`
+                    : monthNamesByCalendarMonth[month]
             })
             i++
             current = new Date(year, month + 1, 1)
         }
     }
 
+    // Earliest and latest calendar month covered by the loaded transactions. Used to size the
+    // "from contract start" / "from first contract" windows so a category that only appears in
+    // older (or future recurring) months is never dropped from the table.
+    const transactionMonthBounds = (): {min: Date | null; max: Date | null} => {
+        let min: Date | null = null
+        let max: Date | null = null
+        transactions.forEach(tx => {
+            const startDate = parseLocalDate(tx.period_start_date || tx.tx_date)
+            const endDate = parseLocalDate(tx.period_end_date || tx.tx_date)
+            if (startDate) {
+                const m = new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+                if (!min || m < min) min = m
+            }
+            if (endDate) {
+                const m = new Date(endDate.getFullYear(), endDate.getMonth(), 1)
+                if (!max || m > max) max = m
+            }
+        })
+        return {min, max}
+    }
+
     // When a global date filter is active (not viewing a historical period), build the month
     // columns from the selected filter so transactions from the chosen date are actually shown.
+    let monthsFromGlobalFilter = false
     if (months.length === 0 && !isViewingHistoricalPeriod) {
         if (globalDateFilterMode === 'selected_month' && globalSelectedMonth) {
             const selected = parseLocalDate(`${globalSelectedMonth}-01`)
@@ -151,7 +180,27 @@ export default function MonthlyExpenseTable({
             if (rangeStart && rangeEnd && rangeEnd >= rangeStart) {
                 buildMonthRange(rangeStart, rangeEnd)
             }
+        } else if (globalDateFilterMode === 'project' || globalDateFilterMode === 'all_time') {
+            // Span from the contract start (or first contract, for all_time) through the current
+            // month, extending to cover every month that actually has a transaction.
+            const bounds = transactionMonthBounds()
+            const anchorRaw = globalDateFilterMode === 'all_time'
+                ? (firstContractStartDate || projectStartDate)
+                : projectStartDate
+            const anchor = anchorRaw ? parseLocalDate(anchorRaw) : null
+            let rangeStart: Date | null = anchor ? new Date(anchor.getFullYear(), anchor.getMonth(), 1) : null
+            if (bounds.min && (!rangeStart || bounds.min < rangeStart)) {
+                rangeStart = bounds.min
+            }
+            let rangeEnd = new Date(currentYear, currentMonth, 1)
+            if (bounds.max && bounds.max > rangeEnd) {
+                rangeEnd = bounds.max
+            }
+            if (rangeStart && rangeEnd >= rangeStart) {
+                buildMonthRange(rangeStart, rangeEnd)
+            }
         }
+        monthsFromGlobalFilter = months.length > 0
     }
 
     // If no months were created (not viewing historical period or invalid dates), use default logic
@@ -370,7 +419,7 @@ export default function MonthlyExpenseTable({
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white text-right">
                     דוח הוצאות חודשי
                 </h2>
-                {projectStartsInJanuary && !isViewingHistoricalPeriod && (
+                {projectStartsInJanuary && !isViewingHistoricalPeriod && !monthsFromGlobalFilter && (
                     <label className="flex items-center gap-2">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">שנה:</span>
                         <select
@@ -438,7 +487,7 @@ export default function MonthlyExpenseTable({
                     {/* Empty rows for spacing (if needed) */}
                     {categorySupplierList.length === 0 && (
                         <tr>
-                            <td colSpan={14}
+                            <td colSpan={months.length + 2}
                                 className="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-center text-gray-500 dark:text-gray-400">
                                 אין הוצאות להצגה
                             </td>
