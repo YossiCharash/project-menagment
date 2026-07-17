@@ -468,12 +468,17 @@ class RecurringTransactionService:
                 if tx:
                     generated.append(tx)
                     # Guard against generating the same instance twice within this run.
-                    existing_keys.add((t.id, target_date))
+                    # (existing_keys is None only on the batch-load failure fallback, where
+                    # the per-call exists check + autoflush handles dedup instead.)
+                    if existing_keys is not None:
+                        existing_keys.add((t.id, target_date))
 
         if generated:
+            # Single commit for the whole backfill. We intentionally do NOT refresh each
+            # generated transaction: callers only use the returned count, never the ORM
+            # objects, and refreshing N rows one-by-one added an N round-trip stall to the
+            # first load of any project that had missing history to backfill.
             await self.db.commit()
-            for tx in generated:
-                await self.db.refresh(tx)
         return len(generated)
 
     async def get_template_transactions(self, template_id: int) -> List[Transaction]:
