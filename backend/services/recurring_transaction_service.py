@@ -364,20 +364,30 @@ class RecurringTransactionService:
         template_ids = [t.id for t in active_templates]
 
         # Batch 1: every (template_id, tx_date) that already exists — one query.
-        existing_keys: set[tuple[int, date]] = set()
-        existing_res = await self.db.execute(
-            select(Transaction.recurring_template_id, Transaction.tx_date).where(
-                Transaction.recurring_template_id.in_(template_ids)
+        # On failure, fall back to None so `_try_create...` uses its per-call exists
+        # check: a transient error degrades gracefully instead of 500-ing the request,
+        # matching the pre-batch behavior.
+        existing_keys: Optional[set[tuple[int, date]]] = set()
+        try:
+            existing_res = await self.db.execute(
+                select(Transaction.recurring_template_id, Transaction.tx_date).where(
+                    Transaction.recurring_template_id.in_(template_ids)
+                )
             )
-        )
-        for tid, tdate in existing_res.all():
-            if tid is None or tdate is None:
-                continue
-            existing_keys.add((tid, tdate.date() if hasattr(tdate, "date") else tdate))
+            for tid, tdate in existing_res.all():
+                if tid is None or tdate is None:
+                    continue
+                existing_keys.add((tid, tdate.date() if hasattr(tdate, "date") else tdate))
+        except Exception as e:
+            logger.warning("טעינת עסקאות קיימות נכשלה (project_id=%s): %s", project_id, e)
+            existing_keys = None
 
-        # Batch 2: every manually-deleted (template_id, tx_date) — one query, tolerant of a
-        # missing table (migration may not have run yet), matching the per-call fallback.
-        deleted_keys: set[tuple[int, date]] = set()
+        # Batch 2: every manually-deleted (template_id, tx_date) — one query. On failure
+        # (missing table pre-migration, or a transient error) fall back to None so
+        # `_try_create...` runs its per-call is_deleted check. This is important: an empty
+        # set would be treated as authoritative ("nothing deleted") and would resurrect
+        # every previously-deleted instance, whereas per-call checks still see them.
+        deleted_keys: Optional[set[tuple[int, date]]] = set()
         try:
             from backend.models.deleted_recurring_instance import DeletedRecurringInstance
             deleted_res = await self.db.execute(
@@ -392,14 +402,12 @@ class RecurringTransactionService:
                 deleted_keys.add((tid, tdate.date() if hasattr(tdate, "date") else tdate))
         except Exception as e:
             logger.warning("טעינת מופעים שנמחקו נכשלה (project_id=%s): %s", project_id, e)
+            deleted_keys = None
 
-        # Batch 3: earliest contract start (used for the clamped last-day case) — one query.
-        first_contract_start = await ContractPeriodRepository(self.db).get_earliest_start_date(project_id)
-        if first_contract_start is None:
-            project = await ProjectRepository(self.db).get_by_id(project_id)
-            if project and project.start_date:
-                s = project.start_date
-                first_contract_start = s.date() if hasattr(s, "date") else s
+        # Earliest contract start is only consumed by the clamped last-day case, which most
+        # templates never hit, so it is loaded lazily (once) on first need — see the loop.
+        first_contract_start: Optional[date] = None
+        first_contract_loaded = False
 
         # Collect the set of (year, month) any template can fire in.
         months_to_process: set[tuple[int, int]] = set()
@@ -436,10 +444,23 @@ class RecurringTransactionService:
                 clamped = t.day_of_month > last_day
                 day = last_day if clamped else t.day_of_month
                 target_date = date(y, m, day)
+                # Lazily resolve the earliest contract start the first time a clamped
+                # template needs it, so projects without clamped templates pay nothing.
+                if clamped and not first_contract_loaded:
+                    first_contract_start = await ContractPeriodRepository(self.db).get_earliest_start_date(project_id)
+                    if first_contract_start is None:
+                        project = await ProjectRepository(self.db).get_by_id(project_id)
+                        if project and project.start_date:
+                            s = project.start_date
+                            first_contract_start = s.date() if hasattr(s, "date") else s
+                    first_contract_loaded = True
+                # When the earliest start resolves to None the guard is a no-op, so disable
+                # it rather than let `_try_create...` re-query per call to rediscover None.
+                apply_first_contract = clamped and first_contract_start is not None
                 tx = await self._try_create_transaction_for_template_date(
                     t,
                     target_date,
-                    check_first_contract=clamped,
+                    check_first_contract=apply_first_contract,
                     existing_keys=existing_keys,
                     deleted_keys=deleted_keys,
                     first_contract_start=first_contract_start,
