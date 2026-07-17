@@ -160,6 +160,9 @@ class RecurringTransactionService:
         target_date: date,
         *,
         check_first_contract: bool = False,
+        existing_keys: Optional[set] = None,
+        deleted_keys: Optional[set] = None,
+        first_contract_start: Optional[date] = None,
     ) -> Optional[Transaction]:
         """
         Check exists/deleted/end/category and optionally first_contract; create one transaction if needed.
@@ -167,6 +170,11 @@ class RecurringTransactionService:
 
         check_first_contract: If True, skip creating when target_date is before the project's
         first contract start (original behavior only for "day > last_day" last-day-of-month case).
+
+        existing_keys / deleted_keys / first_contract_start: optional pre-loaded lookups. When
+        provided, the per-call DB queries for "already exists", "manually deleted" and "earliest
+        contract start" are skipped in favour of in-memory checks. This lets bulk callers (e.g.
+        ensure_project_transactions_generated) avoid an N+1 query storm across many months.
         """
         from sqlalchemy import text
 
@@ -176,29 +184,37 @@ class RecurringTransactionService:
         if template_start and target_date < template_start:
             return None
 
-        try:
-            check_query = text("""
-                SELECT id FROM transactions
-                WHERE recurring_template_id = :template_id AND tx_date = :target_date
-                LIMIT 1
-            """)
-            check_result = await self.db.execute(
-                check_query, {"template_id": template.id, "target_date": target_date}
-            )
-            if check_result.fetchone():
+        if existing_keys is not None:
+            if (template.id, target_date) in existing_keys:
                 return None
-        except Exception as e:
-            logger.warning("בדיקת עסקה קיימת נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
+        else:
+            try:
+                check_query = text("""
+                    SELECT id FROM transactions
+                    WHERE recurring_template_id = :template_id AND tx_date = :target_date
+                    LIMIT 1
+                """)
+                check_result = await self.db.execute(
+                    check_query, {"template_id": template.id, "target_date": target_date}
+                )
+                if check_result.fetchone():
+                    return None
+            except Exception as e:
+                logger.warning("בדיקת עסקה קיימת נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
 
-        try:
-            from backend.repositories.deleted_recurring_instance_repository import (
-                DeletedRecurringInstanceRepository,
-            )
-            deleted_repo = DeletedRecurringInstanceRepository(self.db)
-            if await deleted_repo.is_deleted(template.id, target_date):
+        if deleted_keys is not None:
+            if (template.id, target_date) in deleted_keys:
                 return None
-        except Exception as e:
-            logger.warning("בדיקת מחיקת instance נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
+        else:
+            try:
+                from backend.repositories.deleted_recurring_instance_repository import (
+                    DeletedRecurringInstanceRepository,
+                )
+                deleted_repo = DeletedRecurringInstanceRepository(self.db)
+                if await deleted_repo.is_deleted(template.id, target_date):
+                    return None
+            except Exception as e:
+                logger.warning("בדיקת מחיקת instance נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
 
         end_type_str = (
             template.end_type.value if hasattr(template.end_type, "value") else str(template.end_type)
@@ -214,14 +230,17 @@ class RecurringTransactionService:
             return None
 
         if check_first_contract:
-            period_repo = ContractPeriodRepository(self.db)
-            first_start = await period_repo.get_earliest_start_date(template.project_id)
-            if first_start is None:
-                project_repo = ProjectRepository(self.db)
-                project = await project_repo.get_by_id(template.project_id)
-                if project and project.start_date:
-                    s = project.start_date
-                    first_start = s.date() if hasattr(s, "date") else s
+            if first_contract_start is not None:
+                first_start = first_contract_start
+            else:
+                period_repo = ContractPeriodRepository(self.db)
+                first_start = await period_repo.get_earliest_start_date(template.project_id)
+                if first_start is None:
+                    project_repo = ProjectRepository(self.db)
+                    project = await project_repo.get_by_id(template.project_id)
+                    if project and project.start_date:
+                        s = project.start_date
+                        first_start = s.date() if hasattr(s, "date") else s
             if first_start and target_date < first_start:
                 return None
 
@@ -323,56 +342,18 @@ class RecurringTransactionService:
         
         return generated_transactions
 
-    async def _generate_transactions_for_month_for_project(
-        self, project_id: int, year: int, month: int
-    ) -> List[Transaction]:
-        """
-        Generate recurring transactions for a single project and month only.
-        Uses project-scoped template fetching; single commit per month.
-        """
-        templates = await self.recurring_repo.list_by_project(project_id)
-        active_templates = [t for t in templates if t.is_active]
-        if not active_templates:
-            return []
-
-        if month == 12:
-            next_month = date(year + 1, 1, 1)
-        else:
-            next_month = date(year, month + 1, 1)
-        last_day = (next_month - timedelta(days=1)).day
-        generated = []
-
-        for day in range(1, last_day + 1):
-            target_date = date(year, month, day)
-            day_templates = await self.recurring_repo.get_templates_to_generate(
-                target_date, project_id=project_id
-            )
-            for t in day_templates:
-                tx = await self._try_create_transaction_for_template_date(t, target_date)
-                if tx:
-                    generated.append(tx)
-
-        last_day_date = date(year, month, last_day)
-        for t in active_templates:
-            if t.day_of_month > last_day:
-                tx = await self._try_create_transaction_for_template_date(
-                    t, last_day_date, check_first_contract=True
-                )
-                if tx:
-                    generated.append(tx)
-
-        if generated:
-            await self.db.commit()
-            for tx in generated:
-                await self.db.refresh(tx)
-        return generated
-
     async def ensure_project_transactions_generated(self, project_id: int) -> int:
         """
         Ensure all recurring transactions for a project are generated up to current month.
         Only generates missing transactions (skips if already exist).
-        Processes each relevant month once (not per template) and only for this project.
         Returns the total number of transactions generated.
+
+        PERFORMANCE: this runs on every project-detail load. A recurring template fires on
+        exactly one calendar day per month (its ``day_of_month``, clamped to the last day of
+        short months), so we iterate ``months x templates`` directly instead of scanning every
+        day of every month with a per-day DB query. The "already exists", "manually deleted" and
+        "earliest contract start" lookups are batch-loaded once up front, turning what used to be
+        hundreds of queries per page load (growing with project age) into a small constant number.
         """
         templates = await self.recurring_repo.list_by_project(project_id)
         active_templates = [t for t in templates if t.is_active]
@@ -380,8 +361,48 @@ class RecurringTransactionService:
             return 0
 
         today = date.today()
-        months_to_process: set[tuple[int, int]] = set()
+        template_ids = [t.id for t in active_templates]
 
+        # Batch 1: every (template_id, tx_date) that already exists — one query.
+        existing_keys: set[tuple[int, date]] = set()
+        existing_res = await self.db.execute(
+            select(Transaction.recurring_template_id, Transaction.tx_date).where(
+                Transaction.recurring_template_id.in_(template_ids)
+            )
+        )
+        for tid, tdate in existing_res.all():
+            if tid is None or tdate is None:
+                continue
+            existing_keys.add((tid, tdate.date() if hasattr(tdate, "date") else tdate))
+
+        # Batch 2: every manually-deleted (template_id, tx_date) — one query, tolerant of a
+        # missing table (migration may not have run yet), matching the per-call fallback.
+        deleted_keys: set[tuple[int, date]] = set()
+        try:
+            from backend.models.deleted_recurring_instance import DeletedRecurringInstance
+            deleted_res = await self.db.execute(
+                select(
+                    DeletedRecurringInstance.recurring_template_id,
+                    DeletedRecurringInstance.tx_date,
+                ).where(DeletedRecurringInstance.recurring_template_id.in_(template_ids))
+            )
+            for tid, tdate in deleted_res.all():
+                if tid is None or tdate is None:
+                    continue
+                deleted_keys.add((tid, tdate.date() if hasattr(tdate, "date") else tdate))
+        except Exception as e:
+            logger.warning("טעינת מופעים שנמחקו נכשלה (project_id=%s): %s", project_id, e)
+
+        # Batch 3: earliest contract start (used for the clamped last-day case) — one query.
+        first_contract_start = await ContractPeriodRepository(self.db).get_earliest_start_date(project_id)
+        if first_contract_start is None:
+            project = await ProjectRepository(self.db).get_by_id(project_id)
+            if project and project.start_date:
+                s = project.start_date
+                first_contract_start = s.date() if hasattr(s, "date") else s
+
+        # Collect the set of (year, month) any template can fire in.
+        months_to_process: set[tuple[int, int]] = set()
         for t in active_templates:
             start = t.start_date
             if not start:
@@ -404,11 +425,35 @@ class RecurringTransactionService:
                 else:
                     d = date(d.year, d.month + 1, 1)
 
-        total = 0
+        generated: List[Transaction] = []
         for (y, m) in sorted(months_to_process):
-            txs = await self._generate_transactions_for_month_for_project(project_id, y, m)
-            total += len(txs)
-        return total
+            next_month = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+            last_day = (next_month - timedelta(days=1)).day
+            for t in active_templates:
+                # A template fires on its day_of_month, or the last day of the month when that
+                # day doesn't exist (e.g. day 31 in February). The clamped case preserves the
+                # original first-contract guard.
+                clamped = t.day_of_month > last_day
+                day = last_day if clamped else t.day_of_month
+                target_date = date(y, m, day)
+                tx = await self._try_create_transaction_for_template_date(
+                    t,
+                    target_date,
+                    check_first_contract=clamped,
+                    existing_keys=existing_keys,
+                    deleted_keys=deleted_keys,
+                    first_contract_start=first_contract_start,
+                )
+                if tx:
+                    generated.append(tx)
+                    # Guard against generating the same instance twice within this run.
+                    existing_keys.add((t.id, target_date))
+
+        if generated:
+            await self.db.commit()
+            for tx in generated:
+                await self.db.refresh(tx)
+        return len(generated)
 
     async def get_template_transactions(self, template_id: int) -> List[Transaction]:
         """Get all transactions generated from a specific template"""
