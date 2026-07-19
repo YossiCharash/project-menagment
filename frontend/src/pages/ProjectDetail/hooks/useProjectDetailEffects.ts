@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import api from '../../../lib/api'
 import { CategoryAPI, RecurringTransactionAPI } from '../../../lib/apiClient'
 import { fetchMe } from '../../../store/slices/authSlice'
 import { fetchSuppliers } from '../../../store/slices/suppliersSlice'
@@ -38,12 +37,14 @@ export function useProjectDetailEffects(
 
     const generateForSelectedPeriod = async () => {
       try {
+        // NOTE: loadAllProjectData() calls GET /projects/{id}/full, which ALREADY ensures
+        // all recurring transactions are generated up to today, server-side. We must not
+        // also fire a separate ensureProjectTransactionsGenerated here: on mount this effect
+        // runs concurrently with the mount-load effect below, so the duplicate call caused
+        // two concurrent backfills of the same project (lock contention + wasted work, and a
+        // duplicate-insert race on first load). The only case /full cannot cover is a FUTURE
+        // selected month, which we generate explicitly.
         if (viewingPeriodId) {
-          try {
-            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-          } catch (genErr) {
-            console.log('Could not ensure recurring transactions for historical period:', genErr)
-          }
           await dataLoaders.loadAllProjectData(viewingPeriodId)
           await dataLoaders.loadUnforeseenTransactions()
           return
@@ -51,26 +52,15 @@ export function useProjectDetailEffects(
 
         const dateFilterMode = state.globalDateFilterMode === 'project' ? 'all_time' : state.globalDateFilterMode
         const selectedMonth = state.globalSelectedMonth
-        const startDate = state.globalStartDate
-        const endDate = state.globalEndDate
 
+        // Generate for a selected month only when it is in the future (/full stops at today).
         if (dateFilterMode === 'selected_month' && selectedMonth) {
-          // First, ensure all transactions up to current month are generated (optimized single API call)
-          try {
-            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-          } catch (genErr) {
-            // Silently fail - transactions might already exist
-            console.log('Could not ensure recurring transactions:', genErr)
-          }
-          
-          // Then, generate for selected month if it's in the future
           const [year, month] = selectedMonth.split('-').map(Number)
           const selectedDate = new Date(year, month - 1, 1)
           const today = new Date()
           today.setHours(0, 0, 0, 0)
           selectedDate.setHours(0, 0, 0, 0)
-          
-          // If selected month is in the future, generate transactions for it
+
           if (selectedDate > today) {
             try {
               await RecurringTransactionAPI.generateMonthlyTransactions(year, month)
@@ -79,37 +69,14 @@ export function useProjectDetailEffects(
               console.log('Could not generate recurring transactions for selected month:', genErr)
             }
           }
-        } else if (dateFilterMode === 'date_range' && startDate && endDate) {
-          // Ensure all recurring transactions are generated (only missing ones)
-          // This will generate from template start_date to current month, which includes the date range
-          try {
-            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-          } catch (genErr) {
-            // Silently fail - transactions might already exist
-            console.log('Could not generate recurring transactions:', genErr)
-          }
-        } else if (dateFilterMode === 'all_time') {
-          // Ensure all recurring transactions are generated (only missing ones)
-          try {
-            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-          } catch (genErr) {
-            // Silently fail - transactions might already exist
-            console.log('Could not generate recurring transactions:', genErr)
-          }
-        } else if (dateFilterMode === 'current_month') {
-          // Ensure all recurring transactions are generated (only missing ones)
-          try {
-            await RecurringTransactionAPI.ensureProjectTransactionsGenerated(parseInt(id))
-          } catch (genErr) {
-            // Silently fail - transactions might already exist
-            console.log('Could not generate recurring transactions:', genErr)
-          }
         }
-        
+
         // Reload full project data when switching to date_range / all_time / selected_month.
-        // Do NOT use /transactions/project/{id} - that endpoint filters by project contract dates
-        // and would hide regular transactions outside that range. getProjectFull returns all
-        // transactions; TransactionsList then filters by the user's chosen date range.
+        // current_month is already loaded by the mount effect below, so reloading it here
+        // would just duplicate the (expensive) /full call.
+        // Do NOT use /transactions/project/{id} - that endpoint filters by project contract
+        // dates and would hide regular transactions outside that range. getProjectFull returns
+        // all transactions; TransactionsList then filters by the user's chosen date range.
         if (dateFilterMode !== 'current_month') {
           await dataLoaders.loadAllProjectData()
         }
