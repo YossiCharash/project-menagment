@@ -37,39 +37,53 @@ class ContractPeriodService:
         # User defined dates should be respected as is.
         return end_date
 
-    async def fix_period_dates_if_needed(self, project_id: int) -> None:
+    # Per-process guard: fix_period_dates_if_needed is a one-time legacy data repair, but it
+    # was being called (twice) on every project-detail load. Once a project's periods have
+    # been examined in this process there is nothing left to fix, so we skip the re-check.
+    # A process restart re-checks once (idempotent).
+    _period_dates_checked: set[int] = set()
+
+    async def fix_period_dates_if_needed(self, project_id: int) -> bool:
         """
         Fix contract periods that have incorrect start dates (one day before project.start_date).
         This fixes the timezone issue where periods were created with dates one day earlier.
-        
+
         If project has contract_duration_months, it will regenerate all periods correctly.
         Otherwise, it will fix the first period to match project.start_date.
+
+        Returns True only when it actually modified data (so callers can refresh the project
+        object); False when there was nothing to do or the check was skipped by the guard.
         """
+        if project_id in ContractPeriodService._period_dates_checked:
+            return False
+
         project = await self.projects.get_by_id(project_id)
         if not project:
-            return
-        
+            return False
+
         # Store project attributes in local variables to avoid lazy loading issues
         # when running in asyncio.gather
         project_start_date = project.start_date
         project_contract_duration_months = project.contract_duration_months
-        
+
         if not project_start_date:
-            return
-        
+            return False
+
         periods = await self.contract_periods.get_by_project(project_id)
         if not periods:
-            return
-        
+            # No periods yet — don't mark as checked; a later load re-checks once periods exist.
+            return False
+
         from datetime import timedelta
-        
+
         # Sort periods by start_date to find the first one
         periods.sort(key=lambda p: p.start_date)
         first_period = periods[0] if periods else None
-        
+
         if not first_period or not first_period.start_date:
-            return
-        
+            return False
+
+        modified = False
         # Check if the first period starts one day before project.start_date
         # This indicates a timezone issue that needs to be fixed
         if first_period.start_date == project_start_date - timedelta(days=1):
@@ -84,9 +98,9 @@ class ContractPeriodService:
                         period.end_date = old_end + timedelta(days=1)
                         period.contract_year = period.start_date.year
                         await self.contract_periods.update(period)
-                
+
                 await self.db.commit()
-                
+
                 # Also update project.start_date and project.end_date to match the first period
                 if periods:
                     first_period = periods[0]
@@ -99,17 +113,23 @@ class ContractPeriodService:
                 # Legacy projects: just fix the first period
                 old_start = first_period.start_date
                 first_period.start_date = project_start_date
-                
+
                 # Also update end_date to maintain the same duration
                 if first_period.end_date:
                     duration_days = (first_period.end_date - old_start).days
                     first_period.end_date = project_start_date + timedelta(days=duration_days)
-                
+
                 # Update contract_year if needed
                 first_period.contract_year = project_start_date.year
-                
+
                 await self.contract_periods.update(first_period)
                 await self.db.commit()
+            modified = True
+
+        # Periods existed and were examined (and fixed if needed) — no need to re-check this
+        # project again in this process.
+        ContractPeriodService._period_dates_checked.add(project_id)
+        return modified
 
     async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
         """Get the current active contract period for a project"""
@@ -121,12 +141,11 @@ class ContractPeriodService:
         if not project or not project.start_date:
             return None
         
-        # Fix periods with incorrect dates before checking
-        await self.fix_period_dates_if_needed(project_id)
-        
-        # Refresh project after potential fixes
-        await self.db.refresh(project)
-        
+        # Fix periods with incorrect dates before checking (guarded to run once per process).
+        # Only refresh the project when a fix actually modified it.
+        if await self.fix_period_dates_if_needed(project_id):
+            await self.db.refresh(project)
+
         # Find the period that matches the project's current start_date (active period)
         periods = await self.contract_periods.get_by_project(project_id)
 
@@ -222,12 +241,11 @@ class ContractPeriodService:
         if not project:
             return {}
         
-        # Fix periods with incorrect dates before checking
-        await self.fix_period_dates_if_needed(project_id)
-        
-        # Refresh project after potential fixes
-        await self.db.refresh(project)
-        
+        # Fix periods with incorrect dates before checking (guarded to run once per process).
+        # Only refresh the project when a fix actually modified it.
+        if await self.fix_period_dates_if_needed(project_id):
+            await self.db.refresh(project)
+
         # Get all periods ordered by year and index
         periods = await self.contract_periods.get_by_project(project_id)
         
