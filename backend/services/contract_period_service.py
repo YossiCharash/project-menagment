@@ -131,8 +131,16 @@ class ContractPeriodService:
         ContractPeriodService._period_dates_checked.add(project_id)
         return modified
 
-    async def get_current_contract_period(self, project_id: int) -> Optional[Dict[str, Any]]:
-        """Get the current active contract period for a project"""
+    async def get_current_contract_period(
+        self, project_id: int, preloaded_txs: Optional[List[Transaction]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get the current active contract period for a project.
+
+        ``preloaded_txs``: the project's full (period-unfiltered) transaction list. When the
+        caller has already loaded it (e.g. get_project_full), pass it here to avoid re-querying
+        every transaction — this method only reads it in memory via
+        _compute_period_financials_from_txs.
+        """
         # Hebrew letters for period labeling
         hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
         
@@ -150,8 +158,9 @@ class ContractPeriodService:
         periods = await self.contract_periods.get_by_project(project_id)
 
         # Load transactions once and compute period financials in memory (avoids ~4
-        # aggregate queries per period on every project-detail load).
-        all_txs = await self._load_project_transactions(project_id)
+        # aggregate queries per period on every project-detail load). Reuse the caller's
+        # already-loaded transaction list when provided, to avoid a redundant full-table load.
+        all_txs = preloaded_txs if preloaded_txs is not None else await self._load_project_transactions(project_id)
 
         # Count periods in the same year as the current period to decide on labeling
         current_period = None
@@ -231,8 +240,15 @@ class ContractPeriodService:
             'total_profit': summary['total_profit']
         }
 
-    async def get_previous_contracts_by_year(self, project_id: int) -> Dict[int, List[Dict[str, Any]]]:
-        """Get all contract periods grouped by year, with deduplication, excluding current active period"""
+    async def get_previous_contracts_by_year(
+        self, project_id: int, preloaded_txs: Optional[List[Transaction]] = None
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """Get all contract periods grouped by year, with deduplication, excluding current active period.
+
+        ``preloaded_txs``: the project's full (period-unfiltered) transaction list. When the
+        caller has already loaded it (e.g. get_project_full), pass it here to avoid re-querying
+        every transaction — it is only read in memory for per-period financials.
+        """
         # Hebrew letters for period labeling (א, ב, ג, ד, ה, ו, ז, ח, ט, י)
         hebrew_letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י']
         
@@ -309,8 +325,14 @@ class ContractPeriodService:
         
         # Load transactions once and compute each period's financials in memory (avoids ~4
         # aggregate queries per period on every project-detail load). Only load when there is
-        # at least one period to summarise.
-        all_txs = await self._load_project_transactions(project_id) if periods_by_year else []
+        # at least one period to summarise, and reuse the caller's already-loaded list when
+        # provided to avoid a redundant full-table load.
+        if not periods_by_year:
+            all_txs = []
+        elif preloaded_txs is not None:
+            all_txs = preloaded_txs
+        else:
+            all_txs = await self._load_project_transactions(project_id)
 
         result = {}
         for year, year_periods in periods_by_year.items():

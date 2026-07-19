@@ -474,22 +474,41 @@ async def get_project_full(
     # Refresh project to get updated dates
     await db.refresh(project)
     
-    # Execute all queries
-    tx_result, budgets_result, fund_result, current_period, contract_periods_by_year = await asyncio.gather(
-        db.execute(transactions_query),
-        db.execute(budgets_query),
-        db.execute(funds_query),
-        contract_service.get_current_contract_period(project_id),
-        contract_service.get_previous_contracts_by_year(project_id),
-        return_exceptions=True
-    )
-    
-    # Handle exceptions from gather
-    if isinstance(current_period, Exception):
-        logger.exception("Failed to get current_period for project %s", project_id, exc_info=current_period)
+    # Execute the core dataset queries. They all share one AsyncSession, which does not
+    # support concurrent operations, so we run them sequentially — a single DB connection
+    # serialises them regardless, so asyncio.gather gave no real parallelism here while risking
+    # "another operation is in progress" errors that were silently swallowed by return_exceptions.
+    tx_result = await db.execute(transactions_query)
+    transactions = list(tx_result.scalars().all())
+    budgets_result = await db.execute(budgets_query)
+    fund_result = await db.execute(funds_query)
+
+    # Contract-period financials are computed over the project's FULL (period-unfiltered)
+    # transaction set. When no period filter is applied the main query already loaded exactly
+    # that set, so we reuse it; otherwise load the full set once and share it between both
+    # contract computations. This removes two redundant full-table transaction loads that
+    # previously ran on every project-detail load (one inside each contract-service method).
+    if period_id:
+        contract_txs_result = await db.execute(
+            select(Transaction).where(Transaction.project_id == project_id)
+        )
+        contract_txs = list(contract_txs_result.scalars().all())
+    else:
+        contract_txs = transactions
+
+    try:
+        current_period = await contract_service.get_current_contract_period(
+            project_id, preloaded_txs=contract_txs
+        )
+    except Exception as exc:
+        logger.exception("Failed to get current_period for project %s", project_id, exc_info=exc)
         current_period = None
-    if isinstance(contract_periods_by_year, Exception):
-        logger.exception("Failed to get contract_periods_by_year for project %s", project_id, exc_info=contract_periods_by_year)
+    try:
+        contract_periods_by_year = await contract_service.get_previous_contracts_by_year(
+            project_id, preloaded_txs=contract_txs
+        )
+    except Exception as exc:
+        logger.exception("Failed to get contract_periods_by_year for project %s", project_id, exc_info=exc)
         contract_periods_by_year = {}
     
     # Convert contract_periods_by_year to list format
@@ -512,8 +531,7 @@ async def get_project_full(
         )
     )
     unforeseen_resulting_ids = {r[0] for r in res.all() if r[0] is not None}
-    if not isinstance(tx_result, Exception):
-        transactions = list(tx_result.scalars().all())
+    if transactions:
         for tx in transactions:
             category_name = tx.category.name if tx.category else None
             tx_dict = {
