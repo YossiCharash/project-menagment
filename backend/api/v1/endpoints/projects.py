@@ -466,10 +466,10 @@ async def get_project_full(
     
     # Also ensure all recurring transactions are generated for the current state of the project
     # This is important when new contract periods were just created by check_and_renew_contract
-    # Only run if the project has recurring templates and might have missing transactions
-    from backend.services.recurring_transaction_service import RecurringTransactionService
-    recurring_service = RecurringTransactionService(db)
-    await recurring_service.ensure_project_transactions_generated(project_id)
+    # Guarded so the (expensive) generation pass runs at most once per project per day
+    # instead of on every page load; the guard never raises to this request.
+    from backend.services.recurring_generation_guard import RecurringGenerationGuard
+    await RecurringGenerationGuard().ensure_project_generation_ran(db, project_id)
     
     # Refresh project to get updated dates
     await db.refresh(project)
