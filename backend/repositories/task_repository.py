@@ -101,6 +101,17 @@ class TaskRepository:
         )
         return list(result.unique().scalars().all())
 
+    async def list_archived_by_apartment(self, apartment_id: int) -> list[Task]:
+        """Archived tasks linked to a reception-desk apartment, newest-archived first."""
+        result = await self.db.execute(
+            select(Task)
+            .options(selectinload(Task.assigned_user))
+            .where(Task.apartment_id == apartment_id)
+            .where(Task.is_archived == True)  # noqa: E712
+            .order_by(Task.archived_at.desc())
+        )
+        return list(result.unique().scalars().all())
+
     async def count_open_by_apartment_ids(self, apartment_ids: list[int]) -> dict[int, int]:
         """Count non-archived, non-completed ("open") tasks per apartment.
 

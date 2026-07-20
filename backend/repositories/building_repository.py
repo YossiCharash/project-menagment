@@ -16,8 +16,8 @@ class BuildingRepository:
 
     async def get(self, building_id: int) -> Building | None:
         # Eager-load every apartment collection the building-overview serializer
-        # reads (current tenant + key/vehicle/delivery counts), so no lazy IO is
-        # triggered during async response serialization.
+        # reads (current tenant + key/vehicle/delivery/client/technician counts),
+        # so no lazy IO is triggered during async response serialization.
         result = await self.db.execute(
             select(Building)
             .options(
@@ -26,6 +26,7 @@ class BuildingRepository:
                 selectinload(Building.apartments).selectinload(Apartment.vehicles),
                 selectinload(Building.apartments).selectinload(Apartment.deliveries),
                 selectinload(Building.apartments).selectinload(Apartment.client_visits),
+                selectinload(Building.apartments).selectinload(Apartment.technician_visits),
             )
             .where(Building.id == building_id)
         )

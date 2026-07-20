@@ -1,6 +1,7 @@
 /**
  * Tests for the apartment grid tile: the two key markers (מפתח אצל הדלפק /
- * הוצאנו מפתח) and tenant-driven occupancy (מאוכלסת / פנויה).
+ * הוצאנו מפתח), the technician-inside marker (טכנאי בדירה) and client-driven
+ * occupancy (מאוכלסת / פנויה).
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -53,6 +54,7 @@ function makeApartment(overrides: Partial<Apartment> = {}): Apartment {
     vehicles_count: 0,
     pending_deliveries_count: 0,
     open_tasks_count: 0,
+    technicians_inside_count: 0,
     ...overrides,
   }
 }
@@ -82,15 +84,33 @@ describe('ApartmentCell key markers', () => {
   })
 })
 
-describe('ApartmentCell occupancy', () => {
-  it('reads מאוכלסת when a current tenant lives in the apartment', () => {
-    render(<ApartmentCell apartment={makeApartment({ current_tenant: currentTenant })} onSelect={vi.fn()} />)
-    expect(screen.getByText('מאוכלסת')).toBeInTheDocument()
-    expect(screen.getByText('דייר נוכחי')).toBeInTheDocument()
+describe('ApartmentCell technician marker', () => {
+  it('shows the technician marker when a technician is inside the apartment', () => {
+    render(<ApartmentCell apartment={makeApartment({ technicians_inside_count: 1 })} onSelect={vi.fn()} />)
+    expect(screen.getByLabelText('טכנאי בדירה')).toBeInTheDocument()
   })
 
-  it('reads פנויה when no tenant lives in the apartment', () => {
-    render(<ApartmentCell apartment={makeApartment({ current_tenant: null })} onSelect={vi.fn()} />)
+  it('hides the technician marker when no technician is inside', () => {
+    render(<ApartmentCell apartment={makeApartment({ technicians_inside_count: 0 })} onSelect={vi.fn()} />)
+    expect(screen.queryByLabelText('טכנאי בדירה')).not.toBeInTheDocument()
+  })
+})
+
+describe('ApartmentCell occupancy', () => {
+  it('reads מאוכלסת when a client is currently in the apartment', () => {
+    render(<ApartmentCell apartment={makeApartment({ has_active_client_visit: true })} onSelect={vi.fn()} />)
+    expect(screen.getByText('מאוכלסת')).toBeInTheDocument()
+  })
+
+  it('reads פנויה when a tenant is registered but no client has arrived', () => {
+    render(
+      <ApartmentCell
+        apartment={makeApartment({ current_tenant: currentTenant, has_active_client_visit: false })}
+        onSelect={vi.fn()}
+      />,
+    )
     expect(screen.getByText('פנויה')).toBeInTheDocument()
+    // The registered tenant is still shown even though the unit reads vacant.
+    expect(screen.getByText('דייר נוכחי')).toBeInTheDocument()
   })
 })

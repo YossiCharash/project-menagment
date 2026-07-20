@@ -18,7 +18,7 @@ from backend.models.apartment_key import ApartmentKey, KeyHolder
 from backend.models.authorized_vehicle import AuthorizedVehicle
 from backend.models.client_visit import ClientVisit
 from backend.models.delivery import Delivery, DeliveryStatus
-from backend.models.technician_visit import TechnicianVisit
+from backend.models.technician_visit import TechnicianVisit, TechnicianVisitStatus
 from backend.models.tenant import Tenant
 from backend.messages.building_reception.errors import BuildingReceptionErrorMessages
 from backend.schemas.building import BuildingCreate, BuildingUpdate, BuildingOut, BuildingListItem
@@ -272,6 +272,10 @@ def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> Apartm
     keys = apartment.keys or []
     keys_in_desk_count = sum(1 for key in keys if key.holder == KeyHolder.IN_DESK)
     keys_out_count = sum(1 for key in keys if key.holder == KeyHolder.OUT)
+    technicians_inside_count = sum(
+        1 for visit in (apartment.technician_visits or [])
+        if visit.status == TechnicianVisitStatus.INSIDE
+    )
     return ApartmentOut(
         **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
@@ -282,6 +286,7 @@ def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> Apartm
         vehicles_count=len(apartment.vehicles or []),
         pending_deliveries_count=pending_deliveries,
         open_tasks_count=open_tasks_count,
+        technicians_inside_count=technicians_inside_count,
     )
 
 
@@ -723,12 +728,24 @@ async def delete_personal_area_document(
 
 
 @router.get("/apartments/{apartment_id}/tasks", response_model=list[ApartmentTaskOut])
-async def list_apartment_tasks(apartment_id: int, db: DBSessionDep, user=Depends(require_reception(Action.READ.value, source="apartment"))):
+async def list_apartment_tasks(
+    apartment_id: int,
+    db: DBSessionDep,
+    archived: bool = False,
+    user=Depends(require_reception(Action.READ.value, source="apartment")),
+):
+    """List an apartment's tasks. ``archived=true`` returns the archived (אורכבו)
+    tasks instead of the open ones, so the desk can review a dwelling's history."""
     try:
         await ApartmentService(db).get_apartment(apartment_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    tasks = await TaskRepository(db).list_by_apartment(apartment_id)
+    repository = TaskRepository(db)
+    tasks = (
+        await repository.list_archived_by_apartment(apartment_id)
+        if archived
+        else await repository.list_by_apartment(apartment_id)
+    )
     return [
         ApartmentTaskOut(
             id=task.id,

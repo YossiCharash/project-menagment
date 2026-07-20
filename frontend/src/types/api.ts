@@ -541,6 +541,8 @@ export interface Apartment {
   vehicles_count: number
   pending_deliveries_count: number
   open_tasks_count: number
+  /** Technicians currently inside the apartment (status "inside"). */
+  technicians_inside_count: number
 }
 
 /** Full apartment payload for the detail side panel. */

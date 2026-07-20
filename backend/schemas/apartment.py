@@ -70,6 +70,7 @@ class ApartmentOut(ApartmentBase):
     vehicles_count: int = 0
     pending_deliveries_count: int = 0
     open_tasks_count: int = 0
+    technicians_inside_count: int = 0  # טכנאים שנמצאים כרגע בתוך הדירה
 
     model_config = ConfigDict(from_attributes=True)
 
