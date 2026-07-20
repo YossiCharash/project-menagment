@@ -8,9 +8,15 @@ import TaskDetailModal from './TaskDetailModal'
 interface BacklogPanelProps {
   onRequestCreate: () => void
   refreshSignal?: number
+  /**
+   * Opens the shared edit modal for a backlog task. The edit modal needs the
+   * user/label directories, which the parent already owns, so editing is
+   * delegated upwards. Without it the detail modal shows no edit button.
+   */
+  onEditTask?: (task: Task) => void
 }
 
-export default function BacklogPanel({ onRequestCreate, refreshSignal }: BacklogPanelProps) {
+export default function BacklogPanel({ onRequestCreate, refreshSignal, onEditTask }: BacklogPanelProps) {
   const [backlogTasks, setBacklogTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -135,6 +141,7 @@ export default function BacklogPanel({ onRequestCreate, refreshSignal }: Backlog
           taskId={selectedTaskId}
           initialTask={selectedTask ?? undefined}
           onClose={() => { setSelectedTaskId(null); setSelectedTask(null) }}
+          onEdit={onEditTask}
           onTaskUpdated={(updated) => {
             handleTaskUpdated(updated)
             setSelectedTask(updated)
