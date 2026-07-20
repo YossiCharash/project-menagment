@@ -53,6 +53,33 @@ class S3Service:
         # Default S3 URL
         return f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
 
+    def generate_presigned_url(self, file_url: str, expires_in: int | None = None) -> str:
+        """Return a short-lived signed URL for a stored object.
+
+        Bucket objects are private, so the plain URL kept in the DB is not
+        fetchable by a browser. Callers sign it at read time instead, which keeps
+        links time-limited rather than permanently public. Signing is a local
+        computation (no network call).
+
+        Falls back to the input URL when the key can't be derived (legacy local
+        paths) or when signing fails, so a signing problem degrades one link
+        instead of failing the whole response.
+        """
+        key = self._url_to_key(file_url)
+        if not key:
+            return file_url
+
+        ttl = expires_in if expires_in is not None else settings.AWS_S3_PRESIGNED_URL_TTL_SECONDS
+        try:
+            return self._s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": self._bucket, "Key": key},
+                ExpiresIn=ttl,
+            )
+        except Exception as e:
+            logger.error("יצירת קישור חתום ל-S3 נכשלה (key=%s): %s", key, e, exc_info=True)
+            return file_url
+
     def _url_to_key(self, file_url: str) -> str | None:
         if not file_url:
             return None

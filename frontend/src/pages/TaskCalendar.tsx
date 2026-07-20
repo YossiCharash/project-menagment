@@ -1618,13 +1618,16 @@ export default function TaskCalendar({
   const holidayEvents = [...jewishHolidayList, ...islamicHolidayList]
 
   // Quick client-side text filter of the already-loaded tasks. Matches on the
-  // task title, assignee/participant names, and label names (NOT description),
-  // case-insensitive substring. An empty/whitespace query returns tasks as-is.
+  // task title, task number/unique tag, assignee/participant names, and label
+  // names (NOT description), case-insensitive substring. An empty/whitespace
+  // query returns tasks as-is.
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     if (!query) return tasks
     return tasks.filter(t => {
-      const haystack: string[] = [t.title, t.assigned_user_name ?? '']
+      // Include the task number / unique tag so a user can paste a call number
+      // straight into the search box and land on that task.
+      const haystack: string[] = [t.title, String(t.id), t.unique_tag ?? '', t.assigned_user_name ?? '']
       for (const participant of t.participants ?? []) haystack.push(participant.full_name)
       for (const label of t.labels ?? []) haystack.push(label.name)
       return haystack.some(value => value.toLowerCase().includes(query))
@@ -1695,7 +1698,7 @@ export default function TaskCalendar({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <BacklogPanel onRequestCreate={openBacklogCreate} refreshSignal={backlogRefreshKey} />
+            <BacklogPanel onRequestCreate={openBacklogCreate} refreshSignal={backlogRefreshKey} onEditTask={openEditModal} />
             {(isAdmin || users.some(u => u.id === me?.id)) && (
               <div className="flex flex-wrap gap-2">
                 <button
@@ -2621,7 +2624,7 @@ export default function TaskCalendar({
         onClose={() => setEditingTask(null)}
         users={users}
         taskLabels={taskLabels}
-        onSaved={() => { void fetchTasks(); setSelectedTask(null) }}
+        onSaved={() => { void fetchTasks(); setBacklogRefreshKey(k => k + 1); setSelectedTask(null) }}
         onLabelsChanged={() => { void fetchTaskLabels() }}
       />
 
