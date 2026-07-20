@@ -154,28 +154,61 @@ class RecurringTransactionService:
         
         return await self.recurring_repo.deactivate(template)
 
-    async def _try_create_transaction_for_template_date(
+    @staticmethod
+    def _normalize_to_date(value):
+        """Return a plain ``date`` for either a date or a datetime value."""
+        return value.date() if hasattr(value, "date") else value
+
+    async def _load_existing_template_date_pairs(
+        self, project_id: int, range_start: date, range_end: date
+    ) -> Optional[set]:
+        """
+        Load, in a SINGLE query, the (recurring_template_id, tx_date) pairs that already exist
+        for this project inside [range_start, range_end].
+
+        Returns None if the query fails, which makes callers fall back to the original
+        per-candidate existence check (fail-safe: never changes generation behaviour).
+        """
+        try:
+            result = await self.db.execute(
+                select(Transaction.recurring_template_id, Transaction.tx_date).where(
+                    and_(
+                        Transaction.project_id == project_id,
+                        Transaction.recurring_template_id.isnot(None),
+                        Transaction.tx_date >= range_start,
+                        Transaction.tx_date <= range_end,
+                    )
+                )
+            )
+        except Exception as e:
+            logger.warning(
+                "טעינת עסקאות קיימות לחודש נכשלה (project_id=%s, %s..%s): %s",
+                project_id, range_start, range_end, e,
+            )
+            return None
+
+        return {
+            (template_id, self._normalize_to_date(tx_date))
+            for template_id, tx_date in result.all()
+        }
+
+    async def _transaction_already_exists(
         self,
         template: RecurringTransactionTemplate,
         target_date: date,
-        *,
-        check_first_contract: bool = False,
-    ) -> Optional[Transaction]:
+        existing_pairs: Optional[set] = None,
+    ) -> bool:
         """
-        Check exists/deleted/end/category and optionally first_contract; create one transaction if needed.
-        Does not commit; caller must commit. Returns the new transaction or None.
+        Decide whether a transaction for (template, target_date) already exists.
 
-        check_first_contract: If True, skip creating when target_date is before the project's
-        first contract start (original behavior only for "day > last_day" last-day-of-month case).
+        Uses the pre-loaded ``existing_pairs`` set when available (no DB round trip);
+        otherwise falls back to the original single-row existence query. A failing query
+        is treated as "does not exist", exactly as before.
         """
+        if existing_pairs is not None:
+            return (template.id, target_date) in existing_pairs
+
         from sqlalchemy import text
-
-        template_start = template.start_date
-        if hasattr(template_start, "date"):
-            template_start = template_start.date()
-        if template_start and target_date < template_start:
-            return None
-
         try:
             check_query = text("""
                 SELECT id FROM transactions
@@ -185,10 +218,39 @@ class RecurringTransactionService:
             check_result = await self.db.execute(
                 check_query, {"template_id": template.id, "target_date": target_date}
             )
-            if check_result.fetchone():
-                return None
+            return check_result.fetchone() is not None
         except Exception as e:
             logger.warning("בדיקת עסקה קיימת נכשלה (template_id=%s, date=%s): %s", template.id, target_date, e)
+            return False
+
+    async def _try_create_transaction_for_template_date(
+        self,
+        template: RecurringTransactionTemplate,
+        target_date: date,
+        *,
+        check_first_contract: bool = False,
+        existing_pairs: Optional[set] = None,
+    ) -> Optional[Transaction]:
+        """
+        Check exists/deleted/end/category and optionally first_contract; create one transaction if needed.
+        Does not commit; caller must commit. Returns the new transaction or None.
+
+        check_first_contract: If True, skip creating when target_date is before the project's
+        first contract start (original behavior only for "day > last_day" last-day-of-month case).
+
+        existing_pairs: Optional pre-loaded set of (recurring_template_id, tx_date) pairs that
+        already exist in the DB. When supplied, the per-candidate existence query is skipped and
+        the set is consulted instead. When None (default), behaviour is unchanged: this function
+        runs its own existence query.
+        """
+        template_start = template.start_date
+        if hasattr(template_start, "date"):
+            template_start = template_start.date()
+        if template_start and target_date < template_start:
+            return None
+
+        if await self._transaction_already_exists(template, target_date, existing_pairs):
+            return None
 
         try:
             from backend.repositories.deleted_recurring_instance_repository import (
@@ -329,6 +391,9 @@ class RecurringTransactionService:
         """
         Generate recurring transactions for a single project and month only.
         Uses project-scoped template fetching; single commit per month.
+
+        The (template, date) pairs that already exist for this month are loaded ONCE
+        up-front instead of one existence query per candidate.
         """
         templates = await self.recurring_repo.list_by_project(project_id)
         active_templates = [t for t in templates if t.is_active]
@@ -340,32 +405,83 @@ class RecurringTransactionService:
         else:
             next_month = date(year, month + 1, 1)
         last_day = (next_month - timedelta(days=1)).day
-        generated = []
-
-        for day in range(1, last_day + 1):
-            target_date = date(year, month, day)
-            day_templates = await self.recurring_repo.get_templates_to_generate(
-                target_date, project_id=project_id
-            )
-            for t in day_templates:
-                tx = await self._try_create_transaction_for_template_date(t, target_date)
-                if tx:
-                    generated.append(tx)
-
         last_day_date = date(year, month, last_day)
-        for t in active_templates:
-            if t.day_of_month > last_day:
-                tx = await self._try_create_transaction_for_template_date(
-                    t, last_day_date, check_first_contract=True
-                )
-                if tx:
-                    generated.append(tx)
+
+        existing_pairs = await self._load_existing_template_date_pairs(
+            project_id, date(year, month, 1), last_day_date
+        )
+
+        generated = await self._generate_for_each_day_of_month(
+            project_id, year, month, last_day, existing_pairs
+        )
+        generated.extend(
+            await self._generate_for_overflowing_templates(
+                active_templates, last_day, last_day_date, existing_pairs
+            )
+        )
 
         if generated:
             await self.db.commit()
             for tx in generated:
                 await self.db.refresh(tx)
         return generated
+
+    async def _generate_for_each_day_of_month(
+        self,
+        project_id: int,
+        year: int,
+        month: int,
+        last_day: int,
+        existing_pairs: Optional[set],
+    ) -> List[Transaction]:
+        """Walk every day of the month and create the transactions still missing."""
+        generated: List[Transaction] = []
+        for day in range(1, last_day + 1):
+            target_date = date(year, month, day)
+            day_templates = await self.recurring_repo.get_templates_to_generate(
+                target_date, project_id=project_id
+            )
+            for template in day_templates:
+                tx = await self._try_create_transaction_for_template_date(
+                    template, target_date, existing_pairs=existing_pairs
+                )
+                if tx:
+                    generated.append(tx)
+                    self._remember_pair(existing_pairs, template.id, target_date)
+        return generated
+
+    async def _generate_for_overflowing_templates(
+        self,
+        active_templates: List[RecurringTransactionTemplate],
+        last_day: int,
+        last_day_date: date,
+        existing_pairs: Optional[set],
+    ) -> List[Transaction]:
+        """Handle templates whose day_of_month exceeds the month's last day
+        (e.g. day 31 in February) by billing them on the last day."""
+        generated: List[Transaction] = []
+        for template in active_templates:
+            if template.day_of_month <= last_day:
+                continue
+            tx = await self._try_create_transaction_for_template_date(
+                template,
+                last_day_date,
+                check_first_contract=True,
+                existing_pairs=existing_pairs,
+            )
+            if tx:
+                generated.append(tx)
+                self._remember_pair(existing_pairs, template.id, last_day_date)
+        return generated
+
+    @staticmethod
+    def _remember_pair(
+        existing_pairs: Optional[set], template_id: int, target_date: date
+    ) -> None:
+        """Record a just-created (template, date) pair so it is not created twice
+        within the same uncommitted month batch."""
+        if existing_pairs is not None:
+            existing_pairs.add((template_id, target_date))
 
     async def ensure_project_transactions_generated(self, project_id: int) -> int:
         """
