@@ -3,7 +3,6 @@ import {useParams, useNavigate, useSearchParams, Link} from 'react-router-dom'
 import {motion} from 'framer-motion'
 import {useAppDispatch, useAppSelector} from '../utils/hooks'
 import {archiveProject, hardDeleteProject} from '../store/slices/projectsSlice'
-import {fetchSuppliers} from '../store/slices/suppliersSlice'
 import {useProjectDetailState} from './ProjectDetail/hooks/useProjectDetailState'
 import {useProjectDetailData} from './ProjectDetail/hooks/useProjectDetailData'
 import {useProjectDetailHandlers} from './ProjectDetail/hooks/useProjectDetailHandlers'
@@ -137,60 +136,11 @@ export default function ProjectDetail() {
         ? allPeriods[currentViewingPeriodIndex + 1]
         : null;
 
-    // All hooks must be called before any early returns
-    useEffect(() => {
-        if (!state.contractFileUrl) {
-            state.setShowContractModal(false)
-        }
-    }, [state.contractFileUrl])
-
-    useEffect(() => {
-        if (id && !isNaN(Number(id))) {
-            // OPTIMIZED: Load ALL project data in a SINGLE API call
-            // Before: 5+ separate API calls (project, transactions, budgets, categories, fund)
-            // After: 1 API call that returns everything
-            // Pass viewingPeriodId for historical period viewing
-            dataLoaders.loadAllProjectData(viewingPeriodId)
-            dataLoaders.loadUnforeseenTransactions()
-        }
-    }, [id, viewingPeriodId])
-
-    // Redirect to parent project route if this is a parent project
-    useEffect(() => {
-        if (state.isParentProject && id && !isNaN(Number(id)) && !state.loading) {
-            // Use setTimeout to ensure the navigation happens after the component has rendered
-            const timer = setTimeout(() => {
-                navigate(`/projects/${id}/parent`, {replace: true})
-            }, 100)
-            return () => clearTimeout(timer)
-        }
-    }, [state.isParentProject, id, navigate, state.loading])
-
-    useEffect(() => {
-        dispatch(fetchSuppliers())
-    }, [dispatch])
-
-    // Reload project info when project is updated (e.g., after editing in modal or uploading image)
-    useEffect(() => {
-        const handleProjectUpdated = async (event: Event) => {
-            const customEvent = event as CustomEvent
-            if (customEvent.detail?.projectId && id && customEvent.detail.projectId === parseInt(id)) {
-                state.setUpdatingProject(true)
-                try {
-                    // Use loadAllProjectData with viewingPeriodId to maintain historical period filtering
-                    await dataLoaders.loadAllProjectData(viewingPeriodId)
-                    await dataLoaders.loadUnforeseenTransactions()
-                } catch (err) {
-                    console.error('Error reloading project data after update:', err)
-                } finally {
-                    state.setUpdatingProject(false)
-                }
-            }
-        }
-
-        window.addEventListener('projectUpdated', handleProjectUpdated)
-        return () => window.removeEventListener('projectUpdated', handleProjectUpdated)
-    }, [id, state.hasFund, viewingPeriodId])
+    // Data loading, the parent-project redirect, the suppliers fetch, the contract-modal
+    // reset and the `projectUpdated` listener all live in useProjectDetailEffects (called
+    // above). They used to be duplicated here as well, which ran every one of them twice —
+    // most visibly firing GET /projects/{id}/full and the unforeseen-transactions request
+    // twice on every mount.
 
     // Early return if no id
     if (!id) {
