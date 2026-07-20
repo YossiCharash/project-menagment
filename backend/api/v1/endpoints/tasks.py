@@ -3,6 +3,7 @@ import asyncio
 import io
 import logging
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 import os
 import uuid
 from sqlalchemy import select, update, func, or_, exists, distinct
@@ -205,16 +206,33 @@ async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
     return _save_upload_to_disk(content, file, subdir)
 
 
-def _attachment_file_url(stored_path: str | None) -> str:
-    """Resolve a stored attachment path to a client URL.
+@lru_cache(maxsize=1)
+def _s3_service() -> S3Service:
+    """Cached S3 client wrapper used for signing attachment links.
 
-    Absolute http(s) URLs (S3) are returned as-is; legacy local paths are
-    served under ``/uploads/``.
+    Building a boto3 session/client is expensive and the signing helper runs once
+    per attachment when rendering a task or a chat, so the client is reused.
+    """
+    return S3Service()
+
+
+def _attachment_file_url(stored_path: str | None) -> str:
+    """Resolve a stored attachment path to a URL the browser can actually fetch.
+
+    S3 objects are private, so the stored (unsigned) URL is signed here, at read
+    time, yielding a short-lived link. Handing out the raw S3 URL instead — as
+    this did previously — produces a 403 for every attachment on a bucket that
+    blocks public access, and permanent public access on one that doesn't.
+    Legacy local paths are served under ``/uploads/``.
     """
     path = stored_path or ""
     if not path:
         return ""
-    if path.startswith("http://") or path.startswith("https://") or path.startswith("/"):
+    if path.startswith("http://") or path.startswith("https://"):
+        if settings.AWS_S3_BUCKET:
+            return _s3_service().generate_presigned_url(path)
+        return path
+    if path.startswith("/"):
         return path
     return f"/uploads/{path}"
 
