@@ -259,16 +259,22 @@ def _apartment_base_fields(apartment: Apartment) -> dict:
     }
 
 
+def _has_active_client_visit(apartment: Apartment) -> bool:
+    """True while a client is currently present — the occupancy signal (הגעת לקוחות)
+    the summary tile and the detail panel both derive מאוכלסת/פנויה from."""
+    return any(
+        visit.status == ClientVisitStatus.PRESENT
+        for visit in (apartment.client_visits or [])
+    )
+
+
 def _apartment_to_out(apartment: Apartment, open_tasks_count: int = 0) -> ApartmentOut:
     """Summary view: current tenant + aggregate counts."""
     pending_deliveries = sum(
         1 for delivery in (apartment.deliveries or [])
         if delivery.status == DeliveryStatus.PENDING
     )
-    has_active_client_visit = any(
-        visit.status == ClientVisitStatus.PRESENT
-        for visit in (apartment.client_visits or [])
-    )
+    has_active_client_visit = _has_active_client_visit(apartment)
     keys = apartment.keys or []
     keys_in_desk_count = sum(1 for key in keys if key.holder == KeyHolder.IN_DESK)
     keys_out_count = sum(1 for key in keys if key.holder == KeyHolder.OUT)
@@ -295,6 +301,7 @@ def _apartment_to_detail(apartment: Apartment) -> ApartmentDetailOut:
     return ApartmentDetailOut(
         **_apartment_base_fields(apartment),
         current_tenant=_current_tenant_out(apartment),
+        has_active_client_visit=_has_active_client_visit(apartment),
         tenants=[TenantOut.model_validate(t) for t in (apartment.tenants or [])],
         keys=[ApartmentKeyOut.model_validate(k) for k in (apartment.keys or [])],
         vehicles=[AuthorizedVehicleOut.model_validate(v) for v in (apartment.vehicles or [])],

@@ -27,6 +27,8 @@ type TabId = 'details' | 'tasks' | 'keys' | 'vehicles' | 'deliveries' | 'technic
 interface ApartmentDetailPanelProps {
   apartment: ApartmentDetail | null
   tasks: ApartmentTask[]
+  /** Bumped on any task mutation so the tasks tab can refresh its archived cache. */
+  tasksRefreshToken: number
   loading: boolean
   onClose: () => void
   onAddTask: () => void
@@ -121,6 +123,7 @@ function DetailSection({
 export default function ApartmentDetailPanel({
   apartment,
   tasks,
+  tasksRefreshToken,
   loading,
   onClose,
   onAddTask,
@@ -464,6 +467,7 @@ export default function ApartmentDetailPanel({
                     <ApartmentTaskList
                       apartmentId={apartment.id}
                       tasks={tasks}
+                      refreshToken={tasksRefreshToken}
                       onAddTask={onAddTask}
                       onSelectTask={onSelectTask}
                     />
