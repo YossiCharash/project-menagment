@@ -176,8 +176,9 @@ export default function ApartmentDetailPanel({
   ]
 
   const tenant = apartment?.current_tenant ?? null
-  // Occupancy (מאוכלסת/פנויה) follows the resident record via the shared rule;
-  // client arrivals are transient and shown in the "לקוחות" tab, not here.
+  // Occupancy (מאוכלסת/פנויה) follows client presence (הגעת לקוחות) via the shared
+  // rule — a unit handed to a tenant on paper stays פנויה until a client actually
+  // arrives. The resident record is still shown in the details tab below.
   const isVacant = apartment !== null && isApartmentVacant(apartment)
   const statusColor = apartment?.is_common_area ? PALETTE.common : isVacant ? PALETTE.vacant : PALETTE.occupied
   const statusLabel = apartment?.is_common_area ? 'תקין' : isVacant ? 'פנויה' : 'מאוכלסת'
@@ -459,7 +460,14 @@ export default function ApartmentDetailPanel({
                     </>
                   )}
 
-                  {tab === 'tasks' && <ApartmentTaskList tasks={tasks} onAddTask={onAddTask} onSelectTask={onSelectTask} />}
+                  {tab === 'tasks' && (
+                    <ApartmentTaskList
+                      apartmentId={apartment.id}
+                      tasks={tasks}
+                      onAddTask={onAddTask}
+                      onSelectTask={onSelectTask}
+                    />
+                  )}
 
                   {tab === 'keys' && (
                     <KeyStatusList

@@ -108,6 +108,14 @@ export class BuildingReceptionAPI {
     return data
   }
 
+  /** Tasks that were archived (אורכבו) on this apartment, newest-archived first. */
+  static async listApartmentArchivedTasks(apartmentId: number): Promise<ApartmentTask[]> {
+    const { data } = await api.get<ApartmentTask[]>(`${BASE}/apartments/${apartmentId}/tasks`, {
+      params: { archived: true },
+    })
+    return data
+  }
+
   static async createApartment(payload: ApartmentCreate): Promise<ApartmentDetail> {
     const { data } = await api.post<ApartmentDetail>(`${BASE}/apartments`, payload)
     return data
