@@ -1625,9 +1625,17 @@ export default function TaskCalendar({
     const query = searchQuery.trim().toLowerCase()
     if (!query) return tasks
     return tasks.filter(t => {
-      // Include the task number / unique tag so a user can paste a call number
-      // straight into the search box and land on that task.
-      const haystack: string[] = [t.title, String(t.id), t.unique_tag ?? '', t.assigned_user_name ?? '']
+      // Include the task number so a user can paste a call number straight into
+      // the search box. Both forms are searchable: the code exactly as shown in
+      // the UI ("ZP225") and the bare number ("225"), since either is what a
+      // user is likely to type.
+      const haystack: string[] = [
+        t.title,
+        formatTaskCode(t.id),
+        String(t.id),
+        t.unique_tag ?? '',
+        t.assigned_user_name ?? '',
+      ]
       for (const participant of t.participants ?? []) haystack.push(participant.full_name)
       for (const label of t.labels ?? []) haystack.push(label.name)
       return haystack.some(value => value.toLowerCase().includes(query))
