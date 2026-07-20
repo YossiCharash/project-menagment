@@ -78,6 +78,9 @@ class TestClientVisits:
         detail = await _apartment_detail(test_client, admin_token, apartment_id)
         assert len(detail["client_visits"]) == 1
         assert detail["client_visits"][0]["name"] == "ישראל ישראלי"
+        # The detail payload must carry the occupancy flag too — the side panel
+        # derives מאוכלסת/פנויה from it, so the summary and detail can't disagree.
+        assert detail["has_active_client_visit"] is True
 
         overview = await _overview_apartment(test_client, admin_token, building["id"], apartment_id)
         assert overview["has_active_client_visit"] is True
@@ -130,6 +133,9 @@ class TestClientVisits:
 
         overview = await _overview_apartment(test_client, admin_token, building["id"], apartment_id)
         assert overview["has_active_client_visit"] is False
+
+        detail = await _apartment_detail(test_client, admin_token, apartment_id)
+        assert detail["has_active_client_visit"] is False
 
     async def test_exit_twice_is_rejected(
         self, test_client: AsyncClient, admin_token: str

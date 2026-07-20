@@ -45,20 +45,21 @@ const building = {
         is_current: true,
         created_at: '2024-01-01T00:00:00',
       },
-      has_active_client_visit: false,
+      has_active_client_visit: true,
       keys_count: 0,
       keys_in_desk_count: 0,
       keys_out_count: 0,
       vehicles_count: 0,
       pending_deliveries_count: 0,
       open_tasks_count: 0,
+      technicians_inside_count: 0,
     },
   ],
 }
 
 // Full ApartmentDetail returned when the side panel opens. Occupancy reads
-// מאוכלסת from the current tenant; a client is also present so the לקוחות tab
-// has a row.
+// מאוכלסת because a client is currently present (הגעת לקוחות), which the לקוחות
+// tab also lists.
 const apartmentDetail = {
   ...building.apartments[0],
   has_active_client_visit: true,
@@ -93,6 +94,7 @@ vi.mock('../../lib/buildingReceptionApi', () => {
     deleteBuilding: vi.fn(),
     getApartment: vi.fn(),
     listApartmentTasks: vi.fn(),
+    listApartmentArchivedTasks: vi.fn(),
     listTaskAssignees: vi.fn(),
     createTask: vi.fn(),
     listProjects: vi.fn(),
@@ -213,7 +215,7 @@ describe('BuildingReceptionDesk', () => {
     expect(screen.queryByRole('button', { name: /מחיקת פרויקט/ })).not.toBeInTheDocument()
   })
 
-  it('shows tenant-driven occupancy and the לקוחות tab in the apartment panel', async () => {
+  it('shows client-driven occupancy and the לקוחות tab in the apartment panel', async () => {
     renderPage()
     await waitFor(() => expect(mockedApi.getBuilding).toHaveBeenCalled())
 
@@ -221,13 +223,13 @@ describe('BuildingReceptionDesk', () => {
     fireEvent.click(await screen.findByText('דירה 101'))
     await waitFor(() => expect(mockedApi.getApartment).toHaveBeenCalledWith(11))
 
-    // Occupancy is driven by the current tenant. Both the grid tile and the
-    // panel badge read מאוכלסת while a resident lives in the apartment.
+    // Occupancy is driven by client presence (הגעת לקוחות). Both the grid tile
+    // and the panel badge read מאוכלסת while a client is in the apartment.
     const occupied = await screen.findAllByText('מאוכלסת')
     expect(occupied.length).toBeGreaterThan(0)
 
-    // The לקוחות tab lists the present client.
-    fireEvent.click(screen.getAllByText('לקוחות')[0])
+    // The הגעת לקוחות tab lists the present client.
+    fireEvent.click(screen.getAllByText('הגעת לקוחות')[0])
     expect(await screen.findByText('לקוח בדיקה')).toBeInTheDocument()
     expect(screen.getByText('יציאה מיידית')).toBeInTheDocument()
   })

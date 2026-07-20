@@ -1,4 +1,4 @@
-import { KeyRound, Package, ClipboardX } from 'lucide-react'
+import { KeyRound, Package, ClipboardX, Wrench } from 'lucide-react'
 import type { Apartment } from '../../types/api'
 import { ACCENT, PALETTE, apartmentTitle, deriveIndicators } from './constants'
 
@@ -13,14 +13,15 @@ interface ApartmentCellProps {
  * click upward. No data fetching or business logic lives here.
  */
 export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProps) {
-  const { hasKeyInDesk, hasKeyOut, hasPendingDelivery, hasOpenTask, isVacant } = deriveIndicators(apartment)
+  const { hasKeyInDesk, hasKeyOut, hasPendingDelivery, hasOpenTask, hasTechnicianInside, isVacant } =
+    deriveIndicators(apartment)
 
   const accentBorder = apartment.is_common_area ? ACCENT : isVacant ? PALETTE.vacant : PALETTE.occupied
+  // Show the registered tenant whenever there is one; occupancy (the status dot
+  // below) is driven separately by whether a client is currently in the unit.
   const tenantLabel = apartment.is_common_area
     ? (apartment.label ?? 'שטח משותף')
-    : isVacant
-      ? '— פנויה —'
-      : (apartment.current_tenant?.name ?? 'לקוח בדירה')
+    : (apartment.current_tenant?.name ?? (isVacant ? '— פנויה —' : 'לקוח בדירה'))
   const statusLabel = apartment.is_common_area ? 'תקין' : isVacant ? 'פנויה' : 'מאוכלסת'
 
   return (
@@ -44,6 +45,9 @@ export default function ApartmentCell({ apartment, onSelect }: ApartmentCellProp
           )}
           {hasPendingDelivery && (
             <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} aria-label="משלוח ממתין" />
+          )}
+          {hasTechnicianInside && (
+            <Wrench className="w-4 h-4" style={{ color: PALETTE.technician }} aria-label="טכנאי בדירה" />
           )}
           {hasOpenTask && (
             <ClipboardX className="w-4 h-4" style={{ color: PALETTE.task }} aria-label="משימה פתוחה" />

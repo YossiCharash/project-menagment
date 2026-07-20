@@ -1,4 +1,4 @@
-import { KeyRound, Package, ClipboardX, Plus, Layers, FolderPlus, Pencil, Trash2, LayoutGrid, Building as BuildingIcon } from 'lucide-react'
+import { KeyRound, Package, ClipboardX, Wrench, Plus, Layers, FolderPlus, Pencil, Trash2, LayoutGrid, Building as BuildingIcon } from 'lucide-react'
 import type { Apartment, Building, BuildingListItem, BuildingProjectListItem } from '../../types/api'
 import { ACCENT, PALETTE, groupByFloor } from './constants'
 import ApartmentCell from './ApartmentCell'
@@ -276,6 +276,10 @@ export default function BuildingOverview({
         <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
           <Package className="w-4 h-4" style={{ color: PALETTE.delivery }} />
           משלוח ממתין
+        </span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <Wrench className="w-4 h-4" style={{ color: PALETTE.technician }} />
+          טכנאי בדירה
         </span>
         <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
           <ClipboardX className="w-4 h-4" style={{ color: PALETTE.task }} />
