@@ -363,10 +363,15 @@
   border: none !important;
 }
 
-/* אזור "כל היום" בתצוגת יום/שבוע – מציג את משימות היום, נגלל אם יש הרבה */
-.task-calendar-wrap .fc .fc-timegrid-view .fc-daygrid-body {
-  max-height: 180px;
+/* אזור "כל היום" בתצוגת יום/שבוע – מציג את משימות היום, נגלל אם יש הרבה.
+   שים לב: הכלאס הוא `fc-timegrid` ולא `fc-timegrid-view` – השם השני לא קיים
+   ב-FullCalendar v6, ולכן גרסה קודמת של הכלל הזה לא התאימה לאף אלמנט והאזור
+   גלש מחוץ למסך בלי גלילה. */
+.task-calendar-wrap .fc .fc-timegrid .fc-daygrid-body {
+  max-height: min(50vh, 420px);
   overflow-y: auto;
+  /* אל תגלגל את הגלילה לעמוד כשמגיעים לקצה הרשימה */
+  overscroll-behavior: contain;
 }
 
 .task-calendar-wrap .fc-event-holiday {
