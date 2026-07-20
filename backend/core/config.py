@@ -111,6 +111,12 @@ class Settings(BaseModel):
     AWS_S3_BUCKET: str | None = os.getenv("AWS_S3_BUCKET")
     # Optional custom base URL (e.g. CloudFront). If not set, default S3 URL will be used.
     AWS_S3_BASE_URL: str | None = os.getenv("AWS_S3_BASE_URL")
+    # Lifetime of the signed attachment links handed to the browser. Objects are
+    # private, so links are signed at read time rather than stored public. Long
+    # enough to open/download a file, short enough that a leaked link goes stale.
+    AWS_S3_PRESIGNED_URL_TTL_SECONDS: int = int(
+        os.getenv("AWS_S3_PRESIGNED_URL_TTL_SECONDS", "3600")
+    )
     
     # Super Admin Configuration
     SUPER_ADMIN_EMAIL: str = Field(default=os.getenv("SUPER_ADMIN_EMAIL", "c0548508540@gmail.com"))
