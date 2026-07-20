@@ -665,6 +665,41 @@ class TestTaskApartmentLink:
         assert tasks[0]["title"] == "לבדוק נזילה"
         assert tasks[0]["assignee_name"] == admin_user.full_name
 
+    async def test_archived_apartment_tasks_listed_separately(
+        self, test_client: AsyncClient, admin_token: str, admin_user: User
+    ):
+        """`archived=true` returns the apartment's archived (אורכבו) tasks, and the
+        default (open) listing excludes them."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        created = await test_client.post(
+            "/api/v1/tasks/",
+            headers=_auth(admin_token),
+            json={"title": "משימה ישנה", "assigned_to_user_id": admin_user.id, "apartment_id": apartment_id},
+        )
+        task_id = created.json()["id"]
+        archived = await test_client.post(f"/api/v1/tasks/{task_id}/archive", headers=_auth(admin_token))
+        assert archived.status_code in (200, 201), archived.text
+
+        # Default listing (open only) no longer shows the archived task.
+        open_tasks = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}/tasks", headers=_auth(admin_token)
+        )
+        assert open_tasks.status_code == 200, open_tasks.text
+        assert open_tasks.json() == []
+
+        # The archived view surfaces it.
+        archived_tasks = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}/tasks",
+            params={"archived": "true"},
+            headers=_auth(admin_token),
+        )
+        assert archived_tasks.status_code == 200, archived_tasks.text
+        body = archived_tasks.json()
+        assert len(body) == 1
+        assert body[0]["id"] == task_id
+        assert body[0]["title"] == "משימה ישנה"
+
 
 @pytest.mark.asyncio
 @pytest.mark.api
@@ -1076,6 +1111,39 @@ class TestTechnicianVisits:
         )
         assert response.status_code == 400, response.text
         assert "טכנאי" in response.json()["detail"]
+
+    async def test_overview_flags_technician_inside(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """The building overview exposes technicians_inside_count so the grid tile
+        can flag a technician-in-progress without opening the apartment panel."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+
+        async def _count() -> int:
+            overview = (
+                await test_client.get(
+                    f"{BASE}/buildings/{building['id']}", headers=_auth(admin_token)
+                )
+            ).json()
+            apartment = next(a for a in overview["apartments"] if a["id"] == apartment_id)
+            return apartment["technicians_inside_count"]
+
+        assert await _count() == 0
+        visit = (
+            await test_client.post(
+                f"{BASE}/technician-visits",
+                headers=_auth(admin_token),
+                json={"apartment_id": apartment_id, "name": "חשמלאי"},
+            )
+        ).json()
+        assert await _count() == 1
+
+        # Once the technician leaves the apartment the flag clears again.
+        await test_client.post(
+            f"{BASE}/technician-visits/{visit['id']}/exit", headers=_auth(admin_token)
+        )
+        assert await _count() == 0
 
     async def test_mark_exit_sets_status_and_left_at(
         self, test_client: AsyncClient, admin_token: str

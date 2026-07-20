@@ -70,6 +70,7 @@ class ApartmentOut(ApartmentBase):
     vehicles_count: int = 0
     pending_deliveries_count: int = 0
     open_tasks_count: int = 0
+    technicians_inside_count: int = 0  # טכנאים שנמצאים כרגע בתוך הדירה
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,6 +126,7 @@ class ApartmentDetailOut(ApartmentBase):
     building_id: int
     created_at: datetime
     current_tenant: TenantOut | None = None
+    has_active_client_visit: bool = False
     tenants: list[TenantOut] = Field(default_factory=list)
     keys: list[ApartmentKeyOut] = Field(default_factory=list)
     vehicles: list[AuthorizedVehicleOut] = Field(default_factory=list)
