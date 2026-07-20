@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ClipboardList, Plus, CalendarDays, User, Loader2, Archive } from 'lucide-react'
 import type { ApartmentTask } from '../../types/api'
 import BuildingReceptionAPI from '../../lib/buildingReceptionApi'
@@ -8,6 +8,8 @@ import { ACCENT, formatDate } from './constants'
 interface ApartmentTaskListProps {
   apartmentId: number
   tasks: ApartmentTask[]
+  /** Changes on every task mutation; invalidates the cached archived list. */
+  refreshToken: number
   onAddTask: () => void
   /** Open the full task-detail modal for the clicked task. */
   onSelectTask: (taskId: number) => void
@@ -64,7 +66,13 @@ function TaskCard({ task, onSelect }: { task: ApartmentTask; onSelect: (taskId: 
 }
 
 /** "משימות" — the tasks linked to this apartment, shown in the apartment panel. */
-export default function ApartmentTaskList({ apartmentId, tasks, onAddTask, onSelectTask }: ApartmentTaskListProps) {
+export default function ApartmentTaskList({
+  apartmentId,
+  tasks,
+  refreshToken,
+  onAddTask,
+  onSelectTask,
+}: ApartmentTaskListProps) {
   // Open tasks arrive as a prop; the archived ("אורכבו") tasks are fetched
   // lazily the first time the desk switches to that view.
   const [showArchived, setShowArchived] = useState(false)
@@ -79,6 +87,19 @@ export default function ApartmentTaskList({ apartmentId, tasks, onAddTask, onSel
     setArchivedTasks(null)
     setArchivedError(null)
   }, [apartmentId])
+
+  // Drop the cached archived list after any task mutation (e.g. a task was just
+  // archived) so it refetches — immediately if the archived tab is open, else on
+  // the next switch to it. Skips the initial mount (token starts unchanged).
+  const didMountRef = useRef(false)
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true
+      return
+    }
+    setArchivedTasks(null)
+    setArchivedError(null)
+  }, [refreshToken])
 
   useEffect(() => {
     if (!showArchived || archivedTasks !== null) return

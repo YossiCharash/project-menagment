@@ -126,6 +126,7 @@ class ApartmentDetailOut(ApartmentBase):
     building_id: int
     created_at: datetime
     current_tenant: TenantOut | None = None
+    has_active_client_visit: bool = False
     tenants: list[TenantOut] = Field(default_factory=list)
     keys: list[ApartmentKeyOut] = Field(default_factory=list)
     vehicles: list[AuthorizedVehicleOut] = Field(default_factory=list)

@@ -121,6 +121,9 @@ export default function BuildingReceptionDesk() {
   const [overviewBuildings, setOverviewBuildings] = useState<Building[]>([])
   const [overviewLoading, setOverviewLoading] = useState(false)
   const [taskOpen, setTaskOpen] = useState(false)
+  // Bumped after a task mutation (create/archive/update/delete) so the apartment
+  // panel can drop its lazily-cached archived-task list and refetch it.
+  const [tasksRefreshToken, setTasksRefreshToken] = useState(0)
   // Assignee directory + labels needed by the shared CreateTaskModal.
   const [taskUsers, setTaskUsers] = useState<UserForTask[]>([])
   const [taskLabels, setTaskLabels] = useState<TaskLabelType[]>([])
@@ -331,6 +334,7 @@ export default function BuildingReceptionDesk() {
   const refreshTasksAndBuilding = useCallback(() => {
     if (activeApartmentId !== null) void dispatch(fetchApartmentTasks(activeApartmentId))
     if (activeBuilding) void dispatch(fetchBuilding(activeBuilding.id))
+    setTasksRefreshToken((token) => token + 1)
   }, [dispatch, activeApartmentId, activeBuilding])
 
   const handleTaskCreated = () => {
@@ -806,6 +810,7 @@ export default function BuildingReceptionDesk() {
       <ApartmentDetailPanel
         apartment={activeApartment}
         tasks={apartmentTasks}
+        tasksRefreshToken={tasksRefreshToken}
         loading={loadingApartment}
         onClose={() => dispatch(closeApartment())}
         onAddTask={() => setTaskOpen(true)}
