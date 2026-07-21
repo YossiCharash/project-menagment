@@ -836,13 +836,12 @@ export default function ParentProjectDetail() {
       }
       
       setParentProject(parent)
-      
-      // Load all data using the new advanced API
-      await loadAdvancedFinancialSummary(parseInt(id))
-      
-      // Load transactions
-      await loadTransactions()
-      
+
+      // Financial summary and transactions are loaded by the date-filter effect
+      // as soon as `parentProject` is set (it depends on `parentProject`). Loading
+      // them here as well would double the work on every mount/refresh and keep the
+      // main spinner up behind the slow transaction aggregation, which is what made
+      // the page appear stuck. They have their own loading indicators.
     } catch (err: any) {
       // Parent project data loading error
       setError(err.message || 'שגיאה בטעינת נתוני הפרויקט')
