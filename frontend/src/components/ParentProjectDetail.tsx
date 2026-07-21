@@ -10,7 +10,7 @@ import {
   ChevronLeft
 } from 'lucide-react'
 import { ProjectWithFinance, Project } from '../types/api'
-import { DashboardAPI } from '../lib/apiClient'
+import { ProjectAPI } from '../lib/apiClient'
 import api from '../lib/api'
 import ProjectTrendsChart from './charts/ProjectTrendsChart'
 import CreateProjectModal from './CreateProjectModal'
@@ -826,16 +826,20 @@ export default function ParentProjectDetail() {
     setError(null)
     
     try {
-      // Load parent project info
-      const dashboardData = await DashboardAPI.getDashboardSnapshot()
-      const parent = dashboardData.projects.find(p => p.id === parseInt(id))
-      
+      // Load parent project info with a single lightweight GET. We only need this
+      // one project's own fields (its name + the fields the edit modal reads, which
+      // include has_fund/monthly_fund_amount). The previous getDashboardSnapshot()
+      // call aggregated income/expense/funds/budgets for EVERY project in the system
+      // just to look up one project's name - a major cause of the parent page's slow
+      // ("stuck") load.
+      const parent = await ProjectAPI.getProject(parseInt(id))
+
       if (!parent) {
         setError('פרויקט לא נמצא')
         return
       }
-      
-      setParentProject(parent)
+
+      setParentProject(parent as unknown as ProjectWithFinance)
 
       // Financial summary and transactions are loaded by the date-filter effect
       // as soon as `parentProject` is set (it depends on `parentProject`). Loading
