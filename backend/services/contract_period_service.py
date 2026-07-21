@@ -22,7 +22,14 @@ class ContractPeriodService:
         self.projects = ProjectRepository(db)
         self.transactions = TransactionRepository(db)
         self.budgets = BudgetRepository(db)
-    
+        # Instance-scoped memo for _load_project_transactions. get_current_contract_period
+        # and get_previous_contracts_by_year each load the project's full transaction list,
+        # and /projects/{id}/full calls both on the same service instance - so the same rows
+        # crossed the wire twice per page load. This service never writes transactions, so
+        # memoising for the lifetime of one request is safe.
+        self._project_transactions_cache: Dict[int, List[Transaction]] = {}
+
+
     def _normalize_period_end_date(self, start_date: date, end_date: date) -> date:
         """
         Normalize period end_date according to business rules.
@@ -472,12 +479,33 @@ class ContractPeriodService:
             'total_profit': total_profit
         }
 
+    def seed_project_transactions(
+        self, project_id: int, transactions: List[Transaction]
+    ) -> None:
+        """Pre-fill the transaction memo with rows the caller already fetched.
+
+        Lets a caller that has just selected the project's full, unfiltered transaction
+        list hand it over instead of making this service re-query the same rows.
+        Passing a filtered subset would silently understate period financials.
+        """
+        self._project_transactions_cache[project_id] = transactions
+
     async def _load_project_transactions(self, project_id: int) -> List[Transaction]:
-        """Load all of a project's transactions once, for in-memory period-financials."""
+        """Load all of a project's transactions once, for in-memory period-financials.
+
+        Memoised per service instance (see __init__): repeated calls within one request
+        reuse the first result instead of re-querying.
+        """
+        cached = self._project_transactions_cache.get(project_id)
+        if cached is not None:
+            return cached
+
         result = await self.db.execute(
             select(Transaction).where(Transaction.project_id == project_id)
         )
-        return list(result.scalars().all())
+        transactions = list(result.scalars().all())
+        self._project_transactions_cache[project_id] = transactions
+        return transactions
 
     def _compute_period_financials_from_txs(
         self, period: ContractPeriod, all_txs: List[Transaction]

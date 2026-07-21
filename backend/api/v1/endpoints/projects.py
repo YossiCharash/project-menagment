@@ -472,24 +472,34 @@ async def get_project_full(
     # Refresh project to get updated dates
     await db.refresh(project)
     
-    # Execute all queries
-    tx_result, budgets_result, fund_result, current_period, contract_periods_by_year = await asyncio.gather(
-        db.execute(transactions_query),
-        db.execute(budgets_query),
-        db.execute(funds_query),
-        contract_service.get_current_contract_period(project_id),
-        contract_service.get_previous_contracts_by_year(project_id),
-        return_exceptions=True
-    )
-    
-    # Handle exceptions from gather
-    if isinstance(current_period, Exception):
-        logger.exception("Failed to get current_period for project %s", project_id, exc_info=current_period)
+    # These used to run under asyncio.gather, but they all share one AsyncSession, which
+    # serialises concurrent work anyway - the gather bought no parallelism while its
+    # return_exceptions=True quietly turned a failed transactions/budgets/fund query into
+    # an empty section of the page. Run them in order and let real failures surface.
+    transactions = list((await db.execute(transactions_query)).scalars().all())
+    budgets_result = await db.execute(budgets_query)
+    fund_result = await db.execute(funds_query)
+
+    # Seed the contract service's transaction memo from the rows we just fetched, so the
+    # two period summaries below reuse them instead of re-querying the same table twice.
+    # Only valid when the main query was unfiltered - a period-filtered result is a subset
+    # and would understate the other periods' totals.
+    if not period_id:
+        contract_service.seed_project_transactions(project_id, transactions)
+
+    try:
+        current_period = await contract_service.get_current_contract_period(project_id)
+    except Exception:
+        logger.exception("Failed to get current_period for project %s", project_id)
         current_period = None
-    if isinstance(contract_periods_by_year, Exception):
-        logger.exception("Failed to get contract_periods_by_year for project %s", project_id, exc_info=contract_periods_by_year)
+
+    try:
+        contract_periods_by_year = await contract_service.get_previous_contracts_by_year(project_id)
+    except Exception:
+        logger.exception("Failed to get contract_periods_by_year for project %s", project_id)
         contract_periods_by_year = {}
-    
+
+
     # Convert contract_periods_by_year to list format
     periods_by_year_list = []
     for year in sorted(contract_periods_by_year.keys(), reverse=True):
@@ -510,181 +520,178 @@ async def get_project_full(
         )
     )
     unforeseen_resulting_ids = {r[0] for r in res.all() if r[0] is not None}
-    if not isinstance(tx_result, Exception):
-        transactions = list(tx_result.scalars().all())
-        for tx in transactions:
-            category_name = tx.category.name if tx.category else None
-            tx_dict = {
-                "id": tx.id,
-                "project_id": tx.project_id,
-                "tx_date": tx.tx_date.isoformat() if tx.tx_date else None,
-                "type": tx.type,
-                "amount": float(tx.amount) if tx.amount else 0,
-                "description": tx.description,
-                "category": category_name,
-                "payment_method": tx.payment_method,
-                "notes": tx.notes,
-                "is_exceptional": getattr(tx, 'is_exceptional', False),
-                "is_generated": getattr(tx, 'is_generated', False),
-                "supplier_id": tx.supplier_id,
-                "from_fund": getattr(tx, 'from_fund', False),
-                "file_path": getattr(tx, 'file_path', None),
-                "recurring_template_id": getattr(tx, 'recurring_template_id', None),
-                "period_start_date": tx.period_start_date.isoformat() if getattr(tx, 'period_start_date', None) else None,
-                "period_end_date": tx.period_end_date.isoformat() if getattr(tx, 'period_end_date', None) else None,
-                "created_by_user_id": getattr(tx, 'created_by_user_id', None),
-                "is_unforeseen": tx.id in unforeseen_resulting_ids
-            }
-            transactions_list.append(tx_dict)
-            
-            # Calculate expense categories
-            if tx.type == 'Expense' and category_name and not getattr(tx, 'from_fund', False):
-                expense_by_category[category_name] = expense_by_category.get(category_name, 0) + float(tx.amount or 0)
-    
+    for tx in transactions:
+        category_name = tx.category.name if tx.category else None
+        tx_dict = {
+            "id": tx.id,
+            "project_id": tx.project_id,
+            "tx_date": tx.tx_date.isoformat() if tx.tx_date else None,
+            "type": tx.type,
+            "amount": float(tx.amount) if tx.amount else 0,
+            "description": tx.description,
+            "category": category_name,
+            "payment_method": tx.payment_method,
+            "notes": tx.notes,
+            "is_exceptional": getattr(tx, 'is_exceptional', False),
+            "is_generated": getattr(tx, 'is_generated', False),
+            "supplier_id": tx.supplier_id,
+            "from_fund": getattr(tx, 'from_fund', False),
+            "file_path": getattr(tx, 'file_path', None),
+            "recurring_template_id": getattr(tx, 'recurring_template_id', None),
+            "period_start_date": tx.period_start_date.isoformat() if getattr(tx, 'period_start_date', None) else None,
+            "period_end_date": tx.period_end_date.isoformat() if getattr(tx, 'period_end_date', None) else None,
+            "created_by_user_id": getattr(tx, 'created_by_user_id', None),
+            "is_unforeseen": tx.id in unforeseen_resulting_ids
+        }
+        transactions_list.append(tx_dict)
+
+        # Calculate expense categories
+        if tx.type == 'Expense' and category_name and not getattr(tx, 'from_fund', False):
+            expense_by_category[category_name] = expense_by_category.get(category_name, 0) + float(tx.amount or 0)
+
+
     # Process budgets with spending calculations
     # Filter budgets by period: when viewing a specific period, show only that period's budgets
     budgets_list = []
-    if not isinstance(budgets_result, Exception):
-        budgets = list(budgets_result.scalars().all())
-        budget_service = BudgetService(db)
+    budgets = list(budgets_result.scalars().all())
+    budget_service = BudgetService(db)
+    
+    # Determine which period's budgets to show
+    effective_period_id = period_id
+    if effective_period_id is None:
+        # When viewing current period, try to get the current period's ID
+        if current_period and isinstance(current_period, dict):
+            effective_period_id = current_period.get("period_id")
+        elif current_period and hasattr(current_period, 'get'):
+            # Handle case where current_period might be a different dict-like object
+            effective_period_id = current_period.get("period_id") if callable(getattr(current_period, 'get', None)) else None
+        elif current_period and hasattr(current_period, 'id'):
+            # Handle case where current_period is an object with id attribute
+            effective_period_id = current_period.id
         
-        # Determine which period's budgets to show
-        effective_period_id = period_id
-        if effective_period_id is None:
-            # When viewing current period, try to get the current period's ID
-            if current_period and isinstance(current_period, dict):
-                effective_period_id = current_period.get("period_id")
-            elif current_period and hasattr(current_period, 'get'):
-                # Handle case where current_period might be a different dict-like object
-                effective_period_id = current_period.get("period_id") if callable(getattr(current_period, 'get', None)) else None
-            elif current_period and hasattr(current_period, 'id'):
-                # Handle case where current_period is an object with id attribute
-                effective_period_id = current_period.id
-            
-            # Fallback: if we still don't have a period_id, try to get it directly from the database
-            if effective_period_id is None and project and project.start_date:
-                try:
-                    period_repo = ContractPeriodRepository(db)
-                    all_periods = await period_repo.get_by_project(project_id)
-                    for period in all_periods:
-                        if period.start_date == project.start_date:
-                            effective_period_id = period.id
-                            logger.debug("Found current period ID %s from DB for project %s", effective_period_id, project_id)
-                            break
-                except Exception as e:
-                    logger.warning("Error getting period from DB for project %s: %s", project_id, e)
-        
-        # Debug logging
-        total_budgets_before_filter = len(budgets)
-        budgets_by_period = {}
-        for b in budgets:
-            period_id_val = getattr(b, "contract_period_id", None)
-            budgets_by_period[period_id_val] = budgets_by_period.get(period_id_val, 0) + 1
-        logger.debug("Project %s: %d total budgets, effective_period_id=%s, budgets by period: %s", project_id, total_budgets_before_filter, effective_period_id, budgets_by_period)
-        
-        # Filter to this period's budgets (contract_period_id match)
-        # If effective_period_id is set, show budgets for that specific period
-        # If no budgets found for that period, fallback to budgets with NULL contract_period_id (old budgets)
-        # If effective_period_id is None, show budgets with NULL contract_period_id (old budgets without period assignment)
-        if effective_period_id is not None:
-            # First try to get budgets for the specific period
-            period_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
-            if period_budgets:
-                budgets = period_budgets
-                logger.debug("Filtered to %d budgets for period_id=%s", len(budgets), effective_period_id)
-            else:
-                # No budgets for this period, fallback to NULL budgets (old budgets without period assignment)
-                null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
-                if null_budgets:
-                    budgets = null_budgets
+        # Fallback: if we still don't have a period_id, try to get it directly from the database
+        if effective_period_id is None and project and project.start_date:
+            try:
+                period_repo = ContractPeriodRepository(db)
+                all_periods = await period_repo.get_by_project(project_id)
+                for period in all_periods:
+                    if period.start_date == project.start_date:
+                        effective_period_id = period.id
+                        logger.debug("Found current period ID %s from DB for project %s", effective_period_id, project_id)
+                        break
+            except Exception as e:
+                logger.warning("Error getting period from DB for project %s: %s", project_id, e)
+    
+    # Debug logging
+    total_budgets_before_filter = len(budgets)
+    budgets_by_period = {}
+    for b in budgets:
+        period_id_val = getattr(b, "contract_period_id", None)
+        budgets_by_period[period_id_val] = budgets_by_period.get(period_id_val, 0) + 1
+    logger.debug("Project %s: %d total budgets, effective_period_id=%s, budgets by period: %s", project_id, total_budgets_before_filter, effective_period_id, budgets_by_period)
+    
+    # Filter to this period's budgets (contract_period_id match)
+    # If effective_period_id is set, show budgets for that specific period
+    # If no budgets found for that period, fallback to budgets with NULL contract_period_id (old budgets)
+    # If effective_period_id is None, show budgets with NULL contract_period_id (old budgets without period assignment)
+    if effective_period_id is not None:
+        # First try to get budgets for the specific period
+        period_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) == effective_period_id]
+        if period_budgets:
+            budgets = period_budgets
+            logger.debug("Filtered to %d budgets for period_id=%s", len(budgets), effective_period_id)
         else:
-            # When viewing current period but no period_id found:
-            # Show budgets with NULL contract_period_id (old budgets)
-            # If none found, show all budgets as fallback
+            # No budgets for this period, fallback to NULL budgets (old budgets without period assignment)
             null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
             if null_budgets:
                 budgets = null_budgets
-                logger.debug("Using %d budgets with NULL contract_period_id (no period_id found)", len(budgets))
-            else:
-                # If no null budgets, keep all budgets (they might all be assigned to periods)
-                # This ensures budgets are visible even if period detection fails
-                logger.debug("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
-        for budget in budgets:
-            # Calculate spent amount from already-loaded transactions for this budget's category
-            spent = sum(
-                tx["amount"] for tx in transactions_list
-                if tx["type"] == "Expense"
-                and tx.get("category") == budget.category
-                and not tx.get("from_fund", False)
-            )
-            budget_dict = {
-                "id": budget.id,
-                "project_id": budget.project_id,
-                "category": budget.category or "Unknown",
-                "amount": float(budget.amount),
-                "period_type": budget.period_type,
-                "start_date": budget.start_date.isoformat() if budget.start_date else None,
-                "end_date": budget.end_date.isoformat() if budget.end_date else None,
-                "is_active": budget.is_active,
-                "spent_amount": spent,
-                "remaining_amount": float(budget.amount) - spent,
-                "spent_percentage": (spent / float(budget.amount) * 100) if budget.amount else 0,
-            }
-            budgets_list.append(budget_dict)
-    
+    else:
+        # When viewing current period but no period_id found:
+        # Show budgets with NULL contract_period_id (old budgets)
+        # If none found, show all budgets as fallback
+        null_budgets = [b for b in budgets if getattr(b, "contract_period_id", None) is None]
+        if null_budgets:
+            budgets = null_budgets
+            logger.debug("Using %d budgets with NULL contract_period_id (no period_id found)", len(budgets))
+        else:
+            # If no null budgets, keep all budgets (they might all be assigned to periods)
+            # This ensures budgets are visible even if period detection fails
+            logger.debug("No NULL budgets found, showing all %d budgets as fallback", len(budgets))
+    for budget in budgets:
+        # Calculate spent amount from already-loaded transactions for this budget's category
+        spent = sum(
+            tx["amount"] for tx in transactions_list
+            if tx["type"] == "Expense"
+            and tx.get("category") == budget.category
+            and not tx.get("from_fund", False)
+        )
+        budget_dict = {
+            "id": budget.id,
+            "project_id": budget.project_id,
+            "category": budget.category or "Unknown",
+            "amount": float(budget.amount),
+            "period_type": budget.period_type,
+            "start_date": budget.start_date.isoformat() if budget.start_date else None,
+            "end_date": budget.end_date.isoformat() if budget.end_date else None,
+            "is_active": budget.is_active,
+            "spent_amount": spent,
+            "remaining_amount": float(budget.amount) - spent,
+            "spent_percentage": (spent / float(budget.amount) * 100) if budget.amount else 0,
+        }
+        budgets_list.append(budget_dict)
+
     # Process fund
     fund_data = None
-    if not isinstance(fund_result, Exception):
-        fund = fund_result.scalar_one_or_none()
-        if fund:
-            # Get fund transactions (already in transactions_list with from_fund=True)
-            fund_transactions = [tx for tx in transactions_list if tx.get('from_fund', False)]
-            total_deductions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Expense')
-            total_additions_from_transactions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Income')
-            
-            # Calculate monthly additions if monthly_amount > 0
-            total_monthly_additions = 0.0
-            if fund.monthly_amount > 0:
-                today = date.today()
-                project = await ProjectRepository(db).get_by_id(project_id)
-                if project and project.start_date:
-                    calculation_start_date = project.start_date
-                else:
-                    calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else today
-                total_monthly_additions = calculate_monthly_income_amount(
-                    float(fund.monthly_amount),
-                    calculation_start_date,
-                    today
-                )
-            
-            # Calculate initial_total: total amount that entered the fund from the beginning
-            # Formula: initial_total = initial_balance + total_additions
-            # We work backwards: initial_total = current_balance + total_deductions - total_additions
-            stored_current_balance = float(fund.current_balance)
-            calculated_initial = stored_current_balance + total_deductions - total_monthly_additions - total_additions_from_transactions
-            # initial_total should represent actual money that entered, not debt
-            # If negative, it means the fund started with a negative balance (debt), so no money actually entered
-            initial_total = max(0, calculated_initial)
-            
-            # Recalculate current_balance from transactions to ensure it's correct
-            # Formula: current_balance = initial_total + total_additions - total_deductions
-            # But if initial_total is 0 (no money entered), then current_balance = total_additions - total_deductions
-            total_additions = total_monthly_additions + total_additions_from_transactions
-            recalculated_current_balance = initial_total + total_additions - total_deductions
-            
-            # Use the recalculated balance to ensure consistency
-            current_balance = recalculated_current_balance
-            
-            fund_data = {
-                "id": fund.id,
-                "project_id": fund.project_id,
-                "current_balance": current_balance,
-                "monthly_amount": float(fund.monthly_amount),
-                "total_deductions": total_deductions,
-                "initial_total": initial_total,  # Total amount that entered the fund
-                "transactions": fund_transactions
-            }
-    
+    fund = fund_result.scalar_one_or_none()
+    if fund:
+        # Get fund transactions (already in transactions_list with from_fund=True)
+        fund_transactions = [tx for tx in transactions_list if tx.get('from_fund', False)]
+        total_deductions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Expense')
+        total_additions_from_transactions = sum(tx['amount'] for tx in fund_transactions if tx['type'] == 'Income')
+        
+        # Calculate monthly additions if monthly_amount > 0
+        total_monthly_additions = 0.0
+        if fund.monthly_amount > 0:
+            today = date.today()
+            project = await ProjectRepository(db).get_by_id(project_id)
+            if project and project.start_date:
+                calculation_start_date = project.start_date
+            else:
+                calculation_start_date = fund.created_at.date() if hasattr(fund.created_at, 'date') else today
+            total_monthly_additions = calculate_monthly_income_amount(
+                float(fund.monthly_amount),
+                calculation_start_date,
+                today
+            )
+        
+        # Calculate initial_total: total amount that entered the fund from the beginning
+        # Formula: initial_total = initial_balance + total_additions
+        # We work backwards: initial_total = current_balance + total_deductions - total_additions
+        stored_current_balance = float(fund.current_balance)
+        calculated_initial = stored_current_balance + total_deductions - total_monthly_additions - total_additions_from_transactions
+        # initial_total should represent actual money that entered, not debt
+        # If negative, it means the fund started with a negative balance (debt), so no money actually entered
+        initial_total = max(0, calculated_initial)
+        
+        # Recalculate current_balance from transactions to ensure it's correct
+        # Formula: current_balance = initial_total + total_additions - total_deductions
+        # But if initial_total is 0 (no money entered), then current_balance = total_additions - total_deductions
+        total_additions = total_monthly_additions + total_additions_from_transactions
+        recalculated_current_balance = initial_total + total_additions - total_deductions
+        
+        # Use the recalculated balance to ensure consistency
+        current_balance = recalculated_current_balance
+        
+        fund_data = {
+            "id": fund.id,
+            "project_id": fund.project_id,
+            "current_balance": current_balance,
+            "monthly_amount": float(fund.monthly_amount),
+            "total_deductions": total_deductions,
+            "initial_total": initial_total,  # Total amount that entered the fund
+            "transactions": fund_transactions
+        }
+
     # Build expense categories list
     expense_categories = [
         {"category": cat, "amount": amount, "color": f"#{hash(cat) % 0xFFFFFF:06x}"}
@@ -786,43 +793,39 @@ async def get_project_full(
 @router.get("/{project_id}/subprojects", response_model=list[ProjectOut])
 async def get_subprojects(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """Get subprojects - accessible to all authenticated users"""
-    from backend.services.fund_service import FundService
-    
+    # _build_projects_list batch-loads funds and earliest contract dates in 2 queries.
+    # The previous loop issued one fund query per subproject (N+1), which the
+    # parent-project page paid on every load.
     subprojects = await ProjectRepository(db).get_subprojects(project_id)
-    fund_service = FundService(db)
-    
-    # Add fund information to each subproject
-    result = []
-    for subproject in subprojects:
-        fund = await fund_service.get_fund_by_project(subproject.id)
-        subproject_dict = {
-            "id": subproject.id,
-            "name": subproject.name,
-            "description": subproject.description,
-            "start_date": subproject.start_date.isoformat() if subproject.start_date else None,
-            "end_date": subproject.end_date.isoformat() if subproject.end_date else None,
-            "contract_duration_months": subproject.contract_duration_months,
-            "budget_monthly": subproject.budget_monthly,
-            "budget_annual": subproject.budget_annual,
-            "manager_id": subproject.manager_id,
-            "relation_project": subproject.relation_project,
-            "is_parent_project": subproject.is_parent_project,
-            "num_residents": subproject.num_residents,
-            "monthly_price_per_apartment": subproject.monthly_price_per_apartment,
-            "address": subproject.address,
-            "city": subproject.city,
-            "image_url": subproject.image_url,
-            "contract_file_url": subproject.contract_file_url,
-            "is_active": subproject.is_active,
-            "show_in_quotes_tab": getattr(subproject, 'show_in_quotes_tab', False),
-            "created_at": subproject.created_at,
-            "total_value": getattr(subproject, 'total_value', 0.0),
-            "has_fund": fund is not None,
-            "monthly_fund_amount": float(fund.monthly_amount) if fund else None
-        }
-        result.append(subproject_dict)
-    
-    return result
+    return await _build_projects_list(db, subprojects)
+
+
+@router.get("/{project_id}/all-transactions")
+async def get_parent_project_all_transactions(
+    project_id: int,
+    db: DBSessionDep,
+    start_date: Optional[date] = Query(None, description="Inclusive start of the date filter"),
+    end_date: Optional[date] = Query(None, description="Inclusive end of the date filter"),
+    user = Depends(get_current_user),
+):
+    """Parent project + subproject transactions in one date-filtered response.
+
+    Replaces the parent page's ``1 + 1 + N`` client-side fan-out over
+    ``/transactions/project/{id}``.
+    """
+    from backend.services.parent_project_transaction_service import (
+        ParentProjectTransactionNotFoundError,
+        ParentProjectTransactionService,
+    )
+
+    try:
+        return await ParentProjectTransactionService(db).list_with_subprojects(
+            parent_project_id=project_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ParentProjectTransactionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.get("/get_values/{project_id}", response_model=ProjectOut)
 async def get_project_values(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
