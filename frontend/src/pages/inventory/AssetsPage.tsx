@@ -30,6 +30,7 @@ import {
 import { StatusBadge } from './InventoryDashboard'
 import { AssetViewModal } from './AssetViewModal'
 import { warehouseLabel } from '../../lib/warehouse'
+import { extractErrorMessage } from '../../lib/apiError'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -717,6 +718,7 @@ interface AddAssetModalProps {
 
 function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetModalProps) {
   const [name, setName] = useState('')
+  const [serialNumber, setSerialNumber] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [purchaseDate, setPurchaseDate] = useState('')
@@ -762,10 +764,21 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
     }
   }
 
+  // The server requires a name, a unique serial number and an existing
+  // category (all three are non-nullable columns). Validate here so the user
+  // gets a field-specific message instead of a raw 422 from the API.
+  function validate(): string | null {
+    if (!name.trim()) return 'שם הוא שדה חובה'
+    if (!serialNumber.trim()) return 'מספר סידורי הוא שדה חובה'
+    if (!categoryId) return 'יש לבחור קטגוריה'
+    return null
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim()) {
-      setError('שם הוא שדה חובה')
+    const validationError = validate()
+    if (validationError) {
+      setError(validationError)
       return
     }
 
@@ -774,8 +787,8 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
     try {
       const response = await cemsApi.createAsset({
         name: name.trim(),
-        serial_number: name.trim(),
-        category_id: categoryId || undefined,
+        serial_number: serialNumber.trim(),
+        category_id: categoryId,
         current_warehouse_id: warehouseId || undefined,
         purchase_date: purchaseDate || undefined,
         warranty_expiry: warrantyExpiry || undefined,
@@ -797,8 +810,8 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
       }
       onCreated()
       onClose()
-    } catch {
-      setError('שגיאה ביצירת פריט ציוד')
+    } catch (err) {
+      setError(extractErrorMessage(err, 'שגיאה ביצירת פריט ציוד'))
     } finally {
       setSubmitting(false)
     }
@@ -824,6 +837,19 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_CLASS} required />
           </div>
           <div>
+            <label className={LABEL_CLASS}>מספר סידורי *</label>
+            <input
+              type="text"
+              value={serialNumber}
+              onChange={(e) => setSerialNumber(e.target.value)}
+              className={INPUT_CLASS}
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              המספר הסידורי חייב להיות ייחודי לכל פריט ציוד.
+            </p>
+          </div>
+          <div>
             <label className={LABEL_CLASS}>תמונה</label>
             <input
               ref={photoInputRef}
@@ -847,11 +873,21 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
             </div>
           </div>
           <div>
-            <label className={LABEL_CLASS}>קטגוריה</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={INPUT_CLASS}>
+            <label className={LABEL_CLASS}>קטגוריה *</label>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className={INPUT_CLASS}
+              required
+            >
               <option value="">בחר קטגוריה</option>
               {filteredCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {filteredCategories.length === 0 && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                אין קטגוריות זמינות למחסן שנבחר. יש להגדיר קטגוריה במסך הקטגוריות לפני הוספת ציוד.
+              </p>
+            )}
           </div>
           <div>
             <label className={LABEL_CLASS}>מחסן</label>
