@@ -15,6 +15,7 @@ from backend.api.v1.cems_deps import (
 )
 from backend.models.cems_fixed_asset import AssetStatus
 from backend.repositories.cems_asset_repository import AssetRepository
+from backend.repositories.cems_category_repository import CategoryRepository
 from backend.repositories.cems_transfer_repository import TransferRepository
 from backend.repositories.cems_user_repository import UserRepository
 from backend.schemas.cems_fixed_asset import (
@@ -25,10 +26,21 @@ from backend.schemas.cems_fixed_asset import (
     RetireAssetRequest,
 )
 from backend.schemas.cems_transfer import ApproveRetirementRequest, RetirementRead
+from backend.services.cems_asset_creation_service import AssetCreationService
 from backend.services.cems_photo_storage import store_photo, validate_photo
 from backend.services.cems_retirement_service import RetirementService
-from backend.core.exceptions.cems import RetirementError
+from backend.core.exceptions.cems import AssetCreationError, RetirementError
 from backend.models import User
+
+
+def _raise_http_from_asset_creation_error(error: AssetCreationError) -> None:
+    """Translate a domain ``AssetCreationError`` into an HTTPException.
+
+    Single-responsibility helper that keeps the service layer free of
+    FastAPI primitives while presenting the Hebrew detail message to the
+    client at the appropriate HTTP status code.
+    """
+    raise HTTPException(status_code=error.http_status, detail=error.detail)
 
 
 def _raise_http_from_retirement_error(error: RetirementError) -> None:
@@ -213,14 +225,11 @@ async def create_asset(
 ) -> FixedAssetRead:
     if payload.current_warehouse_id is not None:
         await check_warehouse_manager_access(payload.current_warehouse_id, current_user, db)
-    repo = AssetRepository(db)
-    asset = await repo.create(payload.model_dump())
-    await repo.log_history(
-        asset_id=asset.id,
-        action="ASSET_CREATED",
-        actor_id=current_user.id,
-        notes=f"נכס '{asset.name}' נוצר עם מס' סידורי '{asset.serial_number}'.",
-    )
+    service = AssetCreationService(AssetRepository(db), CategoryRepository(db))
+    try:
+        asset = await service.create_asset(payload.model_dump(), current_user.id)
+    except AssetCreationError as error:
+        _raise_http_from_asset_creation_error(error)
     return FixedAssetRead.model_validate(asset)
 
 
