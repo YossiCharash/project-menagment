@@ -300,6 +300,21 @@ async def get_profitability_alerts(
 
     return result
 
+
+# Declared before /{project_id} so the literal path is not swallowed by the
+# int path parameter.
+@router.get("/category-summary")
+async def get_projects_category_summary(db: DBSessionDep, user = Depends(get_current_user)):
+    """Per-category income/expense totals for every active project, in one query.
+
+    Feeds the small chart on each card of the project and subproject lists, which
+    previously issued one /transactions/project/{id} call per project.
+    """
+    from backend.services.project_category_summary_service import ProjectCategorySummaryService
+
+    return await ProjectCategorySummaryService(db).summarize_active_projects()
+
+
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: int, db: DBSessionDep, user = Depends(get_current_user)):
     """Get project details - accessible to all authenticated users"""

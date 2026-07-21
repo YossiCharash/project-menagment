@@ -243,21 +243,18 @@ export default function Subprojects() {
   const loadProjectCharts = async (projects: ProjectWithFinance[]) => {
     const charts: Record<number, CategoryPoint[]> = {}
     const visible = projects.filter((p: any) => p.is_active !== false)
-    
-    for (const p of visible) {
-      try {
-        const { data } = await api.get(`/transactions/project/${p.id}`)
-        const map: Record<string, { income: number; expense: number }> = {}
-        for (const t of data as any[]) {
-          const cat = (t.category || 'ללא קטגוריה') as string
-          if (!map[cat]) map[cat] = { income: 0, expense: 0 }
-          if (t.type === 'Income') map[cat].income += Number(t.amount)
-          else map[cat].expense += Number(t.amount)
-        }
-        charts[p.id] = Object.entries(map).map(([category, v]) => ({ category, income: v.income, expense: v.expense }))
-      } catch { 
-        charts[p.id] = [] 
+
+    // ONE aggregate request instead of a sequential /transactions/project/{id}
+    // per project - N round trips back to back, each returning that project's
+    // full transaction history for the sake of a few category sums.
+    try {
+      const { data } = await api.get('/projects/category-summary')
+      for (const p of visible) {
+        charts[p.id] = (data?.[p.id] as CategoryPoint[]) || []
       }
+    } catch (err) {
+      console.error('Error loading subproject category charts:', err)
+      for (const p of visible) charts[p.id] = []
     }
     setProjectCharts(charts)
   }
