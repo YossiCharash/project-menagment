@@ -5,6 +5,7 @@ import api, { avatarUrl, getBacklogTasks } from '../../lib/api'
 import type { Task, TaskStatus, UserForTask, TaskLabelType } from '../../pages/TaskCalendar'
 import TaskDetailModal from './TaskDetailModal'
 import CreateTaskModal from './CreateTaskModal'
+import TaskEditModal from './TaskEditModal'
 import UnreadMessagesDot from './UnreadMessagesDot'
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
@@ -39,6 +40,8 @@ export default function BacklogTab({ refreshSignal }: BacklogTabProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  // The task being edited via the shared TaskEditModal (opened from the detail modal).
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
 
   // silent=true refreshes in the background (unread-count poll): no spinner, and
   // it keeps the current rows on a transient failure instead of clearing them.
@@ -243,6 +246,18 @@ export default function BacklogTab({ refreshSignal }: BacklogTabProps) {
         }}
         onTaskDeleted={removeSelected}
         onTaskArchived={removeSelected}
+        onEdit={(task) => setEditingTask(task)}
+      />
+
+      {/* Edit modal — TaskDetailModal only shows its edit button when given onEdit. */}
+      <TaskEditModal
+        task={editingTask}
+        isOpen={!!editingTask}
+        onClose={() => setEditingTask(null)}
+        users={users}
+        taskLabels={taskLabels}
+        onSaved={() => { void fetchBacklogTasks() }}
+        onLabelsChanged={fetchLabels}
       />
 
       {/* Create backlog task modal */}
