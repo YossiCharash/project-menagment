@@ -15,6 +15,98 @@ class FinancialAggregationService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def _build_date_conditions(self, start_date: Optional[date], end_date: Optional[date]) -> list:
+        """Build the transaction date-overlap filter shared by parent + subprojects.
+
+        Regular transactions are matched by tx_date; period transactions are matched
+        by period overlap. Behaviour is intentionally identical to the previous inline
+        logic (note: when both dates are given, regular transactions are only bounded
+        by start_date, matching the original implementation).
+        """
+        date_conditions: list = []
+        if start_date:
+            date_conditions.append(
+                or_(
+                    and_(
+                        Transaction.period_start_date.is_(None),
+                        Transaction.period_end_date.is_(None),
+                        Transaction.tx_date >= start_date
+                    ),
+                    and_(
+                        Transaction.period_start_date.is_not(None),
+                        Transaction.period_end_date.is_not(None),
+                        Transaction.period_start_date <= (end_date if end_date else date.today()),
+                        Transaction.period_end_date >= start_date
+                    )
+                )
+            )
+        elif end_date:
+            date_conditions.append(
+                or_(
+                    and_(
+                        Transaction.period_start_date.is_(None),
+                        Transaction.period_end_date.is_(None),
+                        Transaction.tx_date <= end_date
+                    ),
+                    and_(
+                        Transaction.period_start_date.is_not(None),
+                        Transaction.period_end_date.is_not(None),
+                        Transaction.period_start_date <= end_date,
+                        Transaction.period_end_date >= date(1900, 1, 1)
+                    )
+                )
+            )
+        return date_conditions
+
+    def _sum_income_expense(self, transactions: list, effective_start_date: date, effective_end_date: date) -> tuple:
+        """Sum income/expense for a list of transactions, prorating period transactions."""
+        income = 0.0
+        expense = 0.0
+        for t in transactions:
+            if t.type not in ('Income', 'Expense'):
+                continue
+            if t.period_start_date and t.period_end_date:
+                total_days = (t.period_end_date - t.period_start_date).days + 1
+                if total_days > 0:
+                    overlap_start = max(t.period_start_date, effective_start_date)
+                    overlap_end = min(t.period_end_date, effective_end_date)
+                    if overlap_start <= overlap_end:
+                        overlap_days = (overlap_end - overlap_start).days + 1
+                        amount = float(t.amount) / total_days * overlap_days
+                    else:
+                        amount = 0.0
+                else:
+                    amount = 0.0
+            else:
+                amount = float(t.amount)
+            if t.type == 'Income':
+                income += amount
+            else:
+                expense += amount
+        return income, expense
+
+    def _monthly_budget_income(self, project, start_date: Optional[date], end_date: Optional[date]) -> float:
+        """Expected monthly-budget income for a project within the date range."""
+        monthly_income = float(project.budget_monthly or 0)
+        if monthly_income <= 0:
+            return 0.0
+        if project.start_date:
+            income_calculation_start = project.start_date
+        elif hasattr(project, 'created_at') and project.created_at:
+            income_calculation_start = project.created_at.date() if hasattr(project.created_at, 'date') else project.created_at
+        else:
+            income_calculation_start = start_date if start_date else (
+                project.created_at.date() if hasattr(project, 'created_at') and project.created_at else date.today()
+            )
+        calculation_end_date = end_date if end_date else date.today()
+        if income_calculation_start > calculation_end_date:
+            return 0.0
+        if start_date and income_calculation_start < start_date:
+            effective_start = start_date
+        else:
+            effective_start = income_calculation_start
+        return calculate_monthly_income_amount(monthly_income, effective_start, calculation_end_date)
+
     async def get_parent_project_financial_summary(
         self, 
         parent_project_id: int, 
@@ -53,245 +145,59 @@ class FinancialAggregationService:
         )
         subprojects = list(result.scalars().all())
         
-        # Get all transactions for parent project (including period transactions that overlap)
+        # Build the date-overlap filter once and reuse for parent + all subprojects.
+        date_conditions = self._build_date_conditions(start_date, end_date)
+
+        effective_start_date = start_date if start_date else date(1900, 1, 1)
+        effective_end_date = end_date if end_date else date.today()
+
+        # Parent project transactions (single query)
         parent_transactions_query = select(Transaction).where(
             Transaction.project_id == parent_project_id,
             Transaction.from_fund == False
         )
-
-        # For regular transactions, filter by tx_date
-        # For period transactions, check if period overlaps with date range
-        if start_date or end_date:
-            date_conditions = []
-            if start_date:
-                date_conditions.append(
-                    or_(
-                        # Regular transaction: tx_date in range
-                        and_(
-                            Transaction.period_start_date.is_(None),
-                            Transaction.period_end_date.is_(None),
-                            Transaction.tx_date >= start_date
-                        ),
-                        # Period transaction: period overlaps with range
-                        and_(
-                            Transaction.period_start_date.is_not(None),
-                            Transaction.period_end_date.is_not(None),
-                            Transaction.period_start_date <= (end_date if end_date else date.today()),
-                            Transaction.period_end_date >= (start_date if start_date else date(1900, 1, 1))
-                        )
-                    )
-                )
-            if end_date:
-                if start_date:
-                    # Already handled in the or_ condition above
-                    pass
-                else:
-                    date_conditions.append(
-                        or_(
-                            # Regular transaction: tx_date in range
-                            and_(
-                                Transaction.period_start_date.is_(None),
-                                Transaction.period_end_date.is_(None),
-                                Transaction.tx_date <= end_date
-                            ),
-                            # Period transaction: period overlaps with range
-                            and_(
-                                Transaction.period_start_date.is_not(None),
-                                Transaction.period_end_date.is_not(None),
-                                Transaction.period_start_date <= end_date,
-                                Transaction.period_end_date >= date(1900, 1, 1)
-                            )
-                        )
-                    )
-
-            if date_conditions:
-                parent_transactions_query = parent_transactions_query.where(and_(*date_conditions))
-
+        if date_conditions:
+            parent_transactions_query = parent_transactions_query.where(and_(*date_conditions))
         parent_transactions = list((await self.db.execute(parent_transactions_query)).scalars().all())
-        
-        # Calculate parent project financials with proportional amounts for period transactions
-        parent_transaction_income = 0.0
-        parent_expense = 0.0
-        
-        effective_start_date = start_date if start_date else date(1900, 1, 1)
-        effective_end_date = end_date if end_date else date.today()
-        
-        for t in parent_transactions:
-            if t.type == 'Income':
-                if t.period_start_date and t.period_end_date:
-                    # Period transaction - calculate proportional amount
-                    total_days = (t.period_end_date - t.period_start_date).days + 1
-                    if total_days > 0:
-                        overlap_start = max(t.period_start_date, effective_start_date)
-                        overlap_end = min(t.period_end_date, effective_end_date)
-                        if overlap_start <= overlap_end:
-                            overlap_days = (overlap_end - overlap_start).days + 1
-                            daily_rate = float(t.amount) / total_days
-                            parent_transaction_income += daily_rate * overlap_days
-                else:
-                    # Regular transaction - use full amount
-                    parent_transaction_income += float(t.amount)
-            elif t.type == 'Expense':
-                if t.period_start_date and t.period_end_date:
-                    # Period transaction - calculate proportional amount
-                    total_days = (t.period_end_date - t.period_start_date).days + 1
-                    if total_days > 0:
-                        overlap_start = max(t.period_start_date, effective_start_date)
-                        overlap_end = min(t.period_end_date, effective_end_date)
-                        if overlap_start <= overlap_end:
-                            overlap_days = (overlap_end - overlap_start).days + 1
-                            daily_rate = float(t.amount) / total_days
-                            parent_expense += daily_rate * overlap_days
-                else:
-                    # Regular transaction - use full amount
-                    parent_expense += float(t.amount)
-        
-        # Calculate income from monthly budget (expected monthly income)
-        parent_project_income = 0.0
-        monthly_income = float(parent_project.budget_monthly or 0)
-        if monthly_income > 0:
-            # Use project start_date if available, otherwise use created_at date
-            if parent_project.start_date:
-                income_calculation_start = parent_project.start_date
-            elif hasattr(parent_project, 'created_at') and parent_project.created_at:
-                income_calculation_start = parent_project.created_at.date() if hasattr(parent_project.created_at, 'date') else parent_project.created_at
-            else:
-                # Fallback: use start_date if provided, otherwise use project creation date
-                income_calculation_start = start_date if start_date else (parent_project.created_at.date() if hasattr(parent_project, 'created_at') and parent_project.created_at else date.today())
-            
-            # Use end_date if provided, otherwise use today
-            calculation_end_date = end_date if end_date else date.today()
-            
-            # Only calculate if start date is within the date range
-            if income_calculation_start <= calculation_end_date:
-                # Adjust start date to be within the date range (if start_date filter is provided)
-                if start_date and income_calculation_start < start_date:
-                    effective_start = start_date
-                else:
-                    effective_start = income_calculation_start
-                parent_project_income = calculate_monthly_income_amount(monthly_income, effective_start, calculation_end_date)
-        
+
+        parent_transaction_income, parent_expense = self._sum_income_expense(
+            parent_transactions, effective_start_date, effective_end_date
+        )
+        parent_project_income = self._monthly_budget_income(parent_project, start_date, end_date)
+
         parent_income = parent_transaction_income + parent_project_income
         parent_profit = parent_income - parent_expense
         parent_profit_margin = (parent_profit / parent_income * 100) if parent_income > 0 else 0
-        
+
+        # Subproject transactions - fetch ALL in a single query and group in memory.
+        # Previously this ran one transactions query per subproject (N+1), which was a
+        # major source of parent-project page slowness for parents with many subprojects.
+        subproject_ids = [sp.id for sp in subprojects]
+        transactions_by_subproject: Dict[int, list] = {sp_id: [] for sp_id in subproject_ids}
+        if subproject_ids:
+            subproject_tx_query = select(Transaction).where(
+                Transaction.project_id.in_(subproject_ids),
+                Transaction.from_fund == False
+            )
+            if date_conditions:
+                subproject_tx_query = subproject_tx_query.where(and_(*date_conditions))
+            all_subproject_txs = (await self.db.execute(subproject_tx_query)).scalars().all()
+            for t in all_subproject_txs:
+                transactions_by_subproject[t.project_id].append(t)
+
         # Calculate subproject financials
         subproject_financials = []
         total_subproject_income = 0
         total_subproject_expense = 0
-        
+
         for subproject in subprojects:
-            # Get all transactions for subproject (including period transactions that overlap)
-            subproject_query = select(Transaction).where(
-                Transaction.project_id == subproject.id,
-                Transaction.from_fund == False
+            subproject_transactions = transactions_by_subproject.get(subproject.id, [])
+
+            subproject_transaction_income, subproject_expense = self._sum_income_expense(
+                subproject_transactions, effective_start_date, effective_end_date
             )
+            subproject_project_income = self._monthly_budget_income(subproject, start_date, end_date)
 
-            # For regular transactions, filter by tx_date
-            # For period transactions, check if period overlaps with date range
-            if start_date or end_date:
-                date_conditions = []
-                if start_date:
-                    date_conditions.append(
-                        or_(
-                            # Regular transaction: tx_date in range
-                            and_(
-                                Transaction.period_start_date.is_(None),
-                                Transaction.period_end_date.is_(None),
-                                Transaction.tx_date >= start_date
-                            ),
-                            # Period transaction: period overlaps with range
-                            and_(
-                                Transaction.period_start_date.is_not(None),
-                                Transaction.period_end_date.is_not(None),
-                                Transaction.period_start_date <= (end_date if end_date else date.today()),
-                                Transaction.period_end_date >= (start_date if start_date else date(1900, 1, 1))
-                            )
-                        )
-                    )
-                if end_date and not start_date:
-                    date_conditions.append(
-                        or_(
-                            # Regular transaction: tx_date in range
-                            and_(
-                                Transaction.period_start_date.is_(None),
-                                Transaction.period_end_date.is_(None),
-                                Transaction.tx_date <= end_date
-                            ),
-                            # Period transaction: period overlaps with range
-                            and_(
-                                Transaction.period_start_date.is_not(None),
-                                Transaction.period_end_date.is_not(None),
-                                Transaction.period_start_date <= end_date,
-                                Transaction.period_end_date >= date(1900, 1, 1)
-                            )
-                        )
-                    )
-
-                if date_conditions:
-                    subproject_query = subproject_query.where(and_(*date_conditions))
-
-            subproject_transactions = list((await self.db.execute(subproject_query)).scalars().all())
-            
-            # Calculate subproject financials with proportional amounts for period transactions
-            subproject_transaction_income = 0.0
-            subproject_expense = 0.0
-            
-            for t in subproject_transactions:
-                if t.type == 'Income':
-                    if t.period_start_date and t.period_end_date:
-                        # Period transaction - calculate proportional amount
-                        total_days = (t.period_end_date - t.period_start_date).days + 1
-                        if total_days > 0:
-                            overlap_start = max(t.period_start_date, effective_start_date)
-                            overlap_end = min(t.period_end_date, effective_end_date)
-                            if overlap_start <= overlap_end:
-                                overlap_days = (overlap_end - overlap_start).days + 1
-                                daily_rate = float(t.amount) / total_days
-                                subproject_transaction_income += daily_rate * overlap_days
-                    else:
-                        # Regular transaction - use full amount
-                        subproject_transaction_income += float(t.amount)
-                elif t.type == 'Expense':
-                    if t.period_start_date and t.period_end_date:
-                        # Period transaction - calculate proportional amount
-                        total_days = (t.period_end_date - t.period_start_date).days + 1
-                        if total_days > 0:
-                            overlap_start = max(t.period_start_date, effective_start_date)
-                            overlap_end = min(t.period_end_date, effective_end_date)
-                            if overlap_start <= overlap_end:
-                                overlap_days = (overlap_end - overlap_start).days + 1
-                                daily_rate = float(t.amount) / total_days
-                                subproject_expense += daily_rate * overlap_days
-                    else:
-                        # Regular transaction - use full amount
-                        subproject_expense += float(t.amount)
-            
-            # Calculate income from monthly budget (expected monthly income)
-            subproject_project_income = 0.0
-            subproject_monthly_income = float(subproject.budget_monthly or 0)
-            if subproject_monthly_income > 0:
-                # Use project start_date if available, otherwise use created_at date
-                if subproject.start_date:
-                    income_calculation_start = subproject.start_date
-                elif hasattr(subproject, 'created_at') and subproject.created_at:
-                    income_calculation_start = subproject.created_at.date() if hasattr(subproject.created_at, 'date') else subproject.created_at
-                else:
-                    # Fallback: use start_date if provided, otherwise use project creation date
-                    income_calculation_start = start_date if start_date else (subproject.created_at.date() if hasattr(subproject, 'created_at') and subproject.created_at else date.today())
-                
-                # Use end_date if provided, otherwise use today
-                calculation_end_date = end_date if end_date else date.today()
-                
-                # Only calculate if start date is within the date range
-                if income_calculation_start <= calculation_end_date:
-                    # Adjust start date to be within the date range (if start_date filter is provided)
-                    if start_date and income_calculation_start < start_date:
-                        effective_start = start_date
-                    else:
-                        effective_start = income_calculation_start
-                    subproject_project_income = calculate_monthly_income_amount(subproject_monthly_income, effective_start, calculation_end_date)
-            
             subproject_income = subproject_transaction_income + subproject_project_income
             subproject_profit = subproject_income - subproject_expense
             subproject_profit_margin = (subproject_profit / subproject_income * 100) if subproject_income > 0 else 0
