@@ -73,12 +73,18 @@ export default function AttachmentView({ fileName, fileUrl, className }: Attachm
       rel="noopener noreferrer"
       title={fileName}
       className={cn(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs hover:bg-gray-200 dark:hover:bg-gray-500 max-w-[160px]',
+        // Explicit text/background colours (never inherited): this chip is also
+        // rendered inside coloured chat bubbles, where an inherited white text
+        // colour would make the file name unreadable.
+        'inline-flex items-center gap-1 px-2 py-1 rounded-md max-w-[200px] text-xs font-medium',
+        'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100',
+        'border border-gray-300 dark:border-gray-600 shadow-sm',
+        'hover:bg-gray-100 dark:hover:bg-gray-700',
         className,
       )}
     >
-      <Paperclip className="w-3 h-3 flex-shrink-0" />
-      <span className="truncate">{fileName}</span>
+      <Paperclip className="w-3 h-3 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+      <span className="truncate" dir="auto">{fileName}</span>
     </a>
   )
 }
