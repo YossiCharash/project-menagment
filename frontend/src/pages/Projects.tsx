@@ -391,34 +391,19 @@ export default function Projects() {
 
   const loadProjectCharts = async (projects: ProjectWithFinance[]) => {
     const visible = projects.filter((p: any) => p.is_active !== false)
-    
-    // Load all chart data in parallel instead of sequentially
-    const results = await Promise.allSettled(
-      visible.map(async (p) => {
-        const { data } = await api.get(`/transactions/project/${p.id}`)
-        const map: Record<string, { income: number; expense: number }> = {}
-        for (const t of data as any[]) {
-          const cat = (t.category || 'ללא קטגוריה') as string
-          if (!map[cat]) map[cat] = { income: 0, expense: 0 }
-          if (t.type === 'Income') map[cat].income += Number(t.amount)
-          else map[cat].expense += Number(t.amount)
-        }
-        return {
-          id: p.id,
-          points: Object.entries(map).map(([category, v]) => ({ category, income: v.income, expense: v.expense }))
-        }
-      })
-    )
 
+    // ONE aggregate request for every project's category totals. This used to be
+    // one /transactions/project/{id} call per project, each downloading that
+    // project's entire transaction history just to produce a few sums.
     const charts: Record<number, CategoryPoint[]> = {}
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        charts[r.value.id] = r.value.points
+    try {
+      const { data } = await api.get('/projects/category-summary')
+      for (const p of visible) {
+        charts[p.id] = (data?.[p.id] as CategoryPoint[]) || []
       }
-    }
-    // For visible projects that failed, set empty array
-    for (const p of visible) {
-      if (!(p.id in charts)) charts[p.id] = []
+    } catch (err) {
+      console.error('Error loading project category charts:', err)
+      for (const p of visible) charts[p.id] = []
     }
     setProjectCharts(charts)
   }
