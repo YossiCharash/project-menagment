@@ -2254,7 +2254,7 @@ class ReportService:
                                   alignment=1, textColor=colors.HexColor('#1F2937'))
         style_number = ParagraphStyle('NumberStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10,
                                       alignment=1, leading=14, spaceAfter=8,
-                                      textColor=colors.HexColor(COLOR_TEXT_DARK))
+                                      textColor=colors.HexColor('#0F172A'))
 
         elements = []
 

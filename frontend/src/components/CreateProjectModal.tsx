@@ -810,6 +810,23 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         calculatedEndDate = `${endYear}-${endMonth}-${endDay}`
       }
 
+      // Fund handling in the update/create payload:
+      // - CREATE: the fund is created separately via FundSetupModal after the project
+      //   exists, so we keep has_fund out of the create payload (defaults to no fund).
+      // - EDIT of a project that ALREADY has a fund: the fund is locked in this modal
+      //   (it is managed from the project detail page). We must NOT send has_fund here,
+      //   otherwise the backend deletes the existing fund on every project edit.
+      // - EDIT of a project WITHOUT a fund: allow adding one via the checkbox.
+      let fundPayload: { has_fund?: boolean; monthly_fund_amount?: number } = {}
+      if (!editingProject) {
+        fundPayload = { has_fund: false }
+      } else if (!existingFundLocked) {
+        fundPayload = hasFund && monthlyFundAmount > 0
+          ? { has_fund: true, monthly_fund_amount: monthlyFundAmount }
+          : { has_fund: false }
+      }
+      // else: editing a project with an existing (locked) fund -> send nothing, preserve it.
+
       const projectData: ProjectCreate & { apply_from_period_id?: number } = {
         // Name is always required by backend (min_length=1), ensure it exists
         name: formData.name.trim(),
@@ -837,9 +854,9 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         manager_id: formData.manager_id || undefined,
         // Only include budgets for regular projects or subprojects (not for parent projects)
         budgets: (isParentProject || isParentProjectCreation ? undefined : (validBudgets.length > 0 ? validBudgets : undefined)),
-        // Don't set has_fund on project creation - it will be set after fund is created via the modal
-        has_fund: false,
-        monthly_fund_amount: undefined
+        // Fund flags computed above: absent when editing a project whose fund is locked,
+        // so an ordinary project edit never deletes the existing fund.
+        ...fundPayload
       }
       
       // When updating, explicitly include dates even if they're empty to allow clearing them
