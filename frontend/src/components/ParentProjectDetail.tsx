@@ -80,6 +80,8 @@ interface Transaction {
   is_exceptional?: boolean
   subproject_name?: string
   is_generated?: boolean
+  period_start_date?: string | null
+  period_end_date?: string | null
 }
 
 
@@ -854,38 +856,41 @@ export default function ParentProjectDetail() {
     }
   }
 
+  // Single source of truth for the active date filter, shared by every request that
+  // needs the server to filter by date (financial summary + transactions).
+  const buildDateRangeParams = (): URLSearchParams => {
+    let startDate: string | undefined
+    let endDate: string | undefined
+
+    if (dateType === 'month') {
+      const [year, month] = selectedMonth.split('-').map(Number)
+      const targetDate = new Date(year, month - 1, 1)
+      const nextMonth = new Date(year, month, 1)
+      startDate = targetDate.toISOString().split('T')[0]
+      // End date should be last day of the month
+      const lastDayOfMonth = new Date(nextMonth.getTime() - 1)
+      endDate = lastDayOfMonth.toISOString().split('T')[0]
+    } else if (dateType === 'year') {
+      startDate = `${selectedYear}-01-01`
+      endDate = `${selectedYear}-12-31`
+    } else if (dateType === 'custom') {
+      startDate = customRange.start
+      endDate = customRange.end
+    }
+    // dateType === 'project' -> no bounds, the server returns everything
+
+    const params = new URLSearchParams()
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    return params
+  }
+
   const loadAdvancedFinancialSummary = async (parentId: number) => {
     try {
-      // Build date range parameters
-      let startDate: string | undefined
-      let endDate: string | undefined
-      
-      if (dateType === 'month') {
-        const [year, month] = selectedMonth.split('-').map(Number)
-        const targetDate = new Date(year, month - 1, 1)
-        const nextMonth = new Date(year, month, 1)
-        startDate = targetDate.toISOString().split('T')[0]
-        // End date should be last day of the month
-        const lastDayOfMonth = new Date(nextMonth.getTime() - 1)
-        endDate = lastDayOfMonth.toISOString().split('T')[0]
-      } else if (dateType === 'year') {
-        startDate = `${selectedYear}-01-01`
-        endDate = `${selectedYear}-12-31`
-      } else if (dateType === 'custom') {
-        startDate = customRange.start
-        endDate = customRange.end
-      } else if (dateType === 'project') {
-        startDate = undefined
-        endDate = undefined
-      }
-      
-      // Load advanced financial summary
-      const params = new URLSearchParams()
-      if (startDate) params.append('start_date', startDate)
-      if (endDate) params.append('end_date', endDate)
-      
+      const params = buildDateRangeParams()
+
       // Loading financial summary
-      
+
       const { data: financialSummary } = await api.get(`/projects/${parentId}/financial-summary?${params.toString()}`)
       
       // Financial summary loaded
@@ -1052,78 +1057,24 @@ export default function ParentProjectDetail() {
 
   const loadTransactions = async () => {
     if (!id) return
-    
+
     setTransactionsLoading(true)
     try {
-      const allTransactions: Transaction[] = []
-      
-      // Load parent project transactions
-      try {
-        const { data: parentTransactions } = await api.get(`/transactions/project/${id}`)
-        const parentProjectName = parentProject?.name || 'פרויקט ראשי'
-        
-        // Ensure we have transactions data
-        const transactions = parentTransactions || []
-        
-        // Filter transactions by date range
-        const filteredParentTransactions = filterTransactionsByDate(transactions)
-        
-        filteredParentTransactions.forEach((transaction: any) => {
-          allTransactions.push({
-            ...transaction,
-            subproject_name: parentProjectName,
-            subproject_id: null
-          })
-        })
-      } catch (err) {
-        // Error loading parent project transactions
-      }
-      
-      // Load subprojects transactions in parallel (not sequentially)
-      try {
-        const { data: allProjects } = await api.get('/projects')
-        const subprojectList = allProjects.filter((p: any) => p.relation_project === parseInt(id))
-        
-        // Load all subproject transactions in parallel using Promise.all
-        const subprojectTransactionsPromises = subprojectList.map(async (subproject: any) => {
-          try {
-            const { data: subprojectTransactions } = await api.get(`/transactions/project/${subproject.id}`)
-            const transactions = subprojectTransactions || []
-            const filteredSubprojectTransactions = filterTransactionsByDate(transactions)
-            
-            return filteredSubprojectTransactions.map((transaction: any) => ({
-              ...transaction,
-              subproject_name: subproject.name,
-              subproject_id: subproject.id
-            }))
-          } catch (err) {
-            // Error loading transactions for this subproject - return empty array
-            return []
-          }
-        })
-        
-        // Wait for all subproject transactions to load in parallel
-        const subprojectTransactionsResults = await Promise.all(subprojectTransactionsPromises)
-        
-        // Flatten the results into allTransactions
-        subprojectTransactionsResults.forEach((transactions: any[]) => {
-          transactions.forEach((transaction: any) => {
-            allTransactions.push(transaction)
-          })
-        })
-      } catch (err) {
-        // Error loading subprojects
-      }
-      
-      // Sort transactions by date (newest first)
-      allTransactions.sort((a, b) => new Date(b.tx_date).getTime() - new Date(a.tx_date).getTime())
-      
+      // ONE request for parent + every subproject, already date-filtered and sorted
+      // server-side. This used to be 1 (parent transactions) + 1 (the full project
+      // list) + N (one call per subproject) requests, each returning every
+      // transaction ever recorded so the client could throw most of them away -
+      // the main reason this page took so long to load.
+      const params = buildDateRangeParams()
+      const { data } = await api.get(`/projects/${id}/all-transactions?${params.toString()}`)
+
+      const parentProjectName = parentProject?.name || 'פרויקט ראשי'
+      const allTransactions: Transaction[] = (data || []).map((transaction: any) => ({
+        ...transaction,
+        subproject_name: transaction.subproject_name || parentProjectName
+      }))
+
       setTransactions(allTransactions)
-      
-      // Show message if no transactions found
-      if (allTransactions.length === 0) {
-        // No transactions found
-      }
     } catch (err: any) {
       // Error loading transactions
       setError('שגיאה בטעינת הטרנזקציות')
