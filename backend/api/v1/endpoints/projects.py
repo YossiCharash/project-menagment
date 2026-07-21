@@ -1217,8 +1217,17 @@ async def update_project(project_id: int, db: DBSessionDep, data: ProjectUpdate,
                     last_monthly_addition=last_monthly_addition
                 )
         elif not has_fund and existing_fund:
-            # Delete fund if has_fund is False (repository already commits)
-            await fund_service.funds.delete(existing_fund)
+            # Defense-in-depth: never delete a fund through a project update.
+            # Deleting a fund also removes its fund transactions and S3 files and
+            # must be confirmed with a password, so it only happens via the
+            # dedicated DELETE /projects/{project_id}/fund endpoint. Keeping the
+            # fund here means a stray has_fund=false in an edit payload can never
+            # destroy financial data.
+            logger.warning(
+                "Ignoring has_fund=false in project update for project %s: "
+                "existing fund preserved (use DELETE /projects/%s/fund to remove it)",
+                project_id, project_id,
+            )
     elif monthly_fund_amount is not None and existing_fund:
         # Update monthly amount only (if has_fund wasn't explicitly set) (repository already commits)
         monthly_amount = monthly_fund_amount if monthly_fund_amount > 0 else 0
