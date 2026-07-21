@@ -1751,15 +1751,23 @@ async def get_parent_project_financial_summary(
     subproject_financials = []
     total_subproject_income = 0
     total_subproject_expense = 0
-    
-    for subproject in subprojects:
-        subproject_transactions_query = select(Transaction).where(Transaction.project_id == subproject.id)
+
+    # Fetch ALL subproject transactions in a single query and group them in memory.
+    # Previously this ran one transactions query per subproject (N+1), which was the
+    # main backend cause of the parent-project page's slow ("stuck") load.
+    subproject_ids = [sp.id for sp in subprojects]
+    txs_by_subproject: dict = {sp_id: [] for sp_id in subproject_ids}
+    if subproject_ids:
+        all_sub_tx_query = select(Transaction).where(Transaction.project_id.in_(subproject_ids))
         if date_conditions:
-            subproject_transactions_query = subproject_transactions_query.where(and_(*date_conditions))
-        
-        subproject_transactions_result = await db.execute(subproject_transactions_query)
-        subproject_transactions = subproject_transactions_result.scalars().all()
-        
+            all_sub_tx_query = all_sub_tx_query.where(and_(*date_conditions))
+        all_sub_txs = (await db.execute(all_sub_tx_query)).scalars().all()
+        for t in all_sub_txs:
+            txs_by_subproject[t.project_id].append(t)
+
+    for subproject in subprojects:
+        subproject_transactions = txs_by_subproject.get(subproject.id, [])
+
         subproject_transaction_income = sum(float(t.amount) for t in subproject_transactions if t.type == 'Income' and not t.from_fund)
         subproject_expense = sum(float(t.amount) for t in subproject_transactions if t.type == 'Expense' and not t.from_fund)
         
