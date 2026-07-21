@@ -1,6 +1,10 @@
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { AnimatePresence } from 'framer-motion'
 import { Paperclip } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { attachmentKindOf } from './attachmentKind'
+import DocumentViewerModal from '../DocumentViewerModal'
 
 // ---------------------------------------------------------------------------
 // AttachmentView
@@ -10,6 +14,12 @@ import { attachmentKindOf } from './attachmentKind'
 // link. Callers pass
 // the already-resolved absolute URL so this component stays decoupled from any
 // particular URL-resolution helper (DRY: URL logic lives once per call site).
+//
+// Images and generic files open in the app's shared DocumentViewerModal rather
+// than in a new browser tab, so the user never loses their place. Video and
+// audio already play in place and are left alone. The viewer is portalled to
+// <body> so it is never clipped or mis-positioned by the modal / scroll
+// container the attachment happens to sit in.
 
 export interface AttachmentViewProps {
   fileName: string
@@ -21,22 +31,50 @@ export interface AttachmentViewProps {
 export default function AttachmentView({ fileName, fileUrl, className }: AttachmentViewProps) {
   const kind = attachmentKindOf(fileName)
   const href = fileUrl ?? '#'
+  const [isViewerOpen, setIsViewerOpen] = useState(false)
+
+  // Attachments live inside clickable rows (chat bubbles, task cards), so the
+  // click must not bubble up and trigger the surrounding element as well.
+  const openViewer = (event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsViewerOpen(true)
+  }
+  const closeViewer = () => setIsViewerOpen(false)
+
+  const viewerPortal = fileUrl
+    ? createPortal(
+        <AnimatePresence>
+          {isViewerOpen && (
+            <DocumentViewerModal
+              isOpen={isViewerOpen}
+              document={{ file_path: fileUrl, description: fileName }}
+              onClose={closeViewer}
+            />
+          )}
+        </AnimatePresence>,
+        document.body,
+      )
+    : null
 
   if (kind === 'image' && fileUrl) {
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={fileName}
-        className={cn('inline-block', className)}
-      >
-        <img
-          src={fileUrl}
-          alt={fileName}
-          className="max-h-32 max-w-[160px] rounded border border-gray-200 dark:border-gray-600 object-cover"
-        />
-      </a>
+      <>
+        <button
+          type="button"
+          onClick={openViewer}
+          title={fileName}
+          aria-label={`הצג את ${fileName}`}
+          className={cn('inline-block cursor-zoom-in', className)}
+        >
+          <img
+            src={fileUrl}
+            alt={fileName}
+            className="max-h-32 max-w-[160px] rounded border border-gray-200 dark:border-gray-600 object-cover"
+          />
+        </button>
+        {viewerPortal}
+      </>
     )
   }
 
@@ -67,18 +105,28 @@ export default function AttachmentView({ fileName, fileUrl, className }: Attachm
   }
 
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={fileName}
-      className={cn(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs hover:bg-gray-200 dark:hover:bg-gray-500 max-w-[160px]',
-        className,
-      )}
-    >
-      <Paperclip className="w-3 h-3 flex-shrink-0" />
-      <span className="truncate">{fileName}</span>
-    </a>
+    <>
+      <button
+        type="button"
+        onClick={openViewer}
+        disabled={!fileUrl}
+        title={fileName}
+        aria-label={`הצג את ${fileName}`}
+        className={cn(
+          // Explicit text/background colours (never inherited): this chip is also
+          // rendered inside coloured chat bubbles, where an inherited white text
+          // colour would make the file name unreadable.
+          'inline-flex items-center gap-1 px-2 py-1 rounded-md max-w-[200px] text-xs font-medium',
+          'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100',
+          'border border-gray-300 dark:border-gray-600 shadow-sm',
+          'hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-60 disabled:cursor-default',
+          className,
+        )}
+      >
+        <Paperclip className="w-3 h-3 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+        <span className="truncate" dir="auto">{fileName}</span>
+      </button>
+      {viewerPortal}
+    </>
   )
 }

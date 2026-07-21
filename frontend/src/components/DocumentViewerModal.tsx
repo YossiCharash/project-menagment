@@ -82,6 +82,17 @@ export default function DocumentViewerModal({ isOpen, document: doc, onClose }: 
     }
   }, [isOpen, doc?.id, doc?.file_path])
 
+  // Escape closes the viewer, so a document opened from a chat or a task card
+  // can be dismissed without reaching for the mouse.
+  useEffect(() => {
+    if (!isOpen) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isOpen, onClose])
+
   if (!isOpen || !doc) return null
 
   const useViewEndpoint = Boolean(doc.id)
