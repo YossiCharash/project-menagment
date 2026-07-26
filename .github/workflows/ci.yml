@@ -24,8 +24,46 @@ jobs:
             frontend:
               - 'frontend/**'
 
-  build-and-push-backend:
+  backend-tests:
+    name: Backend Tests
     needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Matches the runtime in backend/Dockerfile.
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      # The cems suites are run on their own: collected alongside the rest they
+      # error binding UUID parameters on the shared in-memory SQLite engine,
+      # while in isolation they pass. Splitting the run keeps every test
+      # executing — nothing is deselected — until that leak is fixed.
+      - name: Run backend tests
+        env:
+          JWT_SECRET_KEY: test-secret-key-for-ci
+          ENVIRONMENT: test
+        run: pytest backend/tests --ignore=backend/tests/cems -q
+
+      - name: Run cems tests
+        env:
+          JWT_SECRET_KEY: test-secret-key-for-ci
+          ENVIRONMENT: test
+        run: pytest backend/tests/cems -q
+
+  build-and-push-backend:
+    needs: [changes, backend-tests]
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -85,7 +123,10 @@ jobs:
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/project-management-frontend:buildcache,mode=max', secrets.DOCKER_USERNAME) || 'type=gha,mode=max' }}
 
   deploy:
-    needs: [changes, build-and-push-backend, build-and-push-frontend]
+    # backend-tests is listed so a red suite fails this job outright. Without it
+    # the build would merely be skipped, which !failure() does not catch, and the
+    # deploy hook would still fire.
+    needs: [changes, backend-tests, build-and-push-backend, build-and-push-frontend]
     runs-on: ubuntu-latest
     if: |
       always() &&
