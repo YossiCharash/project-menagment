@@ -2,11 +2,12 @@
 Database seeding utilities for initial admin user creation
 """
 import asyncio
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.db.session import get_db
 from backend.models.user import User, UserRole
 from backend.core.security import hash_password
-from backend.core.config import settings
+from backend.core.config import DEV_SUPER_ADMIN_EMAIL, settings
 
 # Import all models to ensure SQLAlchemy relationships are properly configured
 from backend.models import (  # noqa: F401
@@ -27,7 +28,16 @@ async def create_super_admin() -> User:
             existing_admin = await user_repo.get_by_email(settings.SUPER_ADMIN_EMAIL)
             if existing_admin:
                 return existing_admin
-            
+
+            # Never seed an account under the placeholder address in production:
+            # SUPER_ADMIN_EMAIL is simply unset there, and creating one would add
+            # a stray admin alongside the real one.
+            if settings.is_production and settings.SUPER_ADMIN_EMAIL == DEV_SUPER_ADMIN_EMAIL:
+                logging.getLogger(__name__).error(
+                    "Skipping super-admin seed: SUPER_ADMIN_EMAIL is not configured."
+                )
+                return None
+
             # Create super admin
             super_admin = User(
                 email=settings.SUPER_ADMIN_EMAIL,
