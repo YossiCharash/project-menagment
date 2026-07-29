@@ -1255,7 +1255,31 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               )}
             </div>
 
-            {/* Parent project selector removed - regular projects cannot become subprojects */}
+            {/* Parent project selector: when creating a new regular project the user
+                may optionally attach it to a parent project (פרויקט על), which turns
+                it into a subproject. Selecting nothing keeps it a standalone project. */}
+            {!isMinimalQuoteMode && isRegularProjectCreation && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  פרויקט אב (אופציונלי)
+                </label>
+                <select
+                  value={formData.relation_project ?? ''}
+                  onChange={(e) => setFormData({ ...formData, relation_project: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">ללא — פרויקט עצמאי</option>
+                  {availableProjects.filter(p => p.is_parent_project === true).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.city ? `(${p.city})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  בחירת פרויקט על תהפוך את הפרויקט לתת-פרויקט שלו
+                </p>
+              </div>
+            )}
             {/* Show parent project info when creating subproject */}
             {!isMinimalQuoteMode && parentProjectId && !editingProject && (
               <div>
