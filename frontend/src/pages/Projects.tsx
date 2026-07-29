@@ -518,12 +518,6 @@ export default function Projects() {
 
   const filteredProjects = dashboardData?.projects?.filter((project: any) => {
     const isSubproject = !!project.relation_project
-    // Subprojects live under their parent project, so by default they are hidden
-    // from this page. They are shown here only when the user explicitly filters to
-    // "תת-פרויקטים" (otherwise the filter option would never display anything).
-    if (isSubproject && projectTypeFilter !== 'subproject') {
-      return false
-    }
 
     const matchesSearch = project.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -532,14 +526,16 @@ export default function Projects() {
     const matchesStatus = !statusFilter || project.status_color === statusFilter
     const matchesCity = !cityFilter || project.city?.toLowerCase().includes(cityFilter.toLowerCase())
 
-    // Filter by project type (parent projects vs regular projects vs subprojects)
+    // Filter by project type:
+    // - "כל הפרויקטים" (empty): show everything, including subprojects
+    // - "פרויקטים ראשיים": only parent projects
+    // - "תת-פרויקטים": only subprojects
     let matchesType = true
     if (projectTypeFilter === 'parent') {
       matchesType = project.is_parent_project === true // Only parent projects
     } else if (projectTypeFilter === 'subproject') {
       matchesType = isSubproject // Only subprojects
     }
-    // If no filter is selected, show parent and regular projects (subprojects already excluded above)
 
     // Filter by archive status
     let matchesArchive = true
