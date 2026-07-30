@@ -671,6 +671,7 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
   const [unit, setUnit] = useState('')
   const [lowStockThreshold, setLowStockThreshold] = useState('')
   const [reorderQuantity, setReorderQuantity] = useState('')
+  const [unitPrice, setUnitPrice] = useState('')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -713,6 +714,7 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
         unit: unit || 'יחידה',
         low_stock_threshold: lowStockThreshold || '0',
         reorder_quantity: reorderQuantity || '0',
+        unit_price: unitPrice.trim() ? unitPrice.trim() : null,
       } as Partial<ConsumableItem>)
       if (photoFile && res.data?.id) {
         try {
@@ -805,6 +807,18 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
               <label className={LABEL_CLASS}>כמות להזמנה מחדש</label>
               <input type="number" min="0" value={reorderQuantity} onChange={(e) => setReorderQuantity(e.target.value)} className={INPUT_CLASS} />
             </div>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>מחיר ליחידה (₪)</label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={unitPrice}
+              onChange={(e) => setUnitPrice(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="לדוגמה: 12.50"
+            />
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>

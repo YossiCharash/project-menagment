@@ -21,6 +21,14 @@ const LABEL_CLASS = 'block text-sm font-medium text-gray-700 dark:text-gray-300 
 const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 
+/** Format an optional unit price as ₪ with two decimals; '-' when unset. */
+function formatUnitPrice(price: string | null): string {
+  if (price == null || price === '') return '-'
+  const parsed = Number(price)
+  if (Number.isNaN(parsed)) return '-'
+  return `₪${parsed.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ConsumableViewModalProps {
@@ -244,6 +252,7 @@ export function ConsumableViewModal({
             </div>
             <DetailField label="סף התראה" value={`${formatQuantity(item.low_stock_threshold)} ${item.unit}`} />
             <DetailField label="כמות להזמנה מחדש" value={`${formatQuantity(item.reorder_quantity)} ${item.unit}`} />
+            <DetailField label="מחיר ליחידה" value={formatUnitPrice(item.unit_price)} />
           </div>
 
           {/* Warehouse movements */}
@@ -375,6 +384,7 @@ function EditConsumableModal({ item, categories, onClose, onSaved }: EditConsuma
   const [quantity, setQuantity] = useState(item.quantity)
   const [lowStockThreshold, setLowStockThreshold] = useState(item.low_stock_threshold)
   const [reorderQuantity, setReorderQuantity] = useState(item.reorder_quantity)
+  const [unitPrice, setUnitPrice] = useState(item.unit_price ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -389,6 +399,13 @@ function EditConsumableModal({ item, categories, onClose, onSaved }: EditConsuma
       const parsed = Number(value)
       if (value === '' || Number.isNaN(parsed) || parsed < 0) {
         return `שדה "${label}" חייב להיות מספר שאינו שלילי`
+      }
+    }
+    // Price is optional, but when provided must be a non-negative number.
+    if (unitPrice.trim() !== '') {
+      const parsedPrice = Number(unitPrice)
+      if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+        return 'שדה "מחיר ליחידה" חייב להיות מספר שאינו שלילי'
       }
     }
     return null
@@ -412,6 +429,7 @@ function EditConsumableModal({ item, categories, onClose, onSaved }: EditConsuma
         quantity,
         low_stock_threshold: lowStockThreshold,
         reorder_quantity: reorderQuantity,
+        unit_price: unitPrice.trim() ? unitPrice.trim() : null,
       })
       onSaved(res.data)
     } catch {
@@ -470,6 +488,10 @@ function EditConsumableModal({ item, categories, onClose, onSaved }: EditConsuma
               <label className={LABEL_CLASS}>כמות להזמנה מחדש</label>
               <input type="number" min="0" step="any" value={reorderQuantity} onChange={(e) => setReorderQuantity(e.target.value)} className={INPUT_CLASS} />
             </div>
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>מחיר ליחידה (₪)</label>
+            <input type="number" min="0" step="any" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className={INPUT_CLASS} placeholder="לדוגמה: 12.50" />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>ביטול</button>
