@@ -7,6 +7,7 @@ from backend.models.cems_base import _utc_now
 from backend.models.cems_document import CemsDocument
 from backend.models.cems_fixed_asset import AssetStatus
 from backend.models.cems_retirement import AssetRetirement, RetirementStatus
+from backend.models.cems_transfer import Transfer, WarehouseReturn
 from backend.models.cems_user import UserRole
 from backend.repositories.cems_asset_repository import AssetRepository
 from backend.repositories.cems_transfer_repository import TransferRepository
@@ -170,12 +171,14 @@ class RetirementService:
         asset_id: uuid.UUID,
         manager_id: int,
     ) -> None:
-        """Permanently delete a RETIRED asset and its polymorphic documents.
+        """Permanently delete a RETIRED asset and every dependent row.
 
-        Only an Admin may hard-delete. FK-dependent rows cascade via the
-        ``ON DELETE CASCADE`` constraints on ``cems_fixed_assets``; the
-        polymorphic ``cems_documents`` rows have no FK and are removed
-        explicitly here.
+        Only an Admin may hard-delete. All dependent rows — asset history,
+        transfers, warehouse returns, retirement requests, and the polymorphic
+        documents — are deleted explicitly here rather than relying on database
+        ``ON DELETE CASCADE``. The cascade constraints are applied by a manual
+        SQL migration that may not have run on a given database; deleting the
+        children in the service makes the operation succeed regardless.
 
         Raises ``AssetNotFoundError`` when the asset is missing,
         ``AssetNotInArchiveError`` when it is not RETIRED, and
@@ -203,7 +206,16 @@ class RetirementService:
             )
         )
 
-        # Delete the asset itself; FK-dependent rows cascade.
+        # Remove the FK-dependent child rows that have no ORM delete-orphan
+        # cascade, so the delete does not depend on the database having
+        # ON DELETE CASCADE in place. (Asset history IS covered by the ORM
+        # ``delete-orphan`` cascade on ``FixedAsset.history`` below.)
+        for child_model in (Transfer, WarehouseReturn, AssetRetirement):
+            await session.execute(
+                sql_delete(child_model).where(child_model.asset_id == asset_id)
+            )
+
+        # Delete the asset itself; the ORM cascade removes its history rows.
         await self._asset_repo.delete(asset_id)
         await session.flush()
 
