@@ -42,13 +42,13 @@ async def test_upload_document_uses_s3_when_configured(
     fake_s3.upload_file.return_value = s3_url
     fake_s3.generate_presigned_url.return_value = signed
 
-    cems_documents._s3_service.cache_clear()
+    from backend.services import file_url_resolver
+    file_url_resolver.get_s3_service.cache_clear()
     monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", "bucket")
-    # store_photo builds S3Service lazily from its own module.
-    monkeypatch.setattr("backend.services.cems_photo_storage.settings.AWS_S3_BUCKET", "bucket", raising=False)
 
+    # store_photo signs from s3_service; the read resolver signs from file_url_resolver.
     with patch("backend.services.s3_service.S3Service", return_value=fake_s3), \
-         patch("backend.api.v1.cems_documents.S3Service", return_value=fake_s3):
+         patch("backend.services.file_url_resolver.S3Service", return_value=fake_s3):
         doc = await cems_documents.upload_document(
             file=_make_upload("invoice.pdf", b"%PDF-1.4 x"),
             entity_type="consumable",
@@ -66,7 +66,7 @@ async def test_upload_document_uses_s3_when_configured(
     assert doc.file_path == s3_url
     # file_url is the signed URL, not a /uploads/ disk path.
     assert resolved_url == signed
-    cems_documents._s3_service.cache_clear()
+    file_url_resolver.get_s3_service.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -119,14 +119,20 @@ async def test_disk_document_is_reachable_by_download(
     os.remove(result.path)  # clean up the artifact written under backend/uploads
 
 
-def test_resolve_document_url_signs_s3_and_passes_disk(monkeypatch):
+def test_s3_download_forces_original_filename(monkeypatch):
+    """The download endpoint signs the S3 URL with a Content-Disposition so the
+    file saves under its original name, not the opaque S3 key."""
+    from backend.services import file_url_resolver
+
     fake_s3 = MagicMock()
     fake_s3.generate_presigned_url.return_value = "https://signed"
-    cems_documents._s3_service.cache_clear()
-    monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", "bucket")
-    with patch("backend.api.v1.cems_documents.S3Service", return_value=fake_s3):
-        assert cems_documents._resolve_document_url("https://x/y.pdf") == "https://signed"
-    cems_documents._s3_service.cache_clear()
-    # Disk path is served under /uploads regardless of S3 config.
-    assert cems_documents._resolve_document_url("cems_documents/z.pdf") == "/uploads/cems_documents/z.pdf"
-    assert cems_documents._resolve_document_url("") == ""
+    file_url_resolver.get_s3_service.cache_clear()
+    monkeypatch.setattr(file_url_resolver.settings, "AWS_S3_BUCKET", "bucket")
+    with patch("backend.services.file_url_resolver.S3Service", return_value=fake_s3):
+        file_url_resolver.resolve_stored_file_url(
+            "https://x/y.pdf", download_filename="Invoice #1.pdf"
+        )
+    file_url_resolver.get_s3_service.cache_clear()
+
+    _, kwargs = fake_s3.generate_presigned_url.call_args
+    assert kwargs["response_content_disposition"] == 'attachment; filename="Invoice #1.pdf"'

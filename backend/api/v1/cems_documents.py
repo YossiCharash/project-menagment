@@ -1,6 +1,5 @@
 import os
 import uuid
-from functools import lru_cache
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
@@ -13,7 +12,7 @@ from backend.models.cems_document import Document, DocumentType
 from backend.models.cems_user import User
 from backend.core.config import settings
 from backend.services.cems_photo_storage import store_photo
-from backend.services.s3_service import S3Service
+from backend.services.file_url_resolver import get_s3_service, resolve_stored_file_url
 from pydantic import BaseModel, ConfigDict, computed_field
 from datetime import date, datetime
 
@@ -28,33 +27,6 @@ _DOCUMENTS_PREFIX = "cems_documents"
 
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx"}
 MAX_SIZE_MB = 20
-
-
-@lru_cache(maxsize=1)
-def _s3_service() -> S3Service:
-    """Cached S3 client used to sign/delete document links (build is expensive)."""
-    return S3Service()
-
-
-def _resolve_document_url(stored_path: str | None) -> str:
-    """Resolve a stored document path to a URL the browser can actually fetch.
-
-    Mirrors the task-attachment resolver: S3 objects are private, so the stored
-    (unsigned) URL is signed here at read time into a short-lived link. Legacy
-    local paths are served under ``/uploads/``. Without this, documents kept on
-    the ephemeral container disk (rather than S3) cannot be attached or served
-    on the deployed host.
-    """
-    path = stored_path or ""
-    if not path:
-        return ""
-    if path.startswith("http://") or path.startswith("https://"):
-        if settings.AWS_S3_BUCKET:
-            return _s3_service().generate_presigned_url(path)
-        return path
-    if path.startswith("/"):
-        return path
-    return f"/uploads/{path}"
 
 
 def _validate_extension(filename: str) -> str:
@@ -97,7 +69,7 @@ class DocumentRead(BaseModel):
     @computed_field
     @property
     def file_url(self) -> str:
-        return _resolve_document_url(self.file_path)
+        return resolve_stored_file_url(self.file_path)
 
 
 # ---------- Endpoints ----------
@@ -177,9 +149,12 @@ async def download_document(
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
-    # S3-stored documents: redirect to a short-lived signed URL (shared resolver).
+    # S3-stored documents: redirect to a short-lived signed URL that forces a
+    # download under the original filename (not the opaque S3 key).
     if doc.file_path.startswith("http://") or doc.file_path.startswith("https://"):
-        return RedirectResponse(_resolve_document_url(doc.file_path))
+        return RedirectResponse(
+            resolve_stored_file_url(doc.file_path, download_filename=doc.filename)
+        )
 
     base = settings.FILE_UPLOAD_DIR
     if not os.path.isabs(base):
@@ -213,7 +188,7 @@ async def delete_document(
     if doc.file_path.startswith("http://") or doc.file_path.startswith("https://"):
         if settings.AWS_S3_BUCKET:
             try:
-                _s3_service().delete_file(doc.file_path)
+                get_s3_service().delete_file(doc.file_path)
             except Exception:
                 pass
     else:
