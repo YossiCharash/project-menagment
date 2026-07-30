@@ -7,11 +7,13 @@ container host whose filesystem is ephemeral.
 """
 
 import io
+import os
 import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.responses import FileResponse
 from starlette.datastructures import Headers, UploadFile
 
 from backend.api.v1 import cems_documents
@@ -85,6 +87,36 @@ async def test_upload_document_falls_back_to_disk_without_s3(
     )
     assert doc.file_path.startswith("cems_documents/")
     assert doc.file_url == f"/uploads/{doc.file_path}"
+
+
+@pytest.mark.asyncio
+async def test_disk_document_is_reachable_by_download(
+    async_session, seed_users: dict[str, User], seed_asset, monkeypatch,
+):
+    """Regression: a document written on disk must land in the same directory the
+    download endpoint reads from (write-dir == serve-dir), not one that only the
+    uploader's base-path resolution knows about."""
+    monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", None)
+    doc = await cems_documents.upload_document(
+        file=_make_upload("manual.pdf", b"%PDF-1.4 z"),
+        entity_type="fixed_asset",
+        entity_id=seed_asset.id,
+        document_type=DocumentType.OTHER,
+        expiry_date=None,
+        db=async_session,
+        current_user=seed_users["manager"],
+    )
+
+    # download_document resolves the base independently; if it disagrees with the
+    # write location it raises 404. Reaching a FileResponse proves they match.
+    result = await cems_documents.download_document(
+        document_id=doc.id,
+        db=async_session,
+        current_user=seed_users["manager"],
+    )
+    assert isinstance(result, FileResponse)
+    assert os.path.isfile(result.path)
+    os.remove(result.path)  # clean up the artifact written under backend/uploads
 
 
 def test_resolve_document_url_signs_s3_and_passes_disk(monkeypatch):

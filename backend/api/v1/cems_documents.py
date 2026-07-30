@@ -177,14 +177,9 @@ async def download_document(
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
-    # S3-stored documents: redirect to a short-lived signed URL.
+    # S3-stored documents: redirect to a short-lived signed URL (shared resolver).
     if doc.file_path.startswith("http://") or doc.file_path.startswith("https://"):
-        target = (
-            _s3_service().generate_presigned_url(doc.file_path)
-            if settings.AWS_S3_BUCKET
-            else doc.file_path
-        )
-        return RedirectResponse(target)
+        return RedirectResponse(_resolve_document_url(doc.file_path))
 
     base = settings.FILE_UPLOAD_DIR
     if not os.path.isabs(base):
