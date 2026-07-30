@@ -22,7 +22,7 @@ const BTN_PRIMARY = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-
 const BTN_SECONDARY = 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors'
 
 /** Format an optional unit price as ₪ with two decimals; '-' when unset. */
-function formatUnitPrice(price: string | null): string {
+export function formatUnitPrice(price: string | null): string {
   if (price == null || price === '') return '-'
   const parsed = Number(price)
   if (Number.isNaN(parsed)) return '-'

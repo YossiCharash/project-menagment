@@ -702,6 +702,14 @@ function AddConsumableModal({ categories, warehouses, onClose, onCreated }: AddC
       setError('יש לבחור מחסן')
       return
     }
+    // Price is optional, but when provided must be a non-negative number.
+    if (unitPrice.trim() !== '') {
+      const parsedPrice = Number(unitPrice)
+      if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+        setError('שדה "מחיר ליחידה" חייב להיות מספר שאינו שלילי')
+        return
+      }
+    }
 
     setSubmitting(true)
     setError(null)
