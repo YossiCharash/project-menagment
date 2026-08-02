@@ -6,10 +6,13 @@ repository layers together) using the in-memory SQLite fixtures from
 an admin has full access; a Member (non-admin desk operator) may read/write/
 update but not delete.
 """
+from datetime import datetime, timedelta
+
 import pytest
 from httpx import AsyncClient
 
 from backend.models.user import User
+from backend.repositories.task_repository import ISRAEL_TZ
 
 BASE = "/api/v1/building-reception"
 
@@ -758,6 +761,57 @@ class TestApartmentOpenTasksCount:
         archived = await test_client.post(f"/api/v1/tasks/{task_id}/archive", headers=_auth(admin_token))
         assert archived.status_code in (200, 201), archived.text
         assert await self._open_tasks_count(test_client, admin_token, building["id"], apartment_id) == 0
+
+    async def test_future_dated_task_is_not_yet_open(
+        self, test_client: AsyncClient, admin_token: str, admin_user: User
+    ):
+        """A task scheduled for the future (e.g. a recurring task placed ahead of
+        time) must NOT light up the apartment's grid indicator until its time
+        arrives — otherwise every apartment fills up with markings for work that
+        is only planned, not due."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        future = (datetime.now(ISRAEL_TZ) + timedelta(days=7)).replace(tzinfo=None)
+        end = future + timedelta(hours=1)
+        created = await test_client.post(
+            "/api/v1/tasks/",
+            headers=_auth(admin_token),
+            json={
+                "title": "בדיקת מערכות עתידית",
+                "assigned_to_user_id": admin_user.id,
+                "apartment_id": apartment_id,
+                "event_type": "meeting",
+                "start_time": future.isoformat(),
+                "end_time": end.isoformat(),
+                "recurrence_rule": "weekly",
+            },
+        )
+        assert created.status_code in (200, 201), created.text
+        assert await self._open_tasks_count(test_client, admin_token, building["id"], apartment_id) == 0
+
+    async def test_past_dated_task_is_open(
+        self, test_client: AsyncClient, admin_token: str, admin_user: User
+    ):
+        """Once a dated task's start time has passed it becomes due and the grid
+        indicator turns on."""
+        building = await _create_building(test_client, admin_token)
+        apartment_id = _first_residential_apartment_id(building)
+        past = (datetime.now(ISRAEL_TZ) - timedelta(days=1)).replace(tzinfo=None)
+        end = past + timedelta(hours=1)
+        created = await test_client.post(
+            "/api/v1/tasks/",
+            headers=_auth(admin_token),
+            json={
+                "title": "משימה שהגיע מועדה",
+                "assigned_to_user_id": admin_user.id,
+                "apartment_id": apartment_id,
+                "event_type": "meeting",
+                "start_time": past.isoformat(),
+                "end_time": end.isoformat(),
+            },
+        )
+        assert created.status_code in (200, 201), created.text
+        assert await self._open_tasks_count(test_client, admin_token, building["id"], apartment_id) == 1
 
 
 @pytest.mark.asyncio
