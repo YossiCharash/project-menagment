@@ -3,7 +3,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,36 +11,22 @@ from backend.api.v1.cems_deps import get_current_user, get_db, require_any_cems_
 from backend.models.cems_document import Document, DocumentType
 from backend.models.cems_user import User
 from backend.core.config import settings
+from backend.services.cems_photo_storage import store_photo
+from backend.services.file_url_resolver import get_s3_service, resolve_stored_file_url
 from pydantic import BaseModel, ConfigDict, computed_field
 from datetime import date, datetime
 
 
 router = APIRouter(prefix="/documents", tags=["CEMS Documents"])
 
+# The storage prefix (S3 key prefix / local sub-directory) for CEMS documents.
+_DOCUMENTS_PREFIX = "cems_documents"
+
 
 # ---------- File handling constants & helpers ----------
 
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx"}
 MAX_SIZE_MB = 20
-
-
-def _get_cems_docs_dir() -> str:
-    """Return the absolute path to the cems_documents upload directory, creating it if needed."""
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    d = os.path.join(base, "cems_documents")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def _sanitize_filename(raw_name: str) -> str:
-    """Strip dangerous characters from an uploaded filename."""
-    safe = (raw_name or "file").strip() or "file"
-    for ch in ["/", "\\", "\0", ".."]:
-        safe = safe.replace(ch, "_")
-    return safe
 
 
 def _validate_extension(filename: str) -> str:
@@ -83,7 +69,7 @@ class DocumentRead(BaseModel):
     @computed_field
     @property
     def file_url(self) -> str:
-        return f"/uploads/{self.file_path}"
+        return resolve_stored_file_url(self.file_path)
 
 
 # ---------- Endpoints ----------
@@ -118,27 +104,31 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_manager),
 ) -> DocumentRead:
-    """Upload a file and create a CemsDocument record."""
+    """Upload a file and create a CemsDocument record.
+
+    The file is persisted via the shared S3-or-disk storage helper (S3 when
+    ``AWS_S3_BUCKET`` is configured, local disk otherwise) so documents behave
+    exactly like asset/consumable photos and survive on a container host whose
+    local filesystem is ephemeral.
+    """
     _validate_extension(file.filename or "")
     content = await file.read()
     _validate_file_size(content)
 
-    safe_name = _sanitize_filename(file.filename or "file")
-    unique_prefix = uuid.uuid4().hex
-    stored_name = f"{unique_prefix}_{safe_name}"
+    stored_path = store_photo(
+        prefix=_DOCUMENTS_PREFIX,
+        existing_url=None,
+        file_bytes=content,
+        filename=file.filename,
+        content_type=file.content_type,
+    )
 
-    docs_dir = _get_cems_docs_dir()
-    full_path = os.path.join(docs_dir, stored_name)
-    with open(full_path, "wb") as f:
-        f.write(content)
-
-    relative_path = f"cems_documents/{stored_name}"
     doc = Document(
         entity_type=entity_type,
         entity_id=entity_id,
         document_type=document_type,
-        filename=file.filename or stored_name,
-        file_path=relative_path,
+        filename=file.filename or "file",
+        file_path=stored_path,
         uploaded_by_id=current_user.id,
         expiry_date=expiry_date,
     )
@@ -153,11 +143,18 @@ async def download_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_cems_role),
-) -> FileResponse:
-    """Serve the physical file for a given document record."""
+):
+    """Serve the file for a document (local disk) or redirect to its signed S3 URL."""
     doc = await db.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    # S3-stored documents: redirect to a short-lived signed URL that forces a
+    # download under the original filename (not the opaque S3 key).
+    if doc.file_path.startswith("http://") or doc.file_path.startswith("https://"):
+        return RedirectResponse(
+            resolve_stored_file_url(doc.file_path, download_filename=doc.filename)
+        )
 
     base = settings.FILE_UPLOAD_DIR
     if not os.path.isabs(base):
@@ -186,17 +183,25 @@ async def delete_document(
             detail="Only the uploader or an admin can delete this document.",
         )
 
-    # Remove the physical file from disk
-    base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        base = os.path.abspath(os.path.join(backend_dir, base))
-    full_path = os.path.join(base, doc.file_path)
-    if os.path.isfile(full_path):
-        try:
-            os.remove(full_path)
-        except OSError:
-            pass
+    # Remove the stored file (S3 object or local disk); best-effort so a
+    # storage hiccup never blocks removing the DB record.
+    if doc.file_path.startswith("http://") or doc.file_path.startswith("https://"):
+        if settings.AWS_S3_BUCKET:
+            try:
+                get_s3_service().delete_file(doc.file_path)
+            except Exception:
+                pass
+    else:
+        base = settings.FILE_UPLOAD_DIR
+        if not os.path.isabs(base):
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            base = os.path.abspath(os.path.join(backend_dir, base))
+        full_path = os.path.join(base, doc.file_path)
+        if os.path.isfile(full_path):
+            try:
+                os.remove(full_path)
+            except OSError:
+                pass
 
     await db.delete(doc)
     await db.flush()

@@ -218,6 +218,7 @@ async def transfer_consumable(
                 "unit": source.unit,
                 "low_stock_threshold": source.low_stock_threshold,
                 "reorder_quantity": source.reorder_quantity,
+                "unit_price": source.unit_price,
             }
         )
 

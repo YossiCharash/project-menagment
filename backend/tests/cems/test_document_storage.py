@@ -1,0 +1,138 @@
+"""Tests for CEMS document storage: S3-or-disk parity with photos.
+
+Regression coverage for the bug where documents were written straight to the
+local disk (and served via /uploads) instead of going through the shared
+S3-or-disk storage used by photos — which broke attaching documents on a
+container host whose filesystem is ephemeral.
+"""
+
+import io
+import os
+import uuid
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.responses import FileResponse
+from starlette.datastructures import Headers, UploadFile
+
+from backend.api.v1 import cems_documents
+from backend.models.cems_document import DocumentType
+from backend.models.cems_user import User
+
+
+def _make_upload(filename: str, content: bytes) -> UploadFile:
+    return UploadFile(
+        file=io.BytesIO(content),
+        filename=filename,
+        headers=Headers({"content-type": "application/pdf"}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_document_uses_s3_when_configured(
+    async_session, seed_users: dict[str, User], seed_consumable, monkeypatch,
+):
+    """With AWS_S3_BUCKET set, the file goes to S3 (no local disk write) and the
+    returned URL is a signed link — mirroring the photo behaviour."""
+    s3_url = "https://bucket.s3.amazonaws.com/cems_documents/deadbeef.pdf"
+    signed = s3_url + "?X-Amz-Signature=abc"
+
+    fake_s3 = MagicMock()
+    fake_s3.upload_file.return_value = s3_url
+    fake_s3.generate_presigned_url.return_value = signed
+
+    from backend.services import file_url_resolver
+    file_url_resolver.get_s3_service.cache_clear()
+    monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", "bucket")
+
+    # store_photo signs from s3_service; the read resolver signs from file_url_resolver.
+    with patch("backend.services.s3_service.S3Service", return_value=fake_s3), \
+         patch("backend.services.file_url_resolver.S3Service", return_value=fake_s3):
+        doc = await cems_documents.upload_document(
+            file=_make_upload("invoice.pdf", b"%PDF-1.4 x"),
+            entity_type="consumable",
+            entity_id=seed_consumable.id,
+            document_type=DocumentType.INVOICE,
+            expiry_date=None,
+            db=async_session,
+            current_user=seed_users["manager"],
+        )
+        # file_url is computed lazily; evaluate it while S3 signing is patched
+        # in — mirrors FastAPI serialising the response within the request.
+        resolved_url = doc.file_url
+
+    fake_s3.upload_file.assert_called_once()
+    assert doc.file_path == s3_url
+    # file_url is the signed URL, not a /uploads/ disk path.
+    assert resolved_url == signed
+    file_url_resolver.get_s3_service.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_upload_document_falls_back_to_disk_without_s3(
+    async_session, seed_users: dict[str, User], seed_asset, monkeypatch,
+):
+    """Without S3 configured, documents still persist to local disk and serve
+    under /uploads (unchanged behaviour)."""
+    monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", None)
+    doc = await cems_documents.upload_document(
+        file=_make_upload("warranty.pdf", b"%PDF-1.4 y"),
+        entity_type="fixed_asset",
+        entity_id=seed_asset.id,
+        document_type=DocumentType.WARRANTY,
+        expiry_date=None,
+        db=async_session,
+        current_user=seed_users["manager"],
+    )
+    assert doc.file_path.startswith("cems_documents/")
+    assert doc.file_url == f"/uploads/{doc.file_path}"
+
+
+@pytest.mark.asyncio
+async def test_disk_document_is_reachable_by_download(
+    async_session, seed_users: dict[str, User], seed_asset, monkeypatch,
+):
+    """Regression: a document written on disk must land in the same directory the
+    download endpoint reads from (write-dir == serve-dir), not one that only the
+    uploader's base-path resolution knows about."""
+    monkeypatch.setattr(cems_documents.settings, "AWS_S3_BUCKET", None)
+    doc = await cems_documents.upload_document(
+        file=_make_upload("manual.pdf", b"%PDF-1.4 z"),
+        entity_type="fixed_asset",
+        entity_id=seed_asset.id,
+        document_type=DocumentType.OTHER,
+        expiry_date=None,
+        db=async_session,
+        current_user=seed_users["manager"],
+    )
+
+    # download_document resolves the base independently; if it disagrees with the
+    # write location it raises 404. Reaching a FileResponse proves they match.
+    result = await cems_documents.download_document(
+        document_id=doc.id,
+        db=async_session,
+        current_user=seed_users["manager"],
+    )
+    assert isinstance(result, FileResponse)
+    assert os.path.isfile(result.path)
+    os.remove(result.path)  # clean up the artifact written under backend/uploads
+
+
+def test_s3_download_forces_original_filename(monkeypatch):
+    """The download endpoint signs the S3 URL with a Content-Disposition so the
+    file saves under its original name, not the opaque S3 key."""
+    from backend.services import file_url_resolver
+
+    fake_s3 = MagicMock()
+    fake_s3.generate_presigned_url.return_value = "https://signed"
+    file_url_resolver.get_s3_service.cache_clear()
+    monkeypatch.setattr(file_url_resolver.settings, "AWS_S3_BUCKET", "bucket")
+    with patch("backend.services.file_url_resolver.S3Service", return_value=fake_s3):
+        file_url_resolver.resolve_stored_file_url(
+            "https://x/y.pdf", download_filename="Invoice #1.pdf"
+        )
+    file_url_resolver.get_s3_service.cache_clear()
+
+    _, kwargs = fake_s3.generate_presigned_url.call_args
+    assert kwargs["response_content_disposition"] == 'attachment; filename="Invoice #1.pdf"'

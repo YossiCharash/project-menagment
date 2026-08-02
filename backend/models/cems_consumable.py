@@ -38,6 +38,9 @@ class ConsumableItem(UUIDPrimaryKeyMixin, TimestampMixin, CEMSBase):
     reorder_quantity: Mapped[Decimal] = mapped_column(
         Numeric(10, 4), default=Decimal("0"), nullable=False
     )
+    # Optional unit price (cost per unit) in the system currency. Nullable so
+    # existing items and items without a known price are left blank.
+    unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     category: Mapped["AssetCategory"] = relationship("AssetCategory", lazy="joined")
