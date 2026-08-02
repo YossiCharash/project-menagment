@@ -24,15 +24,18 @@ _MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def _resolve_upload_base() -> str:
-    """Resolve FILE_UPLOAD_DIR to an absolute path (mirrors logic in api/assets.py)."""
+    """Resolve FILE_UPLOAD_DIR to an absolute path under the ``backend`` package.
+
+    This MUST match the directory the ``/uploads`` StaticFiles mount serves from
+    (see ``backend/main.py``) and the download endpoints read from, otherwise
+    files written on disk land where nothing serves them. This module lives at
+    ``backend/services/``, so ``backend`` is two directories up.
+    """
     base = settings.FILE_UPLOAD_DIR
-    if not os.path.isabs(base):
-        # backend/cems/services/photo_storage.py → up 3 levels = repo root for backend
-        backend_dir = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        )
-        base = os.path.abspath(os.path.join(backend_dir, settings.FILE_UPLOAD_DIR))
-    return base
+    if os.path.isabs(base):
+        return base
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.abspath(os.path.join(backend_dir, base))
 
 
 def _ensure_local_dir(prefix: str) -> str:
@@ -87,7 +90,11 @@ def store_photo(
 
     # ── Local disk fallback ──────────────────────────────────────────────
     target_dir = _ensure_local_dir(prefix)
-    safe_name = (filename or "photo").strip().replace("/", "_").replace("\\", "_") or "photo"
+    safe_name = (filename or "photo").strip() or "photo"
+    # Strip path separators, null bytes, and parent-dir markers so a crafted
+    # filename cannot traverse directories or crash open() with a NUL byte.
+    for char in ("/", "\\", "\0", ".."):
+        safe_name = safe_name.replace(char, "_")
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
     new_full_path = os.path.join(target_dir, stored_name)
     with open(new_full_path, "wb") as fh:

@@ -3,7 +3,6 @@ import asyncio
 import io
 import logging
 from datetime import datetime, timezone, timedelta
-from functools import lru_cache
 import os
 import uuid
 from sqlalchemy import select, update, func, or_, exists, distinct
@@ -15,6 +14,7 @@ from backend.core.config import settings
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
 from backend.services.s3_service import S3Service
+from backend.services.file_url_resolver import resolve_stored_file_url
 from backend.repositories.task_repository import ISRAEL_TZ, TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
 from backend.repositories.task_checklist_repository import TaskChecklistRepository
@@ -206,42 +206,11 @@ async def _save_upload_file(file: UploadFile, subdir: str) -> tuple[str, str]:
     return _save_upload_to_disk(content, file, subdir)
 
 
-@lru_cache(maxsize=1)
-def _s3_service() -> S3Service:
-    """Cached S3 client wrapper used for signing attachment links.
-
-    Building a boto3 session/client is expensive and the signing helper runs once
-    per attachment when rendering a task or a chat, so the client is reused.
-    """
-    return S3Service()
-
-
-def _attachment_file_url(stored_path: str | None) -> str:
-    """Resolve a stored attachment path to a URL the browser can actually fetch.
-
-    S3 objects are private, so the stored (unsigned) URL is signed here, at read
-    time, yielding a short-lived link. Handing out the raw S3 URL instead — as
-    this did previously — produces a 403 for every attachment on a bucket that
-    blocks public access, and permanent public access on one that doesn't.
-    Legacy local paths are served under ``/uploads/``.
-    """
-    path = stored_path or ""
-    if not path:
-        return ""
-    if path.startswith("http://") or path.startswith("https://"):
-        if settings.AWS_S3_BUCKET:
-            return _s3_service().generate_presigned_url(path)
-        return path
-    if path.startswith("/"):
-        return path
-    return f"/uploads/{path}"
-
-
 def _message_to_out(msg: TaskMessage, author, read_by_all: bool = False) -> TaskMessageOut:
     """Build a TaskMessageOut (with attachments) from a TaskMessage."""
     attachments = []
     for att in getattr(msg, "attachments", None) or []:
-        file_url = _attachment_file_url(getattr(att, "file_path", None))
+        file_url = resolve_stored_file_url(getattr(att, "file_path", None))
         attachments.append(
             TaskMessageAttachmentOut(id=att.id, file_name=att.file_name or "", file_url=file_url)
         )
@@ -410,7 +379,7 @@ def _task_to_out(task: Task, unread_count: int = 0) -> dict:
     attachments_raw = getattr(task, "attachments", None) or []
     attachments_data = []
     for att in attachments_raw:
-        file_url = _attachment_file_url(getattr(att, "file_path", None))
+        file_url = resolve_stored_file_url(getattr(att, "file_path", None))
         attachments_data.append(
             TaskAttachmentOut(
                 id=att.id,
@@ -1452,7 +1421,7 @@ async def upload_task_attachment(
     return TaskAttachmentOut(
         id=attachment.id,
         file_name=attachment.file_name,
-        file_url=_attachment_file_url(relative_path),
+        file_url=resolve_stored_file_url(relative_path),
     )
 
 

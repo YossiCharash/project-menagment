@@ -48,6 +48,8 @@ _ADDITIVE_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS name_2 VARCHAR(255)",
     "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone_2 VARCHAR(50)",
     "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_2 VARCHAR(255)",
+    # Optional unit price on a consumable item (cems_consumable_items pre-exists).
+    "ALTER TABLE cems_consumable_items ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 2)",
 )
 
 # ── Main application models ──────────────────────────────────────────────────
