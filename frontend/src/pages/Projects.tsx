@@ -517,27 +517,25 @@ export default function Projects() {
   }
 
   const filteredProjects = dashboardData?.projects?.filter((project: any) => {
-    // Always exclude subprojects (projects with relation_project set)
-    // Only show parent projects and regular projects (projects without a parent)
-    if (project.relation_project) {
-      return false
-    }
+    const isSubproject = !!project.relation_project
 
     const matchesSearch = project.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.address?.toLowerCase().includes(searchTerm.toLowerCase())
-    
+
     const matchesStatus = !statusFilter || project.status_color === statusFilter
     const matchesCity = !cityFilter || project.city?.toLowerCase().includes(cityFilter.toLowerCase())
-    
-    // Filter by project type (parent projects vs regular projects)
+
+    // Filter by project type:
+    // - "כל הפרויקטים" (empty): show everything, including subprojects
+    // - "פרויקטים ראשיים": only parent projects
+    // - "תת-פרויקטים": only subprojects
     let matchesType = true
     if (projectTypeFilter === 'parent') {
       matchesType = project.is_parent_project === true // Only parent projects
     } else if (projectTypeFilter === 'subproject') {
-      matchesType = false // Subprojects are never shown on this page
+      matchesType = isSubproject // Only subprojects
     }
-    // If no filter is selected, show both parent and regular projects (but not subprojects)
 
     // Filter by archive status
     let matchesArchive = true
