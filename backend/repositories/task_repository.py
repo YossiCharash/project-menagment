@@ -1,11 +1,18 @@
 """Task repository for Task Management Calendar."""
 from __future__ import annotations
 from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
 from sqlalchemy import select, or_, and_, exists, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.models.task import Task, TaskParticipant, TaskStatus, task_assignees
+
+# Task ``start_time`` values are stored as naive Israel local wall-clock (see the
+# serializer note in ``backend/schemas/task.py``), so "has the task come due?"
+# must be judged against Israel-local now — not UTC — to stay correct across the
+# 2–3h offset (and DST).
+ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
 
 
 class TaskRepository:
@@ -113,18 +120,29 @@ class TaskRepository:
         return list(result.unique().scalars().all())
 
     async def count_open_by_apartment_ids(self, apartment_ids: list[int]) -> dict[int, int]:
-        """Count non-archived, non-completed ("open") tasks per apartment.
+        """Count "due" open tasks per apartment — the signal behind the reception
+        grid's per-apartment task indicator.
+
+        A task counts only when it is non-archived, non-completed AND its time has
+        actually arrived: it either has no scheduled start (``start_time IS NULL``
+        — immediate work with no future date to wait for) or its ``start_time`` is
+        now-or-earlier. Future-dated tasks (e.g. a recurring task scheduled ahead)
+        are deliberately excluded so the grid flags an apartment only once the work
+        is genuinely pending, instead of lighting up every apartment the moment a
+        future task is planned.
 
         Returns a ``{apartment_id: open_task_count}`` mapping in a single grouped
-        query. Apartments with no open tasks are simply absent from the mapping.
+        query. Apartments with no due open tasks are simply absent from the mapping.
         """
         if not apartment_ids:
             return {}
+        now_israel = datetime.now(ISRAEL_TZ).replace(tzinfo=None)
         result = await self.db.execute(
             select(Task.apartment_id, func.count(Task.id))
             .where(Task.apartment_id.in_(apartment_ids))
             .where(Task.is_archived == False)  # noqa: E712
             .where(Task.status != TaskStatus.COMPLETED)
+            .where(or_(Task.start_time.is_(None), Task.start_time <= now_israel))
             .group_by(Task.apartment_id)
         )
         return {apartment_id: count for apartment_id, count in result.all()}
