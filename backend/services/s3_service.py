@@ -53,13 +53,22 @@ class S3Service:
         # Default S3 URL
         return f"https://{self._bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
 
-    def generate_presigned_url(self, file_url: str, expires_in: int | None = None) -> str:
+    def generate_presigned_url(
+        self,
+        file_url: str,
+        expires_in: int | None = None,
+        response_content_disposition: str | None = None,
+    ) -> str:
         """Return a short-lived signed URL for a stored object.
 
         Bucket objects are private, so the plain URL kept in the DB is not
         fetchable by a browser. Callers sign it at read time instead, which keeps
         links time-limited rather than permanently public. Signing is a local
         computation (no network call).
+
+        When ``response_content_disposition`` is given, the signed URL carries it
+        as a response-header override (e.g. to force a download under the
+        original filename rather than the opaque S3 key).
 
         Falls back to the input URL when the key can't be derived (legacy local
         paths) or when signing fails, so a signing problem degrades one link
@@ -70,10 +79,13 @@ class S3Service:
             return file_url
 
         ttl = expires_in if expires_in is not None else settings.AWS_S3_PRESIGNED_URL_TTL_SECONDS
+        params = {"Bucket": self._bucket, "Key": key}
+        if response_content_disposition:
+            params["ResponseContentDisposition"] = response_content_disposition
         try:
             return self._s3.generate_presigned_url(
                 ClientMethod="get_object",
-                Params={"Bucket": self._bucket, "Key": key},
+                Params=params,
                 ExpiresIn=ttl,
             )
         except Exception as e:

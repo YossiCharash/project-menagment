@@ -124,6 +124,8 @@ export interface ConsumableItem {
   unit: string
   low_stock_threshold: string
   reorder_quantity: string
+  /** Optional unit price (cost per unit) in the system currency; null when unset. */
+  unit_price: string | null
   image_url: string | null
 }
 

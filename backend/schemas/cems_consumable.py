@@ -13,6 +13,7 @@ class ConsumableItemBase(BaseModel):
     unit: str
     low_stock_threshold: Decimal = Decimal("0")
     reorder_quantity: Decimal = Decimal("0")
+    unit_price: Optional[Decimal] = None
     image_url: Optional[str] = None
 
 
@@ -28,6 +29,7 @@ class ConsumableItemUpdate(BaseModel):
     low_stock_threshold: Optional[Decimal] = None
     reorder_quantity: Optional[Decimal] = None
     quantity: Optional[Decimal] = None
+    unit_price: Optional[Decimal] = None
     image_url: Optional[str] = None
 
 
