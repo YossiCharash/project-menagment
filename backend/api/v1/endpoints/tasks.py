@@ -15,7 +15,7 @@ from backend.core.config import settings
 from backend.core.deps import DBSessionDep, get_current_user
 from backend.iam.decorators import require_permission
 from backend.services.s3_service import S3Service
-from backend.repositories.task_repository import TaskRepository
+from backend.repositories.task_repository import ISRAEL_TZ, TaskRepository
 from backend.repositories.task_label_repository import TaskLabelRepository
 from backend.repositories.task_checklist_repository import TaskChecklistRepository
 from backend.repositories.user_repository import UserRepository
@@ -339,6 +339,23 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
         return None
     if dt.tzinfo:
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _to_naive_israel_local(dt: datetime | None) -> datetime | None:
+    """Normalize a scheduling value to naive Israel local wall-clock.
+
+    ``start_time``/``end_time`` are stored as naive Israel wall-clock (see the
+    serializer note in ``backend/schemas/task.py``) and read back that way by the
+    frontend and by ``count_open_by_apartment_ids``. The frontend already sends
+    naive wall-clock, but an API client may send a tz-aware value; convert those
+    to Israel local (NOT UTC) so every stored ``start_time`` uses one convention
+    and the "has the task come due?" comparison stays correct across the offset.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo:
+        return dt.astimezone(ISRAEL_TZ).replace(tzinfo=None)
     return dt
 
 
@@ -1082,8 +1099,8 @@ async def create_task(
         raise HTTPException(status_code=400, detail="At least one assignee is required")
     assignee_users = await _load_active_assignees(user_repo, assignee_ids)
     primary_assignee_id = assignee_ids[0]
-    start_val = _to_naive_utc(data.start_time) if data.start_time else data.start_time
-    end_val = _to_naive_utc(data.end_time) if data.end_time else data.end_time
+    start_val = _to_naive_israel_local(data.start_time) if data.start_time else data.start_time
+    end_val = _to_naive_israel_local(data.end_time) if data.end_time else data.end_time
     event_type = (data.event_type if data.event_type in (EventType.MEETING, EventType.TASK) else EventType.TASK)
     recurrence = _normalize_recurrence(
         getattr(data, "recurrence_rule", None),
@@ -1269,7 +1286,7 @@ async def update_task(
     participant_ids = update_data.pop("participant_ids", None)
     for k, v in update_data.items():
         if k in ("start_time", "end_time") and v is not None:
-            v = _to_naive_utc(v) or v
+            v = _to_naive_israel_local(v) or v
         setattr(task, k, v)
     if new_assignee_users is not None:
         task.assignees = new_assignee_users
