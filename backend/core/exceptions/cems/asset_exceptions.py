@@ -33,13 +33,6 @@ class AssetNameRequiredError(AssetCreationError):
     detail = AssetCreationErrorMessages.ASSET_NAME_REQUIRED
 
 
-class SerialNumberRequiredError(AssetCreationError):
-    """Raised when the serial number is missing or blank."""
-
-    http_status = 400
-    detail = AssetCreationErrorMessages.SERIAL_NUMBER_REQUIRED
-
-
 class DuplicateSerialNumberError(AssetCreationError):
     """Raised when another asset already holds the requested serial number.
 

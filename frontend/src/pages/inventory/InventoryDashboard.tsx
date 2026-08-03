@@ -420,7 +420,6 @@ export default function InventoryDashboard() {
                 )}
                 <div>
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">{selectedAsset.name}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{selectedAsset.serial_number}</p>
                 </div>
               </div>
               <button
@@ -467,7 +466,6 @@ export default function InventoryDashboard() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[
                   { label: 'סטטוס', value: <StatusBadge status={selectedAsset.status} /> },
-                  { label: 'מס\' סידורי', value: <span className="font-mono">{selectedAsset.serial_number}</span> },
                   { label: 'תאריך רכישה', value: selectedAsset.purchase_date ? new Date(selectedAsset.purchase_date).toLocaleDateString('he-IL') : '—' },
                   { label: 'תפוגת אחריות', value: selectedAsset.warranty_expiry ? new Date(selectedAsset.warranty_expiry).toLocaleDateString('he-IL') : '—' },
                   { label: 'הערות', value: selectedAsset.notes || '—' },

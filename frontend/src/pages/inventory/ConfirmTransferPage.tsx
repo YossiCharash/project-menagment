@@ -166,12 +166,6 @@ function PreviewState({
           <span className={DETAIL_LABEL}>שם הציוד</span>
           <span className={DETAIL_VALUE}>{preview.asset_name}</span>
         </div>
-        {preview.asset_serial_number && (
-          <div className={DETAIL_ROW}>
-            <span className={DETAIL_LABEL}>מספר סידורי</span>
-            <span className={DETAIL_VALUE}>{preview.asset_serial_number}</span>
-          </div>
-        )}
         {preview.from_user_name && (
           <div className={DETAIL_ROW}>
             <span className={DETAIL_LABEL}>נמסר על ידי</span>
