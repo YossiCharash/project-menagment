@@ -5,7 +5,6 @@ from backend.core.exceptions.cems.asset_exceptions import (
     AssetCreationError,
     AssetNameRequiredError,
     DuplicateSerialNumberError,
-    SerialNumberRequiredError,
 )
 from backend.core.exceptions.cems.retirement_exceptions import (
     ApprovalForbiddenError,
@@ -33,5 +32,4 @@ __all__ = [
     "RetirementError",
     "RetirementRequestNotFoundError",
     "RetirementRequestNotPendingError",
-    "SerialNumberRequiredError",
 ]

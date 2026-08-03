@@ -13,10 +13,6 @@ class AssetCreationErrorMessages:
 
     ASSET_NAME_REQUIRED: str = "שם הפריט הוא שדה חובה ליצירת פריט ציוד קבוע."
 
-    SERIAL_NUMBER_REQUIRED: str = (
-        "מספר סידורי הוא שדה חובה ליצירת פריט ציוד קבוע."
-    )
-
     SERIAL_NUMBER_ALREADY_EXISTS_TEMPLATE: str = (
         "כבר קיים פריט ציוד עם מספר סידורי '{serial_number}'. "
         "המספר הסידורי חייב להיות ייחודי — יש להזין מספר אחר."

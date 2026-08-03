@@ -14,7 +14,6 @@ from backend.core.exceptions.cems import (
     AssetCategoryNotFoundError,
     AssetNameRequiredError,
     DuplicateSerialNumberError,
-    SerialNumberRequiredError,
 )
 from backend.models.cems_category import AssetCategory
 from backend.models.cems_fixed_asset import AssetStatus, FixedAsset
@@ -151,15 +150,40 @@ async def test_create_asset_rejects_blank_name(
 
 
 @pytest.mark.asyncio
-async def test_create_asset_rejects_blank_serial_number(
+async def test_create_asset_generates_serial_when_blank(
     async_session: AsyncSession,
     seed_users: dict[str, User],
     seed_category: AssetCategory,
 ):
+    """The inventory UI no longer collects a serial number: a blank value is
+    expected and the service generates a unique internal one so the UNIQUE,
+    NOT NULL column stays satisfied."""
     service = _build_service(async_session)
 
-    with pytest.raises(SerialNumberRequiredError):
-        await service.create_asset(
-            _payload(seed_category.id, serial_number="   "),
-            actor_id=seed_users["admin"].id,
-        )
+    asset = await service.create_asset(
+        _payload(seed_category.id, serial_number="   "),
+        actor_id=seed_users["admin"].id,
+    )
+
+    assert asset.serial_number
+    assert asset.serial_number.startswith("AUTO-")
+
+
+@pytest.mark.asyncio
+async def test_create_asset_generates_serial_when_omitted(
+    async_session: AsyncSession,
+    seed_users: dict[str, User],
+    seed_category: AssetCategory,
+):
+    """Two assets created without a serial number get distinct generated ones."""
+    service = _build_service(async_session)
+
+    payload = _payload(seed_category.id)
+    del payload["serial_number"]
+
+    first = await service.create_asset(payload, actor_id=seed_users["admin"].id)
+    second_payload = _payload(seed_category.id, name="Second")
+    del second_payload["serial_number"]
+    second = await service.create_asset(second_payload, actor_id=seed_users["admin"].id)
+
+    assert first.serial_number != second.serial_number
