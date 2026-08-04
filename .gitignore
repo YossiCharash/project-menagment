@@ -215,6 +215,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 frontend/node_modules
+
+# Runtime user uploads (documents, photos) must never be committed
+backend/uploads/
 *.sql
 # migration SQL files must be tracked in git
 !backend/migrations/*.sql
