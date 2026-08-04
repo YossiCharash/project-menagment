@@ -93,7 +93,6 @@ class TransferConfirmationService:
         subject, body = self._compose_email(
             employee_full_name=employee.full_name or employee.email,
             asset_name=asset.name,
-            asset_serial_number=asset.serial_number,
             from_user_name=from_user_name,
             confirmation_link=link,
         )
@@ -247,7 +246,6 @@ class TransferConfirmationService:
     def _compose_email(
         employee_full_name: str,
         asset_name: str,
-        asset_serial_number: Optional[str],
         from_user_name: Optional[str],
         confirmation_link: str,
     ) -> tuple[str, str]:
@@ -255,7 +253,6 @@ class TransferConfirmationService:
         body = TransferConfirmationEmailTemplate.body(
             employee_full_name=employee_full_name,
             asset_name=asset_name,
-            asset_serial_number=asset_serial_number,
             from_user_name=from_user_name,
             confirmation_link=confirmation_link,
             expires_hours=TOKEN_EXPIRY_HOURS,

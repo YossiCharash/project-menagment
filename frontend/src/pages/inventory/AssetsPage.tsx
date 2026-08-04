@@ -718,7 +718,6 @@ interface AddAssetModalProps {
 
 function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetModalProps) {
   const [name, setName] = useState('')
-  const [serialNumber, setSerialNumber] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [purchaseDate, setPurchaseDate] = useState('')
@@ -764,12 +763,11 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
     }
   }
 
-  // The server requires a name, a unique serial number and an existing
-  // category (all three are non-nullable columns). Validate here so the user
-  // gets a field-specific message instead of a raw 422 from the API.
+  // The server requires a name and an existing category. The serial number is
+  // no longer entered by the user — each asset is identified by its own id and
+  // the server generates an internal serial number automatically.
   function validate(): string | null {
     if (!name.trim()) return 'שם הוא שדה חובה'
-    if (!serialNumber.trim()) return 'מספר סידורי הוא שדה חובה'
     if (!categoryId) return 'יש לבחור קטגוריה'
     return null
   }
@@ -787,7 +785,6 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
     try {
       const response = await cemsApi.createAsset({
         name: name.trim(),
-        serial_number: serialNumber.trim(),
         category_id: categoryId,
         current_warehouse_id: warehouseId || undefined,
         purchase_date: purchaseDate || undefined,
@@ -835,19 +832,6 @@ function AddAssetModal({ categories, warehouses, onClose, onCreated }: AddAssetM
           <div>
             <label className={LABEL_CLASS}>שם *</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_CLASS} required />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>מספר סידורי *</label>
-            <input
-              type="text"
-              value={serialNumber}
-              onChange={(e) => setSerialNumber(e.target.value)}
-              className={INPUT_CLASS}
-              required
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              המספר הסידורי חייב להיות ייחודי לכל פריט ציוד.
-            </p>
           </div>
           <div>
             <label className={LABEL_CLASS}>תמונה</label>
@@ -1245,14 +1229,14 @@ function ConfirmPermanentDeleteModal({
   onClose,
   onDeleted,
 }: ConfirmPermanentDeleteModalProps) {
-  const [typedSerial, setTypedSerial] = useState('')
+  const [typedName, setTypedName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const serialMatches = typedSerial === asset.serial_number
+  const nameMatches = typedName.trim() === asset.name
 
   async function handleConfirm() {
-    if (!serialMatches) return
+    if (!nameMatches) return
     setSubmitting(true)
     setError(null)
     try {
@@ -1291,17 +1275,17 @@ function ConfirmPermanentDeleteModal({
           </div>
           <div>
             <label className={LABEL_CLASS}>
-              הקלד את המספר הסידורי של הציוד לאישור:{' '}
-              <span className="font-mono font-bold text-gray-900 dark:text-white">
-                {asset.serial_number}
+              הקלד את שם הציוד לאישור:{' '}
+              <span className="font-bold text-gray-900 dark:text-white">
+                {asset.name}
               </span>
             </label>
             <input
               type="text"
-              value={typedSerial}
-              onChange={(e) => setTypedSerial(e.target.value)}
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
               className={INPUT_CLASS}
-              placeholder="הקלד את המספר הסידורי כאן"
+              placeholder="הקלד את שם הציוד כאן"
               autoFocus
             />
           </div>
@@ -1312,7 +1296,7 @@ function ConfirmPermanentDeleteModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={!serialMatches || submitting}
+              disabled={!nameMatches || submitting}
               className={`${BTN_DANGER} disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {submitting ? 'מוחק...' : 'מחק לצמיתות'}

@@ -64,7 +64,7 @@ interface TotalAssetsBrowserModalProps {
 interface BrowsableItem {
   id: string
   name: string
-  /** Mono-spaced secondary line: serial for assets, unit/qty for consumables. */
+  /** Mono-spaced secondary line: category for assets, unit/qty for consumables. */
   secondary: string | null
   /** Optional tertiary line — typically the warehouse name. */
   tertiary: string | null
@@ -115,7 +115,7 @@ function adaptAsset(
   return {
     id: `asset:${asset.id}`,
     name: asset.name,
-    secondary: asset.serial_number,
+    secondary: categoriesById.get(asset.category_id)?.name ?? null,
     tertiary: asset.current_warehouse_id
       ? warehousesById.get(asset.current_warehouse_id)?.name ?? null
       : null,
@@ -503,7 +503,10 @@ function ItemCard({ item, onClick }: ItemCardProps) {
           {item.name}
         </p>
         {item.secondary && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono truncate" title={item.secondary}>
+          <p
+            className={`text-sm text-gray-500 dark:text-gray-400 truncate ${item.kind === 'consumable' ? 'font-mono' : ''}`}
+            title={item.secondary}
+          >
             {item.secondary}
           </p>
         )}

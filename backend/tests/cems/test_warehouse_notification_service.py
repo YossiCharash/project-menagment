@@ -101,7 +101,10 @@ async def test_notify_success_returns_count_and_calls_send(
     call_kwargs = send_mock.await_args.kwargs
     assert call_kwargs["to_email"] == employee.email
     assert warehouse.name in call_kwargs["subject"]
-    assert seed_asset.serial_number in call_kwargs["body"]
+    # The serial number is internal and must never reach the user; the pending
+    # item is identified by its name in the email body.
+    assert seed_asset.name in call_kwargs["body"]
+    assert seed_asset.serial_number not in call_kwargs["body"]
 
 
 @pytest.mark.asyncio
