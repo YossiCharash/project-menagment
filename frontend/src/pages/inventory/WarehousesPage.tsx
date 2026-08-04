@@ -1117,9 +1117,6 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
                           />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-gray-900 dark:text-white truncate">{asset.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              מס׳ סידורי: {asset.serial_number}
-                            </p>
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${assetStatusClass(asset.status)}`}>
                             {assetStatusLabel(asset.status)}
@@ -1180,9 +1177,6 @@ function InventoryModal({ warehouse, allWarehouses, onClose, initialMode = 'summ
                     >
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{asset.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          מס׳ סידורי: {asset.serial_number}
-                        </p>
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${assetStatusClass(asset.status)}`}>
                         {assetStatusLabel(asset.status)}

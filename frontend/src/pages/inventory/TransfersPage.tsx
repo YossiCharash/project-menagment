@@ -96,11 +96,6 @@ function AssetCell({ transfer }: AssetCellProps) {
         <p className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[160px]" title={displayName}>
           {displayName}
         </p>
-        {transfer.asset_serial_number && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate max-w-[160px]">
-            {transfer.asset_serial_number}
-          </p>
-        )}
       </div>
     </div>
   )

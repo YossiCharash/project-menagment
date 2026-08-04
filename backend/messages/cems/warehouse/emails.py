@@ -31,7 +31,6 @@ class PendingItemLine:
     """Single equipment row shown inside the email body."""
 
     name: str
-    serial_number: str
     initiated_at: Optional[datetime] = None
 
 
@@ -95,6 +94,6 @@ class WarehousePendingItemsEmailTemplate:
                 if item.initiated_at else ""
             )
             lines.append(
-                f"  {index}. {item.name} - מס' סידורי: {item.serial_number}{initiated_text}"
+                f"  {index}. {item.name}{initiated_text}"
             )
         return "\n".join(lines)

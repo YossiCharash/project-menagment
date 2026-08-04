@@ -34,14 +34,10 @@ class TransferConfirmationEmailTemplate:
     def body(
         employee_full_name: str,
         asset_name: str,
-        asset_serial_number: Optional[str],
         from_user_name: Optional[str],
         confirmation_link: str,
         expires_hours: int,
     ) -> str:
-        serial_line = (
-            f"מספר סידורי: {asset_serial_number}\n" if asset_serial_number else ""
-        )
         from_line = (
             f"נמסר על ידי: {from_user_name}\n" if from_user_name else ""
         )
@@ -49,7 +45,6 @@ class TransferConfirmationEmailTemplate:
             f"שלום {employee_full_name},\n\n"
             f"הועברה לידיך בקשה לקבלת הציוד הבא:\n"
             f"שם הציוד: {asset_name}\n"
-            f"{serial_line}"
             f"{from_line}"
             f"\nכדי לאשר את קבלת הציוד, לחצו על הקישור הבא:\n"
             f"{confirmation_link}\n\n"

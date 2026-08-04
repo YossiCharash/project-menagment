@@ -9,7 +9,6 @@ from backend.models.cems_fixed_asset import AssetStatus
 
 class FixedAssetBase(BaseModel):
     name: str
-    serial_number: str
     category_id: uuid.UUID
     project_id: Optional[int] = None
     purchase_date: Optional[date] = None
@@ -18,6 +17,10 @@ class FixedAssetBase(BaseModel):
 
 
 class FixedAssetCreate(FixedAssetBase):
+    # The inventory UI no longer collects a serial number — each asset is
+    # identified by its UUID id. A serial may still be supplied
+    # programmatically; when omitted the service generates one.
+    serial_number: Optional[str] = None
     current_custodian_id: Optional[int] = None
     current_warehouse_id: Optional[uuid.UUID] = None
     current_location: Optional[str] = None
@@ -39,6 +42,9 @@ class FixedAssetRead(FixedAssetBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    # Kept in the response for internal/backward-compatibility use; the
+    # inventory UI no longer displays it.
+    serial_number: str
     status: AssetStatus
     current_custodian_id: Optional[int]
     current_warehouse_id: Optional[uuid.UUID]
