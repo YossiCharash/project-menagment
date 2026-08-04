@@ -31,6 +31,9 @@ _ASSET_CREATED_ACTION = "ASSET_CREATED"
 # entered by a user (the UI no longer collects one).
 _GENERATED_SERIAL_PREFIX = "AUTO-"
 
+# Upper bound on regeneration attempts before giving up on a unique serial.
+_MAX_SERIAL_GENERATION_ATTEMPTS = 5
+
 
 class AssetCreationService:
     """Creates a fixed asset and records its first history entry.
@@ -87,14 +90,23 @@ class AssetCreationService:
         """
         trimmed = (serial_number or "").strip()
         if not trimmed:
-            return self._generate_serial_number()
+            return await self._generate_unique_serial_number()
         await self._require_serial_number_available(trimmed)
         return trimmed
 
-    @staticmethod
-    def _generate_serial_number() -> str:
-        """Return a unique, system-generated serial number."""
-        return f"{_GENERATED_SERIAL_PREFIX}{uuid.uuid4().hex}"
+    async def _generate_unique_serial_number(self) -> str:
+        """Return a system-generated serial number not already in use.
+
+        Guards the same ``UNIQUE`` invariant the supplied-serial path guards:
+        a collision (astronomically unlikely for a UUID, but possible against
+        a hand-entered ``AUTO-…`` value) is retried rather than surfacing as
+        an opaque DB error.
+        """
+        for _ in range(_MAX_SERIAL_GENERATION_ATTEMPTS):
+            candidate = f"{_GENERATED_SERIAL_PREFIX}{uuid.uuid4().hex}"
+            if await self._asset_repo.get_by_serial(candidate) is None:
+                return candidate
+        raise DuplicateSerialNumberError(candidate)
 
     async def _require_serial_number_available(self, serial_number: str) -> None:
         """Reject a serial number already taken by another asset."""

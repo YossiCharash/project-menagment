@@ -503,7 +503,10 @@ function ItemCard({ item, onClick }: ItemCardProps) {
           {item.name}
         </p>
         {item.secondary && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono truncate" title={item.secondary}>
+          <p
+            className={`text-sm text-gray-500 dark:text-gray-400 truncate ${item.kind === 'consumable' ? 'font-mono' : ''}`}
+            title={item.secondary}
+          >
             {item.secondary}
           </p>
         )}

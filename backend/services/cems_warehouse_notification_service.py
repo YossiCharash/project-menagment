@@ -143,7 +143,6 @@ class WarehouseNotificationService:
             items.append(
                 PendingItemLine(
                     name=asset.name,
-                    serial_number=asset.serial_number,
                     initiated_at=transfer.initiated_at,
                 )
             )
