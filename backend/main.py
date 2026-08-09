@@ -279,16 +279,36 @@ def create_app() -> FastAPI:
         async def serve_root():
             return FileResponse(os.path.join(static_dir, "index.html"))
 
+        static_root = os.path.realpath(static_dir)
+
+        def resolve_static_file(requested_path: str) -> str | None:
+            """Resolve a requested path to a real file inside the static root.
+
+            Starlette URL-decodes path parameters, so ``full_path`` may contain
+            ``..`` segments that escape the static directory. Returns the
+            absolute file path only when it stays inside ``static_root`` and
+            names an existing file; otherwise None.
+            """
+            candidate = os.path.realpath(os.path.join(static_root, requested_path))
+            try:
+                is_contained = os.path.commonpath([static_root, candidate]) == static_root
+            except ValueError:
+                # Raised on Windows when the paths sit on different drives.
+                return None
+            if not is_contained:
+                return None
+            return candidate if os.path.isfile(candidate) else None
+
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
-            file_path = os.path.join(static_dir, full_path)
-            if os.path.exists(file_path) and os.path.isfile(file_path):
+            file_path = resolve_static_file(full_path)
+            if file_path:
                 return FileResponse(file_path)
 
             if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
                 return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
-            return FileResponse(os.path.join(static_dir, "index.html"))
+            return FileResponse(os.path.join(static_root, "index.html"))
 
     return app
 

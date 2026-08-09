@@ -19,6 +19,15 @@ else:
     load_dotenv()  # Try default location
 
 
+# Placeholder credentials used only when the matching environment variable is
+# absent. They are intentionally non-secret so that no real credential ever
+# lives in version control; ``Settings.validate_security`` refuses to start the
+# application in production while any of them is still in effect.
+DEV_JWT_SECRET_KEY = "dev-only-insecure-jwt-secret"
+DEV_SUPER_ADMIN_EMAIL = "admin@example.invalid"
+DEV_SUPER_ADMIN_PASSWORD = "dev-only-insecure-password"
+
+
 def _normalize_database_uri(uri: str) -> str:
     """Ensure async driver is used. Render and others provide postgres://."""
     if "asyncpg" in uri:
@@ -37,7 +46,7 @@ class Settings(BaseModel):
             os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/bms")
         )
     )
-    JWT_SECRET_KEY: str = Field(default=os.getenv("JWT_SECRET_KEY", "change_me"))
+    JWT_SECRET_KEY: str = Field(default=os.getenv("JWT_SECRET_KEY", DEV_JWT_SECRET_KEY))
     
     @property
     def is_production(self) -> bool:
@@ -49,15 +58,22 @@ class Settings(BaseModel):
         logger = logging.getLogger(__name__)
 
         if self.is_production:
-            if self.JWT_SECRET_KEY == "change_me":
-                raise ValueError("CRITICAL: JWT_SECRET_KEY must be changed in production!")
-            if self.SUPER_ADMIN_PASSWORD == "c98C98@98":
-                raise ValueError("CRITICAL: Default SUPER_ADMIN_PASSWORD must be changed in production!")
+            if self.JWT_SECRET_KEY == DEV_JWT_SECRET_KEY:
+                raise ValueError("CRITICAL: JWT_SECRET_KEY must be set in production!")
+            if self.SUPER_ADMIN_PASSWORD == DEV_SUPER_ADMIN_PASSWORD:
+                raise ValueError("CRITICAL: SUPER_ADMIN_PASSWORD must be set in production!")
+            if self.SUPER_ADMIN_EMAIL == DEV_SUPER_ADMIN_EMAIL:
+                # Warning rather than a hard failure so an unset variable cannot
+                # block a deploy. create_super_admin() refuses to seed an account
+                # under the placeholder address, so no bogus admin is created.
+                logger.warning(
+                    "SUPER_ADMIN_EMAIL is unset; super-admin seeding is disabled in production."
+                )
             if len(self.JWT_SECRET_KEY) < 32:
                 logger.warning("JWT_SECRET_KEY is shorter than 32 characters. Consider using a longer key.")
         else:
-            if self.JWT_SECRET_KEY == "change_me":
-                logger.warning("Using default JWT_SECRET_KEY. Change this before deploying to production.")
+            if self.JWT_SECRET_KEY == DEV_JWT_SECRET_KEY:
+                logger.warning("Using placeholder JWT_SECRET_KEY. Set it before deploying to production.")
 
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
@@ -94,12 +110,12 @@ class Settings(BaseModel):
         import logging
         logger = logging.getLogger(__name__)
 
-        if self.JWT_SECRET_KEY == "change_me":
-            logger.warning("Using default JWT_SECRET_KEY. This is insecure for production!")
-        
-        if self.SUPER_ADMIN_PASSWORD == "c98C98@98":
-            logger.warning("Using default SUPER_ADMIN_PASSWORD. Change this for production!")
-            
+        if self.JWT_SECRET_KEY == DEV_JWT_SECRET_KEY:
+            logger.warning("Using placeholder JWT_SECRET_KEY. This is insecure for production!")
+
+        if self.SUPER_ADMIN_PASSWORD == DEV_SUPER_ADMIN_PASSWORD:
+            logger.warning("Using placeholder SUPER_ADMIN_PASSWORD. Set it for production!")
+
         return self
 
     FILE_UPLOAD_DIR: str = os.getenv("FILE_UPLOAD_DIR", "./uploads")
@@ -119,8 +135,8 @@ class Settings(BaseModel):
     )
     
     # Super Admin Configuration
-    SUPER_ADMIN_EMAIL: str = Field(default=os.getenv("SUPER_ADMIN_EMAIL", "c0548508540@gmail.com"))
-    SUPER_ADMIN_PASSWORD: str = Field(default=os.getenv("SUPER_ADMIN_PASSWORD", "c98C98@98"))
+    SUPER_ADMIN_EMAIL: str = Field(default=os.getenv("SUPER_ADMIN_EMAIL", DEV_SUPER_ADMIN_EMAIL))
+    SUPER_ADMIN_PASSWORD: str = Field(default=os.getenv("SUPER_ADMIN_PASSWORD", DEV_SUPER_ADMIN_PASSWORD))
     SUPER_ADMIN_NAME: str = Field(default=os.getenv("SUPER_ADMIN_NAME", "Super Administrator"))
     
     # Email Configuration
