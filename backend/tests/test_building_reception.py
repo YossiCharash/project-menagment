@@ -281,6 +281,63 @@ class TestApartmentAndTenant:
         response = await test_client.get(f"{BASE}/apartments/999999", headers=_auth(admin_token))
         assert response.status_code == 404, response.text
 
+    async def test_parking_and_storage_persist_across_create_update_and_list(
+        self, test_client: AsyncClient, admin_token: str
+    ):
+        """Parking/storage (and the extra owner-contact fields) must survive the
+        round-trip through every apartment DTO. Regression: the shared DTO builder
+        dropped these columns, so the values were stored but never returned, making
+        the desk read as if the save had failed."""
+        building = await _create_building(test_client, admin_token)
+
+        created = await test_client.post(
+            f"{BASE}/apartments",
+            headers=_auth(admin_token),
+            json={
+                "building_id": building["id"],
+                "floor": 3,
+                "unit_number": "301",
+                "parking_number": "-1/42",
+                "storage_number": "מ-17",
+                "owner_email": "owner@example.com",
+                "owner_name_2": "בעלים שני",
+            },
+        )
+        assert created.status_code == 200, created.text
+        body = created.json()
+        apartment_id = body["id"]
+        assert body["parking_number"] == "-1/42"
+        assert body["storage_number"] == "מ-17"
+        assert body["owner_email"] == "owner@example.com"
+        assert body["owner_name_2"] == "בעלים שני"
+
+        # Detail view returns the stored values, not schema-default None.
+        detail = await test_client.get(
+            f"{BASE}/apartments/{apartment_id}", headers=_auth(admin_token)
+        )
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["parking_number"] == "-1/42"
+        assert detail.json()["storage_number"] == "מ-17"
+
+        # Editing the values persists and returns the new values.
+        updated = await test_client.put(
+            f"{BASE}/apartments/{apartment_id}",
+            headers=_auth(admin_token),
+            json={"parking_number": "12", "storage_number": "3"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["parking_number"] == "12"
+        assert updated.json()["storage_number"] == "3"
+
+        # Summary (building overview) view also carries them.
+        overview = await test_client.get(
+            f"{BASE}/buildings/{building['id']}", headers=_auth(admin_token)
+        )
+        assert overview.status_code == 200, overview.text
+        summary = next(a for a in overview.json()["apartments"] if a["id"] == apartment_id)
+        assert summary["parking_number"] == "12"
+        assert summary["storage_number"] == "3"
+
     async def test_delete_apartment_renumbers_later_units(
         self, test_client: AsyncClient, admin_token: str
     ):
