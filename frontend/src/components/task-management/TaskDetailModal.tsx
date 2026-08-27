@@ -24,11 +24,10 @@ import type {
   Task,
   TaskStatus,
   TaskLabelType,
-  RecurrenceRule,
   TaskMessageType,
   EventType,
 } from '../../pages/TaskCalendar'
-import { EVENT_TYPE_LABELS } from '../../pages/TaskCalendar'
+import { EVENT_TYPE_LABELS, isAllDayTask, describeRecurrence } from '../../pages/TaskCalendar'
 import { PermissionGuard } from '../ui/PermissionGuard'
 import TaskChecklist from './TaskChecklist'
 import AttachmentView from './AttachmentView'
@@ -39,14 +38,6 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: 'בטיפול',
   completed: 'טופלה',
   pending_closure: 'ממתין לאישור סגירה',
-}
-
-const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
-  '': 'ללא חזרות',
-  daily: 'כל יום',
-  weekly: 'כל שבוע',
-  monthly: 'כל חודש',
-  yearly: 'כל שנה',
 }
 
 function getOverdueInfo(task: Task): { delayText: string } | null {
@@ -111,6 +102,7 @@ export default function TaskDetailModal({
   const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
   const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [togglingSuper, setTogglingSuper] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   // Tracks the last (task, newest-message) we auto-scrolled for, so background
@@ -138,8 +130,10 @@ export default function TaskDetailModal({
       setTaskChatPendingFiles([])
       setEditingMessageId(null)
       setEditingText('')
+      setShowDeleteConfirm(false)
       return
     }
+    setShowDeleteConfirm(false)
     if (initialTask && initialTask.id === taskId) {
       setTask(initialTask)
     }
@@ -284,8 +278,10 @@ export default function TaskDetailModal({
     }
   }, [])
 
-  const handleDeleteTask = useCallback(async (t: Task) => {
-    if (!window.confirm('למחוק את המשימה?')) return
+  // Delete is guarded by an in-modal archive-or-delete confirmation panel (see
+  // showDeleteConfirm) rather than window.confirm, so it performs the delete
+  // directly once the user has chosen "delete permanently".
+  const performDeleteTask = useCallback(async (t: Task) => {
     setDeletingTaskId(t.id)
     try {
       await api.delete(`/tasks/${t.id}`)
@@ -296,8 +292,10 @@ export default function TaskDetailModal({
     }
   }, [onClose, onTaskDeleted])
 
+  // Archiving is non-destructive (restorable from the archive), so it needs no
+  // extra confirmation — it is reached from the standalone "ארכב" button and as
+  // the safe alternative inside the delete confirmation.
   const handleArchiveTask = useCallback(async (t: Task) => {
-    if (!window.confirm(`לארכב את "${t.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
     setArchivingTaskId(t.id)
     try {
       await api.post(`/tasks/${t.id}/archive`)
@@ -504,7 +502,14 @@ export default function TaskDetailModal({
               {acknowledgingTaskId === effectiveTask.id ? 'מאשר...' : 'אישרתי קבלת המשימה'}
             </button>
           )}
-          {effectiveTask.start_time && effectiveTask.end_time && (
+          {effectiveTask.start_time && effectiveTask.end_time && isAllDayTask(effectiveTask) && (
+            <p className="text-sm">
+              <span className="text-gray-600 dark:text-gray-400">תאריך: </span>
+              {new Date(effectiveTask.start_time).toLocaleDateString('he-IL')}
+              <span className="text-gray-500 dark:text-gray-500"> (בלי שעה)</span>
+            </p>
+          )}
+          {effectiveTask.start_time && effectiveTask.end_time && !isAllDayTask(effectiveTask) && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">משעה עד שעה: </span>
               {new Date(effectiveTask.start_time).toLocaleString('he-IL')} – {new Date(effectiveTask.end_time).toLocaleString('he-IL')}
@@ -516,10 +521,7 @@ export default function TaskDetailModal({
           {effectiveTask.recurrence_rule && (
             <p className="text-sm">
               <span className="text-gray-600 dark:text-gray-400">משימה מחזורית: </span>
-              <span className="font-medium">{RECURRENCE_LABELS[effectiveTask.recurrence_rule as RecurrenceRule]}</span>
-              {effectiveTask.recurrence_end_date && (
-                <span className="text-gray-600 dark:text-gray-400"> עד {effectiveTask.recurrence_end_date}</span>
-              )}
+              <span className="font-medium">{describeRecurrence(effectiveTask)}</span>
             </p>
           )}
           {effectiveTask.description && (
@@ -806,6 +808,41 @@ export default function TaskDetailModal({
             </div>
           </div>
 
+          {showDeleteConfirm && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 mt-3 space-y-3">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                האם למחוק את "{effectiveTask.title}"? מחיקה היא לצמיתות ואינה ניתנת לשחזור. במקום זאת אפשר לארכב את המשימה — היא תוסר מהרשימה אך תישמר בארכיון וניתן לשחזר אותה בכל עת.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleArchiveTask(effectiveTask)}
+                  disabled={archivingTaskId === effectiveTask.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                >
+                  <Archive className="w-4 h-4" />
+                  {archivingTaskId === effectiveTask.id ? 'מארכב...' : 'ארכב במקום'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => performDeleteTask(effectiveTask)}
+                  disabled={deletingTaskId === effectiveTask.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deletingTaskId === effectiveTask.id ? 'מוחק...' : 'מחק לצמיתות'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-600 mt-4">
             <button
               type="button"
@@ -842,8 +879,8 @@ export default function TaskDetailModal({
             {canEditTask(effectiveTask, me) && (
               <button
                 type="button"
-                onClick={() => handleDeleteTask(effectiveTask)}
-                disabled={!!deletingTaskId}
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={!!deletingTaskId || showDeleteConfirm}
                 className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />

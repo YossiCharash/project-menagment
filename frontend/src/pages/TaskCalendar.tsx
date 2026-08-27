@@ -8,17 +8,13 @@ import listPlugin from '@fullcalendar/list'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventChangeArg, DatesSetArg, EventClickArg, DateSelectArg } from '@fullcalendar/core'
 import type { EventDragStartArg } from '@fullcalendar/interaction'
-import api, { avatarUrl, fileAttachmentUrl } from '../lib/api'
+import api from '../lib/api'
 import { getToken } from '../lib/authCache'
-import { Calendar, User, Plus, Trash2, Pencil, CalendarSync, Link2, Unlink, Paperclip, X, Bell, CheckCircle, MessageCircle, Send, Archive, Search } from 'lucide-react'
-import AttachmentView from '../components/task-management/AttachmentView'
-import RecordButton from '../components/task-management/RecordButton'
+import { Calendar, User, Plus, CalendarSync, Link2, Unlink, X, Send, Archive, Search } from 'lucide-react'
 import Modal from '../components/Modal'
 import ToastNotification, { useToast } from '../components/ToastNotification'
-import TaskChecklist from '../components/task-management/TaskChecklist'
 import { cn } from '../lib/utils'
 import { formatTaskCode } from '../lib/taskCode'
-import { canEditTask } from '../lib/taskPermissions'
 import { updateUser } from '../store/slices/authSlice'
 import { formatCalendarDay, getCalendarDayBothParts, getHebrewMonthRange, getHebrewMonthYearHeader, getJewishHolidays, getIslamicHolidays, getNextHebrewMonthStart, getPrevHebrewMonthStart, type CalendarDateDisplay } from '../lib/calendarUtils'
 import './TaskCalendar.css'
@@ -27,6 +23,7 @@ import OutlookMobileCalendar, { type MobileCalendarView } from '../components/ta
 import BacklogPanel from '../components/task-management/BacklogPanel'
 import CreateTaskModal, { type CreateTaskDefaults } from '../components/task-management/CreateTaskModal'
 import TaskEditModal from '../components/task-management/TaskEditModal'
+import TaskDetailModal from '../components/task-management/TaskDetailModal'
 
 export interface UserForTask {
   id: number
@@ -196,7 +193,7 @@ function weekdayOrdinalInMonth(date: Date): number {
 }
 
 /** Human Hebrew summary of a task's recurrence settings (for the detail view). */
-function describeRecurrence(task: Task): string {
+export function describeRecurrence(task: Task): string {
   const rule = (task.recurrence_rule || '') as RecurrenceRule
   if (!rule) return RECURRENCE_LABELS['']
   const interval = task.recurrence_interval && task.recurrence_interval > 1 ? task.recurrence_interval : 1
@@ -729,14 +726,6 @@ export default function TaskCalendar({
   // (e.g. a calendar drag-select supplies the chosen start/end time).
   const [createDefaults, setCreateDefaults] = useState<CreateTaskDefaults | undefined>(undefined)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [taskMessages, setTaskMessages] = useState<TaskMessageType[]>([])
-  const [taskMessagesLoading, setTaskMessagesLoading] = useState(false)
-  const [taskMessageInput, setTaskMessageInput] = useState('')
-  const [taskMessageSending, setTaskMessageSending] = useState(false)
-  const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null)
-  const [taskChatPendingFiles, setTaskChatPendingFiles] = useState<File[]>([])
-  const taskChatFileInputRef = useRef<HTMLInputElement>(null)
-  const taskChatScrollRef = useRef<HTMLDivElement>(null)
   // The task being edited; the shared TaskEditModal owns its own form state and
   // seeds itself from this task. Null closes the modal.
   const [editingTask, setEditingTask] = useState<Task | null>(null)
@@ -759,11 +748,7 @@ export default function TaskCalendar({
     info: EventChangeArg | null
   } | null>(null)
   const [dropConfirmSaving, setDropConfirmSaving] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState<Task | null>(null)
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
-  const [remindingTaskId, setRemindingTaskId] = useState<number | null>(null)
-  const [acknowledgingTaskId, setAcknowledgingTaskId] = useState<number | null>(null)
-  const [archivingTaskId, setArchivingTaskId] = useState<number | null>(null)
   const { toast, showToast, hideToast } = useToast()
 
   // Opens the shared create-task modal with the given pre-fill configuration.
@@ -787,8 +772,6 @@ export default function TaskCalendar({
     openBacklogCreate()
     onBacklogCreateConsumed?.()
   }, [pendingBacklogCreate, openBacklogCreate, onBacklogCreateConsumed])
-  const [updatingStatus, setUpdatingStatus] = useState(false)
-  const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
   const [localCalendarDateDisplay, setLocalCalendarDateDisplay] = useState<CalendarDateDisplay>(() => {
     try {
       const saved = sessionStorage.getItem('taskCalendarDateDisplay')
@@ -909,86 +892,6 @@ export default function TaskCalendar({
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [fetchTasks])
-
-  // Single source of truth for loading the chat. Reused by the open-task effect
-  // and after any delete so the two chat UIs never diverge from the server.
-  const reloadTaskMessages = useCallback(async () => {
-    if (!selectedTask?.id) return
-    setTaskMessagesLoading(true)
-    try {
-      const { data } = await api.get<TaskMessageType[]>(`/tasks/${selectedTask.id}/messages`)
-      setTaskMessages(data)
-    } catch {
-      setTaskMessages([])
-    } finally {
-      setTaskMessagesLoading(false)
-    }
-  }, [selectedTask?.id])
-
-  useEffect(() => {
-    if (!selectedTask?.id) {
-      setTaskMessages([])
-      setTaskMessageInput('')
-      setTaskChatPendingFiles([])
-      return
-    }
-    setTaskChatPendingFiles([])
-    void reloadTaskMessages()
-  }, [selectedTask?.id, reloadTaskMessages])
-
-  useEffect(() => {
-    if (!selectedTask?.id || taskMessages.length === 0) return
-    taskChatScrollRef.current?.scrollTo({ top: taskChatScrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [selectedTask?.id, taskMessages])
-
-  const handleSendTaskMessage = useCallback(async () => {
-    if (!selectedTask?.id || taskMessageSending) return
-    const text = taskMessageInput.trim()
-    const files = taskChatPendingFiles
-    if (!text && files.length === 0) return
-    setTaskMessageInput('')
-    setTaskChatPendingFiles([])
-    setTaskMessageSending(true)
-    try {
-      const formData = new FormData()
-      formData.append('message', text)
-      files.forEach((file) => formData.append('files', file))
-      const { data } = await api.post<TaskMessageType>(`/tasks/${selectedTask.id}/messages`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      setTaskMessages(prev => [...prev, data])
-    } catch {
-      // Restore the draft (text + files) so the user can retry
-      setTaskMessageInput(text)
-      setTaskChatPendingFiles(files)
-    } finally {
-      setTaskMessageSending(false)
-    }
-  }, [selectedTask?.id, taskMessageInput, taskChatPendingFiles, taskMessageSending])
-
-  const handleDeleteTaskMessage = useCallback(async (messageId: number) => {
-    if (!selectedTask?.id || deletingMessageId !== null) return
-    if (!window.confirm('למחוק את ההודעה?')) return
-    setDeletingMessageId(messageId)
-    try {
-      await api.delete(`/tasks/${selectedTask.id}/messages/${messageId}`)
-      await reloadTaskMessages()
-    } finally {
-      setDeletingMessageId(null)
-    }
-  }, [selectedTask?.id, deletingMessageId, reloadTaskMessages])
-
-  const handleDeleteTaskMessageAttachment = useCallback(async (messageId: number, attachmentId: number) => {
-    if (!selectedTask?.id || deletingMessageId !== null) return
-    if (!window.confirm('למחוק קובץ זה?')) return
-    setDeletingMessageId(messageId)
-    try {
-      await api.delete(`/tasks/${selectedTask.id}/messages/${messageId}/attachments/${attachmentId}`)
-      await reloadTaskMessages()
-    } finally {
-      setDeletingMessageId(null)
-    }
-  }, [selectedTask?.id, deletingMessageId, reloadTaskMessages])
 
   const fetchOutlookStatus = useCallback(async () => {
     try {
@@ -1140,88 +1043,6 @@ export default function TaskCalendar({
       setTasks(prev => prev.map(t => (t.id === task.id ? { ...t, has_unread_messages: false } : t)))
     }
     setSelectedTask(task)
-  }
-
-  const performDeleteTask = async (task: Task) => {
-    setDeletingTaskId(task.id)
-    try {
-      await api.delete(`/tasks/${task.id}`)
-      setSelectedTask(null)
-      try {
-        sessionStorage.setItem('taskCalendarView', currentViewType)
-        if (dateRange?.start) sessionStorage.setItem('taskCalendarDate', dateRange.start.toISOString())
-      } catch {
-        /* ignore */
-      }
-      await fetchTasks()
-    } catch (err) {
-      console.error('Failed to delete task:', err)
-    } finally {
-      setDeletingTaskId(null)
-    }
-  }
-
-  const performArchiveTask = async (task: Task) => {
-    setArchivingTaskId(task.id)
-    try {
-      await api.post(`/tasks/${task.id}/archive`)
-      setSelectedTask(null)
-      try {
-        sessionStorage.setItem('taskCalendarView', currentViewType)
-        if (dateRange?.start) sessionStorage.setItem('taskCalendarDate', dateRange.start.toISOString())
-      } catch {
-        /* ignore */
-      }
-      await fetchTasks()
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail ?? 'שגיאה בארכוב המשימה', 'error')
-    } finally {
-      setArchivingTaskId(null)
-    }
-  }
-
-  const handleArchiveTask = async (task: Task) => {
-    if (!confirm(`לארכב את "${task.title}"? אפשר לשחזר אותה אחר כך מהארכיון.`)) return
-    await performArchiveTask(task)
-  }
-
-  const handleRemindTask = async (task: Task) => {
-    setRemindingTaskId(task.id)
-    try {
-      await api.post(`/tasks/${task.id}/remind`)
-      showToast('תזכורת נשלחה לעובד בהודעות', 'success')
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail ?? 'שגיאה בשליחת תזכורת', 'error')
-    } finally {
-      setRemindingTaskId(null)
-    }
-  }
-
-  const handleAcknowledgeTask = async (task: Task) => {
-    setAcknowledgingTaskId(task.id)
-    try {
-      const { data } = await api.post<Task>(`/tasks/${task.id}/acknowledge`)
-      setTasks(prev => prev.map(t => t.id === task.id ? data : t))
-      setSelectedTask(prev => prev?.id === task.id ? data : prev)
-      showToast('אישרת קבלת המשימה', 'success')
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail ?? 'שגיאה באישור קבלת המשימה', 'error')
-    } finally {
-      setAcknowledgingTaskId(null)
-    }
-  }
-
-  const handleStatusChange = async (taskId: number, newStatus: TaskStatus) => {
-    setUpdatingStatus(true)
-    try {
-      await api.put(`/tasks/${taskId}`, { status: newStatus })
-      await fetchTasks()
-      setSelectedTask(prev => (prev?.id === taskId ? { ...prev, status: newStatus } : prev))
-    } catch (err) {
-      console.error('Failed to update task status:', err)
-    } finally {
-      setUpdatingStatus(false)
-    }
   }
 
   // Update toolbar title when switching hebrew/gregorian display (datesSet handles date navigation)
@@ -2202,429 +2023,18 @@ export default function TaskCalendar({
         </Modal>
       )}
 
-      {deleteConfirm && (
-        <Modal
-          isOpen={!!deleteConfirm}
-          onClose={() => setDeleteConfirm(null)}
-          title="מחיקת משימה"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-gray-700 dark:text-gray-300">
-              האם למחוק את "{deleteConfirm.title}"? מחיקה היא לצמיתות ואינה ניתנת לשחזור. במקום זאת אפשר לארכב את המשימה — היא תוסר מהיומן אך תישמר בארכיון וניתן לשחזר אותה בכל עת.
-            </p>
-            <div className="flex flex-wrap gap-2 pt-2">
-              <button
-                type="button"
-                onClick={async () => { await performArchiveTask(deleteConfirm); setDeleteConfirm(null) }}
-                disabled={archivingTaskId === deleteConfirm.id}
-                className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
-              >
-                <Archive className="w-4 h-4" />
-                {archivingTaskId === deleteConfirm.id ? 'מארכב...' : 'ארכב במקום'}
-              </button>
-              <button
-                type="button"
-                onClick={async () => { await performDeleteTask(deleteConfirm); setDeleteConfirm(null) }}
-                disabled={deletingTaskId === deleteConfirm.id}
-                className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                {deletingTaskId === deleteConfirm.id ? 'מוחק...' : 'מחק לצמיתות'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500"
-              >
-                ביטול
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {selectedTask && (() => {
-        const overdueInfo = getOverdueInfo(selectedTask)
-        return (
-        <Modal
-          isOpen={!!selectedTask}
-          onClose={() => setSelectedTask(null)}
-          title="פרטי משימה"
-        >
-          <div className="space-y-3">
-            <p className="font-medium text-gray-900 dark:text-gray-100">{selectedTask.title}</p>
-            <p className="text-sm">
-              <span className="text-gray-600 dark:text-gray-400">סוג: </span>
-              <span className="font-medium">{EVENT_TYPE_LABELS[(selectedTask.event_type || 'task') as EventType]}</span>
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="detail-status" className="text-sm text-gray-600 dark:text-gray-400">מצב: </label>
-              <select
-                id="detail-status"
-                name="detail-status"
-                value={selectedTask.status || 'pending'}
-                onChange={(e) => handleStatusChange(selectedTask.id, e.target.value as TaskStatus)}
-                disabled={updatingStatus}
-                className={cn(
-                  "px-3 py-1.5 border rounded-lg text-sm",
-                  "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100",
-                  "disabled:opacity-50"
-                )}
-              >
-                {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[]).map((s) => (
-                  <option key={s} value={s}>{TASK_STATUS_LABELS[s]}</option>
-                ))}
-              </select>
-              {overdueInfo && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" title={overdueInfo.delayText}>
-                  משימות בפיגור: {overdueInfo.delayText}
-                </span>
-              )}
-            </div>
-            <div className="text-sm flex items-start gap-2 flex-wrap">
-              <span className="text-gray-600 dark:text-gray-400">
-                {(selectedTask.assignees?.length ?? 0) > 1 ? 'מוקצה למשתמשים: ' : 'מוקצה למשתמש: '}
-              </span>
-              {(selectedTask.assignees && selectedTask.assignees.length > 0
-                ? selectedTask.assignees
-                : [{
-                    user_id: selectedTask.assigned_to_user_id,
-                    full_name: selectedTask.assigned_user_name ?? '',
-                    avatar_url: selectedTask.assigned_user_avatar,
-                  }]
-              ).map((assignee) => (
-                <span key={assignee.user_id} className="inline-flex items-center gap-1">
-                  {avatarUrl(assignee.avatar_url) ? (
-                    <img src={avatarUrl(assignee.avatar_url)!} alt="" className="w-6 h-6 rounded-full object-cover" />
-                  ) : (
-                    <span className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-xs">
-                      {(assignee.full_name || '?').charAt(0)}
-                    </span>
-                  )}
-                  <span className="font-medium">{assignee.full_name}</span>
-                </span>
-              ))}
-            </div>
-            {selectedTask.assignee_acknowledged_at ? (
-              <p className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span>הלקוח אימת קבלת המשימה ב־{new Date(selectedTask.assignee_acknowledged_at).toLocaleString('he-IL')}</span>
-              </p>
-            ) : me?.id === selectedTask.assigned_to_user_id && (
-              <button
-                type="button"
-                onClick={() => selectedTask && handleAcknowledgeTask(selectedTask)}
-                disabled={acknowledgingTaskId === selectedTask?.id}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50"
-              >
-                <CheckCircle className="w-4 h-4" />
-                {acknowledgingTaskId === selectedTask?.id ? 'מאשר...' : 'אישרתי קבלת המשימה'}
-              </button>
-            )}
-            {selectedTask.start_time && selectedTask.end_time && isAllDayTask(selectedTask) && (
-              <p className="text-sm">
-                <span className="text-gray-600 dark:text-gray-400">תאריך: </span>
-                {new Date(selectedTask.start_time).toLocaleDateString('he-IL')}
-                <span className="text-gray-500 dark:text-gray-500"> (בלי שעה)</span>
-              </p>
-            )}
-            {selectedTask.start_time && selectedTask.end_time && !isAllDayTask(selectedTask) && (
-              <p className="text-sm">
-                <span className="text-gray-600 dark:text-gray-400">משעה עד שעה: </span>
-                {new Date(selectedTask.start_time).toLocaleString('he-IL')} – {new Date(selectedTask.end_time).toLocaleString('he-IL')}
-              </p>
-            )}
-            {!selectedTask.start_time && !selectedTask.end_time && (
-              <p className="text-sm text-gray-600 dark:text-gray-400">משימה בלי תאריך</p>
-            )}
-            {selectedTask.recurrence_rule && (
-              <p className="text-sm">
-                <span className="text-gray-600 dark:text-gray-400">משימה מחזורית: </span>
-                <span className="font-medium">{describeRecurrence(selectedTask)}</span>
-              </p>
-            )}
-            {selectedTask.description && (
-              <p className="text-sm">
-                <span className="text-gray-600 dark:text-gray-400">תיאור: </span>
-                {selectedTask.description}
-              </p>
-            )}
-            {(selectedTask.labels?.length ?? 0) > 0 && (
-              <div className="flex flex-wrap gap-1.5 items-center">
-                <span className="text-sm text-gray-600 dark:text-gray-400">לייבלים: </span>
-                {selectedTask.labels?.map((l) => (
-                  <span
-                    key={l.id}
-                    className="px-2 py-0.5 rounded-full text-xs text-white"
-                    style={{ backgroundColor: l.color }}
-                  >
-                    {l.name}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* קבצים מצורפים – גלויים כבר במסך הצפייה (לא רק בעריכה) */}
-            {(selectedTask.attachments?.length ?? 0) > 0 && (
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1 mb-1">
-                  <Paperclip className="w-3.5 h-3.5" /> קבצים מצורפים:
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {selectedTask.attachments?.map((att) => (
-                    <AttachmentView
-                      key={att.id}
-                      fileName={att.file_name}
-                      fileUrl={fileAttachmentUrl(att.file_url)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* רשימת משימות (צ'קליסט) – זמינה גם מהיומן, לא רק מהלוח/רשימה */}
-            <TaskChecklist
-              taskId={selectedTask.id}
-              canEdit={me?.role === 'Admin' || me?.id === selectedTask.assigned_to_user_id}
-              participants={(selectedTask.participants || []).map((p) => ({
-                id: p.user_id,
-                name: p.full_name,
-                avatar: p.avatar_url ?? null,
-                color: null,
-              }))}
-              currentUserId={me?.id}
-            />
-
-            {/* שיח משימה – צ'אט למשימה, גלוי לכל משתתפי המשימה */}
-            <div className="border-t border-gray-200 dark:border-gray-600 pt-3 mt-3">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
-                <MessageCircle className="w-4 h-4" />
-                שיח משימה
-              </p>
-              <div
-                ref={taskChatScrollRef}
-                className="bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-600 overflow-y-auto min-h-[120px] max-h-[220px] p-2 space-y-2"
-              >
-                {taskMessagesLoading ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">טוען הודעות...</p>
-                ) : taskMessages.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">אין הודעות. התחל שיחה.</p>
-                ) : (
-                  taskMessages.map((msg) => {
-                    const isMine = msg.user_id === me?.id
-                    const canDelete = me?.role === 'Admin' || msg.user_id === me?.id
-                    const isDeleting = deletingMessageId === msg.id
-                    return (
-                      <div key={msg.id} className={cn('flex w-full', isMine ? 'justify-end' : 'justify-start')}>
-                        <div className={cn('flex gap-2 max-w-[80%]', isMine && 'flex-row-reverse')}>
-                          {avatarUrl(msg.avatar_url) ? (
-                            <img src={avatarUrl(msg.avatar_url)!} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                          ) : (
-                            <div className="w-7 h-7 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center flex-shrink-0 text-xs text-gray-600 dark:text-gray-300">
-                              {(msg.full_name || '?').charAt(0)}
-                            </div>
-                          )}
-                          <div
-                            className={cn(
-                              'min-w-0 p-2 rounded-2xl',
-                              isMine
-                                ? 'bg-blue-600 text-white rounded-tr-sm'
-                                : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600 rounded-tl-sm'
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              {!isMine && (
-                                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 flex-1">{msg.full_name}</p>
-                              )}
-                              {canDelete && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteTaskMessage(msg.id)}
-                                  disabled={isDeleting}
-                                  className={cn(
-                                    'p-0.5 rounded flex-shrink-0 disabled:opacity-50',
-                                    isMine ? 'text-blue-100 hover:bg-blue-700' : 'text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/40'
-                                  )}
-                                  title="מחק הודעה"
-                                  aria-label="מחק הודעה"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                            {msg.message && (
-                              <p className="text-sm break-words whitespace-pre-wrap">{msg.message}</p>
-                            )}
-                            {(msg.attachments?.length ?? 0) > 0 && (
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                {msg.attachments?.map((att) => (
-                                  <span key={att.id} className="inline-flex items-center gap-1">
-                                    <AttachmentView
-                                      fileName={att.file_name}
-                                      fileUrl={fileAttachmentUrl(att.file_url)}
-                                    />
-                                    {canDelete && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteTaskMessageAttachment(msg.id, att.id)}
-                                        disabled={isDeleting}
-                                        className={cn(
-                                          'p-0.5 rounded flex-shrink-0 disabled:opacity-50',
-                                          isMine ? 'text-blue-100 hover:bg-blue-700' : 'text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/40'
-                                        )}
-                                        title="מחק קובץ"
-                                        aria-label="מחק קובץ"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    )}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            <p className={cn('text-xs mt-0.5', isMine ? 'text-blue-100/80' : 'text-gray-400 dark:text-gray-500')}>
-                              {new Date(msg.created_at).toLocaleString('he-IL')}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-              {taskChatPendingFiles.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {taskChatPendingFiles.map((file, idx) => (
-                    <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-600 text-xs">
-                      <Paperclip className="w-3 h-3 flex-shrink-0" />
-                      <span className="truncate max-w-[120px]" title={file.name}>{file.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setTaskChatPendingFiles(prev => prev.filter((_, i) => i !== idx))}
-                        disabled={taskMessageSending}
-                        className="p-0.5 rounded hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50"
-                        aria-label="הסר קובץ"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2 mt-2">
-                <input
-                  ref={taskChatFileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-                  onChange={(e) => {
-                    const files = e.target.files ? Array.from(e.target.files) : []
-                    if (files.length) setTaskChatPendingFiles(prev => [...prev, ...files])
-                    if (taskChatFileInputRef.current) taskChatFileInputRef.current.value = ''
-                  }}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => taskChatFileInputRef.current?.click()}
-                  disabled={taskMessageSending}
-                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-                  title="צרף קובץ"
-                  aria-label="צרף קובץ"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
-                <RecordButton
-                  onRecorded={(file) => setTaskChatPendingFiles(prev => [...prev, file])}
-                  disabled={taskMessageSending}
-                />
-                <input
-                  type="text"
-                  value={taskMessageInput}
-                  onChange={(e) => setTaskMessageInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendTaskMessage()
-                    }
-                  }}
-                  placeholder="כתוב הודעה..."
-                  className={cn(
-                    "flex-1 px-3 py-2 border rounded-lg text-sm",
-                    "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100",
-                    "placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                  )}
-                  disabled={taskMessageSending}
-                />
-                <button
-                  type="button"
-                  onClick={handleSendTaskMessage}
-                  disabled={(!taskMessageInput.trim() && taskChatPendingFiles.length === 0) || taskMessageSending}
-                  className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="שלח"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">לעריכה: לחץ פעמיים על האירוע או השתמש בכפתור עריכה.</p>
-            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-600 mt-4">
-              <button
-                type="button"
-                onClick={() => selectedTask && handleRemindTask(selectedTask)}
-                disabled={remindingTaskId === selectedTask?.id}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50"
-                title="שלח תזכורת לעובד המוקצה – תופיע בהודעות"
-              >
-                <Bell className="w-4 h-4" />
-                {remindingTaskId === selectedTask?.id ? 'שולח...' : 'הזכר'}
-              </button>
-              {canEditTask(selectedTask, me) && (
-                <button
-                  type="button"
-                  onClick={() => selectedTask && openEditModal(selectedTask)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                >
-                  <Pencil className="w-4 h-4" />
-                  עריכה
-                </button>
-              )}
-              {selectedTask.status === 'completed' && !selectedTask.is_archived && canEditTask(selectedTask, me) && (
-                <button
-                  type="button"
-                  onClick={() => selectedTask && handleArchiveTask(selectedTask)}
-                  disabled={archivingTaskId === selectedTask?.id}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50"
-                  title="ארכב את המשימה שטופלה"
-                >
-                  <Archive className="w-4 h-4" />
-                  {archivingTaskId === selectedTask?.id ? 'מארכב...' : 'ארכב'}
-                </button>
-              )}
-              {canEditTask(selectedTask, me) && (
-                <button
-                  type="button"
-                  onClick={() => selectedTask && setDeleteConfirm(selectedTask)}
-                  disabled={!!deletingTaskId}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {deletingTaskId === selectedTask?.id ? 'מוחק...' : 'מחק'}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setSelectedTask(null)}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500"
-              >
-                סגור
-              </button>
-            </div>
-          </div>
-        </Modal>
-        )
-      })()}
+      <TaskDetailModal
+        taskId={selectedTask?.id ?? null}
+        initialTask={selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onEdit={(task) => openEditModal(task)}
+        onTaskUpdated={(updated) => {
+          setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+          setSelectedTask((prev) => (prev?.id === updated.id ? updated : prev))
+        }}
+        onTaskDeleted={() => { void fetchTasks(); setSelectedTask(null) }}
+        onTaskArchived={() => { void fetchTasks(); setSelectedTask(null) }}
+      />
 
       <TaskEditModal
         task={editingTask}
