@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux'
 import type { RootState } from '../../store'
 import api from '../../lib/api'
 import { avatarUrl } from '../../lib/api'
-import { RefreshCw, User, Plus, Search } from 'lucide-react'
+import { RefreshCw, User, Plus, Search, MessageCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { formatTaskCode } from '../../lib/taskCode'
 import type { Task, TaskStatus } from '../../pages/TaskCalendar'
@@ -48,6 +48,9 @@ export default function TaskList() {
   const [filterUserId, setFilterUserId] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  // When on, show only tasks that have an unread chat message, so the user does
+  // not have to scroll the list hunting for the red dots.
+  const [unreadOnly, setUnreadOnly] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
@@ -117,9 +120,12 @@ export default function TaskList() {
     )
   }
 
+  const unreadTaskCount = tasks.filter((t) => t.has_unread_messages).length
+
   const filteredTasks = tasks.filter((t) => {
     const status = (t.status || 'pending') as TaskStatus
     if (statusFilter && status !== statusFilter) return false
+    if (unreadOnly && !t.has_unread_messages) return false
     if (!matchesSearch(t)) return false
     return true
   })
@@ -195,6 +201,33 @@ export default function TaskList() {
             ))}
           </select>
         </div>
+
+        {/* Unread-messages filter toggle */}
+        <button
+          type="button"
+          onClick={() => setUnreadOnly((v) => !v)}
+          aria-pressed={unreadOnly}
+          title="הצג רק משימות עם הודעה שלא נקראה"
+          className={cn(
+            'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+            unreadOnly
+              ? 'bg-red-600 border-red-600 text-white shadow-md'
+              : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+          )}
+        >
+          <MessageCircle className="w-4 h-4" />
+          הודעות שלא נקראו
+          {unreadTaskCount > 0 && (
+            <span
+              className={cn(
+                'inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-bold',
+                unreadOnly ? 'bg-white/25 text-white' : 'bg-red-600 text-white'
+              )}
+            >
+              {unreadTaskCount}
+            </span>
+          )}
+        </button>
 
         {/* Add Task button */}
         <button
