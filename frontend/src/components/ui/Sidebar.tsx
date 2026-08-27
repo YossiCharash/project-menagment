@@ -52,7 +52,7 @@ interface SidebarProps {
 const ALL_NAVIGATION_ITEMS: NavigationItem[] = [
   {
     name: 'לוח בקרה',
-    href: '/',
+    href: '/dashboard',
     icon: LayoutDashboard,
     description: 'סקירה כללית של הפרויקטים',
     permission: { resource: 'dashboard' }
