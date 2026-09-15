@@ -412,6 +412,21 @@ class TestAttachmentS3Storage:
     ``settings`` flag and ``S3Service`` are patched at the endpoint module.
     """
 
+    @pytest.fixture(autouse=True)
+    def _reset_s3_service_cache(self):
+        """Drop the cached S3 client around each test in this class.
+
+        ``tasks._s3_service`` is ``lru_cache``d, so a client built by an earlier
+        test shadows the ``S3Service`` patch below and makes these tests pass or
+        fail depending on execution order. Clearing afterwards keeps the mock
+        from leaking into unrelated tests.
+        """
+        from backend.api.v1.endpoints import tasks as tasks_module
+
+        tasks_module._s3_service.cache_clear()
+        yield
+        tasks_module._s3_service.cache_clear()
+
     async def _create_task_for_other(
         self, test_client: AsyncClient, member_token: str, other_member: User
     ) -> int:
@@ -448,6 +463,12 @@ class TestAttachmentS3Storage:
         # returns a known fake URL without any network call.
         fake_service = MagicMock()
         fake_service.upload_file.return_value = _FAKE_S3_URL
+        # The endpoint signs the stored URL before returning it, so this call has
+        # to yield a real string or TaskAttachmentOut rejects the MagicMock.
+        # Echoing the input keeps the S3 URL assertions below meaningful.
+        fake_service.generate_presigned_url.side_effect = (
+            lambda file_url, *args, **kwargs: file_url
+        )
 
         task_id = await self._create_task_for_other(
             test_client, member_token, other_member
